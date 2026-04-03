@@ -58,6 +58,9 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/v1/blocklist", s.handleGetBlocklist)
 		r.Get("/api/v1/ca", s.handleGetCA)
 		r.Post("/api/v1/ca/rotate", s.handleRotateCA)
+		r.Get("/api/v1/networks/{id}/firewall", s.handleGetFirewall)
+		r.Put("/api/v1/networks/{id}/firewall", s.handleUpdateFirewall)
+		r.Get("/api/v1/audit-log", s.handleGetAuditLog)
 	})
 
 	s.router = r

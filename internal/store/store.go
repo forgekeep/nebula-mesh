@@ -14,6 +14,12 @@ type HostFilter struct {
 	Status    models.HostStatus
 }
 
+// AuditFilter specifies filters for audit log queries.
+type AuditFilter struct {
+	Action string
+	Limit  int
+}
+
 // Store defines the persistence interface for the management server.
 type Store interface {
 	// Networks
@@ -43,6 +49,14 @@ type Store interface {
 	AddToBlocklist(ctx context.Context, fingerprint, hostID, reason string) error
 	RemoveFromBlocklist(ctx context.Context, fingerprint string) error
 	GetBlocklist(ctx context.Context) ([]string, error)
+
+	// Config versioning
+	BumpNetworkConfigVersion(ctx context.Context, networkID string) error
+	GetNetworkConfigVersion(ctx context.Context, networkID string) (int, error)
+
+	// Audit log
+	AddAuditEntry(ctx context.Context, actor, action, resource, details string) error
+	ListAuditEntries(ctx context.Context, filter AuditFilter) ([]*models.AuditEntry, error)
 
 	// Lifecycle
 	Migrate(ctx context.Context) error

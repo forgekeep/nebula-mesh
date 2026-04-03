@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/juev/nebula-mesh/internal/models"
@@ -50,14 +51,28 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 
 // Migrate applies all pending migrations.
 func (s *SQLiteStore) Migrate(_ context.Context) error {
-	sqlBytes, err := migrations.FS.ReadFile("001_initial.up.sql")
-	if err != nil {
-		return fmt.Errorf("read migration: %w", err)
+	migrationFiles := []string{
+		"001_initial.up.sql",
+		"002_config_version.up.sql",
+		"003_audit_log.up.sql",
 	}
-	if _, err := s.db.Exec(string(sqlBytes)); err != nil {
-		return fmt.Errorf("apply migration: %w", err)
+	for _, f := range migrationFiles {
+		sqlBytes, err := migrations.FS.ReadFile(f)
+		if err != nil {
+			return fmt.Errorf("read migration %s: %w", f, err)
+		}
+		if _, err := s.db.Exec(string(sqlBytes)); err != nil {
+			// Ignore "duplicate column" errors for idempotent ALTER TABLE
+			if !isDuplicateColumnErr(err) {
+				return fmt.Errorf("apply migration %s: %w", f, err)
+			}
+		}
 	}
 	return nil
+}
+
+func isDuplicateColumnErr(err error) bool {
+	return err != nil && (strings.Contains(err.Error(), "duplicate column") || strings.Contains(err.Error(), "already exists"))
 }
 
 // Close closes the database.
@@ -445,6 +460,75 @@ func (s *SQLiteStore) GetBlocklist(_ context.Context) ([]string, error) {
 			return nil, fmt.Errorf("scan fingerprint: %w", err)
 		}
 		result = append(result, fp)
+	}
+	return result, rows.Err()
+}
+
+// --- Config Versioning ---
+
+func (s *SQLiteStore) BumpNetworkConfigVersion(_ context.Context, networkID string) error {
+	_, err := s.db.Exec(`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`, networkID)
+	if err != nil {
+		return fmt.Errorf("bump config version: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) GetNetworkConfigVersion(_ context.Context, networkID string) (int, error) {
+	var version int
+	err := s.db.QueryRow(`SELECT config_version FROM networks WHERE id = ?`, networkID).Scan(&version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get config version: %w", err)
+	}
+	return version, nil
+}
+
+// --- Audit Log ---
+
+func (s *SQLiteStore) AddAuditEntry(_ context.Context, actor, action, resource, details string) error {
+	id := fmt.Sprintf("audit_%d", time.Now().UnixNano())
+	_, err := s.db.Exec(
+		`INSERT INTO audit_log (id, actor, action, resource, details) VALUES (?, ?, ?, ?, ?)`,
+		id, actor, action, resource, details,
+	)
+	if err != nil {
+		return fmt.Errorf("add audit entry: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ListAuditEntries(_ context.Context, filter AuditFilter) ([]*models.AuditEntry, error) {
+	query := `SELECT id, timestamp, actor, action, resource, COALESCE(details, '') FROM audit_log WHERE 1=1`
+	var args []any
+
+	if filter.Action != "" {
+		query += ` AND action = ?`
+		args = append(args, filter.Action)
+	}
+	query += ` ORDER BY timestamp DESC`
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	query += fmt.Sprintf(` LIMIT %d`, limit)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list audit entries: %w", err)
+	}
+	defer rows.Close()
+
+	var result []*models.AuditEntry
+	for rows.Next() {
+		e := &models.AuditEntry{}
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.Actor, &e.Action, &e.Resource, &e.Details); err != nil {
+			return nil, fmt.Errorf("scan audit entry: %w", err)
+		}
+		result = append(result, e)
 	}
 	return result, rows.Err()
 }

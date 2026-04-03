@@ -89,7 +89,10 @@ func Serve(configPath string) error {
 	if uiPassword == "" {
 		uiPassword = cfg.APIKey // fallback to API key as password
 	}
-	webUI := web.New(s, uiPassword, logger)
+	webUI, err := web.New(s, uiPassword, logger)
+	if err != nil {
+		return fmt.Errorf("init web UI: %w", err)
+	}
 
 	// Combine: Web UI + API
 	mux := http.NewServeMux()

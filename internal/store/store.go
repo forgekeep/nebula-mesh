@@ -62,6 +62,7 @@ type Store interface {
 	// Network config (key-value)
 	GetNetworkConfig(ctx context.Context, networkID, key string) (string, error)
 	SetNetworkConfig(ctx context.Context, networkID, key, value string) error
+	SetNetworkConfigAndBumpVersion(ctx context.Context, networkID, key, value string) error
 
 	// Audit log
 	AddAuditEntry(ctx context.Context, actor, action, resource, details string) error

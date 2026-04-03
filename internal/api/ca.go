@@ -67,6 +67,8 @@ func (s *Server) handleRotateCA(w http.ResponseWriter, _ *http.Request) {
 	newFP, err := rotation.NewCA().CACertFingerprint()
 	if err != nil {
 		s.logger.Error("new CA fingerprint", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get new CA fingerprint")
+		return
 	}
 	s.logger.Info("CA rotated", "new_fingerprint", newFP)
 

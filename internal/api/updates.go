@@ -59,26 +59,21 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	// Check if certificate needs renewal
 	certInfo, err := s.store.GetCertificateInfo(r.Context(), host.ID)
 	if err == nil && pki.ShouldRenew(certInfo.NotBefore, certInfo.NotAfter) {
-		s.caMu.RLock()
-		newCertPEM, renewErr := s.renewHostCert(r.Context(), host, certInfo)
-		var caCertPEM []byte
-		if renewErr == nil {
-			var certErr error
-			caCertPEM, certErr = s.ca.CACertPEM()
-			if certErr != nil {
-				renewErr = fmt.Errorf("get CA cert PEM: %w", certErr)
-			}
-		}
-		s.caMu.RUnlock()
+		signed, renewErr := s.signHostCert(r.Context(), host, certInfo)
 
 		if renewErr != nil {
 			s.logger.Error("auto-renew cert", "host", host.Name, "error", renewErr)
 		} else {
-			certStr := string(newCertPEM)
-			resp.CertificatePEM = &certStr
-			caStr := string(caCertPEM)
-			resp.CACertPEM = &caStr
-			s.logger.Info("certificate renewed", "host", host.Name)
+			// Save outside CA lock — DB I/O does not need CA access
+			if saveErr := s.store.SaveCertificateAndUpdateHostCert(r.Context(), host.ID, signed.certPEM, signed.fp, signed.notBefore, signed.notAfter); saveErr != nil {
+				s.logger.Error("save renewed cert", "host", host.Name, "error", saveErr)
+			} else {
+				certStr := string(signed.certPEM)
+				resp.CertificatePEM = &certStr
+				caStr := string(signed.caCertPEM)
+				resp.CACertPEM = &caStr
+				s.logger.Info("certificate renewed", "host", host.Name)
+			}
 		}
 	}
 
@@ -86,15 +81,24 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// renewHostCert re-signs the host certificate with the same public key and fresh expiry.
-func (s *Server) renewHostCert(ctx context.Context, host *models.Host, certInfo *models.CertificateInfo) ([]byte, error) {
-	// Parse current certificate to get public key
+// signResult holds the output of signing a host certificate.
+type signResult struct {
+	certPEM   []byte
+	fp        string
+	notBefore time.Time
+	notAfter  time.Time
+	caCertPEM []byte
+}
+
+// signHostCert re-signs the host certificate with the same public key and fresh expiry.
+// CA lock is held only during crypto operations (Sign + CACertPEM).
+func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *models.CertificateInfo) (*signResult, error) {
+	// Prep work — no CA lock needed
 	currentCert, _, err := cert.UnmarshalCertificateFromPEM([]byte(certInfo.PEM))
 	if err != nil {
 		return nil, fmt.Errorf("parse current cert: %w", err)
 	}
 
-	// Get network for prefix
 	network, err := s.store.GetNetwork(ctx, host.NetworkID)
 	if err != nil {
 		return nil, fmt.Errorf("get network: %w", err)
@@ -110,18 +114,26 @@ func (s *Server) renewHostCert(ctx context.Context, host *models.Host, certInfo 
 		return nil, fmt.Errorf("parse host IP: %w", err)
 	}
 
-	// Re-sign with same public key, new expiry
-	newCert, err := s.ca.Sign(pki.SignRequest{
+	// CA operations — lock needed
+	s.caMu.RLock()
+	newCert, signErr := s.ca.Sign(pki.SignRequest{
 		Name:      host.Name,
 		PublicKey: currentCert.PublicKey(),
 		Networks:  []netip.Prefix{netip.PrefixFrom(hostAddr, prefix.Bits())},
 		Groups:    host.Groups,
 		Duration:  30 * 24 * time.Hour,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("sign renewed cert: %w", err)
+	if signErr != nil {
+		s.caMu.RUnlock()
+		return nil, fmt.Errorf("sign renewed cert: %w", signErr)
+	}
+	caCertPEM, caErr := s.ca.CACertPEM()
+	s.caMu.RUnlock()
+	if caErr != nil {
+		return nil, fmt.Errorf("get CA cert PEM: %w", caErr)
 	}
 
+	// Post-sign work — no CA lock needed
 	certPEM, err := newCert.MarshalPEM()
 	if err != nil {
 		return nil, fmt.Errorf("marshal cert: %w", err)
@@ -132,10 +144,11 @@ func (s *Server) renewHostCert(ctx context.Context, host *models.Host, certInfo 
 		return nil, fmt.Errorf("fingerprint: %w", err)
 	}
 
-	// Save cert and update host fingerprint atomically
-	if err := s.store.SaveCertificateAndUpdateHostCert(ctx, host.ID, certPEM, fp, newCert.NotBefore(), newCert.NotAfter()); err != nil {
-		return nil, fmt.Errorf("save cert and update host: %w", err)
-	}
-
-	return certPEM, nil
+	return &signResult{
+		certPEM:   certPEM,
+		fp:        fp,
+		notBefore: newCert.NotBefore(),
+		notAfter:  newCert.NotAfter(),
+		caCertPEM: caCertPEM,
+	}, nil
 }

@@ -51,15 +51,10 @@ func (s *Server) handleUpdateFirewall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to marshal rules")
 		return
 	}
-	if err := s.store.SetNetworkConfig(r.Context(), networkID, "firewall", string(rulesJSON)); err != nil {
+	if err := s.store.SetNetworkConfigAndBumpVersion(r.Context(), networkID, "firewall", string(rulesJSON)); err != nil {
 		s.logger.Error("set firewall rules", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to update firewall rules")
 		return
-	}
-
-	// Bump config version so agents get new config on poll
-	if err := s.store.BumpNetworkConfigVersion(r.Context(), networkID); err != nil {
-		s.logger.Error("bump config version", "error", err)
 	}
 
 	s.logger.Info("firewall rules updated", "network", networkID)

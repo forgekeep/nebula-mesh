@@ -28,7 +28,7 @@ type Web struct {
 }
 
 // New creates a new Web UI handler.
-func New(s store.Store, password string, logger *slog.Logger) *Web {
+func New(s store.Store, password string, logger *slog.Logger) (*Web, error) {
 	w := &Web{
 		store:     s,
 		logger:    logger,
@@ -47,7 +47,7 @@ func New(s store.Store, password string, logger *slog.Logger) *Web {
 	for _, page := range pages {
 		tmpl, err := template.ParseFS(templateFS, "templates/layout.html", "templates/"+page)
 		if err != nil {
-			panic(fmt.Sprintf("parse template %s: %v", page, err))
+			return nil, fmt.Errorf("parse template %s: %w", page, err)
 		}
 		w.templates[page] = tmpl
 	}
@@ -55,12 +55,12 @@ func New(s store.Store, password string, logger *slog.Logger) *Web {
 	// Login is standalone (no layout)
 	loginTmpl, err := template.ParseFS(templateFS, "templates/login.html")
 	if err != nil {
-		panic(fmt.Sprintf("parse login template: %v", err))
+		return nil, fmt.Errorf("parse login template: %w", err)
 	}
 	w.templates["login.html"] = loginTmpl
 
 	w.setupRoutes()
-	return w
+	return w, nil
 }
 
 func (w *Web) setupRoutes() {

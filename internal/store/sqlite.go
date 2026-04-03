@@ -684,6 +684,35 @@ func (s *SQLiteStore) SetNetworkConfig(_ context.Context, networkID, key, value 
 	return nil
 }
 
+// SetNetworkConfigAndBumpVersion atomically sets a config value and bumps the config version.
+func (s *SQLiteStore) SetNetworkConfigAndBumpVersion(_ context.Context, networkID, key, value string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	_, err = tx.Exec(
+		`INSERT INTO network_config (network_id, key, value) VALUES (?, ?, ?)
+		 ON CONFLICT(network_id, key) DO UPDATE SET value = excluded.value`,
+		networkID, key, value,
+	)
+	if err != nil {
+		return fmt.Errorf("set network config: %w", err)
+	}
+
+	_, err = tx.Exec(`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`, networkID)
+	if err != nil {
+		return fmt.Errorf("bump config version: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // --- Audit Log ---
 
 func (s *SQLiteStore) AddAuditEntry(_ context.Context, actor, action, resource, details string) error {

@@ -29,7 +29,10 @@ func newTestWeb(t *testing.T) (*Web, *store.SQLiteStore) {
 	t.Cleanup(func() { s.Close() })
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	w := New(s, testPassword, logger)
+	w, err := New(s, testPassword, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return w, s
 }
 

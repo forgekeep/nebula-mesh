@@ -537,6 +537,54 @@ func TestGetSetNetworkConfig(t *testing.T) {
 	}
 }
 
+func TestSetNetworkConfigAndBumpVersion(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestNetwork(t, s)
+
+	// Initial version (migration default is 1)
+	v, err := s.GetNetworkConfigVersion(ctx, "net_test1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialVersion := v
+
+	// Atomic set config + bump version
+	if err := s.SetNetworkConfigAndBumpVersion(ctx, "net_test1", "firewall", `{"inbound":[]}`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Config saved
+	val, err := s.GetNetworkConfig(ctx, "net_test1", "firewall")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != `{"inbound":[]}` {
+		t.Errorf("config = %q, want %q", val, `{"inbound":[]}`)
+	}
+
+	// Version bumped by 1
+	v, err = s.GetNetworkConfigVersion(ctx, "net_test1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != initialVersion+1 {
+		t.Errorf("version = %d, want %d", v, initialVersion+1)
+	}
+
+	// Second call — version bumped again, config overwritten
+	if err := s.SetNetworkConfigAndBumpVersion(ctx, "net_test1", "firewall", `{"inbound":[{"port":"443"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	v, err = s.GetNetworkConfigVersion(ctx, "net_test1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != initialVersion+2 {
+		t.Errorf("version after second call = %d, want %d", v, initialVersion+2)
+	}
+}
+
 func TestGetNetworkConfig_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

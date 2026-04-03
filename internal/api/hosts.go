@@ -182,13 +182,13 @@ func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	host.Status = models.HostStatusBlocked
-	if err := s.store.UpdateHost(r.Context(), host); err != nil {
+	if err := s.store.UpdateHostStatus(r.Context(), host.ID, models.HostStatusBlocked); err != nil {
 		s.logger.Error("update host status", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to update host")
 		return
 	}
 
+	host.Status = models.HostStatusBlocked
 	writeJSON(w, http.StatusOK, host)
 }
 

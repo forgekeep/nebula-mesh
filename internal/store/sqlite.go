@@ -249,6 +249,8 @@ func (s *SQLiteStore) ListHosts(_ context.Context, filter HostFilter) ([]*models
 	return result, rows.Err()
 }
 
+// UpdateHost persists all host fields.
+// NOTE: mutates h.UpdatedAt to current time.
 func (s *SQLiteStore) UpdateHost(_ context.Context, h *models.Host) error {
 	groupsJSON, err := json.Marshal(h.Groups)
 	if err != nil {
@@ -271,6 +273,60 @@ func (s *SQLiteStore) UpdateHost(_ context.Context, h *models.Host) error {
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("update host rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLiteStore) UpdateHostLastSeen(_ context.Context, id string, t time.Time) error {
+	result, err := s.db.Exec(
+		`UPDATE hosts SET last_seen_at=?, updated_at=? WHERE id=?`,
+		t, time.Now(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("update host last seen: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update host last seen rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLiteStore) UpdateHostCert(_ context.Context, id, fingerprint string, expiresAt time.Time) error {
+	result, err := s.db.Exec(
+		`UPDATE hosts SET cert_fingerprint=?, cert_expires_at=?, updated_at=? WHERE id=?`,
+		fingerprint, expiresAt, time.Now(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("update host cert: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update host cert rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLiteStore) UpdateHostStatus(_ context.Context, id string, status models.HostStatus) error {
+	result, err := s.db.Exec(
+		`UPDATE hosts SET status=?, updated_at=? WHERE id=?`,
+		status, time.Now(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("update host status: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update host status rows affected: %w", err)
 	}
 	if rows == 0 {
 		return ErrNotFound

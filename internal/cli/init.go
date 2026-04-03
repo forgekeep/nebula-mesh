@@ -52,7 +52,10 @@ func Init(configPath string) error {
 		return fmt.Errorf("save CA: %w", err)
 	}
 
-	fp, _ := ca.CACertFingerprint()
+	fp, err := ca.CACertFingerprint()
+	if err != nil {
+		return fmt.Errorf("CA fingerprint: %w", err)
+	}
 	fmt.Printf("CA created: %s\n", certPath)
 	fmt.Printf("CA fingerprint: %s\n", fp)
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -23,6 +24,7 @@ type CAConfig struct {
 type Server struct {
 	router   chi.Router
 	store    store.Store
+	caMu     sync.RWMutex
 	ca       *pki.CAManager
 	caConfig CAConfig
 	logger   *slog.Logger

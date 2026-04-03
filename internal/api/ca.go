@@ -15,8 +15,16 @@ type caInfoResponse struct {
 }
 
 func (s *Server) handleGetCA(w http.ResponseWriter, _ *http.Request) {
+	s.caMu.RLock()
+	defer s.caMu.RUnlock()
+
 	cert := s.ca.CACert()
-	fp, _ := s.ca.CACertFingerprint()
+	fp, err := s.ca.CACertFingerprint()
+	if err != nil {
+		s.logger.Error("CA fingerprint", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get CA info")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, caInfoResponse{
 		Fingerprint: fp,
@@ -27,6 +35,9 @@ func (s *Server) handleGetCA(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleRotateCA(w http.ResponseWriter, _ *http.Request) {
+	s.caMu.Lock()
+	defer s.caMu.Unlock()
+
 	rotation, err := pki.NewRotation(s.ca, s.ca.CACert().Name()+"-rotated", 365*24*time.Hour)
 	if err != nil {
 		s.logger.Error("rotate CA", "error", err)
@@ -53,7 +64,10 @@ func (s *Server) handleRotateCA(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	newFP, _ := rotation.NewCA().CACertFingerprint()
+	newFP, err := rotation.NewCA().CACertFingerprint()
+	if err != nil {
+		s.logger.Error("new CA fingerprint", "error", err)
+	}
 	s.logger.Info("CA rotated", "new_fingerprint", newFP)
 
 	writeJSON(w, http.StatusOK, map[string]string{

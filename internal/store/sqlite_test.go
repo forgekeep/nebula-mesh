@@ -548,6 +548,123 @@ func TestGetNetworkConfig_NotFound(t *testing.T) {
 	}
 }
 
+// --- Partial Updates ---
+
+func createTestHost(t *testing.T, s *SQLiteStore, net *models.Network) *models.Host {
+	t.Helper()
+	h := &models.Host{
+		ID: "host_partial", NetworkID: net.ID, Name: "partial-test",
+		NebulaIP: "192.168.100.50", Groups: []string{"web"},
+		Role: models.HostRoleHost, Status: models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func TestUpdateHostLastSeen(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+	h := createTestHost(t, s, net)
+
+	lastSeen := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
+	if err := s.UpdateHostLastSeen(ctx, h.ID, lastSeen); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastSeenAt == nil || !got.LastSeenAt.Equal(lastSeen) {
+		t.Errorf("last_seen_at = %v, want %v", got.LastSeenAt, lastSeen)
+	}
+	// Other fields untouched
+	if got.Name != "partial-test" {
+		t.Errorf("name changed to %q, want partial-test", got.Name)
+	}
+	if got.Status != models.HostStatusPending {
+		t.Errorf("status changed to %q, want pending", got.Status)
+	}
+}
+
+func TestUpdateHostLastSeen_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	err := s.UpdateHostLastSeen(context.Background(), "nonexistent", time.Now())
+	if err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestUpdateHostCert(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+	h := createTestHost(t, s, net)
+
+	expires := time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)
+	if err := s.UpdateHostCert(ctx, h.ID, "new-fp-123", expires); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CertFingerprint != "new-fp-123" {
+		t.Errorf("cert_fingerprint = %q, want new-fp-123", got.CertFingerprint)
+	}
+	if got.CertExpiresAt == nil || !got.CertExpiresAt.Equal(expires) {
+		t.Errorf("cert_expires_at = %v, want %v", got.CertExpiresAt, expires)
+	}
+	// Other fields untouched
+	if got.Status != models.HostStatusPending {
+		t.Errorf("status changed to %q, want pending", got.Status)
+	}
+}
+
+func TestUpdateHostCert_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	err := s.UpdateHostCert(context.Background(), "nonexistent", "fp", time.Now())
+	if err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestUpdateHostStatus(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+	h := createTestHost(t, s, net)
+
+	if err := s.UpdateHostStatus(ctx, h.ID, models.HostStatusBlocked); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != models.HostStatusBlocked {
+		t.Errorf("status = %q, want blocked", got.Status)
+	}
+	// Other fields untouched
+	if got.Name != "partial-test" {
+		t.Errorf("name changed to %q, want partial-test", got.Name)
+	}
+}
+
+func TestUpdateHostStatus_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	err := s.UpdateHostStatus(context.Background(), "nonexistent", models.HostStatusBlocked)
+	if err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestBlocklist_Remove(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

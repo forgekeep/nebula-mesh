@@ -49,7 +49,10 @@ func Serve(configPath string) error {
 		return fmt.Errorf("load CA: %w", err)
 	}
 
-	fp, _ := ca.CACertFingerprint()
+	fp, err := ca.CACertFingerprint()
+	if err != nil {
+		return fmt.Errorf("CA fingerprint: %w", err)
+	}
 	logger.Info("CA loaded", "fingerprint", fp)
 
 	// Open database

@@ -252,8 +252,7 @@ func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	host.Status = models.HostStatusBlocked
-	if err := w.store.UpdateHost(r.Context(), host); err != nil {
+	if err := w.store.UpdateHostStatus(r.Context(), host.ID, models.HostStatusBlocked); err != nil {
 		w.logger.Error("update host status", "error", err)
 		http.Error(rw, "Failed to update host", http.StatusInternalServerError)
 		return

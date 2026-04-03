@@ -33,6 +33,9 @@ type Store interface {
 	GetHostByFingerprint(ctx context.Context, fingerprint string) (*models.Host, error)
 	ListHosts(ctx context.Context, filter HostFilter) ([]*models.Host, error)
 	UpdateHost(ctx context.Context, h *models.Host) error
+	UpdateHostLastSeen(ctx context.Context, id string, t time.Time) error
+	UpdateHostCert(ctx context.Context, id, fingerprint string, expiresAt time.Time) error
+	UpdateHostStatus(ctx context.Context, id string, status models.HostStatus) error
 	DeleteHost(ctx context.Context, id string) error
 
 	// Enrollment tokens

@@ -99,7 +99,10 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 	hostPrefix := netip.PrefixFrom(hostAddr, prefix.Bits())
 
-	// Sign certificate
+	// Sign certificate (hold read lock on CA for signing + CACertPEM)
+	s.caMu.RLock()
+	defer s.caMu.RUnlock()
+
 	hostCert, err := s.ca.Sign(pki.SignRequest{
 		Name:      host.Name,
 		PublicKey: pubKey,
@@ -157,6 +160,8 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	lighthouses, err := s.getLighthouses(r.Context(), host.NetworkID)
 	if err != nil {
 		s.logger.Error("get lighthouses", "error", err)
+		writeError(w, http.StatusInternalServerError, "enrollment failed")
+		return
 	}
 
 	// Generate config

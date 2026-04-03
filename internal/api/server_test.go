@@ -351,6 +351,86 @@ func TestRotateCA_Persists(t *testing.T) {
 	}
 }
 
+func TestConcurrentCAAccess(t *testing.T) {
+	s, err := store.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	ca, _, err := pki.NewCA("test-ca", 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	srv := NewServer(s, ca, testAPIKey, slog.Default(), CAConfig{
+		CertPath:   dir + "/ca.crt",
+		KeyPath:    dir + "/ca.key",
+		Passphrase: "test",
+	})
+	if err := ca.Save(dir+"/ca.crt", dir+"/ca.key", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run concurrent GET /ca and POST /ca/rotate — must not race
+	done := make(chan struct{})
+	for i := 0; i < 10; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			req := httptest.NewRequest("GET", "/api/v1/ca", nil)
+			authRequest(req)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+		}()
+	}
+	go func() {
+		defer func() { done <- struct{}{} }()
+		req := httptest.NewRequest("POST", "/api/v1/ca/rotate", nil)
+		authRequest(req)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+	}()
+
+	for i := 0; i < 11; i++ {
+		<-done
+	}
+}
+
+func TestGetAuditLog_LimitBounds(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// limit > 1000 → should be capped
+	req := httptest.NewRequest("GET", "/api/v1/audit-log?limit=5000", nil)
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	// limit = "abc" → should not panic, return default
+	req = httptest.NewRequest("GET", "/api/v1/audit-log?limit=abc", nil)
+	authRequest(req)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d for invalid limit, want %d", w.Code, http.StatusOK)
+	}
+
+	// limit = -5 → should use default
+	req = httptest.NewRequest("GET", "/api/v1/audit-log?limit=-5", nil)
+	authRequest(req)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d for negative limit, want %d", w.Code, http.StatusOK)
+	}
+}
+
 func TestHostNotFound(t *testing.T) {
 	srv, _ := newTestServer(t)
 	req := httptest.NewRequest("GET", "/api/v1/hosts/nonexistent", nil)

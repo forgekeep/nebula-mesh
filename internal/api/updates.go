@@ -41,8 +41,7 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 
 	// Update last seen
 	now := time.Now()
-	host.LastSeenAt = &now
-	if err := s.store.UpdateHost(r.Context(), host); err != nil {
+	if err := s.store.UpdateHostLastSeen(r.Context(), host.ID, now); err != nil {
 		s.logger.Error("update last seen", "error", err)
 	}
 
@@ -60,13 +59,19 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	// Check if certificate needs renewal
 	certInfo, err := s.store.GetCertificateInfo(r.Context(), host.ID)
 	if err == nil && pki.ShouldRenew(certInfo.NotBefore, certInfo.NotAfter) {
+		s.caMu.RLock()
 		newCertPEM, renewErr := s.renewHostCert(r.Context(), host, certInfo)
+		var caCertPEM []byte
+		if renewErr == nil {
+			caCertPEM, _ = s.ca.CACertPEM()
+		}
+		s.caMu.RUnlock()
+
 		if renewErr != nil {
 			s.logger.Error("auto-renew cert", "host", host.Name, "error", renewErr)
 		} else {
 			certStr := string(newCertPEM)
 			resp.CertificatePEM = &certStr
-			caCertPEM, _ := s.ca.CACertPEM()
 			caStr := string(caCertPEM)
 			resp.CACertPEM = &caStr
 			s.logger.Info("certificate renewed", "host", host.Name)
@@ -129,11 +134,8 @@ func (s *Server) renewHostCert(ctx context.Context, host *models.Host, certInfo 
 	}
 
 	// Update host fingerprint
-	host.CertFingerprint = fp
-	expires := newCert.NotAfter()
-	host.CertExpiresAt = &expires
-	if err := s.store.UpdateHost(ctx, host); err != nil {
-		return nil, fmt.Errorf("update host: %w", err)
+	if err := s.store.UpdateHostCert(ctx, host.ID, fp, newCert.NotAfter()); err != nil {
+		return nil, fmt.Errorf("update host cert: %w", err)
 	}
 
 	return certPEM, nil

@@ -13,7 +13,10 @@ func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {
 		Action: r.URL.Query().Get("action"),
 	}
 	if l := r.URL.Query().Get("limit"); l != "" {
-		filter.Limit, _ = strconv.Atoi(l)
+		n, err := strconv.Atoi(l)
+		if err == nil && n > 0 && n <= 1000 {
+			filter.Limit = n
+		}
 	}
 
 	entries, err := s.store.ListAuditEntries(r.Context(), filter)

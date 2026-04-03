@@ -78,17 +78,17 @@ Enrollment по модели Defined Networking: администратор со
 
 Создать Go module с минимальной структурой и рабочими `main.go` для обоих бинарников.
 
-- [ ] **Test**: `go build ./...` компилирует оба бинарника
-- [ ] **Impl**: `go.mod`, `cmd/nebula-mgmt/main.go`, `cmd/nebula-agent/main.go`, `.gitignore`
-- [ ] **Verify**: `go vet ./...` без ошибок
+- [x] **Test**: `go build ./...` компилирует оба бинарника
+- [x] **Impl**: `go.mod`, `cmd/nebula-mgmt/main.go`, `cmd/nebula-agent/main.go`, `.gitignore`
+- [x] **Verify**: `go vet ./...` без ошибок
 
 #### Task 1.2: Конфигурация сервера и агента
 
 YAML-конфигурация для server (listen addr, db path, CA paths) и agent (server URL, data dir).
 
-- [ ] **Test**: парсинг валидного/невалидного YAML, defaults
-- [ ] **Impl**: `internal/config/server.go`, `internal/config/agent.go`
-- [ ] **Verify**: `go test ./internal/config/...`
+- [x] **Test**: парсинг валидного/невалидного YAML, defaults
+- [x] **Impl**: `internal/config/server.go`, `internal/config/agent.go`
+- [x] **Verify**: `go test ./internal/config/...`
 
 ### Phase 2: PKI Engine
 
@@ -97,26 +97,26 @@ YAML-конфигурация для server (listen addr, db path, CA paths) и 
 Создание нового CA (Curve25519, encrypted), загрузка существующего CA с расшифровкой.
 Reference: `nebula/cert` — `TBSCertificate{IsCA: true}.Sign()`, `EncryptAndMarshalSigningPrivateKey()`.
 
-- [ ] **Test**: создание CA, сохранение/загрузка encrypted, валидация полей
-- [ ] **Impl**: `internal/pki/ca.go`
-- [ ] **Verify**: `go test ./internal/pki/...`
+- [x] **Test**: создание CA, сохранение/загрузка encrypted, валидация полей
+- [x] **Impl**: `internal/pki/ca.go`
+- [x] **Verify**: `go test ./internal/pki/...`
 
 #### Task 2.2: Certificate signing
 
 Подписание хостовых сертификатов: принимает public key + metadata (name, IP, groups), возвращает подписанный сертификат.
 Reference: `nebula/cert` — `TBSCertificate{IsCA: false}.Sign()`.
 
-- [ ] **Test**: подписание, валидация подписи через CAPool, expired CA → ошибка, проверка полей сертификата
-- [ ] **Impl**: `internal/pki/signer.go`
-- [ ] **Verify**: `go test ./internal/pki/...`
+- [x] **Test**: подписание, валидация подписи через CAPool, expired CA → ошибка, проверка полей сертификата
+- [x] **Impl**: `internal/pki/signer.go`
+- [x] **Verify**: `go test ./internal/pki/...`
 
 #### Task 2.3: Blocklist management
 
 Добавление/удаление fingerprints в blocklist, сериализация для передачи агентам.
 
-- [ ] **Test**: add/remove/check fingerprint, сериализация/десериализация
-- [ ] **Impl**: `internal/pki/blocklist.go`
-- [ ] **Verify**: `go test ./internal/pki/...`
+- [x] **Test**: add/remove/check fingerprint, сериализация/десериализация
+- [x] **Impl**: `internal/pki/blocklist.go`
+- [x] **Verify**: `go test ./internal/pki/...`
 
 ### Phase 3: Storage Layer
 
@@ -124,25 +124,25 @@ Reference: `nebula/cert` — `TBSCertificate{IsCA: false}.Sign()`.
 
 SQLite schema: таблицы `networks`, `hosts`, `enrollment_tokens`, `certificates`. Миграции через embedded SQL.
 
-- [ ] **Test**: миграция up/down, idempotent apply
-- [ ] **Impl**: `internal/store/sqlite.go`, `internal/store/migrations/`
-- [ ] **Verify**: `go test ./internal/store/...`
+- [x] **Test**: миграция up/down, idempotent apply
+- [x] **Impl**: `internal/store/sqlite.go`, `internal/store/migrations/`
+- [x] **Verify**: `go test ./internal/store/...`
 
 #### Task 3.2: Host CRUD
 
 Создание, чтение, обновление, удаление хостов. Хост: name, nebula IP, groups, role, status.
 
-- [ ] **Test**: CRUD операции, уникальность name и IP, фильтрация по group
-- [ ] **Impl**: `internal/store/hosts.go`
-- [ ] **Verify**: `go test ./internal/store/...`
+- [x] **Test**: CRUD операции, уникальность name и IP, фильтрация по group
+- [x] **Impl**: `internal/store/hosts.go`
+- [x] **Verify**: `go test ./internal/store/...`
 
 #### Task 3.3: Enrollment token storage
 
 Генерация, валидация (one-time use, TTL), инвалидация токенов. Токен привязан к host ID.
 
-- [ ] **Test**: создание, использование, повторное использование → ошибка, expired → ошибка
-- [ ] **Impl**: `internal/store/tokens.go`
-- [ ] **Verify**: `go test ./internal/store/...`
+- [x] **Test**: создание, использование, повторное использование → ошибка, expired → ошибка
+- [x] **Impl**: `internal/store/tokens.go`
+- [x] **Verify**: `go test ./internal/store/...`
 
 ### Phase 4: Nebula Config Generator
 
@@ -151,9 +151,9 @@ SQLite schema: таблицы `networks`, `hosts`, `enrollment_tokens`, `certifi
 Шаблонизация Nebula `config.yml`: PKI paths, lighthouse addresses, firewall rules, relay settings.
 Параметры из host metadata + network settings.
 
-- [ ] **Test**: генерация для lighthouse, обычного хоста, мобильного; валидность YAML
-- [ ] **Impl**: `internal/configgen/generator.go`, `internal/configgen/templates/`
-- [ ] **Verify**: `go test ./internal/configgen/...`
+- [x] **Test**: генерация для lighthouse, обычного хоста, мобильного; валидность YAML
+- [x] **Impl**: `internal/configgen/generator.go`, `internal/configgen/templates/`
+- [x] **Verify**: `go test ./internal/configgen/...`
 
 ### Phase 5: REST API (Server)
 
@@ -161,35 +161,35 @@ SQLite schema: таблицы `networks`, `hosts`, `enrollment_tokens`, `certifi
 
 Chi router, structured logging (slog), auth middleware (API key Bearer token), health endpoint.
 
-- [ ] **Test**: health endpoint, auth middleware (valid/invalid key)
-- [ ] **Impl**: `internal/api/server.go`, `internal/api/middleware.go`
-- [ ] **Verify**: `go test ./internal/api/...`
+- [x] **Test**: health endpoint, auth middleware (valid/invalid key)
+- [x] **Impl**: `internal/api/server.go`, `internal/api/middleware.go`
+- [x] **Verify**: `go test ./internal/api/...`
 
 #### Task 5.2: Host management endpoints
 
 `POST /api/v1/hosts`, `GET /api/v1/hosts`, `GET /api/v1/hosts/{id}`, `DELETE /api/v1/hosts/{id}`.
 Создание хоста генерирует enrollment token.
 
-- [ ] **Test**: CRUD через HTTP, валидация input, error responses
-- [ ] **Impl**: `internal/api/hosts.go`
-- [ ] **Verify**: `go test ./internal/api/...`
+- [x] **Test**: CRUD через HTTP, валидация input, error responses
+- [x] **Impl**: `internal/api/hosts.go`
+- [x] **Verify**: `go test ./internal/api/...`
 
 #### Task 5.3: Enrollment endpoint
 
 `POST /api/v1/enroll` — принимает token + public key, возвращает signed cert + CA cert + config.
 Публичный endpoint (без Bearer auth — аутентификация через token).
 
-- [ ] **Test**: successful enrollment, invalid token, expired token, duplicate enrollment
-- [ ] **Impl**: `internal/api/enroll.go`
-- [ ] **Verify**: `go test ./internal/api/...`
+- [x] **Test**: successful enrollment, invalid token, expired token, duplicate enrollment
+- [x] **Impl**: `internal/api/enroll.go`
+- [x] **Verify**: `go test ./internal/api/...`
 
 #### Task 5.4: Agent poll endpoint
 
 `GET /api/v1/agent/updates` — агент отправляет свой fingerprint, получает обновления (new cert, config, blocklist) если есть.
 
-- [ ] **Test**: no updates → 304, cert updated → new cert, blocklist changed → new blocklist
-- [ ] **Impl**: `internal/api/updates.go`
-- [ ] **Verify**: `go test ./internal/api/...`
+- [x] **Test**: no updates → 304, cert updated → new cert, blocklist changed → new blocklist
+- [x] **Impl**: `internal/api/updates.go`
+- [x] **Verify**: `go test ./internal/api/...`
 
 ### Phase 6: Agent
 
@@ -197,25 +197,25 @@ Chi router, structured logging (slog), auth middleware (API key Bearer token), h
 
 Agent принимает enrollment token через CLI flag, генерирует keypair, отправляет public key на server, получает и сохраняет cert + config.
 
-- [ ] **Test**: successful enrollment (mock HTTP), file permissions, retry on network error
-- [ ] **Impl**: `internal/agent/enroll.go`
-- [ ] **Verify**: `go test ./internal/agent/...`
+- [x] **Test**: successful enrollment (mock HTTP), file permissions, retry on network error
+- [x] **Impl**: `internal/agent/enroll.go`
+- [x] **Verify**: `go test ./internal/agent/...`
 
 #### Task 6.2: Poll loop
 
 Периодический опрос сервера (30s default). При получении обновлений: записать файлы, отправить SIGHUP Nebula процессу.
 
-- [ ] **Test**: poll with updates → files written, poll with no updates → no-op, SIGHUP sent
-- [ ] **Impl**: `internal/agent/poller.go`
-- [ ] **Verify**: `go test ./internal/agent/...`
+- [x] **Test**: poll with updates → files written, poll with no updates → no-op, SIGHUP sent
+- [x] **Impl**: `internal/agent/poller.go`
+- [x] **Verify**: `go test ./internal/agent/...`
 
 #### Task 6.3: Agent CLI и lifecycle
 
 CLI с subcommands: `enroll`, `run`. Graceful shutdown, systemd-compatible (notify, watchdog).
 
-- [ ] **Test**: signal handling, graceful shutdown
-- [ ] **Impl**: `cmd/nebula-agent/main.go`
-- [ ] **Verify**: manual test: запуск, Ctrl+C, проверка clean shutdown
+- [x] **Test**: signal handling, graceful shutdown
+- [x] **Impl**: `cmd/nebula-agent/main.go`
+- [x] **Verify**: manual test: запуск, Ctrl+C, проверка clean shutdown
 
 ### Phase 7: Server CLI и интеграция
 
@@ -223,17 +223,17 @@ CLI с subcommands: `enroll`, `run`. Graceful shutdown, systemd-compatible (noti
 
 Subcommands: `serve` (запуск сервера), `init` (создание CA + конфигурации), `host create`, `host list`.
 
-- [ ] **Test**: `init` создаёт CA и config, `host create` создаёт хост с token
-- [ ] **Impl**: `cmd/nebula-mgmt/main.go`, `internal/cli/`
-- [ ] **Verify**: manual integration test: init → serve → create host → enroll agent
+- [x] **Test**: `init` создаёт CA и config, `host create` создаёт хост с token
+- [x] **Impl**: `cmd/nebula-mgmt/main.go`, `internal/cli/`
+- [x] **Verify**: manual integration test: init → serve → create host → enroll agent
 
 #### Task 7.2: End-to-end integration test
 
 Полный цикл: server init → create host → agent enroll → agent poll → verify Nebula config.
 
-- [ ] **Test**: integration test с in-process server и agent
-- [ ] **Impl**: `tests/integration/e2e_test.go`
-- [ ] **Verify**: `go test ./tests/integration/... -v`
+- [x] **Test**: integration test с in-process server и agent
+- [x] **Impl**: `tests/integration/e2e_test.go`
+- [x] **Verify**: `go test ./tests/integration/... -v`
 
 ### [~] Phase 8: Web UI
 

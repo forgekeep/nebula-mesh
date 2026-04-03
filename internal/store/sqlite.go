@@ -76,7 +76,12 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 }
 
 func isDuplicateColumnErr(err error) bool {
-	return err != nil && (strings.Contains(err.Error(), "duplicate column") || strings.Contains(err.Error(), "already exists"))
+	return err != nil && strings.Contains(err.Error(), "duplicate column name")
+}
+
+// DB returns the underlying *sql.DB for advanced usage.
+func (s *SQLiteStore) DB() *sql.DB {
+	return s.db
 }
 
 // Close closes the database.
@@ -122,7 +127,7 @@ func (s *SQLiteStore) ListNetworks(_ context.Context) ([]*models.Network, error)
 		}
 	}()
 
-	var result []*models.Network
+	result := make([]*models.Network, 0)
 	for rows.Next() {
 		n := &models.Network{}
 		if err := rows.Scan(&n.ID, &n.Name, &n.CIDR, &n.CreatedAt); err != nil {
@@ -239,6 +244,10 @@ func (s *SQLiteStore) ListHosts(_ context.Context, filter HostFilter) ([]*models
 		args = append(args, `%"`+escaped+`"%`)
 	}
 	query += ` ORDER BY name`
+	if filter.Limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, filter.Limit)
+	}
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -250,7 +259,7 @@ func (s *SQLiteStore) ListHosts(_ context.Context, filter HostFilter) ([]*models
 		}
 	}()
 
-	var result []*models.Host
+	result := make([]*models.Host, 0)
 	for rows.Next() {
 		h, err := s.scanHost(rows)
 		if err != nil {
@@ -690,7 +699,7 @@ func (s *SQLiteStore) ListEnrolledHostCerts(_ context.Context) ([]*models.Certif
 		}
 	}()
 
-	var result []*models.CertificateInfo
+	result := make([]*models.CertificateInfo, 0)
 	for rows.Next() {
 		ci := &models.CertificateInfo{}
 		if err := rows.Scan(&ci.ID, &ci.HostID, &ci.Fingerprint, &ci.PEM, &ci.NotBefore, &ci.NotAfter, &ci.IsCurrent, &ci.CreatedAt); err != nil {
@@ -737,7 +746,7 @@ func (s *SQLiteStore) GetBlocklist(_ context.Context) ([]string, error) {
 		}
 	}()
 
-	var result []string
+	result := make([]string, 0)
 	for rows.Next() {
 		var fp string
 		if err := rows.Scan(&fp); err != nil {
@@ -871,7 +880,7 @@ func (s *SQLiteStore) ListAuditEntries(_ context.Context, filter AuditFilter) ([
 		}
 	}()
 
-	var result []*models.AuditEntry
+	result := make([]*models.AuditEntry, 0)
 	for rows.Next() {
 		e := &models.AuditEntry{}
 		if err := rows.Scan(&e.ID, &e.Timestamp, &e.Actor, &e.Action, &e.Resource, &e.Details); err != nil {

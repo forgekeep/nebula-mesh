@@ -60,6 +60,10 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 
 	// Get host
 	host, err := s.store.GetHost(r.Context(), tok.HostID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusInternalServerError, "host not found")
+		return
+	}
 	if err != nil {
 		s.logger.Error("get host for enrollment", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
@@ -68,6 +72,10 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 
 	// Get network
 	network, err := s.store.GetNetwork(r.Context(), host.NetworkID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusInternalServerError, "network not found")
+		return
+	}
 	if err != nil {
 		s.logger.Error("get network for enrollment", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")

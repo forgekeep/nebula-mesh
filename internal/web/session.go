@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -92,6 +93,34 @@ func (sm *SessionManager) IsAuthenticated(r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+// StartCleanup runs a background goroutine that periodically removes expired sessions.
+// It stops when ctx is cancelled.
+func (sm *SessionManager) StartCleanup(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sm.removeExpired()
+			}
+		}
+	}()
+}
+
+func (sm *SessionManager) removeExpired() {
+	now := time.Now()
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	for token, sess := range sm.sessions {
+		if now.After(sess.expiresAt) {
+			delete(sm.sessions, token)
+		}
+	}
 }
 
 func generateToken() (string, error) {

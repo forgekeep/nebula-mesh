@@ -630,6 +630,61 @@ func TestMaxBytesReader(t *testing.T) {
 	}
 }
 
+func TestEnroll_HostDeletedAfterTokenCreated(t *testing.T) {
+	srv, st := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	// Create host and get enrollment token
+	body, _ := json.Marshal(createHostRequest{
+		NetworkID: netID, Name: "doomed", NebulaIP: "192.168.100.50",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create host: status = %d, body: %s", w.Code, w.Body.String())
+	}
+	var resp createHostResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete host bypassing FK cascade (simulates race condition:
+	// concurrent delete between ConsumeToken and GetHost)
+	if _, err := st.DB().Exec("PRAGMA foreign_keys=OFF"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec("DELETE FROM hosts WHERE id = ?", resp.Host.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec("PRAGMA foreign_keys=ON"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Try enrollment — token is consumed OK, but GetHost returns ErrNotFound
+	enrollBody, _ := json.Marshal(enrollRequest{
+		Token:        resp.EnrollmentToken,
+		PublicKeyPEM: "dummy-key",
+	})
+	req = httptest.NewRequest("POST", "/api/v1/enroll", bytes.NewBuffer(enrollBody))
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+
+	// Should have specific error message, not generic "enrollment failed"
+	var errResp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
+		t.Fatal(err)
+	}
+	if errResp["error"] != "host not found" {
+		t.Errorf("error = %q, want %q", errResp["error"], "host not found")
+	}
+}
+
 func TestHostNotFound(t *testing.T) {
 	srv, _ := newTestServer(t)
 	req := httptest.NewRequest("GET", "/api/v1/hosts/nonexistent", nil)

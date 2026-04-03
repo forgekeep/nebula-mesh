@@ -44,6 +44,51 @@ func TestMigrate_Idempotent(t *testing.T) {
 	}
 }
 
+func TestListMethods_EmptyResult_NotNil(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	networks, err := s.ListNetworks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if networks == nil {
+		t.Error("ListNetworks returned nil, want empty slice")
+	}
+
+	hosts, err := s.ListHosts(ctx, HostFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hosts == nil {
+		t.Error("ListHosts returned nil, want empty slice")
+	}
+
+	certs, err := s.ListEnrolledHostCerts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if certs == nil {
+		t.Error("ListEnrolledHostCerts returned nil, want empty slice")
+	}
+
+	bl, err := s.GetBlocklist(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bl == nil {
+		t.Error("GetBlocklist returned nil, want empty slice")
+	}
+
+	entries, err := s.ListAuditEntries(ctx, AuditFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entries == nil {
+		t.Error("ListAuditEntries returned nil, want empty slice")
+	}
+}
+
 // --- Networks ---
 
 func TestCreateAndGetNetwork(t *testing.T) {
@@ -161,6 +206,43 @@ func TestListHosts_FilterByNetwork(t *testing.T) {
 	}
 	if len(hosts) != 2 {
 		t.Fatalf("len = %d, want 2", len(hosts))
+	}
+}
+
+func TestListHosts_WithLimit(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	for i := 0; i < 3; i++ {
+		h := &models.Host{
+			ID: fmt.Sprintf("host_%d", i), NetworkID: net.ID,
+			Name:     fmt.Sprintf("host-%d", i),
+			NebulaIP: fmt.Sprintf("192.168.100.%d", 10+i),
+			Groups:   []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
+			CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		}
+		if err := s.CreateHost(ctx, h); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Limit=2 should return only 2
+	hosts, err := s.ListHosts(ctx, HostFilter{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 2 {
+		t.Errorf("len = %d, want 2", len(hosts))
+	}
+
+	// Limit=0 should return all (no limit)
+	hosts, err = s.ListHosts(ctx, HostFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 3 {
+		t.Errorf("len = %d, want 3", len(hosts))
 	}
 }
 
@@ -1000,6 +1082,28 @@ func TestDeleteHostAndBlockCert_NotFound(t *testing.T) {
 	err := s.DeleteHostAndBlockCert(context.Background(), "nonexistent", "reason")
 	if err != ErrNotFound {
 		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestIsDuplicateColumnErr(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"duplicate column name", fmt.Errorf("duplicate column name: foo"), true},
+		{"duplicate column (old substring)", fmt.Errorf("duplicate column"), false},
+		{"table already exists", fmt.Errorf("table networks already exists"), false},
+		{"unique constraint with word duplicate", fmt.Errorf("UNIQUE constraint failed: duplicate"), false},
+		{"nil error", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isDuplicateColumnErr(tt.err)
+			if got != tt.want {
+				t.Errorf("isDuplicateColumnErr(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
 	}
 }
 

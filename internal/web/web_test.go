@@ -292,6 +292,36 @@ func TestIsAuthenticated_NoCookie(t *testing.T) {
 	}
 }
 
+func TestSessionCleanup(t *testing.T) {
+	sm := NewSessionManager(testPassword)
+
+	// Inject expired sessions
+	sm.mu.Lock()
+	sm.sessions["expired-1"] = session{expiresAt: time.Now().Add(-2 * time.Hour)}
+	sm.sessions["expired-2"] = session{expiresAt: time.Now().Add(-1 * time.Hour)}
+	sm.sessions["valid-1"] = session{expiresAt: time.Now().Add(1 * time.Hour)}
+	sm.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sm.StartCleanup(ctx, 50*time.Millisecond) // short interval for test
+
+	// Wait for cleanup tick
+	time.Sleep(150 * time.Millisecond)
+	cancel()
+
+	sm.mu.RLock()
+	count := len(sm.sessions)
+	_, validExists := sm.sessions["valid-1"]
+	sm.mu.RUnlock()
+
+	if count != 1 {
+		t.Errorf("sessions count = %d, want 1 (only valid)", count)
+	}
+	if !validExists {
+		t.Error("valid session should survive cleanup")
+	}
+}
+
 func TestStaticFiles(t *testing.T) {
 	w, _ := newTestWeb(t)
 	req := httptest.NewRequest("GET", "/static/htmx.min.js", nil)

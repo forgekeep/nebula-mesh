@@ -1,12 +1,14 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/juev/nebula-mgmt/internal/store"
@@ -91,6 +93,12 @@ func (w *Web) setupRoutes() {
 	})
 
 	w.router = r
+}
+
+// StartSessionCleanup starts periodic removal of expired sessions.
+// Stops when ctx is cancelled.
+func (w *Web) StartSessionCleanup(ctx context.Context) {
+	w.session.StartCleanup(ctx, 1*time.Hour)
 }
 
 // ServeHTTP implements http.Handler.

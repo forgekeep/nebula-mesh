@@ -111,6 +111,7 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 		NetworkID: r.URL.Query().Get("network_id"),
 		Group:     r.URL.Query().Get("group"),
 		Status:    models.HostStatus(r.URL.Query().Get("status")),
+		Limit:     1000,
 	}
 
 	hosts, err := s.store.ListHosts(r.Context(), filter)
@@ -119,10 +120,6 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list hosts")
 		return
 	}
-	if hosts == nil {
-		hosts = []*models.Host{}
-	}
-
 	writeJSON(w, http.StatusOK, hosts)
 }
 

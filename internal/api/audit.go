@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/juev/nebula-mgmt/internal/models"
 	"github.com/juev/nebula-mgmt/internal/store"
 )
 
@@ -37,9 +36,5 @@ func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get audit log")
 		return
 	}
-	if entries == nil {
-		entries = []*models.AuditEntry{}
-	}
-
 	writeJSON(w, http.StatusOK, entries)
 }

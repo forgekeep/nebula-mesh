@@ -57,10 +57,6 @@ func (s *Server) handleListNetworks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list networks")
 		return
 	}
-	if networks == nil {
-		networks = []*models.Network{}
-	}
-
 	writeJSON(w, http.StatusOK, networks)
 }
 

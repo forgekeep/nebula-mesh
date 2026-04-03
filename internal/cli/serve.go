@@ -113,6 +113,9 @@ func Serve(configPath string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Start session cleanup (stops on ctx cancel)
+	webUI.StartSessionCleanup(ctx)
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 

@@ -12,6 +12,7 @@ type HostFilter struct {
 	NetworkID string
 	Group     string
 	Status    models.HostStatus
+	Limit     int // 0 = no limit
 }
 
 // AuditFilter specifies filters for audit log queries.

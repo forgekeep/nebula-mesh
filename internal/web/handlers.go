@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -60,18 +61,18 @@ type dashboardStats struct {
 	ExpiringCerts int
 }
 
-func (w *Web) getStats(ctx context.Context) dashboardStats {
+func (w *Web) getStats(ctx context.Context) (dashboardStats, error) {
 	var stats dashboardStats
 
 	networks, err := w.store.ListNetworks(ctx)
 	if err != nil {
-		w.logger.Error("list networks for stats", "error", err)
+		return stats, fmt.Errorf("list networks: %w", err)
 	}
 	stats.Networks = len(networks)
 
 	hosts, err := w.store.ListHosts(ctx, store.HostFilter{})
 	if err != nil {
-		w.logger.Error("list hosts for stats", "error", err)
+		return stats, fmt.Errorf("list hosts: %w", err)
 	}
 	stats.TotalHosts = len(hosts)
 	for _, h := range hosts {
@@ -87,14 +88,21 @@ func (w *Web) getStats(ctx context.Context) dashboardStats {
 			stats.BlockedHosts++
 		}
 	}
-	return stats
+	return stats, nil
 }
 
 func (w *Web) handleDashboard(rw http.ResponseWriter, r *http.Request) {
-	stats := w.getStats(r.Context())
+	stats, err := w.getStats(r.Context())
+	if err != nil {
+		w.logger.Error("get stats", "error", err)
+		http.Error(rw, "Failed to load dashboard", http.StatusInternalServerError)
+		return
+	}
 	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{})
 	if err != nil {
 		w.logger.Error("list hosts for dashboard", "error", err)
+		http.Error(rw, "Failed to load dashboard", http.StatusInternalServerError)
+		return
 	}
 
 	// Take last 10
@@ -110,7 +118,12 @@ func (w *Web) handleDashboard(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handlePartialStats(rw http.ResponseWriter, r *http.Request) {
-	stats := w.getStats(r.Context())
+	stats, err := w.getStats(r.Context())
+	if err != nil {
+		w.logger.Error("get stats", "error", err)
+		http.Error(rw, "Failed to load stats", http.StatusInternalServerError)
+		return
+	}
 	w.render(rw, "dashboard.html", map[string]any{
 		"Active": "dashboard",
 		"Stats":  stats,

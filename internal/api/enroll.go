@@ -98,10 +98,8 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 	hostPrefix := netip.PrefixFrom(hostAddr, prefix.Bits())
 
-	// Sign certificate (hold read lock on CA for signing + CACertPEM)
+	// CA operations — lock needed only for Sign + CACertPEM
 	s.caMu.RLock()
-	defer s.caMu.RUnlock()
-
 	hostCert, err := s.ca.Sign(pki.SignRequest{
 		Name:      host.Name,
 		PublicKey: pubKey,
@@ -110,11 +108,20 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		Duration:  30 * 24 * time.Hour, // 30 days
 	})
 	if err != nil {
+		s.caMu.RUnlock()
 		s.logger.Error("sign certificate", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}
+	caCertPEM, err := s.ca.CACertPEM()
+	s.caMu.RUnlock()
+	if err != nil {
+		s.logger.Error("get CA cert PEM", "error", err)
+		writeError(w, http.StatusInternalServerError, "enrollment failed")
+		return
+	}
 
+	// Post-sign work — no CA lock needed
 	certPEM, err := hostCert.MarshalPEM()
 	if err != nil {
 		s.logger.Error("marshal cert PEM", "error", err)
@@ -132,14 +139,6 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	// Save certificate and enroll host atomically
 	if err := s.store.SaveCertificateAndEnrollHost(r.Context(), host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
 		s.logger.Error("save certificate and enroll host", "error", err)
-		writeError(w, http.StatusInternalServerError, "enrollment failed")
-		return
-	}
-
-	// Get CA cert PEM
-	caCertPEM, err := s.ca.CACertPEM()
-	if err != nil {
-		s.logger.Error("get CA cert PEM", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}

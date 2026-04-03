@@ -436,7 +436,10 @@ func (s *SQLiteStore) SaveCertificate(_ context.Context, hostID string, certPEM 
 		return err
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit save certificate: %w", err)
+	}
+	return nil
 }
 
 // SaveCertificateAndEnrollHost atomically saves a certificate and marks the host as enrolled.
@@ -471,7 +474,10 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(_ context.Context, hostID str
 		return ErrNotFound
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit enroll host: %w", err)
+	}
+	return nil
 }
 
 // SaveCertificateAndUpdateHostCert atomically saves a certificate and updates the host's cert metadata.
@@ -506,7 +512,10 @@ func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(_ context.Context, hostID
 		return ErrNotFound
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit update host cert: %w", err)
+	}
+	return nil
 }
 
 // saveCertificateInTx saves a certificate within an existing transaction.
@@ -710,7 +719,10 @@ func (s *SQLiteStore) SetNetworkConfigAndBumpVersion(_ context.Context, networkI
 		return fmt.Errorf("bump config version: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit config and version: %w", err)
+	}
+	return nil
 }
 
 // --- Audit Log ---

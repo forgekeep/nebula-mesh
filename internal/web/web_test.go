@@ -242,6 +242,56 @@ func TestLogout(t *testing.T) {
 	}
 }
 
+func TestIsAuthenticated_ExpiredSession(t *testing.T) {
+	sm := NewSessionManager(testPassword)
+
+	// Manually inject an expired session
+	token := "expired-token-123"
+	sm.mu.Lock()
+	sm.sessions[token] = session{expiresAt: time.Now().Add(-1 * time.Hour)}
+	sm.mu.Unlock()
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+
+	if sm.IsAuthenticated(req) {
+		t.Error("expired session should not be authenticated")
+	}
+
+	// Session should be deleted from map
+	sm.mu.RLock()
+	_, exists := sm.sessions[token]
+	sm.mu.RUnlock()
+	if exists {
+		t.Error("expired session should be removed from sessions map")
+	}
+}
+
+func TestIsAuthenticated_ValidSession(t *testing.T) {
+	sm := NewSessionManager(testPassword)
+
+	token := "valid-token-456"
+	sm.mu.Lock()
+	sm.sessions[token] = session{expiresAt: time.Now().Add(1 * time.Hour)}
+	sm.mu.Unlock()
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+
+	if !sm.IsAuthenticated(req) {
+		t.Error("valid session should be authenticated")
+	}
+}
+
+func TestIsAuthenticated_NoCookie(t *testing.T) {
+	sm := NewSessionManager(testPassword)
+	req := httptest.NewRequest("GET", "/", nil)
+
+	if sm.IsAuthenticated(req) {
+		t.Error("request without cookie should not be authenticated")
+	}
+}
+
 func TestStaticFiles(t *testing.T) {
 	w, _ := newTestWeb(t)
 	req := httptest.NewRequest("GET", "/static/htmx.min.js", nil)

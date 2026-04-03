@@ -82,7 +82,9 @@ func Init(configPath string) error {
 		}
 	}()
 
-	if err := s.Migrate(context.Background()); err != nil {
+	migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer migrateCancel()
+	if err := s.Migrate(migrateCtx); err != nil {
 		return fmt.Errorf("migrate database: %w", err)
 	}
 

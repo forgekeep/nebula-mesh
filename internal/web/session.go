@@ -83,16 +83,12 @@ func (sm *SessionManager) IsAuthenticated(r *http.Request) bool {
 		return false
 	}
 
-	sm.mu.RLock()
-	sess, ok := sm.sessions[cookie.Value]
-	sm.mu.RUnlock()
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 
+	sess, ok := sm.sessions[cookie.Value]
 	if !ok || time.Now().After(sess.expiresAt) {
-		if ok {
-			sm.mu.Lock()
-			delete(sm.sessions, cookie.Value)
-			sm.mu.Unlock()
-		}
+		delete(sm.sessions, cookie.Value)
 		return false
 	}
 	return true

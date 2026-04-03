@@ -49,7 +49,8 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	blocklist, err := s.store.GetBlocklist(r.Context())
 	if err != nil {
 		s.logger.Error("get blocklist", "error", err)
-		blocklist = []string{}
+		writeError(w, http.StatusInternalServerError, "failed to get blocklist")
+		return
 	}
 
 	resp := agentUpdatesResponse{

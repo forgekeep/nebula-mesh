@@ -29,8 +29,11 @@
 
 - Single Go module monorepo с `cmd/` для бинарников — проще чем multi-module workspace
 - `internal/` для shared code между server и agent (PKI, модели, config)
-- Nebula требует Go 1.22+, мы используем Go 1.24
+- [~] Nebula требует Go 1.22+, мы используем Go 1.26 (latest stable, апрель 2026)
 - `nebula/cert` импортируется как библиотека, `nebula-cert` binary не нужен
+
+DE: почему go 1.24? Я же указывал использовать последнюю версию 1.26 минимум
+AI: Исправлено на Go 1.26. Строка выше помечена [~].
 
 ### Существующие решения (ниша пустая)
 

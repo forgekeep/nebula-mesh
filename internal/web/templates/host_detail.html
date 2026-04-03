@@ -1,0 +1,39 @@
+{{define "title"}}{{.Host.Name}} — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>{{.Host.Name}}</h1>
+    <div>
+        {{if ne (printf "%s" .Host.Status) "blocked"}}
+        <button class="btn btn-danger btn-sm"
+                hx-post="/ui/hosts/{{.Host.ID}}/block"
+                hx-confirm="Block host {{.Host.Name}}?">Block</button>
+        {{end}}
+        <button class="btn btn-danger btn-sm"
+                hx-delete="/ui/hosts/{{.Host.ID}}"
+                hx-confirm="Delete host {{.Host.Name}}? This cannot be undone.">Delete</button>
+    </div>
+</div>
+
+{{if .Token}}
+<div class="flash flash-success">
+    Enrollment token (shown once):
+    <div class="token-display">{{.Token}}</div>
+</div>
+{{end}}
+
+<div class="card">
+    <table>
+        <tr><th style="width:180px">ID</th><td>{{.Host.ID}}</td></tr>
+        <tr><th>Nebula IP</th><td>{{.Host.NebulaIP}}</td></tr>
+        <tr><th>Role</th><td>{{.Host.Role}}</td></tr>
+        <tr><th>Status</th><td><span class="badge badge-{{.Host.Status}}">{{.Host.Status}}</span></td></tr>
+        <tr><th>Groups</th><td>{{range .Host.Groups}}<span class="badge" style="background:var(--bg);margin-right:4px">{{.}}</span>{{else}}—{{end}}</td></tr>
+        {{if .Host.PublicIP}}<tr><th>Public IP</th><td>{{.Host.PublicIP}}:{{.Host.ListenPort}}</td></tr>{{end}}
+        <tr><th>Certificate</th><td>{{if .Host.CertFingerprint}}{{.Host.CertFingerprint}}{{else}}—{{end}}</td></tr>
+        {{if .Host.CertExpiresAt}}<tr><th>Cert Expires</th><td>{{.Host.CertExpiresAt.Format "2006-01-02 15:04 UTC"}}</td></tr>{{end}}
+        {{if .Host.LastSeenAt}}<tr><th>Last Seen</th><td>{{.Host.LastSeenAt.Format "2006-01-02 15:04 UTC"}}</td></tr>{{end}}
+        <tr><th>Created</th><td>{{.Host.CreatedAt.Format "2006-01-02 15:04 UTC"}}</td></tr>
+    </table>
+</div>
+{{end}}

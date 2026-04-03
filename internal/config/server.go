@@ -8,11 +8,12 @@ import (
 )
 
 type ServerConfig struct {
-	Listen   string `yaml:"listen"`
-	DataDir  string `yaml:"data_dir"`
-	DBPath   string `yaml:"db_path"`
-	APIKey   string `yaml:"api_key"`
-	LogLevel string `yaml:"log_level"`
+	Listen      string `yaml:"listen"`
+	DataDir     string `yaml:"data_dir"`
+	DBPath      string `yaml:"db_path"`
+	APIKey      string `yaml:"api_key"`
+	UIPassword  string `yaml:"ui_password"`
+	LogLevel    string `yaml:"log_level"`
 }
 
 func LoadServerConfig(path string) (*ServerConfig, error) {

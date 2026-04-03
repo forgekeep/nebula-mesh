@@ -1,0 +1,38 @@
+{{define "title"}}Hosts — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>Hosts</h1>
+    <a href="/ui/hosts/new" class="btn btn-primary">+ New Host</a>
+</div>
+
+{{if .Hosts}}
+<div class="card">
+    <table>
+        <thead><tr><th>Name</th><th>Nebula IP</th><th>Role</th><th>Status</th><th>Last Seen</th><th></th></tr></thead>
+        <tbody>
+        {{range .Hosts}}
+        <tr>
+            <td><a href="/ui/hosts/{{.ID}}">{{.Name}}</a></td>
+            <td>{{.NebulaIP}}</td>
+            <td>{{.Role}}</td>
+            <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+            <td>{{if .LastSeenAt}}{{.LastSeenAt.Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
+            <td>
+                {{if ne (printf "%s" .Status) "blocked"}}
+                <button class="btn btn-sm btn-danger"
+                        hx-post="/ui/hosts/{{.ID}}/block"
+                        hx-confirm="Block host {{.Name}}?"
+                        hx-target="closest tr"
+                        hx-swap="outerHTML">Block</button>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{else}}
+<div class="card empty">No hosts found.</div>
+{{end}}
+{{end}}

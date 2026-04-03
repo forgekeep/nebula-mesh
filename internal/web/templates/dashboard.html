@@ -1,0 +1,53 @@
+{{define "title"}}Dashboard — Nebula Mesh{{end}}
+
+{{define "content"}}
+<h1>Dashboard</h1>
+
+<div class="stats-grid" hx-get="/ui/partials/stats" hx-trigger="every 30s" hx-swap="outerHTML">
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.TotalHosts}}</div>
+        <div class="stat-label">Total Hosts</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.EnrolledHosts}}</div>
+        <div class="stat-label">Enrolled</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.PendingHosts}}</div>
+        <div class="stat-label">Pending</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.BlockedHosts}}</div>
+        <div class="stat-label">Blocked</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.Networks}}</div>
+        <div class="stat-label">Networks</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.ExpiringCerts}}</div>
+        <div class="stat-label">Expiring Soon</div>
+    </div>
+</div>
+
+{{if .RecentHosts}}
+<div class="card">
+    <h2>Recent Hosts</h2>
+    <table>
+        <thead><tr><th>Name</th><th>IP</th><th>Network</th><th>Status</th></tr></thead>
+        <tbody>
+        {{range .RecentHosts}}
+        <tr>
+            <td><a href="/ui/hosts/{{.ID}}">{{.Name}}</a></td>
+            <td>{{.NebulaIP}}</td>
+            <td>{{.NetworkID}}</td>
+            <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{else}}
+<div class="card empty">No hosts yet. <a href="/ui/hosts/new">Create one</a>.</div>
+{{end}}
+{{end}}

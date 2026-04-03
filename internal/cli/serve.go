@@ -15,6 +15,7 @@ import (
 	"github.com/juev/nebula-mesh/internal/config"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mesh/internal/web"
 	"golang.org/x/term"
 )
 
@@ -63,11 +64,24 @@ func Serve(configPath string) error {
 	}
 
 	// Create API server
-	srv := api.NewServer(s, ca, cfg.APIKey, logger)
+	apiSrv := api.NewServer(s, ca, cfg.APIKey, logger)
+
+	// Create Web UI
+	uiPassword := cfg.UIPassword
+	if uiPassword == "" {
+		uiPassword = cfg.APIKey // fallback to API key as password
+	}
+	webUI := web.New(s, uiPassword, logger)
+
+	// Combine: Web UI + API
+	mux := http.NewServeMux()
+	mux.Handle("/ui/", webUI)
+	mux.Handle("/static/", webUI)
+	mux.Handle("/", apiSrv)
 
 	httpServer := &http.Server{
 		Addr:         cfg.Listen,
-		Handler:      srv,
+		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

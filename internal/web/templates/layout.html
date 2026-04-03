@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{block "title" .}}Nebula Mesh{{end}}</title>
+    <script src="/static/htmx.min.js"></script>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --bg-hover: #242736;
+            --border: #2d3148;
+            --text: #e1e4ed;
+            --text-muted: #8b8fa3;
+            --primary: #6c7aee;
+            --primary-hover: #5a68d6;
+            --success: #4caf7d;
+            --warning: #e6a549;
+            --danger: #e05555;
+            --radius: 8px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+        }
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { color: var(--primary-hover); }
+
+        .layout { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 240px;
+            background: var(--bg-card);
+            border-right: 1px solid var(--border);
+            padding: 20px 0;
+            flex-shrink: 0;
+        }
+        .sidebar-brand {
+            padding: 0 20px 20px;
+            font-size: 18px;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 10px;
+        }
+        .sidebar-nav a {
+            display: block;
+            padding: 10px 20px;
+            color: var(--text-muted);
+            font-size: 14px;
+            transition: all 0.15s;
+        }
+        .sidebar-nav a:hover, .sidebar-nav a.active {
+            background: var(--bg-hover);
+            color: var(--text);
+        }
+        .main {
+            flex: 1;
+            padding: 30px;
+            max-width: 1200px;
+        }
+
+        h1 { font-size: 24px; margin-bottom: 20px; }
+        h2 { font-size: 18px; margin-bottom: 16px; }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+        th { color: var(--text-muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        tr:hover td { background: var(--bg-hover); }
+
+        .btn {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: var(--radius);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text);
+            transition: all 0.15s;
+        }
+        .btn:hover { background: var(--bg-hover); }
+        .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .badge-pending { background: #3d3520; color: var(--warning); }
+        .badge-enrolled { background: #1a3328; color: var(--success); }
+        .badge-blocked { background: #3d1f1f; color: var(--danger); }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
+        .form-control {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+        }
+        .form-control:focus { outline: none; border-color: var(--primary); }
+        select.form-control { appearance: none; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+        }
+        .stat-value { font-size: 32px; font-weight: 600; }
+        .stat-label { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+        .token-display {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px;
+            font-family: monospace;
+            font-size: 14px;
+            word-break: break-all;
+            margin: 12px 0;
+        }
+
+        .flash {
+            padding: 12px 16px;
+            border-radius: var(--radius);
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+        .flash-success { background: #1a3328; border: 1px solid #2d5a3f; color: var(--success); }
+        .flash-error { background: #3d1f1f; border: 1px solid #5a2d2d; color: var(--danger); }
+
+        .empty { text-align: center; padding: 40px; color: var(--text-muted); }
+
+        .header-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header-actions h1 { margin-bottom: 0; }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <nav class="sidebar">
+            <div class="sidebar-brand">Nebula Mesh</div>
+            <div class="sidebar-nav">
+                <a href="/ui/" {{if eq .Active "dashboard"}}class="active"{{end}}>Dashboard</a>
+                <a href="/ui/networks" {{if eq .Active "networks"}}class="active"{{end}}>Networks</a>
+                <a href="/ui/hosts" {{if eq .Active "hosts"}}class="active"{{end}}>Hosts</a>
+                <a href="/ui/logout">Logout</a>
+            </div>
+        </nav>
+        <main class="main">
+            {{block "content" .}}{{end}}
+        </main>
+    </div>
+</body>
+</html>

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — Nebula Mesh</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --border: #2d3148;
+            --text: #e1e4ed;
+            --text-muted: #8b8fa3;
+            --primary: #6c7aee;
+            --primary-hover: #5a68d6;
+            --danger: #e05555;
+            --radius: 8px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .login-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 40px;
+            width: 360px;
+        }
+        .login-card h1 { font-size: 22px; margin-bottom: 24px; text-align: center; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
+        .form-control {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+        }
+        .form-control:focus { outline: none; border-color: var(--primary); }
+        .btn {
+            width: 100%;
+            padding: 10px;
+            border-radius: var(--radius);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            background: var(--primary);
+            color: #fff;
+        }
+        .btn:hover { background: var(--primary-hover); }
+        .error { color: var(--danger); font-size: 13px; text-align: center; margin-bottom: 12px; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>Nebula Mesh</h1>
+        {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+        <form method="POST" action="/ui/login">
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password" class="form-control" autofocus required>
+            </div>
+            <button type="submit" class="btn">Sign In</button>
+        </form>
+    </div>
+</body>
+</html>

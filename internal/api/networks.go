@@ -2,14 +2,15 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/netip"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mgmt/internal/models"
+	"github.com/juev/nebula-mgmt/internal/store"
 )
 
 type createNetworkRequest struct {
@@ -66,7 +67,7 @@ func (s *Server) handleListNetworks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetNetwork(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	network, err := s.store.GetNetwork(r.Context(), id)
-	if err == store.ErrNotFound {
+	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "network not found")
 		return
 	}

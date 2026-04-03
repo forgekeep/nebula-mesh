@@ -10,7 +10,7 @@ import (
 	"github.com/slackhq/nebula/cert"
 )
 
-const defaultPassphrase = "nebula-mesh-default"
+const defaultPassphrase = "nebula-mgmt-default"
 
 // CAManager holds a loaded CA certificate and its signing key in memory.
 type CAManager struct {

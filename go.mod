@@ -1,4 +1,4 @@
-module github.com/juev/nebula-mesh
+module github.com/juev/nebula-mgmt
 
 go 1.26.1
 

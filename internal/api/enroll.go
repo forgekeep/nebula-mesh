@@ -9,9 +9,9 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/configgen"
-	"github.com/juev/nebula-mesh/internal/pki"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mgmt/internal/configgen"
+	"github.com/juev/nebula-mgmt/internal/pki"
+	"github.com/juev/nebula-mgmt/internal/store"
 	"github.com/slackhq/nebula/cert"
 )
 
@@ -99,24 +99,28 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	hostPrefix := netip.PrefixFrom(hostAddr, prefix.Bits())
 
 	// CA operations — lock needed only for Sign + CACertPEM
-	s.caMu.RLock()
-	hostCert, err := s.ca.Sign(pki.SignRequest{
-		Name:      host.Name,
-		PublicKey: pubKey,
-		Networks:  []netip.Prefix{hostPrefix},
-		Groups:    host.Groups,
-		Duration:  30 * 24 * time.Hour, // 30 days
-	})
+	hostCert, caCertPEM, err := func() (cert.Certificate, []byte, error) {
+		s.caMu.RLock()
+		defer s.caMu.RUnlock()
+
+		c, signErr := s.ca.Sign(pki.SignRequest{
+			Name:      host.Name,
+			PublicKey: pubKey,
+			Networks:  []netip.Prefix{hostPrefix},
+			Groups:    host.Groups,
+			Duration:  30 * 24 * time.Hour, // 30 days
+		})
+		if signErr != nil {
+			return nil, nil, signErr
+		}
+		ca, caErr := s.ca.CACertPEM()
+		if caErr != nil {
+			return nil, nil, caErr
+		}
+		return c, ca, nil
+	}()
 	if err != nil {
-		s.caMu.RUnlock()
 		s.logger.Error("sign certificate", "error", err)
-		writeError(w, http.StatusInternalServerError, "enrollment failed")
-		return
-	}
-	caCertPEM, err := s.ca.CACertPEM()
-	s.caMu.RUnlock()
-	if err != nil {
-		s.logger.Error("get CA cert PEM", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}

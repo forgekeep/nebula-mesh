@@ -2,14 +2,15 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/pki"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mgmt/internal/models"
+	"github.com/juev/nebula-mgmt/internal/pki"
+	"github.com/juev/nebula-mgmt/internal/store"
 	"github.com/slackhq/nebula/cert"
 )
 
@@ -29,7 +30,7 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	host, err := s.store.GetHostByFingerprint(r.Context(), fingerprint)
-	if err == store.ErrNotFound {
+	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "host not found")
 		return
 	}
@@ -115,23 +116,29 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 		return nil, fmt.Errorf("parse host IP: %w", err)
 	}
 
-	// CA operations — lock needed
-	s.caMu.RLock()
-	newCert, signErr := s.ca.Sign(pki.SignRequest{
-		Name:      host.Name,
-		PublicKey: currentCert.PublicKey(),
-		Networks:  []netip.Prefix{netip.PrefixFrom(hostAddr, prefix.Bits())},
-		Groups:    host.Groups,
-		Duration:  30 * 24 * time.Hour,
-	})
-	if signErr != nil {
-		s.caMu.RUnlock()
-		return nil, fmt.Errorf("sign renewed cert: %w", signErr)
-	}
-	caCertPEM, caErr := s.ca.CACertPEM()
-	s.caMu.RUnlock()
+	// CA operations — lock needed only for Sign + CACertPEM
+	newCert, caCertPEM, caErr := func() (cert.Certificate, []byte, error) {
+		s.caMu.RLock()
+		defer s.caMu.RUnlock()
+
+		c, signErr := s.ca.Sign(pki.SignRequest{
+			Name:      host.Name,
+			PublicKey: currentCert.PublicKey(),
+			Networks:  []netip.Prefix{netip.PrefixFrom(hostAddr, prefix.Bits())},
+			Groups:    host.Groups,
+			Duration:  30 * 24 * time.Hour,
+		})
+		if signErr != nil {
+			return nil, nil, fmt.Errorf("sign renewed cert: %w", signErr)
+		}
+		ca, err := s.ca.CACertPEM()
+		if err != nil {
+			return nil, nil, fmt.Errorf("get CA cert PEM: %w", err)
+		}
+		return c, ca, nil
+	}()
 	if caErr != nil {
-		return nil, fmt.Errorf("get CA cert PEM: %w", caErr)
+		return nil, caErr
 	}
 
 	// Post-sign work — no CA lock needed

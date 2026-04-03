@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/pki"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mgmt/internal/models"
+	"github.com/juev/nebula-mgmt/internal/pki"
+	"github.com/juev/nebula-mgmt/internal/store"
 )
 
 const testAPIKey = "test-api-key-12345"
@@ -607,6 +607,26 @@ func TestWriteJSON_EncodeError(t *testing.T) {
 	// Should not panic; status code is still written
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestMaxBytesReader(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// Create a valid JSON body larger than 1MB
+	// Use a long string field to exceed the limit
+	bigStr := string(bytes.Repeat([]byte("x"), 1<<20+1))
+	body, _ := json.Marshal(map[string]string{"name": bigStr, "cidr": "10.0.0.0/24"})
+
+	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewReader(body))
+	authRequest(req)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	// With MaxBytesReader, reading >1MB body should fail
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d for oversized body", w.Code, http.StatusBadRequest)
 	}
 }
 

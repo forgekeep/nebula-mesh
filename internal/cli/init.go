@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/config"
-	"github.com/juev/nebula-mesh/internal/pki"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mgmt/internal/config"
+	"github.com/juev/nebula-mgmt/internal/pki"
+	"github.com/juev/nebula-mgmt/internal/store"
 	"golang.org/x/term"
 )
 
@@ -44,7 +44,7 @@ func Init(configPath string) error {
 	certPath := filepath.Join(cfg.DataDir, "ca.crt")
 	keyPath := filepath.Join(cfg.DataDir, "ca.key")
 
-	ca, _, err := pki.NewCA("nebula-mesh CA", 365*24*time.Hour)
+	ca, _, err := pki.NewCA("nebula-mgmt CA", 365*24*time.Hour)
 	if err != nil {
 		return fmt.Errorf("create CA: %w", err)
 	}

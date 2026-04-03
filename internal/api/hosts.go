@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -9,8 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mgmt/internal/models"
+	"github.com/juev/nebula-mgmt/internal/store"
 )
 
 type createHostRequest struct {
@@ -128,7 +129,7 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	host, err := s.store.GetHost(r.Context(), id)
-	if err == store.ErrNotFound {
+	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "host not found")
 		return
 	}
@@ -146,7 +147,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 
 	// Get host to add cert to blocklist
 	host, err := s.store.GetHost(r.Context(), id)
-	if err == store.ErrNotFound {
+	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "host not found")
 		return
 	}
@@ -177,7 +178,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	host, err := s.store.GetHost(r.Context(), id)
-	if err == store.ErrNotFound {
+	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "host not found")
 		return
 	}

@@ -8,9 +8,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/juev/nebula-mesh/internal/configgen"
-	"github.com/juev/nebula-mesh/internal/pki"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mgmt/internal/configgen"
+	"github.com/juev/nebula-mgmt/internal/pki"
+	"github.com/juev/nebula-mgmt/internal/store"
 )
 
 // CAConfig holds paths and passphrase for CA persistence.
@@ -49,6 +49,7 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(requestLogger(s.logger))
+	r.Use(maxBodySize(1 << 20)) // 1MB
 
 	// Public endpoints
 	r.Get("/health", s.handleHealth)

@@ -7,6 +7,18 @@ import (
 	"time"
 )
 
+// maxBodySize returns middleware that limits the size of request bodies.
+func maxBodySize(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // bearerAuth returns middleware that checks for a valid Bearer token.
 func bearerAuth(apiKey string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

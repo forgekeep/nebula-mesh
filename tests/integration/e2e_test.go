@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/api"
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/pki"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mgmt/internal/api"
+	"github.com/juev/nebula-mgmt/internal/models"
+	"github.com/juev/nebula-mgmt/internal/pki"
+	"github.com/juev/nebula-mgmt/internal/store"
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
 )

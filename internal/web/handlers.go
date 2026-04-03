@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -11,8 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mgmt/internal/models"
+	"github.com/juev/nebula-mgmt/internal/store"
 )
 
 // requireAuth middleware redirects to login if not authenticated.
@@ -136,6 +137,8 @@ func (w *Web) handleHosts(rw http.ResponseWriter, r *http.Request) {
 	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{})
 	if err != nil {
 		w.logger.Error("list hosts", "error", err)
+		http.Error(rw, "Failed to load hosts", http.StatusInternalServerError)
+		return
 	}
 
 	w.render(rw, "hosts.html", map[string]any{
@@ -148,6 +151,8 @@ func (w *Web) handleHostNew(rw http.ResponseWriter, r *http.Request) {
 	networks, err := w.store.ListNetworks(r.Context())
 	if err != nil {
 		w.logger.Error("list networks for host form", "error", err)
+		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
+		return
 	}
 	w.render(rw, "host_new.html", map[string]any{
 		"Active":   "hosts",
@@ -226,6 +231,8 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	}
 	if err := w.store.CreateToken(r.Context(), token); err != nil {
 		w.logger.Error("create token", "error", err)
+		http.Error(rw, "Failed to create enrollment token", http.StatusInternalServerError)
+		return
 	}
 
 	w.render(rw, "host_detail.html", map[string]any{
@@ -238,7 +245,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 func (w *Web) handleHostDetail(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	host, err := w.store.GetHost(r.Context(), id)
-	if err == store.ErrNotFound {
+	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(rw, r)
 		return
 	}
@@ -257,7 +264,7 @@ func (w *Web) handleHostDetail(rw http.ResponseWriter, r *http.Request) {
 func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	host, err := w.store.GetHost(r.Context(), id)
-	if err == store.ErrNotFound {
+	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(rw, r)
 		return
 	}
@@ -287,7 +294,7 @@ func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
 func (w *Web) handleHostDelete(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	host, err := w.store.GetHost(r.Context(), id)
-	if err != nil && err != store.ErrNotFound {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		w.logger.Error("get host for delete", "error", err)
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -313,6 +320,8 @@ func (w *Web) handleNetworks(rw http.ResponseWriter, r *http.Request) {
 	networks, err := w.store.ListNetworks(r.Context())
 	if err != nil {
 		w.logger.Error("list networks", "error", err)
+		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
+		return
 	}
 	w.render(rw, "networks.html", map[string]any{
 		"Active":   "networks",

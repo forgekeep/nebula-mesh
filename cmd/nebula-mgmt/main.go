@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/juev/nebula-mesh/internal/cli"
+	"github.com/juev/nebula-mgmt/internal/cli"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/pki"
+	"github.com/juev/nebula-mgmt/internal/pki"
 )
 
 type caInfoResponse struct {

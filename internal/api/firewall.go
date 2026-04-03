@@ -2,10 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mgmt/internal/store"
 )
 
 type firewallRulesRequest struct {
@@ -63,7 +64,7 @@ func (s *Server) handleUpdateFirewall(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getFirewallRules(r *http.Request, networkID string) (*firewallRulesRequest, error) {
 	val, err := s.store.GetNetworkConfig(r.Context(), networkID, "firewall")
-	if err == store.ErrNotFound {
+	if errors.Is(err, store.ErrNotFound) {
 		rules := defaultFirewallRules
 		return &rules, nil
 	}

@@ -1,0 +1,28 @@
+# Binaries
+/nebula-mgmt
+/nebula-agent
+*.exe
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Keys and secrets
+*.key
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+/bin/
+/dist/

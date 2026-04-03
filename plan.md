@@ -8,7 +8,7 @@
 
 ## Status
 
-DRAFT
+APPROVED
 
 ## Changelog
 

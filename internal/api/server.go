@@ -12,22 +12,31 @@ import (
 	"github.com/juev/nebula-mesh/internal/store"
 )
 
+// CAConfig holds paths and passphrase for CA persistence.
+type CAConfig struct {
+	CertPath   string
+	KeyPath    string
+	Passphrase string
+}
+
 // Server is the HTTP API server.
 type Server struct {
-	router chi.Router
-	store  store.Store
-	ca     *pki.CAManager
-	logger *slog.Logger
-	apiKey string
+	router   chi.Router
+	store    store.Store
+	ca       *pki.CAManager
+	caConfig CAConfig
+	logger   *slog.Logger
+	apiKey   string
 }
 
 // NewServer creates a new API server.
-func NewServer(s store.Store, ca *pki.CAManager, apiKey string, logger *slog.Logger) *Server {
+func NewServer(s store.Store, ca *pki.CAManager, apiKey string, logger *slog.Logger, caCfg CAConfig) *Server {
 	srv := &Server{
-		store:  s,
-		ca:     ca,
-		logger: logger,
-		apiKey: apiKey,
+		store:    s,
+		ca:       ca,
+		caConfig: caCfg,
+		logger:   logger,
+		apiKey:   apiKey,
 	}
 	srv.setupRoutes()
 	return srv

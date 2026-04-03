@@ -64,7 +64,11 @@ func Serve(configPath string) error {
 	}
 
 	// Create API server
-	apiSrv := api.NewServer(s, ca, cfg.APIKey, logger)
+	apiSrv := api.NewServer(s, ca, cfg.APIKey, logger, api.CAConfig{
+		CertPath:   certPath,
+		KeyPath:    keyPath,
+		Passphrase: string(passBytes),
+	})
 
 	// Create Web UI
 	uiPassword := cfg.UIPassword

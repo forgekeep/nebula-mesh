@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -35,6 +36,10 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 
 	if req.Name == "" || req.NebulaIP == "" || req.NetworkID == "" {
 		writeError(w, http.StatusBadRequest, "name, nebula_ip, and network_id are required")
+		return
+	}
+	if _, err := netip.ParseAddr(req.NebulaIP); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid nebula_ip: "+err.Error())
 		return
 	}
 

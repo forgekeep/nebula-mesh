@@ -413,6 +413,141 @@ func TestBlocklist_AddAndGet(t *testing.T) {
 	}
 }
 
+// --- Audit Log ---
+
+func TestListAuditEntries_WithLimit(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Create 5 audit entries
+	for i := 0; i < 5; i++ {
+		if err := s.AddAuditEntry(ctx, "admin", "test_action", fmt.Sprintf("resource_%d", i), ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	entries, err := s.ListAuditEntries(ctx, AuditFilter{Limit: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Errorf("len = %d, want 3", len(entries))
+	}
+}
+
+func TestUpdateHost_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	h := &models.Host{
+		ID: "nonexistent", Name: "ghost", NebulaIP: "10.0.0.1",
+		Groups: []string{}, Status: models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	err := s.UpdateHost(ctx, h)
+	if err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestDeleteHost_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	err := s.DeleteHost(context.Background(), "nonexistent")
+	if err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestListHosts_GroupFilterSpecialChars(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	// Host with group containing percent sign
+	h1 := &models.Host{
+		ID: "host_1", NetworkID: net.ID, Name: "special", NebulaIP: "192.168.100.10",
+		Groups: []string{"50%off"}, Role: models.HostRoleHost, Status: models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	h2 := &models.Host{
+		ID: "host_2", NetworkID: net.ID, Name: "normal", NebulaIP: "192.168.100.11",
+		Groups: []string{"web"}, Role: models.HostRoleHost, Status: models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateHost(ctx, h2); err != nil {
+		t.Fatal(err)
+	}
+
+	// Search for exact group "50%off" — should find only host_1
+	hosts, err := s.ListHosts(ctx, HostFilter{Group: "50%off"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 1 {
+		t.Fatalf("len = %d, want 1 (only host with exact group '50%%off')", len(hosts))
+	}
+	if hosts[0].Name != "special" {
+		t.Errorf("name = %q, want 'special'", hosts[0].Name)
+	}
+
+	// Search with just "%" should NOT match anything (no group named exactly "%")
+	hosts, err = s.ListHosts(ctx, HostFilter{Group: "%"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 0 {
+		t.Errorf("len = %d, want 0 (no group named exactly '%%')", len(hosts))
+	}
+}
+
+// --- Network Config ---
+
+func TestGetSetNetworkConfig(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestNetwork(t, s)
+
+	// Set config
+	if err := s.SetNetworkConfig(ctx, "net_test1", "firewall", `{"inbound":[]}`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Get config
+	val, err := s.GetNetworkConfig(ctx, "net_test1", "firewall")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != `{"inbound":[]}` {
+		t.Errorf("value = %q, want %q", val, `{"inbound":[]}`)
+	}
+
+	// Upsert (overwrite)
+	if err := s.SetNetworkConfig(ctx, "net_test1", "firewall", `{"inbound":[{"port":"any"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	val, err = s.GetNetworkConfig(ctx, "net_test1", "firewall")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != `{"inbound":[{"port":"any"}]}` {
+		t.Errorf("value = %q after upsert", val)
+	}
+}
+
+func TestGetNetworkConfig_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestNetwork(t, s)
+
+	_, err := s.GetNetworkConfig(ctx, "net_test1", "nonexistent")
+	if err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestBlocklist_Remove(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

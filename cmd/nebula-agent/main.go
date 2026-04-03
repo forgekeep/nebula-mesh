@@ -81,7 +81,13 @@ func runAgent(args []string) error {
 		return fmt.Errorf("read certificate fingerprint: %w (did you run 'enroll' first?)", err)
 	}
 
-	poller := agent.NewPoller(cfg.ServerURL, fingerprint, cfg.DataDir, cfg.PollInterval, logger)
+	poller := agent.NewPoller(agent.PollerConfig{
+		ServerURL:   cfg.ServerURL,
+		Fingerprint: fingerprint,
+		DataDir:     cfg.DataDir,
+		Interval:    cfg.PollInterval,
+		PIDFile:     cfg.NebulaPIDFile,
+	}, logger)
 
 	// Graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

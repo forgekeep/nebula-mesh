@@ -37,6 +37,15 @@ func (s *Server) handleRotateCA(w http.ResponseWriter, _ *http.Request) {
 	// Switch to new CA for signing
 	s.ca = rotation.NewCA()
 
+	// Persist new CA to disk
+	if s.caConfig.CertPath != "" {
+		if err := s.ca.Save(s.caConfig.CertPath, s.caConfig.KeyPath, s.caConfig.Passphrase); err != nil {
+			s.logger.Error("save rotated CA", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to save rotated CA")
+			return
+		}
+	}
+
 	bundle, err := rotation.TrustBundle()
 	if err != nil {
 		s.logger.Error("trust bundle", "error", err)

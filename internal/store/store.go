@@ -54,6 +54,10 @@ type Store interface {
 	BumpNetworkConfigVersion(ctx context.Context, networkID string) error
 	GetNetworkConfigVersion(ctx context.Context, networkID string) (int, error)
 
+	// Network config (key-value)
+	GetNetworkConfig(ctx context.Context, networkID, key string) (string, error)
+	SetNetworkConfig(ctx context.Context, networkID, key, value string) error
+
 	// Audit log
 	AddAuditEntry(ctx context.Context, actor, action, resource, details string) error
 	ListAuditEntries(ctx context.Context, filter AuditFilter) ([]*models.AuditEntry, error)

@@ -134,13 +134,15 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update host status
+	// Update host status (before sending response to client)
 	host.Status = models.HostStatusEnrolled
 	host.CertFingerprint = fp
 	expires := hostCert.NotAfter()
 	host.CertExpiresAt = &expires
 	if err := s.store.UpdateHost(r.Context(), host); err != nil {
 		s.logger.Error("update host status", "error", err)
+		writeError(w, http.StatusInternalServerError, "enrollment failed")
+		return
 	}
 
 	// Get CA cert PEM

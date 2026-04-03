@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 )
 
 // HostCreate creates a host via the API.
@@ -24,8 +25,14 @@ func HostCreate(serverURL, apiKey, networkID, name, nebulaIP, role string, group
 		body["listen_port"] = listenPort
 	}
 
-	data, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", serverURL+"/api/v1/hosts", bytes.NewReader(data))
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	req, err := http.NewRequest("POST", serverURL+"/api/v1/hosts", bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -47,7 +54,9 @@ func HostCreate(serverURL, apiKey, networkID, name, nebulaIP, role string, group
 		} `json:"host"`
 		EnrollmentToken string `json:"enrollment_token"`
 	}
-	json.Unmarshal(respBody, &result)
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return fmt.Errorf("unmarshal response: %w", err)
+	}
 
 	fmt.Printf("Host created: %s (ID: %s)\n", result.Host.Name, result.Host.ID)
 	fmt.Printf("Enrollment token: %s\n", result.EnrollmentToken)
@@ -56,12 +65,15 @@ func HostCreate(serverURL, apiKey, networkID, name, nebulaIP, role string, group
 
 // HostList lists hosts via the API.
 func HostList(serverURL, apiKey, networkID string) error {
-	url := serverURL + "/api/v1/hosts"
+	u := serverURL + "/api/v1/hosts"
 	if networkID != "" {
-		url += "?network_id=" + networkID
+		u += "?network_id=" + url.QueryEscape(networkID)
 	}
 
-	req, _ := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -77,7 +89,9 @@ func HostList(serverURL, apiKey, networkID string) error {
 		Role     string `json:"role"`
 		Status   string `json:"status"`
 	}
-	json.NewDecoder(resp.Body).Decode(&hosts)
+	if err := json.NewDecoder(resp.Body).Decode(&hosts); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
 
 	if len(hosts) == 0 {
 		fmt.Println("No hosts found.")

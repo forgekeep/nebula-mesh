@@ -34,7 +34,7 @@ func newTestServer(t *testing.T) (*Server, *store.SQLiteStore) {
 	}
 
 	logger := slog.Default()
-	srv := NewServer(s, ca, testAPIKey, logger)
+	srv := NewServer(s, ca, testAPIKey, logger, CAConfig{})
 	return srv, s
 }
 
@@ -221,6 +221,133 @@ func TestDeleteHost(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("get after delete status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestCreateNetwork_InvalidCIDR(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	body := `{"name":"bad-net","cidr":"invalid/33"}`
+	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBufferString(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestCreateHost_InvalidIP(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	body, _ := json.Marshal(createHostRequest{
+		NetworkID: netID, Name: "bad-host", NebulaIP: "not-an-ip",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestFirewallRules_DefaultAndCRUD(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	// GET returns defaults
+	req := httptest.NewRequest("GET", "/api/v1/networks/"+netID+"/firewall", nil)
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var rules firewallRulesRequest
+	json.NewDecoder(w.Body).Decode(&rules)
+	if len(rules.Inbound) != 1 || rules.Inbound[0].Proto != "icmp" {
+		t.Errorf("expected default inbound icmp rule, got %+v", rules.Inbound)
+	}
+
+	// PUT custom rules
+	customRules := `{"inbound":[{"port":"443","proto":"tcp","group":"web"}],"outbound":[{"port":"any","proto":"any","group":"any"}]}`
+	req = httptest.NewRequest("PUT", "/api/v1/networks/"+netID+"/firewall", bytes.NewBufferString(customRules))
+	authRequest(req)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("put status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	// GET returns stored rules
+	req = httptest.NewRequest("GET", "/api/v1/networks/"+netID+"/firewall", nil)
+	authRequest(req)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	json.NewDecoder(w.Body).Decode(&rules)
+	if len(rules.Inbound) != 1 || rules.Inbound[0].Port != "443" {
+		t.Errorf("expected stored inbound rule port=443, got %+v", rules.Inbound)
+	}
+}
+
+func TestRotateCA_Persists(t *testing.T) {
+	s, err := store.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	ca, _, err := pki.NewCA("test-ca", 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	certPath := dir + "/ca.crt"
+	keyPath := dir + "/ca.key"
+	passphrase := "test-pass"
+
+	// Save initial CA
+	if err := ca.Save(certPath, keyPath, passphrase); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := NewServer(s, ca, testAPIKey, slog.Default(), CAConfig{
+		CertPath:   certPath,
+		KeyPath:    keyPath,
+		Passphrase: passphrase,
+	})
+
+	// Get old fingerprint
+	oldFP, _ := ca.CACertFingerprint()
+
+	// Rotate
+	req := httptest.NewRequest("POST", "/api/v1/ca/rotate", nil)
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("rotate status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	// Load CA from disk and verify it's different
+	loaded, err := pki.LoadCA(certPath, keyPath, passphrase)
+	if err != nil {
+		t.Fatalf("load rotated CA: %v", err)
+	}
+	newFP, _ := loaded.CACertFingerprint()
+	if newFP == oldFP {
+		t.Error("CA fingerprint should change after rotation")
 	}
 }
 

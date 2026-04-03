@@ -14,9 +14,15 @@ func NetworkCreate(serverURL, apiKey, name, cidr string) error {
 		"name": name,
 		"cidr": cidr,
 	}
-	data, _ := json.Marshal(body)
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
 
-	req, _ := http.NewRequest("POST", serverURL+"/api/v1/networks", bytes.NewReader(data))
+	req, err := http.NewRequest("POST", serverURL+"/api/v1/networks", bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -36,7 +42,9 @@ func NetworkCreate(serverURL, apiKey, name, cidr string) error {
 		Name string `json:"name"`
 		CIDR string `json:"cidr"`
 	}
-	json.Unmarshal(respBody, &result)
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return fmt.Errorf("unmarshal response: %w", err)
+	}
 
 	fmt.Printf("Network created: %s (ID: %s, CIDR: %s)\n", result.Name, result.ID, result.CIDR)
 	return nil
@@ -44,7 +52,10 @@ func NetworkCreate(serverURL, apiKey, name, cidr string) error {
 
 // NetworkList lists networks via the API.
 func NetworkList(serverURL, apiKey string) error {
-	req, _ := http.NewRequest("GET", serverURL+"/api/v1/networks", nil)
+	req, err := http.NewRequest("GET", serverURL+"/api/v1/networks", nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -58,7 +69,9 @@ func NetworkList(serverURL, apiKey string) error {
 		Name string `json:"name"`
 		CIDR string `json:"cidr"`
 	}
-	json.NewDecoder(resp.Body).Decode(&networks)
+	if err := json.NewDecoder(resp.Body).Decode(&networks); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
 
 	if len(networks) == 0 {
 		fmt.Println("No networks found.")

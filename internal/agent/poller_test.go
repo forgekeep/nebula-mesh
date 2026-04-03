@@ -26,7 +26,12 @@ func TestPoller_NoUpdates(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	p := NewPoller(server.URL, "test-fp", dir, 50*time.Millisecond, slog.Default())
+	p := NewPoller(PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "test-fp",
+		DataDir:     dir,
+		Interval:    50 * time.Millisecond,
+	}, slog.Default())
 
 	var signalled atomic.Bool
 	p.signalFunc = func() error {
@@ -55,7 +60,12 @@ func TestPoller_WithCertUpdate(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	p := NewPoller(server.URL, "test-fp", dir, 50*time.Millisecond, slog.Default())
+	p := NewPoller(PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "test-fp",
+		DataDir:     dir,
+		Interval:    50 * time.Millisecond,
+	}, slog.Default())
 
 	var signalled atomic.Bool
 	p.signalFunc = func() error {
@@ -93,7 +103,12 @@ func TestPoller_WithConfigUpdate(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	p := NewPoller(server.URL, "test-fp", dir, 50*time.Millisecond, slog.Default())
+	p := NewPoller(PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "test-fp",
+		DataDir:     dir,
+		Interval:    50 * time.Millisecond,
+	}, slog.Default())
 	p.signalFunc = func() error { return nil }
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -106,5 +121,58 @@ func TestPoller_WithConfigUpdate(t *testing.T) {
 	}
 	if string(data) != configYAML {
 		t.Errorf("config = %q, want %q", string(data), configYAML)
+	}
+}
+
+func TestPoller_FingerprintEscaped(t *testing.T) {
+	var receivedFP string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedFP = r.URL.Query().Get("fingerprint")
+		json.NewEncoder(w).Encode(UpdatesResponse{HasUpdates: false, Blocklist: []string{}})
+	}))
+	defer server.Close()
+
+	p := NewPoller(PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "fp with spaces&special=chars",
+		DataDir:     t.TempDir(),
+		Interval:    50 * time.Millisecond,
+	}, slog.Default())
+	p.signalFunc = func() error { return nil }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	p.Run(ctx)
+
+	if receivedFP != "fp with spaces&special=chars" {
+		t.Errorf("fingerprint = %q, want %q", receivedFP, "fp with spaces&special=chars")
+	}
+}
+
+func TestSignalNebula_ReadsPIDFile(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "nebula.pid")
+	// Write current process PID — signal to self is safe (SIGHUP is handled)
+	if err := os.WriteFile(pidFile, []byte("99999999"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := signalNebulaFromPID(pidFile)
+	// Should fail because PID 99999999 doesn't exist — but it should parse correctly
+	if err == nil {
+		t.Error("expected error signaling nonexistent process")
+	}
+}
+
+func TestSignalNebula_MissingPIDFile(t *testing.T) {
+	err := signalNebulaFromPID("/nonexistent/nebula.pid")
+	if err == nil {
+		t.Error("expected error for missing PID file")
+	}
+}
+
+func TestSignalNebula_NoPIDFile(t *testing.T) {
+	err := signalNebulaFromPID("")
+	if err == nil {
+		t.Error("expected error when PID file not configured")
 	}
 }

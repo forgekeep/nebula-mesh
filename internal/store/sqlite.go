@@ -224,8 +224,11 @@ func (s *SQLiteStore) ListHosts(_ context.Context, filter HostFilter) ([]*models
 		args = append(args, filter.Status)
 	}
 	if filter.Group != "" {
-		query += ` AND groups_json LIKE ?`
-		args = append(args, `%"`+filter.Group+`"%`)
+		escaped := strings.ReplaceAll(filter.Group, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, `%`, `\%`)
+		escaped = strings.ReplaceAll(escaped, `_`, `\_`)
+		query += ` AND groups_json LIKE ? ESCAPE '\'`
+		args = append(args, `%"`+escaped+`"%`)
 	}
 	query += ` ORDER BY name`
 
@@ -265,7 +268,10 @@ func (s *SQLiteStore) UpdateHost(_ context.Context, h *models.Host) error {
 		return fmt.Errorf("update host: %w", err)
 	}
 
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update host rows affected: %w", err)
+	}
 	if rows == 0 {
 		return ErrNotFound
 	}
@@ -277,7 +283,10 @@ func (s *SQLiteStore) DeleteHost(_ context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("delete host: %w", err)
 	}
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete host rows affected: %w", err)
+	}
 	if rows == 0 {
 		return ErrNotFound
 	}
@@ -486,6 +495,34 @@ func (s *SQLiteStore) GetNetworkConfigVersion(_ context.Context, networkID strin
 	return version, nil
 }
 
+// --- Network Config ---
+
+func (s *SQLiteStore) GetNetworkConfig(_ context.Context, networkID, key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(
+		`SELECT value FROM network_config WHERE network_id = ? AND key = ?`, networkID, key,
+	).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("get network config: %w", err)
+	}
+	return value, nil
+}
+
+func (s *SQLiteStore) SetNetworkConfig(_ context.Context, networkID, key, value string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO network_config (network_id, key, value) VALUES (?, ?, ?)
+		 ON CONFLICT(network_id, key) DO UPDATE SET value = excluded.value`,
+		networkID, key, value,
+	)
+	if err != nil {
+		return fmt.Errorf("set network config: %w", err)
+	}
+	return nil
+}
+
 // --- Audit Log ---
 
 func (s *SQLiteStore) AddAuditEntry(_ context.Context, actor, action, resource, details string) error {
@@ -514,7 +551,8 @@ func (s *SQLiteStore) ListAuditEntries(_ context.Context, filter AuditFilter) ([
 	if limit <= 0 {
 		limit = 100
 	}
-	query += fmt.Sprintf(` LIMIT %d`, limit)
+	query += ` LIMIT ?`
+	args = append(args, limit)
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {

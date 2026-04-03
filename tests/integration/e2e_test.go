@@ -40,7 +40,7 @@ func setupE2E(t *testing.T) (*httptest.Server, *store.SQLiteStore, *pki.CAManage
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := api.NewServer(s, ca, testAPIKey, logger)
+	srv := api.NewServer(s, ca, testAPIKey, logger, api.CAConfig{})
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 

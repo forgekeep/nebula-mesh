@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -73,7 +74,7 @@ func Init(configPath string) error {
 	}
 	defer s.Close()
 
-	if err := s.Migrate(nil); err != nil {
+	if err := s.Migrate(context.Background()); err != nil {
 		return fmt.Errorf("migrate database: %w", err)
 	}
 

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -25,6 +26,10 @@ func (s *Server) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
 
 	if req.Name == "" || req.CIDR == "" {
 		writeError(w, http.StatusBadRequest, "name and cidr are required")
+		return
+	}
+	if _, err := netip.ParsePrefix(req.CIDR); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid CIDR: "+err.Error())
 		return
 	}
 

@@ -7,8 +7,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -22,33 +25,39 @@ type UpdatesResponse struct {
 	Blocklist      []string `json:"blocklist"`
 }
 
+// PollerConfig holds configuration for the Poller.
+type PollerConfig struct {
+	ServerURL   string
+	Fingerprint string
+	DataDir     string
+	Interval    time.Duration
+	PIDFile     string
+}
+
 // Poller periodically checks the management server for updates.
 type Poller struct {
-	serverURL   string
-	fingerprint string
-	dataDir     string
-	interval    time.Duration
-	logger      *slog.Logger
-	signalFunc  func() error // for testing: override SIGHUP sending
+	config     PollerConfig
+	logger     *slog.Logger
+	signalFunc func() error // for testing: override SIGHUP sending
 }
 
 // NewPoller creates a new Poller.
-func NewPoller(serverURL, fingerprint, dataDir string, interval time.Duration, logger *slog.Logger) *Poller {
-	return &Poller{
-		serverURL:   serverURL,
-		fingerprint: fingerprint,
-		dataDir:     dataDir,
-		interval:    interval,
-		logger:      logger,
-		signalFunc:  signalNebula,
+func NewPoller(cfg PollerConfig, logger *slog.Logger) *Poller {
+	p := &Poller{
+		config: cfg,
+		logger: logger,
 	}
+	p.signalFunc = func() error {
+		return signalNebulaFromPID(cfg.PIDFile)
+	}
+	return p
 }
 
 // Run starts the poll loop, blocking until ctx is cancelled.
 func (p *Poller) Run(ctx context.Context) error {
-	p.logger.Info("starting poll loop", "interval", p.interval, "server", p.serverURL)
+	p.logger.Info("starting poll loop", "interval", p.config.Interval, "server", p.config.ServerURL)
 
-	ticker := time.NewTicker(p.interval)
+	ticker := time.NewTicker(p.config.Interval)
 	defer ticker.Stop()
 
 	for {
@@ -65,8 +74,8 @@ func (p *Poller) Run(ctx context.Context) error {
 }
 
 func (p *Poller) poll(_ context.Context) error {
-	url := fmt.Sprintf("%s/api/v1/agent/updates?fingerprint=%s", p.serverURL, p.fingerprint)
-	resp, err := http.Get(url)
+	u := fmt.Sprintf("%s/api/v1/agent/updates?fingerprint=%s", p.config.ServerURL, url.QueryEscape(p.config.Fingerprint))
+	resp, err := http.Get(u)
 	if err != nil {
 		return fmt.Errorf("poll request: %w", err)
 	}
@@ -92,7 +101,7 @@ func (p *Poller) poll(_ context.Context) error {
 	needsReload := false
 
 	if updates.CertificatePEM != nil {
-		if err := os.WriteFile(filepath.Join(p.dataDir, "host.crt"), []byte(*updates.CertificatePEM), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(p.config.DataDir, "host.crt"), []byte(*updates.CertificatePEM), 0o644); err != nil {
 			return fmt.Errorf("write cert: %w", err)
 		}
 		p.logger.Info("certificate updated")
@@ -100,7 +109,7 @@ func (p *Poller) poll(_ context.Context) error {
 	}
 
 	if updates.CACertPEM != nil {
-		if err := os.WriteFile(filepath.Join(p.dataDir, "ca.crt"), []byte(*updates.CACertPEM), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(p.config.DataDir, "ca.crt"), []byte(*updates.CACertPEM), 0o644); err != nil {
 			return fmt.Errorf("write CA cert: %w", err)
 		}
 		p.logger.Info("CA certificate updated")
@@ -108,7 +117,7 @@ func (p *Poller) poll(_ context.Context) error {
 	}
 
 	if updates.ConfigYAML != nil {
-		if err := os.WriteFile(filepath.Join(p.dataDir, "config.yml"), []byte(*updates.ConfigYAML), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(p.config.DataDir, "config.yml"), []byte(*updates.ConfigYAML), 0o644); err != nil {
 			return fmt.Errorf("write config: %w", err)
 		}
 		p.logger.Info("config updated")
@@ -126,14 +135,26 @@ func (p *Poller) poll(_ context.Context) error {
 	return nil
 }
 
-// signalNebula sends SIGHUP to the nebula process.
-func signalNebula() error {
-	// Find nebula process by name
-	// In production, this would use a PID file or process lookup.
-	// For now, try to signal by name using pkill.
-	proc, err := os.FindProcess(1) // placeholder
-	if err != nil {
-		return fmt.Errorf("find nebula process: %w", err)
+// signalNebulaFromPID reads the PID from file and sends SIGHUP to the nebula process.
+func signalNebulaFromPID(pidFile string) error {
+	if pidFile == "" {
+		return fmt.Errorf("nebula PID file not configured")
 	}
+
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return fmt.Errorf("read PID file %s: %w", pidFile, err)
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return fmt.Errorf("parse PID from %s: %w", pidFile, err)
+	}
+
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("find process %d: %w", pid, err)
+	}
+
 	return proc.Signal(syscall.SIGHUP)
 }

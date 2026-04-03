@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -56,10 +57,16 @@ type dashboardStats struct {
 func (w *Web) getStats(ctx context.Context) dashboardStats {
 	var stats dashboardStats
 
-	networks, _ := w.store.ListNetworks(ctx)
+	networks, err := w.store.ListNetworks(ctx)
+	if err != nil {
+		w.logger.Error("list networks for stats", "error", err)
+	}
 	stats.Networks = len(networks)
 
-	hosts, _ := w.store.ListHosts(ctx, store.HostFilter{})
+	hosts, err := w.store.ListHosts(ctx, store.HostFilter{})
+	if err != nil {
+		w.logger.Error("list hosts for stats", "error", err)
+	}
 	stats.TotalHosts = len(hosts)
 	for _, h := range hosts {
 		switch h.Status {
@@ -79,7 +86,10 @@ func (w *Web) getStats(ctx context.Context) dashboardStats {
 
 func (w *Web) handleDashboard(rw http.ResponseWriter, r *http.Request) {
 	stats := w.getStats(r.Context())
-	hosts, _ := w.store.ListHosts(r.Context(), store.HostFilter{})
+	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{})
+	if err != nil {
+		w.logger.Error("list hosts for dashboard", "error", err)
+	}
 
 	// Take last 10
 	if len(hosts) > 10 {
@@ -116,7 +126,10 @@ func (w *Web) handleHosts(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleHostNew(rw http.ResponseWriter, r *http.Request) {
-	networks, _ := w.store.ListNetworks(r.Context())
+	networks, err := w.store.ListNetworks(r.Context())
+	if err != nil {
+		w.logger.Error("list networks for host form", "error", err)
+	}
 	w.render(rw, "host_new.html", map[string]any{
 		"Active":   "hosts",
 		"Networks": networks,
@@ -126,7 +139,24 @@ func (w *Web) handleHostNew(rw http.ResponseWriter, r *http.Request) {
 func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 
-	listenPort, _ := strconv.Atoi(r.FormValue("listen_port"))
+	nebulaIP := r.FormValue("nebula_ip")
+	if nebulaIP != "" {
+		if _, err := netip.ParseAddr(nebulaIP); err != nil {
+			http.Error(rw, "invalid nebula_ip: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	listenPortStr := r.FormValue("listen_port")
+	var listenPort int
+	if listenPortStr != "" {
+		var err error
+		listenPort, err = strconv.Atoi(listenPortStr)
+		if err != nil {
+			http.Error(rw, "invalid listen_port: must be a number", http.StatusBadRequest)
+			return
+		}
+	}
 	role := models.HostRole(r.FormValue("role"))
 	if role == "" {
 		role = models.HostRoleHost
@@ -147,7 +177,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		ID:           uuid.New().String(),
 		NetworkID:    r.FormValue("network_id"),
 		Name:         r.FormValue("name"),
-		NebulaIP:     r.FormValue("nebula_ip"),
+		NebulaIP:     nebulaIP,
 		Groups:       groups,
 		Role:         role,
 		IsLighthouse: role == models.HostRoleLighthouse,
@@ -205,29 +235,52 @@ func (w *Web) handleHostDetail(rw http.ResponseWriter, r *http.Request) {
 func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	host, err := w.store.GetHost(r.Context(), id)
-	if err != nil {
+	if err == store.ErrNotFound {
 		http.NotFound(rw, r)
+		return
+	}
+	if err != nil {
+		w.logger.Error("get host for block", "error", err)
+		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
 	if host.CertFingerprint != "" {
-		w.store.AddToBlocklist(r.Context(), host.CertFingerprint, host.ID, "blocked via UI")
+		if err := w.store.AddToBlocklist(r.Context(), host.CertFingerprint, host.ID, "blocked via UI"); err != nil {
+			w.logger.Error("add to blocklist", "error", err)
+			http.Error(rw, "Failed to block host", http.StatusInternalServerError)
+			return
+		}
 	}
 	host.Status = models.HostStatusBlocked
-	w.store.UpdateHost(r.Context(), host)
+	if err := w.store.UpdateHost(r.Context(), host); err != nil {
+		w.logger.Error("update host status", "error", err)
+		http.Error(rw, "Failed to update host", http.StatusInternalServerError)
+		return
+	}
 
-	// htmx: return updated row
 	rw.Header().Set("HX-Redirect", "/ui/hosts")
 	rw.WriteHeader(http.StatusOK)
 }
 
 func (w *Web) handleHostDelete(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	host, _ := w.store.GetHost(r.Context(), id)
-	if host != nil && host.CertFingerprint != "" {
-		w.store.AddToBlocklist(r.Context(), host.CertFingerprint, host.ID, "deleted via UI")
+	host, err := w.store.GetHost(r.Context(), id)
+	if err != nil && err != store.ErrNotFound {
+		w.logger.Error("get host for delete", "error", err)
+		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
-	w.store.DeleteHost(r.Context(), id)
+	if host != nil && host.CertFingerprint != "" {
+		if err := w.store.AddToBlocklist(r.Context(), host.CertFingerprint, host.ID, "deleted via UI"); err != nil {
+			w.logger.Error("add to blocklist on delete", "error", err)
+		}
+	}
+	if err := w.store.DeleteHost(r.Context(), id); err != nil {
+		w.logger.Error("delete host", "error", err)
+		http.Error(rw, "Failed to delete host", http.StatusInternalServerError)
+		return
+	}
 
 	rw.Header().Set("HX-Redirect", "/ui/hosts")
 	rw.WriteHeader(http.StatusOK)
@@ -236,7 +289,10 @@ func (w *Web) handleHostDelete(rw http.ResponseWriter, r *http.Request) {
 // --- Networks ---
 
 func (w *Web) handleNetworks(rw http.ResponseWriter, r *http.Request) {
-	networks, _ := w.store.ListNetworks(r.Context())
+	networks, err := w.store.ListNetworks(r.Context())
+	if err != nil {
+		w.logger.Error("list networks", "error", err)
+	}
 	w.render(rw, "networks.html", map[string]any{
 		"Active":   "networks",
 		"Networks": networks,
@@ -245,10 +301,21 @@ func (w *Web) handleNetworks(rw http.ResponseWriter, r *http.Request) {
 
 func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
+	name := r.FormValue("name")
+	cidr := r.FormValue("cidr")
+	if name == "" || cidr == "" {
+		http.Error(rw, "name and cidr are required", http.StatusBadRequest)
+		return
+	}
+	if _, err := netip.ParsePrefix(cidr); err != nil {
+		http.Error(rw, "invalid CIDR: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	network := &models.Network{
 		ID:        uuid.New().String(),
-		Name:      r.FormValue("name"),
-		CIDR:      r.FormValue("cidr"),
+		Name:      name,
+		CIDR:      cidr,
 		CreatedAt: time.Now(),
 	}
 

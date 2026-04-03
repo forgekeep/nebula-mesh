@@ -89,27 +89,12 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse CIDR to get prefix length
-	prefix, err := netip.ParsePrefix(network.CIDR)
+	hostPrefix, err := buildHostPrefix(host.NebulaIP, network.CIDR)
 	if err != nil {
-		s.logger.Error("parse network CIDR", "error", err, "cidr", network.CIDR)
+		s.logger.Error("build host prefix", "error", err, "host_ip", host.NebulaIP, "cidr", network.CIDR)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}
-
-	// Build host IP with network prefix
-	hostAddr, err := netip.ParseAddr(host.NebulaIP)
-	if err != nil {
-		s.logger.Error("parse host IP", "error", err, "ip", host.NebulaIP)
-		writeError(w, http.StatusInternalServerError, "enrollment failed")
-		return
-	}
-	if hostAddr.Is4() != prefix.Addr().Is4() {
-		s.logger.Error("IP family mismatch", "host_ip", host.NebulaIP, "network_cidr", network.CIDR)
-		writeError(w, http.StatusInternalServerError, "enrollment failed")
-		return
-	}
-	hostPrefix := netip.PrefixFrom(hostAddr, prefix.Bits())
 
 	// CA operations — lock needed only for Sign + CACertPEM
 	hostCert, caCertPEM, err := func() (cert.Certificate, []byte, error) {
@@ -205,7 +190,7 @@ func (s *Server) getLighthouses(ctx context.Context, networkID string) ([]config
 		return nil, err
 	}
 
-	var result []configgen.LighthouseInfo
+	result := make([]configgen.LighthouseInfo, 0)
 	for _, h := range hosts {
 		if h.IsLighthouse && h.PublicIP != "" {
 			port := h.ListenPort

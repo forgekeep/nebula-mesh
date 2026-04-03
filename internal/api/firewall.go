@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -47,6 +48,19 @@ func (s *Server) handleUpdateFirewall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for _, rules := range [][]firewallRule{req.Inbound, req.Outbound} {
+		for _, rule := range rules {
+			if rule.Port == "" {
+				writeError(w, http.StatusBadRequest, "firewall rule port must not be empty")
+				return
+			}
+			if rule.Proto == "" {
+				writeError(w, http.StatusBadRequest, "firewall rule proto must not be empty")
+				return
+			}
+		}
+	}
+
 	rulesJSON, err := json.Marshal(req)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to marshal rules")
@@ -74,9 +88,7 @@ func (s *Server) getFirewallRules(r *http.Request, networkID string) (*firewallR
 
 	var rules firewallRulesRequest
 	if err := json.Unmarshal([]byte(val), &rules); err != nil {
-		s.logger.Error("unmarshal firewall rules from DB, using defaults", "error", err)
-		defaults := defaultFirewallRules
-		return &defaults, nil
+		return nil, fmt.Errorf("unmarshal firewall rules: %w", err)
 	}
 	return &rules, nil
 }

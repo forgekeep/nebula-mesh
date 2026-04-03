@@ -214,6 +214,32 @@ func TestCreateHostViaUI(t *testing.T) {
 	}
 }
 
+func TestCreateHostViaUI_InvalidPort(t *testing.T) {
+	w, s := newTestWeb(t)
+	cookies := loginSession(t, w)
+
+	ctx := context.Background()
+	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "test", CIDR: "10.0.0.0/24", CreatedAt: time.Now()})
+
+	form := url.Values{
+		"network_id":  {"net1"},
+		"name":        {"bad-port-host"},
+		"nebula_ip":   {"10.0.0.5"},
+		"listen_port": {"70000"},
+	}
+	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for port 70000, got %d", rec.Code)
+	}
+}
+
 func TestLogout(t *testing.T) {
 	w, _ := newTestWeb(t)
 	cookies := loginSession(t, w)

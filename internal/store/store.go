@@ -42,6 +42,7 @@ type Store interface {
 	DeleteHostAndBlockCert(ctx context.Context, id, reason string) error
 
 	// Enrollment tokens
+	CreateHostAndToken(ctx context.Context, h *models.Host, t *models.EnrollmentToken) error
 	CreateToken(ctx context.Context, t *models.EnrollmentToken) error
 	ConsumeToken(ctx context.Context, token string) (*models.EnrollmentToken, error)
 

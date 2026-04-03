@@ -69,13 +69,14 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 			// Save outside CA lock — DB I/O does not need CA access
 			if saveErr := s.store.SaveCertificateAndUpdateHostCert(r.Context(), host.ID, signed.certPEM, signed.fp, signed.notBefore, signed.notAfter); saveErr != nil {
 				s.logger.Error("save renewed cert", "host", host.Name, "error", saveErr)
-			} else {
-				certStr := string(signed.certPEM)
-				resp.CertificatePEM = &certStr
-				caStr := string(signed.caCertPEM)
-				resp.CACertPEM = &caStr
-				s.logger.Info("certificate renewed", "host", host.Name)
+				writeError(w, http.StatusInternalServerError, "failed to save renewed certificate")
+				return
 			}
+			certStr := string(signed.certPEM)
+			resp.CertificatePEM = &certStr
+			caStr := string(signed.caCertPEM)
+			resp.CACertPEM = &caStr
+			s.logger.Info("certificate renewed", "host", host.Name)
 		}
 	}
 
@@ -109,17 +110,9 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 		return nil, fmt.Errorf("get network: %w", err)
 	}
 
-	prefix, err := netip.ParsePrefix(network.CIDR)
+	hostPrefix, err := buildHostPrefix(host.NebulaIP, network.CIDR)
 	if err != nil {
-		return nil, fmt.Errorf("parse CIDR: %w", err)
-	}
-
-	hostAddr, err := netip.ParseAddr(host.NebulaIP)
-	if err != nil {
-		return nil, fmt.Errorf("parse host IP: %w", err)
-	}
-	if hostAddr.Is4() != prefix.Addr().Is4() {
-		return nil, fmt.Errorf("IP family mismatch: host %s vs network %s", host.NebulaIP, network.CIDR)
+		return nil, err
 	}
 
 	// CA operations — lock needed only for Sign + CACertPEM
@@ -130,7 +123,7 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 		c, signErr := s.ca.Sign(pki.SignRequest{
 			Name:      host.Name,
 			PublicKey: currentCert.PublicKey(),
-			Networks:  []netip.Prefix{netip.PrefixFrom(hostAddr, prefix.Bits())},
+			Networks:  []netip.Prefix{hostPrefix},
 			Groups:    host.Groups,
 			Duration:  30 * 24 * time.Hour,
 		})

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"fmt"
@@ -113,14 +114,19 @@ func (w *Web) render(rw http.ResponseWriter, name string, data any) {
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// For pages with layout, execute "layout.html"; for standalone pages, execute the file directly
 	execName := "layout.html"
 	if name == "login.html" {
 		execName = name
 	}
-	if err := tmpl.ExecuteTemplate(rw, execName, data); err != nil {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, execName, data); err != nil {
 		w.logger.Error("render template", "template", name, "error", err)
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, err := buf.WriteTo(rw); err != nil {
+		w.logger.Error("write response", "template", name, "error", err)
 	}
 }

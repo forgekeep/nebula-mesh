@@ -18,6 +18,16 @@ const (
 	HostRoleRelay      HostRole = "relay"
 )
 
+// ValidRole reports whether r is a known host role or empty (meaning "use default").
+func ValidRole(r HostRole) bool {
+	switch r {
+	case "", HostRoleHost, HostRoleLighthouse, HostRoleRelay:
+		return true
+	default:
+		return false
+	}
+}
+
 type Host struct {
 	ID              string     `json:"id"`
 	NetworkID       string     `json:"network_id"`

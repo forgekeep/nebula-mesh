@@ -159,6 +159,26 @@ func createNetwork(t *testing.T, srv *Server) string {
 	return net.ID
 }
 
+func TestCreateHost_InvalidRole(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	body, _ := json.Marshal(createHostRequest{
+		NetworkID: netID,
+		Name:      "bad-role-host",
+		NebulaIP:  "192.168.100.10",
+		Role:      "invalid",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid role, got %d, body: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestCreateAndGetHost(t *testing.T) {
 	srv, _ := newTestServer(t)
 	netID := createNetwork(t, srv)
@@ -452,6 +472,55 @@ func TestFirewallRules_DefaultAndCRUD(t *testing.T) {
 	}
 	if len(rules.Inbound) != 1 || rules.Inbound[0].Port != "443" {
 		t.Errorf("expected stored inbound rule port=443, got %+v", rules.Inbound)
+	}
+}
+
+func TestFirewallRules_ValidationEmptyProto(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	invalidRules := `{"inbound":[{"port":"443","proto":"","group":"web"}],"outbound":[]}`
+	req := httptest.NewRequest("PUT", "/api/v1/networks/"+netID+"/firewall", bytes.NewBufferString(invalidRules))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty proto, got %d, body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestFirewallRules_ValidationEmptyPort(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	invalidRules := `{"inbound":[],"outbound":[{"port":"","proto":"tcp","group":"any"}]}`
+	req := httptest.NewRequest("PUT", "/api/v1/networks/"+netID+"/firewall", bytes.NewBufferString(invalidRules))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty port, got %d, body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestFirewallRules_CorruptedJSON(t *testing.T) {
+	srv, s := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	// Write corrupted JSON directly into DB
+	if err := s.SetNetworkConfig(context.Background(), netID, "firewall", `{invalid json}`); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/networks/"+netID+"/firewall", nil)
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for corrupted firewall JSON, got %d, body: %s", w.Code, w.Body.String())
 	}
 }
 

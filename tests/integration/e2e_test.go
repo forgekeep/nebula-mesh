@@ -290,3 +290,80 @@ func TestE2E_FullCycle(t *testing.T) {
 
 	t.Log("E2E test passed: full lifecycle verified")
 }
+
+func TestAgentUpdates_CertSaveFailure(t *testing.T) {
+	ts, s, _ := setupE2E(t)
+
+	// 1. Create network + host
+	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]string{
+		"name": "save-fail-net",
+		"cidr": "10.0.0.0/24",
+	})
+	var network models.Network
+	json.NewDecoder(resp.Body).Decode(&network)
+	resp.Body.Close()
+
+	resp = apiCall(t, ts, "POST", "/api/v1/hosts", map[string]any{
+		"network_id": network.ID,
+		"name":       "save-fail-host",
+		"nebula_ip":  "10.0.0.10",
+	})
+	var hostResp struct {
+		Host            *models.Host `json:"host"`
+		EnrollmentToken string       `json:"enrollment_token"`
+	}
+	json.NewDecoder(resp.Body).Decode(&hostResp)
+	resp.Body.Close()
+
+	// 2. Enroll
+	privKey := make([]byte, 32)
+	rand.Read(privKey)
+	pubKey, _ := curve25519.X25519(privKey, curve25519.Basepoint)
+	pubKeyPEM := cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pubKey)
+
+	enrollReq := map[string]string{
+		"token":          hostResp.EnrollmentToken,
+		"public_key_pem": string(pubKeyPEM),
+	}
+	data, _ := json.Marshal(enrollReq)
+	enrollResp, _ := http.Post(ts.URL+"/api/v1/enroll", "application/json", bytes.NewReader(data))
+	var enrollResult struct {
+		CertificatePEM string `json:"certificate_pem"`
+	}
+	json.NewDecoder(enrollResp.Body).Decode(&enrollResult)
+	enrollResp.Body.Close()
+
+	hostCert, _, _ := cert.UnmarshalCertificateFromPEM([]byte(enrollResult.CertificatePEM))
+	fp, _ := hostCert.Fingerprint()
+
+	// 3. Modify cert timestamps to trigger renewal (set not_after to 1 minute from now)
+	db := s.DB()
+	res, err := db.Exec(
+		`UPDATE certificates SET not_before = ?, not_after = ? WHERE host_id = ? AND is_current = 1`,
+		time.Now().Add(-30*24*time.Hour), time.Now().Add(1*time.Minute), hostResp.Host.ID,
+	)
+	if rows, _ := res.RowsAffected(); rows != 1 {
+		t.Fatalf("expected 1 updated cert row, got %d", rows)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. Add a trigger that rejects INSERTs into certificates to cause SaveCert to fail
+	_, err = db.Exec(`CREATE TRIGGER reject_cert_insert BEFORE INSERT ON certificates BEGIN SELECT RAISE(ABORT, 'simulated save failure'); END`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 5. Agent poll — renewal triggered, save fails → expect 500
+	pollResp, err := http.Get(ts.URL + "/api/v1/agent/updates?fingerprint=" + fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pollResp.Body.Close()
+
+	if pollResp.StatusCode != http.StatusInternalServerError {
+		body, _ := io.ReadAll(pollResp.Body)
+		t.Errorf("expected 500 when cert save fails, got %d, body: %s", pollResp.StatusCode, string(body))
+	}
+}

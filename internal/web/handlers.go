@@ -1,9 +1,7 @@
 package web
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -62,20 +60,11 @@ type dashboardStats struct {
 	ExpiringCerts int
 }
 
-func (w *Web) getStats(ctx context.Context) (dashboardStats, error) {
-	var stats dashboardStats
-
-	networks, err := w.store.ListNetworks(ctx)
-	if err != nil {
-		return stats, fmt.Errorf("list networks: %w", err)
+func computeStats(hosts []*models.Host, networkCount int) dashboardStats {
+	stats := dashboardStats{
+		TotalHosts: len(hosts),
+		Networks:   networkCount,
 	}
-	stats.Networks = len(networks)
-
-	hosts, err := w.store.ListHosts(ctx, store.HostFilter{})
-	if err != nil {
-		return stats, fmt.Errorf("list hosts: %w", err)
-	}
-	stats.TotalHosts = len(hosts)
 	for _, h := range hosts {
 		switch h.Status {
 		case models.HostStatusEnrolled:
@@ -89,42 +78,51 @@ func (w *Web) getStats(ctx context.Context) (dashboardStats, error) {
 			stats.BlockedHosts++
 		}
 	}
-	return stats, nil
+	return stats
 }
 
 func (w *Web) handleDashboard(rw http.ResponseWriter, r *http.Request) {
-	stats, err := w.getStats(r.Context())
+	networks, err := w.store.ListNetworks(r.Context())
 	if err != nil {
-		w.logger.Error("get stats", "error", err)
+		w.logger.Error("list networks", "error", err)
 		http.Error(rw, "Failed to load dashboard", http.StatusInternalServerError)
 		return
 	}
-	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{})
+	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{Limit: 1000})
 	if err != nil {
-		w.logger.Error("list hosts for dashboard", "error", err)
+		w.logger.Error("list hosts", "error", err)
 		http.Error(rw, "Failed to load dashboard", http.StatusInternalServerError)
 		return
 	}
 
-	// Take last 10
-	if len(hosts) > 10 {
-		hosts = hosts[len(hosts)-10:]
+	stats := computeStats(hosts, len(networks))
+
+	recentHosts := hosts
+	if len(recentHosts) > 10 {
+		recentHosts = recentHosts[len(recentHosts)-10:]
 	}
 
 	w.render(rw, "dashboard.html", map[string]any{
 		"Active":      "dashboard",
 		"Stats":       stats,
-		"RecentHosts": hosts,
+		"RecentHosts": recentHosts,
 	})
 }
 
 func (w *Web) handlePartialStats(rw http.ResponseWriter, r *http.Request) {
-	stats, err := w.getStats(r.Context())
+	networks, err := w.store.ListNetworks(r.Context())
 	if err != nil {
-		w.logger.Error("get stats", "error", err)
+		w.logger.Error("list networks", "error", err)
 		http.Error(rw, "Failed to load stats", http.StatusInternalServerError)
 		return
 	}
+	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{Limit: 1000})
+	if err != nil {
+		w.logger.Error("list hosts", "error", err)
+		http.Error(rw, "Failed to load stats", http.StatusInternalServerError)
+		return
+	}
+	stats := computeStats(hosts, len(networks))
 	w.render(rw, "dashboard.html", map[string]any{
 		"Active": "dashboard",
 		"Stats":  stats,
@@ -134,7 +132,7 @@ func (w *Web) handlePartialStats(rw http.ResponseWriter, r *http.Request) {
 // --- Hosts ---
 
 func (w *Web) handleHosts(rw http.ResponseWriter, r *http.Request) {
-	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{})
+	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{Limit: 1000})
 	if err != nil {
 		w.logger.Error("list hosts", "error", err)
 		http.Error(rw, "Failed to load hosts", http.StatusInternalServerError)
@@ -183,8 +181,16 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 			http.Error(rw, "invalid listen_port: must be a number", http.StatusBadRequest)
 			return
 		}
+		if listenPort < 0 || listenPort > 65535 {
+			http.Error(rw, "listen_port must be between 0 and 65535", http.StatusBadRequest)
+			return
+		}
 	}
 	role := models.HostRole(r.FormValue("role"))
+	if !models.ValidRole(role) {
+		http.Error(rw, "invalid role", http.StatusBadRequest)
+		return
+	}
 	if role == "" {
 		role = models.HostRoleHost
 	}
@@ -216,12 +222,6 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		UpdatedAt:    now,
 	}
 
-	if err := w.store.CreateHost(r.Context(), host); err != nil {
-		w.logger.Error("create host", "error", err)
-		http.Error(rw, "Failed to create host", http.StatusInternalServerError)
-		return
-	}
-
 	token := &models.EnrollmentToken{
 		ID:        uuid.New().String(),
 		HostID:    host.ID,
@@ -229,9 +229,9 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		ExpiresAt: now.Add(24 * time.Hour),
 		CreatedAt: now,
 	}
-	if err := w.store.CreateToken(r.Context(), token); err != nil {
-		w.logger.Error("create token", "error", err)
-		http.Error(rw, "Failed to create enrollment token", http.StatusInternalServerError)
+	if err := w.store.CreateHostAndToken(r.Context(), host, token); err != nil {
+		w.logger.Error("create host and token", "error", err)
+		http.Error(rw, "Failed to create host", http.StatusInternalServerError)
 		return
 	}
 

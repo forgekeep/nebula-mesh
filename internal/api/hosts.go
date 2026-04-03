@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -50,6 +51,10 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := models.HostRole(req.Role)
+	if !models.ValidRole(role) {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid role: %q", req.Role))
+		return
+	}
 	if role == "" {
 		role = models.HostRoleHost
 	}
@@ -80,13 +85,6 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.store.CreateHost(r.Context(), host); err != nil {
-		s.logger.Error("create host", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to create host")
-		return
-	}
-
-	// Create enrollment token
 	token := &models.EnrollmentToken{
 		ID:        uuid.New().String(),
 		HostID:    host.ID,
@@ -94,9 +92,9 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: now.Add(24 * time.Hour),
 		CreatedAt: now,
 	}
-	if err := s.store.CreateToken(r.Context(), token); err != nil {
-		s.logger.Error("create token", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to create enrollment token")
+	if err := s.store.CreateHostAndToken(r.Context(), host, token); err != nil {
+		s.logger.Error("create host and token", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create host")
 		return
 	}
 

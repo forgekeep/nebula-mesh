@@ -177,6 +177,48 @@ func TestPoll_RespectsContext(t *testing.T) {
 	}
 }
 
+func TestAtomicWriteFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+
+	// Write initial content
+	if err := atomicWriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello" {
+		t.Errorf("content = %q, want hello", data)
+	}
+
+	// Overwrite
+	if err := atomicWriteFile(path, []byte("world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "world" {
+		t.Errorf("content = %q, want world", data)
+	}
+
+	// Verify no temp files left
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Errorf("expected 1 file in dir, got %d", len(entries))
+	}
+}
+
+func TestAtomicWriteFile_InvalidDir(t *testing.T) {
+	err := atomicWriteFile("/nonexistent/dir/file.txt", []byte("data"), 0o644)
+	if err == nil {
+		t.Error("expected error for nonexistent dir")
+	}
+}
+
 func TestSignalNebula_ReadsPIDFile(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "nebula.pid")
 	// Write current process PID — signal to self is safe (SIGHUP is handled)

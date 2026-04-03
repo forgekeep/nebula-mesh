@@ -477,6 +477,48 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason strin
 
 // --- Enrollment Tokens ---
 
+// CreateHostAndToken atomically creates a host and its enrollment token.
+func (s *SQLiteStore) CreateHostAndToken(_ context.Context, h *models.Host, t *models.EnrollmentToken) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	groupsJSON, err := json.Marshal(h.Groups)
+	if err != nil {
+		return fmt.Errorf("marshal groups: %w", err)
+	}
+
+	_, err = tx.Exec(
+		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		h.ID, h.NetworkID, h.Name, h.NebulaIP, string(groupsJSON),
+		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
+		h.Status, h.CreatedAt, h.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert host: %w", err)
+	}
+
+	_, err = tx.Exec(
+		`INSERT INTO enrollment_tokens (id, host_id, token, used, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		t.ID, t.HostID, t.Token, false, t.ExpiresAt, t.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert token: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit create host and token: %w", err)
+	}
+	return nil
+}
+
 func (s *SQLiteStore) CreateToken(_ context.Context, t *models.EnrollmentToken) error {
 	_, err := s.db.Exec(
 		`INSERT INTO enrollment_tokens (id, host_id, token, used, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,

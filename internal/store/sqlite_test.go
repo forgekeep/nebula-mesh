@@ -1119,3 +1119,81 @@ func TestBlocklist_Remove(t *testing.T) {
 		t.Errorf("len = %d, want 0 after remove", len(list))
 	}
 }
+
+func TestCreateHostAndToken(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	now := time.Now()
+	host := &models.Host{
+		ID: "host_atomic", NetworkID: net.ID, Name: "atomic-host",
+		NebulaIP: "192.168.100.60", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusPending,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	token := &models.EnrollmentToken{
+		ID: "tok_atomic", HostID: host.ID, Token: "test-token-123",
+		ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now,
+	}
+
+	if err := s.CreateHostAndToken(ctx, host, token); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify both exist
+	gotHost, err := s.GetHost(ctx, host.ID)
+	if err != nil {
+		t.Fatalf("get host: %v", err)
+	}
+	if gotHost.Name != "atomic-host" {
+		t.Errorf("host name = %q, want atomic-host", gotHost.Name)
+	}
+
+	gotToken, err := s.ConsumeToken(ctx, "test-token-123")
+	if err != nil {
+		t.Fatalf("consume token: %v", err)
+	}
+	if gotToken.HostID != host.ID {
+		t.Errorf("token host_id = %q, want %q", gotToken.HostID, host.ID)
+	}
+}
+
+func TestCreateHostAndToken_DuplicateHost(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	now := time.Now()
+	host := &models.Host{
+		ID: "host_dup", NetworkID: net.ID, Name: "dup-host",
+		NebulaIP: "192.168.100.70", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusPending,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	token1 := &models.EnrollmentToken{
+		ID: "tok1", HostID: host.ID, Token: "token-1",
+		ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now,
+	}
+
+	// First creation succeeds
+	if err := s.CreateHostAndToken(ctx, host, token1); err != nil {
+		t.Fatal(err)
+	}
+
+	// Duplicate host should fail, and token should not be created
+	token2 := &models.EnrollmentToken{
+		ID: "tok2", HostID: host.ID, Token: "token-2",
+		ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now,
+	}
+	err := s.CreateHostAndToken(ctx, host, token2)
+	if err == nil {
+		t.Fatal("expected error for duplicate host")
+	}
+
+	// Verify token-2 was not created (rollback)
+	_, err = s.ConsumeToken(ctx, "token-2")
+	if err == nil {
+		t.Error("token-2 should not exist after rollback")
+	}
+}

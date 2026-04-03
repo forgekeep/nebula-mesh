@@ -77,7 +77,9 @@ func TestE2E_FullCycle(t *testing.T) {
 		t.Fatalf("create network: HTTP %d: %s", resp.StatusCode, string(body))
 	}
 	var network models.Network
-	json.NewDecoder(resp.Body).Decode(&network)
+	if err := json.NewDecoder(resp.Body).Decode(&network); err != nil {
+		t.Fatalf("decode network: %v", err)
+	}
 	resp.Body.Close()
 	t.Logf("network created: %s (%s)", network.Name, network.ID)
 
@@ -98,7 +100,9 @@ func TestE2E_FullCycle(t *testing.T) {
 		Host            *models.Host `json:"host"`
 		EnrollmentToken string       `json:"enrollment_token"`
 	}
-	json.NewDecoder(resp.Body).Decode(&lhResp)
+	if err := json.NewDecoder(resp.Body).Decode(&lhResp); err != nil {
+		t.Fatalf("decode lighthouse: %v", err)
+	}
 	resp.Body.Close()
 	t.Logf("lighthouse created: %s, token: %s", lhResp.Host.Name, lhResp.EnrollmentToken)
 
@@ -117,7 +121,9 @@ func TestE2E_FullCycle(t *testing.T) {
 		Host            *models.Host `json:"host"`
 		EnrollmentToken string       `json:"enrollment_token"`
 	}
-	json.NewDecoder(resp.Body).Decode(&hostResp)
+	if err := json.NewDecoder(resp.Body).Decode(&hostResp); err != nil {
+		t.Fatalf("decode host: %v", err)
+	}
 	resp.Body.Close()
 	t.Logf("host created: %s, token: %s", hostResp.Host.Name, hostResp.EnrollmentToken)
 
@@ -150,7 +156,9 @@ func TestE2E_FullCycle(t *testing.T) {
 		CACertificatePEM string `json:"ca_certificate_pem"`
 		ConfigYAML       string `json:"config_yaml"`
 	}
-	json.NewDecoder(enrollResp.Body).Decode(&enrollResult)
+	if err := json.NewDecoder(enrollResp.Body).Decode(&enrollResult); err != nil {
+		t.Fatalf("decode enrollment: %v", err)
+	}
 	enrollResp.Body.Close()
 
 	if enrollResult.CertificatePEM == "" {
@@ -187,7 +195,9 @@ func TestE2E_FullCycle(t *testing.T) {
 	// 6. Verify host is now enrolled
 	resp = apiCall(t, ts, "GET", "/api/v1/hosts/"+hostResp.Host.ID, nil)
 	var enrolledHost models.Host
-	json.NewDecoder(resp.Body).Decode(&enrolledHost)
+	if err := json.NewDecoder(resp.Body).Decode(&enrolledHost); err != nil {
+		t.Fatalf("decode enrolled host: %v", err)
+	}
 	resp.Body.Close()
 	if enrolledHost.Status != models.HostStatusEnrolled {
 		t.Errorf("host status = %q, want enrolled", enrolledHost.Status)
@@ -206,7 +216,9 @@ func TestE2E_FullCycle(t *testing.T) {
 		HasUpdates bool     `json:"has_updates"`
 		Blocklist  []string `json:"blocklist"`
 	}
-	json.NewDecoder(pollResp.Body).Decode(&updates)
+	if err := json.NewDecoder(pollResp.Body).Decode(&updates); err != nil {
+		t.Fatalf("decode poll updates: %v", err)
+	}
 	pollResp.Body.Close()
 	t.Logf("poll result: has_updates=%v, blocklist=%v", updates.HasUpdates, updates.Blocklist)
 
@@ -221,7 +233,9 @@ func TestE2E_FullCycle(t *testing.T) {
 	// 9. Verify blocklist now contains the fingerprint
 	resp = apiCall(t, ts, "GET", "/api/v1/blocklist", nil)
 	var blocklist []string
-	json.NewDecoder(resp.Body).Decode(&blocklist)
+	if err := json.NewDecoder(resp.Body).Decode(&blocklist); err != nil {
+		t.Fatalf("decode blocklist: %v", err)
+	}
 	resp.Body.Close()
 
 	found := false
@@ -241,7 +255,9 @@ func TestE2E_FullCycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	json.NewDecoder(pollResp.Body).Decode(&updates)
+	if err := json.NewDecoder(pollResp.Body).Decode(&updates); err != nil {
+		t.Fatalf("decode post-block updates: %v", err)
+	}
 	pollResp.Body.Close()
 
 	if !updates.HasUpdates {
@@ -263,7 +279,9 @@ func TestE2E_FullCycle(t *testing.T) {
 	// 12. List hosts
 	resp = apiCall(t, ts, "GET", "/api/v1/hosts?network_id="+network.ID, nil)
 	var hosts []models.Host
-	json.NewDecoder(resp.Body).Decode(&hosts)
+	if err := json.NewDecoder(resp.Body).Decode(&hosts); err != nil {
+		t.Fatalf("decode hosts: %v", err)
+	}
 	resp.Body.Close()
 	if len(hosts) != 2 {
 		t.Errorf("expected 2 hosts, got %d", len(hosts))

@@ -24,7 +24,11 @@ func TestEnroll_Success(t *testing.T) {
 			Token        string `json:"token"`
 			PublicKeyPEM string `json:"public_key_pem"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode enroll request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 
 		if req.Token == "" {
 			t.Error("empty token in request")

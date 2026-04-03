@@ -33,5 +33,12 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	switch cfg.LogLevel {
+	case "debug", "info", "warn", "error":
+		// valid
+	default:
+		return nil, fmt.Errorf("invalid log_level: %q (must be debug, info, warn, or error)", cfg.LogLevel)
+	}
+
 	return cfg, nil
 }

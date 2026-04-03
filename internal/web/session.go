@@ -3,6 +3,7 @@ package web
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -33,12 +34,15 @@ func NewSessionManager(password string) *SessionManager {
 }
 
 // Login validates the password and creates a session cookie.
-func (sm *SessionManager) Login(w http.ResponseWriter, password string) bool {
+func (sm *SessionManager) Login(w http.ResponseWriter, password string) (bool, error) {
 	if password != sm.password {
-		return false
+		return false, nil
 	}
 
-	token := generateToken()
+	token, err := generateToken()
+	if err != nil {
+		return false, err
+	}
 	sm.mu.Lock()
 	sm.sessions[token] = session{expiresAt: time.Now().Add(sessionDuration)}
 	sm.mu.Unlock()
@@ -51,7 +55,7 @@ func (sm *SessionManager) Login(w http.ResponseWriter, password string) bool {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
-	return true
+	return true, nil
 }
 
 // Logout invalidates the session.
@@ -94,10 +98,10 @@ func (sm *SessionManager) IsAuthenticated(r *http.Request) bool {
 	return true
 }
 
-func generateToken() string {
+func generateToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand: " + err.Error())
+		return "", fmt.Errorf("crypto/rand: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -55,7 +56,9 @@ func TestHealth(t *testing.T) {
 	}
 
 	var resp map[string]string
-	json.NewDecoder(w.Body).Decode(&resp)
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if resp["status"] != "ok" {
 		t.Errorf("status = %q, want ok", resp["status"])
 	}
@@ -114,7 +117,9 @@ func TestCreateAndListNetworks(t *testing.T) {
 	}
 
 	var created models.Network
-	json.NewDecoder(w.Body).Decode(&created)
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if created.Name != "test-net" {
 		t.Errorf("name = %q, want test-net", created.Name)
 	}
@@ -130,7 +135,9 @@ func TestCreateAndListNetworks(t *testing.T) {
 	}
 
 	var networks []models.Network
-	json.NewDecoder(w.Body).Decode(&networks)
+	if err := json.NewDecoder(w.Body).Decode(&networks); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if len(networks) != 1 {
 		t.Errorf("len = %d, want 1", len(networks))
 	}
@@ -146,7 +153,9 @@ func createNetwork(t *testing.T, srv *Server) string {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	var net models.Network
-	json.NewDecoder(w.Body).Decode(&net)
+	if err := json.NewDecoder(w.Body).Decode(&net); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	return net.ID
 }
 
@@ -170,7 +179,9 @@ func TestCreateAndGetHost(t *testing.T) {
 	}
 
 	var resp createHostResponse
-	json.NewDecoder(w.Body).Decode(&resp)
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if resp.Host.Name != "web-1" {
 		t.Errorf("name = %q, want web-1", resp.Host.Name)
 	}
@@ -202,7 +213,9 @@ func TestDeleteHost(t *testing.T) {
 	srv.ServeHTTP(w, req)
 
 	var resp createHostResponse
-	json.NewDecoder(w.Body).Decode(&resp)
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 
 	req = httptest.NewRequest("DELETE", "/api/v1/hosts/"+resp.Host.ID, nil)
 	authRequest(req)
@@ -255,6 +268,96 @@ func TestCreateHost_InvalidIP(t *testing.T) {
 	}
 }
 
+func TestCreateHost_InvalidPort(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	for _, port := range []int{-1, 70000, 65536} {
+		body, _ := json.Marshal(createHostRequest{
+			NetworkID:  netID,
+			Name:       "bad-port",
+			NebulaIP:   "192.168.100.10",
+			ListenPort: port,
+		})
+		req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+		authRequest(req)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("port=%d: status = %d, want %d", port, w.Code, http.StatusBadRequest)
+		}
+	}
+}
+
+func TestCreateHost_ValidPort(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	for _, port := range []int{0, 4242, 65535} {
+		body, _ := json.Marshal(createHostRequest{
+			NetworkID:  netID,
+			Name:       fmt.Sprintf("host-port-%d", port),
+			NebulaIP:   fmt.Sprintf("192.168.100.%d", 10+port%200),
+			ListenPort: port,
+		})
+		req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+		authRequest(req)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Errorf("port=%d: status = %d, want %d, body: %s", port, w.Code, http.StatusCreated, w.Body.String())
+		}
+	}
+}
+
+func TestCreateHost_EmptyGroup(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	for _, groups := range [][]string{
+		{""},
+		{"  "},
+		{"web", ""},
+	} {
+		body, _ := json.Marshal(createHostRequest{
+			NetworkID: netID,
+			Name:      "bad-groups",
+			NebulaIP:  "192.168.100.10",
+			Groups:    groups,
+		})
+		req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+		authRequest(req)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("groups=%v: status = %d, want %d", groups, w.Code, http.StatusBadRequest)
+		}
+	}
+}
+
+func TestCreateHost_ValidGroups(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	body, _ := json.Marshal(createHostRequest{
+		NetworkID: netID,
+		Name:      "good-groups",
+		NebulaIP:  "192.168.100.10",
+		Groups:    []string{"web", "prod"},
+	})
+	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+}
+
 func TestFirewallRules_DefaultAndCRUD(t *testing.T) {
 	srv, _ := newTestServer(t)
 	netID := createNetwork(t, srv)
@@ -269,7 +372,9 @@ func TestFirewallRules_DefaultAndCRUD(t *testing.T) {
 	}
 
 	var rules firewallRulesRequest
-	json.NewDecoder(w.Body).Decode(&rules)
+	if err := json.NewDecoder(w.Body).Decode(&rules); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if len(rules.Inbound) != 1 || rules.Inbound[0].Proto != "icmp" {
 		t.Errorf("expected default inbound icmp rule, got %+v", rules.Inbound)
 	}
@@ -290,7 +395,9 @@ func TestFirewallRules_DefaultAndCRUD(t *testing.T) {
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	json.NewDecoder(w.Body).Decode(&rules)
+	if err := json.NewDecoder(w.Body).Decode(&rules); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if len(rules.Inbound) != 1 || rules.Inbound[0].Port != "443" {
 		t.Errorf("expected stored inbound rule port=443, got %+v", rules.Inbound)
 	}
@@ -403,7 +510,7 @@ func TestConcurrentCAAccess(t *testing.T) {
 func TestGetAuditLog_LimitBounds(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	// limit > 1000 → should be capped
+	// limit > 1000 → should be capped to 1000 (still OK)
 	req := httptest.NewRequest("GET", "/api/v1/audit-log?limit=5000", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
@@ -412,22 +519,42 @@ func TestGetAuditLog_LimitBounds(t *testing.T) {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	// limit = "abc" → should not panic, return default
+	// limit = "abc" → bad request
 	req = httptest.NewRequest("GET", "/api/v1/audit-log?limit=abc", nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d for invalid limit, want %d", w.Code, http.StatusOK)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d for invalid limit, want %d", w.Code, http.StatusBadRequest)
 	}
 
-	// limit = -5 → should use default
+	// limit = -5 → bad request
 	req = httptest.NewRequest("GET", "/api/v1/audit-log?limit=-5", nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d for negative limit, want %d", w.Code, http.StatusBadRequest)
+	}
+
+	// no limit → uses explicit default, returns OK
+	req = httptest.NewRequest("GET", "/api/v1/audit-log", nil)
+	authRequest(req)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d for negative limit, want %d", w.Code, http.StatusOK)
+		t.Fatalf("status = %d for no limit, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestWriteJSON_EncodeError(t *testing.T) {
+	w := httptest.NewRecorder()
+	// channels are not JSON-serializable — Encode returns an error
+	writeJSON(w, http.StatusOK, make(chan int))
+
+	// Should not panic; status code is still written
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
 

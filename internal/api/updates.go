@@ -63,7 +63,11 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		newCertPEM, renewErr := s.renewHostCert(r.Context(), host, certInfo)
 		var caCertPEM []byte
 		if renewErr == nil {
-			caCertPEM, _ = s.ca.CACertPEM()
+			var certErr error
+			caCertPEM, certErr = s.ca.CACertPEM()
+			if certErr != nil {
+				renewErr = fmt.Errorf("get CA cert PEM: %w", certErr)
+			}
 		}
 		s.caMu.RUnlock()
 

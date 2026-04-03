@@ -73,9 +73,13 @@ func (p *Poller) Run(ctx context.Context) error {
 	}
 }
 
-func (p *Poller) poll(_ context.Context) error {
+func (p *Poller) poll(ctx context.Context) error {
 	u := fmt.Sprintf("%s/api/v1/agent/updates?fingerprint=%s", p.config.ServerURL, url.QueryEscape(p.config.Fingerprint))
-	resp, err := http.Get(u)
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return fmt.Errorf("create poll request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("poll request: %w", err)
 	}

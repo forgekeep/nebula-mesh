@@ -31,7 +31,13 @@ func (w *Web) handleLoginPage(rw http.ResponseWriter, _ *http.Request) {
 
 func (w *Web) handleLogin(rw http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
-	if w.session.Login(rw, password) {
+	ok, err := w.session.Login(rw, password)
+	if err != nil {
+		w.logger.Error("login", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if ok {
 		http.Redirect(rw, r, "/ui/", http.StatusSeeOther)
 		return
 	}

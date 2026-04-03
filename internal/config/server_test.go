@@ -85,6 +85,41 @@ func TestLoadServerConfig_InvalidYAML(t *testing.T) {
 	}
 }
 
+func TestLoadServerConfig_InvalidLogLevel(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+
+	data := []byte(`log_level: "dbug"`)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadServerConfig(cfgPath)
+	if err == nil {
+		t.Fatal("expected error for invalid log_level, got nil")
+	}
+}
+
+func TestLoadServerConfig_ValidLogLevels(t *testing.T) {
+	for _, level := range []string{"debug", "info", "warn", "error"} {
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, "server.yml")
+
+		data := []byte(`log_level: "` + level + `"`)
+		if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		cfg, err := LoadServerConfig(cfgPath)
+		if err != nil {
+			t.Fatalf("log_level=%q: unexpected error: %v", level, err)
+		}
+		if cfg.LogLevel != level {
+			t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, level)
+		}
+	}
+}
+
 func TestLoadServerConfig_FileNotFound(t *testing.T) {
 	_, err := LoadServerConfig("/nonexistent/path.yml")
 	if err == nil {

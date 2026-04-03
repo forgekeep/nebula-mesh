@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -42,6 +43,10 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid nebula_ip: "+err.Error())
 		return
 	}
+	if req.ListenPort < 0 || req.ListenPort > 65535 {
+		writeError(w, http.StatusBadRequest, "listen_port must be between 0 and 65535")
+		return
+	}
 
 	role := models.HostRole(req.Role)
 	if role == "" {
@@ -66,6 +71,12 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	}
 	if host.Groups == nil {
 		host.Groups = []string{}
+	}
+	for _, g := range host.Groups {
+		if strings.TrimSpace(g) == "" {
+			writeError(w, http.StatusBadRequest, "group names must not be empty")
+			return
+		}
 	}
 
 	if err := s.store.CreateHost(r.Context(), host); err != nil {

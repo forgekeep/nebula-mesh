@@ -27,9 +27,16 @@ func Serve(configPath string) error {
 	}
 
 	// Setup logger
-	level := slog.LevelInfo
-	if cfg.LogLevel == "debug" {
+	var level slog.Level
+	switch cfg.LogLevel {
+	case "debug":
 		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 

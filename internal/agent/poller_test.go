@@ -149,6 +149,34 @@ func TestPoller_FingerprintEscaped(t *testing.T) {
 	}
 }
 
+func TestPoll_RespectsContext(t *testing.T) {
+	// Server that blocks until request is cancelled
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	p := NewPoller(PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "test-fp",
+		DataDir:     t.TempDir(),
+		Interval:    time.Hour, // won't tick — we call poll directly
+	}, slog.Default())
+	p.signalFunc = func() error { return nil }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel context after a short delay
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	err := p.poll(ctx)
+	if err == nil {
+		t.Error("expected error when context is cancelled")
+	}
+}
+
 func TestSignalNebula_ReadsPIDFile(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "nebula.pid")
 	// Write current process PID — signal to self is safe (SIGHUP is handled)

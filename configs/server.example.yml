@@ -1,0 +1,5 @@
+listen: ":8080"
+data_dir: "/var/lib/nebula-mgmt"
+db_path: "/var/lib/nebula-mgmt/nebula.db"
+api_key: ""  # generated on init
+log_level: "info"

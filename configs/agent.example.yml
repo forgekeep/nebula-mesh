@@ -1,0 +1,5 @@
+server_url: "https://mgmt.example.com:8080"
+data_dir: "/etc/nebula"
+poll_interval: "30s"
+nebula_config_path: "/etc/nebula/config.yml"
+nebula_pid_file: "/run/nebula.pid"

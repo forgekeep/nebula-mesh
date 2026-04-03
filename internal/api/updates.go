@@ -1,10 +1,16 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"net/http"
+	"net/netip"
 	"time"
 
+	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/slackhq/nebula/cert"
 )
 
 type agentUpdatesResponse struct {
@@ -47,12 +53,88 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		blocklist = []string{}
 	}
 
-	// For now, return blocklist. Certificate and config updates
-	// will be added in Phase 2 (auto-renewal).
 	resp := agentUpdatesResponse{
-		HasUpdates: len(blocklist) > 0,
-		Blocklist:  blocklist,
+		Blocklist: blocklist,
 	}
 
+	// Check if certificate needs renewal
+	certInfo, err := s.store.GetCertificateInfo(r.Context(), host.ID)
+	if err == nil && pki.ShouldRenew(certInfo.NotBefore, certInfo.NotAfter) {
+		newCertPEM, renewErr := s.renewHostCert(r.Context(), host, certInfo)
+		if renewErr != nil {
+			s.logger.Error("auto-renew cert", "host", host.Name, "error", renewErr)
+		} else {
+			certStr := string(newCertPEM)
+			resp.CertificatePEM = &certStr
+			caCertPEM, _ := s.ca.CACertPEM()
+			caStr := string(caCertPEM)
+			resp.CACertPEM = &caStr
+			s.logger.Info("certificate renewed", "host", host.Name)
+		}
+	}
+
+	resp.HasUpdates = len(blocklist) > 0 || resp.CertificatePEM != nil
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// renewHostCert re-signs the host certificate with the same public key and fresh expiry.
+func (s *Server) renewHostCert(ctx context.Context, host *models.Host, certInfo *models.CertificateInfo) ([]byte, error) {
+	// Parse current certificate to get public key
+	currentCert, _, err := cert.UnmarshalCertificateFromPEM([]byte(certInfo.PEM))
+	if err != nil {
+		return nil, fmt.Errorf("parse current cert: %w", err)
+	}
+
+	// Get network for prefix
+	network, err := s.store.GetNetwork(ctx, host.NetworkID)
+	if err != nil {
+		return nil, fmt.Errorf("get network: %w", err)
+	}
+
+	prefix, err := netip.ParsePrefix(network.CIDR)
+	if err != nil {
+		return nil, fmt.Errorf("parse CIDR: %w", err)
+	}
+
+	hostAddr, err := netip.ParseAddr(host.NebulaIP)
+	if err != nil {
+		return nil, fmt.Errorf("parse host IP: %w", err)
+	}
+
+	// Re-sign with same public key, new expiry
+	newCert, err := s.ca.Sign(pki.SignRequest{
+		Name:      host.Name,
+		PublicKey: currentCert.PublicKey(),
+		Networks:  []netip.Prefix{netip.PrefixFrom(hostAddr, prefix.Bits())},
+		Groups:    host.Groups,
+		Duration:  30 * 24 * time.Hour,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sign renewed cert: %w", err)
+	}
+
+	certPEM, err := newCert.MarshalPEM()
+	if err != nil {
+		return nil, fmt.Errorf("marshal cert: %w", err)
+	}
+
+	fp, err := newCert.Fingerprint()
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint: %w", err)
+	}
+
+	// Save new cert
+	if err := s.store.SaveCertificate(ctx, host.ID, certPEM, fp, newCert.NotBefore(), newCert.NotAfter()); err != nil {
+		return nil, fmt.Errorf("save cert: %w", err)
+	}
+
+	// Update host fingerprint
+	host.CertFingerprint = fp
+	expires := newCert.NotAfter()
+	host.CertExpiresAt = &expires
+	if err := s.store.UpdateHost(ctx, host); err != nil {
+		return nil, fmt.Errorf("update host: %w", err)
+	}
+
+	return certPEM, nil
 }

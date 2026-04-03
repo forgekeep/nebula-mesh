@@ -369,6 +369,43 @@ func (s *SQLiteStore) GetCurrentCertificate(_ context.Context, hostID string) ([
 	return []byte(pem), nil
 }
 
+func (s *SQLiteStore) GetCertificateInfo(_ context.Context, hostID string) (*models.CertificateInfo, error) {
+	ci := &models.CertificateInfo{}
+	err := s.db.QueryRow(
+		`SELECT id, host_id, fingerprint, pem, not_before, not_after, is_current, created_at
+		 FROM certificates WHERE host_id = ? AND is_current = 1`, hostID,
+	).Scan(&ci.ID, &ci.HostID, &ci.Fingerprint, &ci.PEM, &ci.NotBefore, &ci.NotAfter, &ci.IsCurrent, &ci.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get cert info: %w", err)
+	}
+	return ci, nil
+}
+
+func (s *SQLiteStore) ListEnrolledHostCerts(_ context.Context) ([]*models.CertificateInfo, error) {
+	rows, err := s.db.Query(
+		`SELECT c.id, c.host_id, c.fingerprint, c.pem, c.not_before, c.not_after, c.is_current, c.created_at
+		 FROM certificates c
+		 JOIN hosts h ON h.id = c.host_id
+		 WHERE c.is_current = 1 AND h.status = 'enrolled'`)
+	if err != nil {
+		return nil, fmt.Errorf("list enrolled certs: %w", err)
+	}
+	defer rows.Close()
+
+	var result []*models.CertificateInfo
+	for rows.Next() {
+		ci := &models.CertificateInfo{}
+		if err := rows.Scan(&ci.ID, &ci.HostID, &ci.Fingerprint, &ci.PEM, &ci.NotBefore, &ci.NotAfter, &ci.IsCurrent, &ci.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan cert: %w", err)
+		}
+		result = append(result, ci)
+	}
+	return result, rows.Err()
+}
+
 // --- Blocklist ---
 
 func (s *SQLiteStore) AddToBlocklist(_ context.Context, fingerprint, hostID, reason string) error {

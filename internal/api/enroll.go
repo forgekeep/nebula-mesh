@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/juev/nebula-mesh/internal/configgen"
-	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/slackhq/nebula/cert"
@@ -130,20 +129,9 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save certificate
-	if err := s.store.SaveCertificate(r.Context(), host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
-		s.logger.Error("save certificate", "error", err)
-		writeError(w, http.StatusInternalServerError, "enrollment failed")
-		return
-	}
-
-	// Update host status (before sending response to client)
-	host.Status = models.HostStatusEnrolled
-	host.CertFingerprint = fp
-	expires := hostCert.NotAfter()
-	host.CertExpiresAt = &expires
-	if err := s.store.UpdateHost(r.Context(), host); err != nil {
-		s.logger.Error("update host status", "error", err)
+	// Save certificate and enroll host atomically
+	if err := s.store.SaveCertificateAndEnrollHost(r.Context(), host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
+		s.logger.Error("save certificate and enroll host", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}

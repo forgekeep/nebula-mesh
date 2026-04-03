@@ -39,7 +39,7 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update last seen
+	// non-critical: log and continue — last_seen is informational
 	now := time.Now()
 	if err := s.store.UpdateHostLastSeen(r.Context(), host.ID, now); err != nil {
 		s.logger.Error("update last seen", "error", err)
@@ -132,14 +132,9 @@ func (s *Server) renewHostCert(ctx context.Context, host *models.Host, certInfo 
 		return nil, fmt.Errorf("fingerprint: %w", err)
 	}
 
-	// Save new cert
-	if err := s.store.SaveCertificate(ctx, host.ID, certPEM, fp, newCert.NotBefore(), newCert.NotAfter()); err != nil {
-		return nil, fmt.Errorf("save cert: %w", err)
-	}
-
-	// Update host fingerprint
-	if err := s.store.UpdateHostCert(ctx, host.ID, fp, newCert.NotAfter()); err != nil {
-		return nil, fmt.Errorf("update host cert: %w", err)
+	// Save cert and update host fingerprint atomically
+	if err := s.store.SaveCertificateAndUpdateHostCert(ctx, host.ID, certPEM, fp, newCert.NotBefore(), newCert.NotAfter()); err != nil {
+		return nil, fmt.Errorf("save cert and update host: %w", err)
 	}
 
 	return certPEM, nil

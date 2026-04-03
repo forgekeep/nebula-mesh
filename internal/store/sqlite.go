@@ -58,6 +58,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"001_initial.up.sql",
 		"002_config_version.up.sql",
 		"003_audit_log.up.sql",
+		"004_blocklist_fk.up.sql",
 	}
 	for _, f := range migrationFiles {
 		sqlBytes, err := migrations.FS.ReadFile(f)
@@ -431,8 +432,86 @@ func (s *SQLiteStore) SaveCertificate(_ context.Context, hostID string, certPEM 
 		}
 	}()
 
-	// Mark old certs as not current
-	_, err = tx.Exec(`UPDATE certificates SET is_current = 0 WHERE host_id = ?`, hostID)
+	if err := s.saveCertificateInTx(tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// SaveCertificateAndEnrollHost atomically saves a certificate and marks the host as enrolled.
+func (s *SQLiteStore) SaveCertificateAndEnrollHost(_ context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	if err := s.saveCertificateInTx(tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
+		return err
+	}
+
+	// Update host: status=enrolled, cert_fingerprint, cert_expires_at
+	result, err := tx.Exec(
+		`UPDATE hosts SET status=?, cert_fingerprint=?, cert_expires_at=?, updated_at=? WHERE id=?`,
+		models.HostStatusEnrolled, fp, notAfter, time.Now(), hostID,
+	)
+	if err != nil {
+		return fmt.Errorf("update host: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update host rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+
+	return tx.Commit()
+}
+
+// SaveCertificateAndUpdateHostCert atomically saves a certificate and updates the host's cert metadata.
+func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(_ context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	if err := s.saveCertificateInTx(tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
+		return err
+	}
+
+	// Update host cert metadata only
+	result, err := tx.Exec(
+		`UPDATE hosts SET cert_fingerprint=?, cert_expires_at=?, updated_at=? WHERE id=?`,
+		fp, notAfter, time.Now(), hostID,
+	)
+	if err != nil {
+		return fmt.Errorf("update host cert: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update host cert rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+
+	return tx.Commit()
+}
+
+// saveCertificateInTx saves a certificate within an existing transaction.
+func (s *SQLiteStore) saveCertificateInTx(tx *sql.Tx, hostID, fp string, certPEM []byte, notBefore, notAfter time.Time) error {
+	_, err := tx.Exec(`UPDATE certificates SET is_current = 0 WHERE host_id = ?`, hostID)
 	if err != nil {
 		return fmt.Errorf("unmark current: %w", err)
 	}
@@ -450,8 +529,7 @@ func (s *SQLiteStore) SaveCertificate(_ context.Context, hostID string, certPEM 
 	if err != nil {
 		return fmt.Errorf("insert certificate: %w", err)
 	}
-
-	return tx.Commit()
+	return nil
 }
 
 func (s *SQLiteStore) GetCurrentCertificate(_ context.Context, hostID string) ([]byte, error) {

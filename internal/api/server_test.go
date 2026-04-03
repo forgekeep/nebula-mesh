@@ -237,6 +237,58 @@ func TestDeleteHost(t *testing.T) {
 	}
 }
 
+func TestDeleteHost_WithCertBlocklisted(t *testing.T) {
+	srv, st := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	body, _ := json.Marshal(createHostRequest{
+		NetworkID: netID, Name: "enrolled-host", NebulaIP: "192.168.100.30",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	var resp createHostResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	// Simulate enrolled host with cert fingerprint
+	host := resp.Host
+	host.CertFingerprint = "fp-to-block"
+	host.Status = "enrolled"
+	if err := st.UpdateHost(context.Background(), host); err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete should add to blocklist
+	req = httptest.NewRequest("DELETE", "/api/v1/hosts/"+host.ID, nil)
+	authRequest(req)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("delete status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+
+	// Verify cert is in blocklist
+	bl, err := st.GetBlocklist(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, fp := range bl {
+		if fp == "fp-to-block" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("cert fingerprint not found in blocklist after delete")
+	}
+}
+
 func TestCreateNetwork_InvalidCIDR(t *testing.T) {
 	srv, _ := newTestServer(t)
 

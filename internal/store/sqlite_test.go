@@ -665,6 +665,126 @@ func TestUpdateHostStatus_NotFound(t *testing.T) {
 	}
 }
 
+// --- Atomic Certificate + Host ---
+
+func TestSaveCertificateAndEnrollHost(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+	h := createTestHost(t, s, net)
+
+	now := time.Now()
+	expires := now.Add(30 * 24 * time.Hour)
+	fp := "enroll-fp-123"
+
+	err := s.SaveCertificateAndEnrollHost(ctx, h.ID, []byte("cert-pem"), fp, now, expires)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify certificate saved
+	pem, err := s.GetCurrentCertificate(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(pem) != "cert-pem" {
+		t.Errorf("cert pem = %q, want cert-pem", string(pem))
+	}
+
+	// Verify host updated atomically
+	got, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != models.HostStatusEnrolled {
+		t.Errorf("status = %q, want enrolled", got.Status)
+	}
+	if got.CertFingerprint != fp {
+		t.Errorf("fingerprint = %q, want %q", got.CertFingerprint, fp)
+	}
+	if got.CertExpiresAt == nil || !got.CertExpiresAt.Round(time.Second).Equal(expires.Round(time.Second)) {
+		t.Errorf("cert_expires_at = %v, want %v", got.CertExpiresAt, expires)
+	}
+}
+
+func TestSaveCertificateAndEnrollHost_HostNotFound(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	now := time.Now()
+	err := s.SaveCertificateAndEnrollHost(ctx, "nonexistent", []byte("cert"), "fp", now, now.Add(time.Hour))
+	if err == nil {
+		t.Fatal("expected error for nonexistent host")
+	}
+
+	// Verify certificate was NOT saved (rollback)
+	_, err = s.GetCurrentCertificate(ctx, "nonexistent")
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound for cert, got %v", err)
+	}
+}
+
+func TestSaveCertificateAndUpdateHostCert(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+	h := createTestHost(t, s, net)
+
+	// Save initial cert
+	now := time.Now()
+	s.SaveCertificate(ctx, h.ID, []byte("old-cert"), "old-fp", now, now.Add(24*time.Hour))
+
+	// Renew with atomic method
+	newExpires := now.Add(30 * 24 * time.Hour)
+	newFP := "renewed-fp-456"
+	err := s.SaveCertificateAndUpdateHostCert(ctx, h.ID, []byte("new-cert"), newFP, now, newExpires)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify new certificate is current
+	pem, err := s.GetCurrentCertificate(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(pem) != "new-cert" {
+		t.Errorf("cert pem = %q, want new-cert", string(pem))
+	}
+
+	// Verify host fingerprint and expiry updated
+	got, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CertFingerprint != newFP {
+		t.Errorf("fingerprint = %q, want %q", got.CertFingerprint, newFP)
+	}
+	if got.CertExpiresAt == nil || !got.CertExpiresAt.Round(time.Second).Equal(newExpires.Round(time.Second)) {
+		t.Errorf("cert_expires_at = %v, want %v", got.CertExpiresAt, newExpires)
+	}
+	// Status should NOT change (only cert fields)
+	if got.Status != models.HostStatusPending {
+		t.Errorf("status = %q, want pending (unchanged)", got.Status)
+	}
+}
+
+func TestSaveCertificateAndUpdateHostCert_HostNotFound(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	now := time.Now()
+	err := s.SaveCertificateAndUpdateHostCert(ctx, "nonexistent", []byte("cert"), "fp", now, now.Add(time.Hour))
+	if err == nil {
+		t.Fatal("expected error for nonexistent host")
+	}
+
+	// Verify certificate was NOT saved (rollback)
+	_, err = s.GetCurrentCertificate(ctx, "nonexistent")
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound for cert, got %v", err)
+	}
+}
+
 func TestBlocklist_Remove(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

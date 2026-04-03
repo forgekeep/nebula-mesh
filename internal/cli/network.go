@@ -37,7 +37,10 @@ func NetworkCreate(serverURL, apiKey, name, cidr string) error {
 		}
 	}()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response body: %w", err)
+	}
 	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("failed (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}

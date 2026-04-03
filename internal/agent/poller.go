@@ -93,7 +93,10 @@ func (p *Poller) poll(ctx context.Context) error {
 		return nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("poll failed (HTTP %d, body unreadable: %w)", resp.StatusCode, readErr)
+		}
 		return fmt.Errorf("poll failed (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 

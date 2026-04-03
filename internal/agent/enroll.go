@@ -58,7 +58,10 @@ func Enroll(serverURL, token, dataDir string) error {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("enrollment failed (HTTP %d, body unreadable: %w)", resp.StatusCode, readErr)
+		}
 		return fmt.Errorf("enrollment failed (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 

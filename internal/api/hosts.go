@@ -160,6 +160,8 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	if host.CertFingerprint != "" {
 		if err := s.store.AddToBlocklist(r.Context(), host.CertFingerprint, host.ID, "host deleted"); err != nil {
 			s.logger.Error("blocklist on delete", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to add to blocklist")
+			return
 		}
 	}
 

@@ -44,6 +44,8 @@ type Store interface {
 
 	// Certificates
 	SaveCertificate(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
+	SaveCertificateAndEnrollHost(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
+	SaveCertificateAndUpdateHostCert(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	GetCurrentCertificate(ctx context.Context, hostID string) ([]byte, error)
 	GetCertificateInfo(ctx context.Context, hostID string) (*models.CertificateInfo, error)
 	ListEnrolledHostCerts(ctx context.Context) ([]*models.CertificateInfo, error)

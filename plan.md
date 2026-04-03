@@ -8,7 +8,7 @@
 
 ## Status
 
-APPROVED
+COMPLETED
 
 ## Changelog
 
@@ -252,41 +252,41 @@ Subcommands: `serve` (запуск сервера), `init` (создание CA 
 DE: а почему не третий вариант? Функционала htmlx не будет достаточно для работы?
 AI: Вы правы — htmx полностью достаточен для нашего UI. Переключил на вариант 3. Преимущества: zero JS build, single language (Go), проще embed и деплой. Все задачи Phase 8 обновлены под htmx + Go templates.
 
-[~] - [ ] **Test**: Go binary сервирует HTML pages, htmx partial responses
-[~] - [ ] **Impl**: `internal/web/templates/`, `internal/web/handlers.go`, `internal/web/static/` (htmx.min.js)
-[~] - [ ] **Verify**: `make build` включает templates, browser test на `/`
+[~] - [x] **Test**: Go binary сервирует HTML pages, htmx partial responses
+[~] - [x] **Impl**: `internal/web/templates/`, `internal/web/handlers.go`, `internal/web/static/` (htmx.min.js)
+[~] - [x] **Verify**: `make build` включает templates, browser test на `/`
 
 #### Task 8.2: Dashboard page
 
 Обзор сети: количество хостов по статусам, expiring certs, lighthouse health.
 
-[~] - [ ] **Test**: dashboard рендерится, htmx partial update для stats
-[~] - [ ] **Impl**: `internal/web/templates/dashboard.html`, `internal/web/dashboard.go`
-[~] - [ ] **Verify**: browser test с тестовыми данными
+[~] - [x] **Test**: dashboard рендерится, htmx partial update для stats
+[~] - [x] **Impl**: `internal/web/templates/dashboard.html`, `internal/web/dashboard.go`
+[~] - [x] **Verify**: browser test с тестовыми данными
 
 #### Task 8.3: Hosts management UI
 
 Список хостов с фильтрами (network, group, status), создание хоста с отображением enrollment token, детали хоста.
 
-[~] - [ ] **Test**: CRUD через UI, enrollment token displayed once
-[~] - [ ] **Impl**: `internal/web/templates/hosts.html`, `internal/web/templates/host_detail.html`, `internal/web/hosts.go`
-[~] - [ ] **Verify**: manual browser test: create host → copy token → verify in list
+[~] - [x] **Test**: CRUD через UI, enrollment token displayed once
+[~] - [x] **Impl**: `internal/web/templates/hosts.html`, `internal/web/templates/host_detail.html`, `internal/web/hosts.go`
+[~] - [x] **Verify**: manual browser test: create host → copy token → verify in list
 
 #### Task 8.4: Networks и Lighthouse UI
 
 Управление сетями, lighthouse и relay узлами через web-интерфейс.
 
-[~] - [ ] **Test**: создание сети, добавление lighthouse с public IP
-[~] - [ ] **Impl**: `internal/web/templates/networks.html`, `internal/web/templates/lighthouses.html`, `internal/web/networks.go`
-[~] - [ ] **Verify**: browser test
+[~] - [x] **Test**: создание сети, добавление lighthouse с public IP
+[~] - [x] **Impl**: `internal/web/templates/networks.html`, `internal/web/templates/lighthouses.html`, `internal/web/networks.go`
+[~] - [x] **Verify**: browser test
 
 #### Task 8.5: Session auth для Web UI
 
 Cookie-based authentication для браузера (отдельно от API key Bearer auth).
 
-[~] - [ ] **Test**: login/logout, session expiry, protected routes redirect to login
-[~] - [ ] **Impl**: `internal/web/session.go`, `internal/web/templates/login.html`
-[~] - [ ] **Verify**: `go test ./internal/web/...`
+[~] - [x] **Test**: login/logout, session expiry, protected routes redirect to login
+[~] - [x] **Impl**: `internal/web/session.go`, `internal/web/templates/login.html`
+[~] - [x] **Verify**: `go test ./internal/web/...`
 
 ### [~] Phase 9: Auto-renewal
 

@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS network_config;
+DROP TABLE IF EXISTS blocklist;
+DROP TABLE IF EXISTS certificates;
+DROP TABLE IF EXISTS enrollment_tokens;
+DROP TABLE IF EXISTS hosts;
+DROP TABLE IF EXISTS networks;

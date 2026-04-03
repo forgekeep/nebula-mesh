@@ -83,7 +83,11 @@ func (p *Poller) poll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("poll request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			p.logger.Error("close response body", "error", err)
+		}
+	}()
 
 	if resp.StatusCode == http.StatusNotModified {
 		return nil

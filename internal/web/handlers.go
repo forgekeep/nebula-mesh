@@ -143,7 +143,10 @@ func (w *Web) handleHostNew(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(rw, "bad request", http.StatusBadRequest)
+		return
+	}
 
 	nebulaIP := r.FormValue("nebula_ip")
 	if nebulaIP != "" {
@@ -305,7 +308,10 @@ func (w *Web) handleNetworks(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(rw, "bad request", http.StatusBadRequest)
+		return
+	}
 	name := r.FormValue("name")
 	cidr := r.FormValue("cidr")
 	if name == "" || cidr == "" {

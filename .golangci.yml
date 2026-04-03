@@ -1,20 +1,26 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
+  default: none
   enable:
     - errcheck
     - govet
     - ineffassign
     - staticcheck
     - unused
-    - gosimple
     - gocritic
     - revive
     - misspell
-
-linters-settings:
-  revive:
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
     rules:
-      - name: exported
-        disabled: true
+      - path: _test\.go
+        linters:
+          - errcheck

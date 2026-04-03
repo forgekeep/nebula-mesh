@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -41,7 +42,9 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		"PRAGMA foreign_keys=ON",
 	} {
 		if _, err := db.Exec(pragma); err != nil {
-			db.Close()
+			if closeErr := db.Close(); closeErr != nil {
+				slog.Error("close db after pragma failure", "error", closeErr)
+			}
 			return nil, fmt.Errorf("exec %s: %w", pragma, err)
 		}
 	}
@@ -112,7 +115,11 @@ func (s *SQLiteStore) ListNetworks(_ context.Context) ([]*models.Network, error)
 	if err != nil {
 		return nil, fmt.Errorf("list networks: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("close rows", "error", err)
+		}
+	}()
 
 	var result []*models.Network
 	for rows.Next() {
@@ -236,7 +243,11 @@ func (s *SQLiteStore) ListHosts(_ context.Context, filter HostFilter) ([]*models
 	if err != nil {
 		return nil, fmt.Errorf("list hosts: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("close rows", "error", err)
+		}
+	}()
 
 	var result []*models.Host
 	for rows.Next() {
@@ -367,7 +378,11 @@ func (s *SQLiteStore) ConsumeToken(_ context.Context, token string) (*models.Enr
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
 
 	t := &models.EnrollmentToken{}
 	err = tx.QueryRow(
@@ -410,7 +425,11 @@ func (s *SQLiteStore) SaveCertificate(_ context.Context, hostID string, certPEM 
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
 
 	// Mark old certs as not current
 	_, err = tx.Exec(`UPDATE certificates SET is_current = 0 WHERE host_id = ?`, hostID)
@@ -473,7 +492,11 @@ func (s *SQLiteStore) ListEnrolledHostCerts(_ context.Context) ([]*models.Certif
 	if err != nil {
 		return nil, fmt.Errorf("list enrolled certs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("close rows", "error", err)
+		}
+	}()
 
 	var result []*models.CertificateInfo
 	for rows.Next() {
@@ -516,7 +539,11 @@ func (s *SQLiteStore) GetBlocklist(_ context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get blocklist: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("close rows", "error", err)
+		}
+	}()
 
 	var result []string
 	for rows.Next() {
@@ -614,7 +641,11 @@ func (s *SQLiteStore) ListAuditEntries(_ context.Context, filter AuditFilter) ([
 	if err != nil {
 		return nil, fmt.Errorf("list audit entries: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("close rows", "error", err)
+		}
+	}()
 
 	var result []*models.AuditEntry
 	for rows.Next() {

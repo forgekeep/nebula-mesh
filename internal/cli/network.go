@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 )
 
@@ -30,7 +31,11 @@ func NetworkCreate(serverURL, apiKey, name, cidr string) error {
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Error("close response body", "error", err)
+		}
+	}()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated {
@@ -62,7 +67,11 @@ func NetworkList(serverURL, apiKey string) error {
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Error("close response body", "error", err)
+		}
+	}()
 
 	var networks []struct {
 		ID   string `json:"id"`

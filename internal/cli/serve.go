@@ -67,7 +67,11 @@ func Serve(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
-	defer s.Close()
+	defer func() {
+		if err := s.Close(); err != nil {
+			logger.Error("close store", "error", err)
+		}
+	}()
 
 	if err := s.Migrate(context.Background()); err != nil {
 		return fmt.Errorf("migrate: %w", err)
@@ -113,7 +117,9 @@ func Serve(configPath string) error {
 		cancel()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
-		httpServer.Shutdown(shutdownCtx)
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			logger.Error("shutdown error", "error", err)
+		}
 	}()
 
 	logger.Info("server starting", "listen", cfg.Listen)

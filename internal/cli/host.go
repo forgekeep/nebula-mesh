@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 )
@@ -40,7 +41,11 @@ func HostCreate(serverURL, apiKey, networkID, name, nebulaIP, role string, group
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Error("close response body", "error", err)
+		}
+	}()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated {
@@ -80,7 +85,11 @@ func HostList(serverURL, apiKey, networkID string) error {
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Error("close response body", "error", err)
+		}
+	}()
 
 	var hosts []struct {
 		ID       string `json:"id"`

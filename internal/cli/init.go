@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -75,7 +76,11 @@ func Init(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
-	defer s.Close()
+	defer func() {
+		if err := s.Close(); err != nil {
+			slog.Error("close store", "error", err)
+		}
+	}()
 
 	if err := s.Migrate(context.Background()); err != nil {
 		return fmt.Errorf("migrate database: %w", err)

@@ -833,6 +833,176 @@ func TestSaveCertificateAndUpdateHostCert_HostNotFound(t *testing.T) {
 	}
 }
 
+// --- Atomic Block Host ---
+
+func TestBlockHostAndAddToBlocklist(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_block", NetworkID: net.ID, Name: "block-me",
+		NebulaIP: "192.168.100.20", Groups: []string{"web"},
+		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	// CreateHost does not save cert fields — set via UpdateHost
+	h.CertFingerprint = "fp-block-123"
+	if err := s.UpdateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.BlockHostAndAddToBlocklist(ctx, h.ID, "manually blocked")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Host status updated
+	if got.Status != models.HostStatusBlocked {
+		t.Errorf("status = %q, want blocked", got.Status)
+	}
+
+	// Cert in blocklist
+	bl, err := s.GetBlocklist(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, fp := range bl {
+		if fp == "fp-block-123" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("fingerprint not found in blocklist after block")
+	}
+}
+
+func TestBlockHostAndAddToBlocklist_NoCert(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_nocert", NetworkID: net.ID, Name: "no-cert",
+		NebulaIP: "192.168.100.21", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.BlockHostAndAddToBlocklist(ctx, h.ID, "blocked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != models.HostStatusBlocked {
+		t.Errorf("status = %q, want blocked", got.Status)
+	}
+
+	// Blocklist should be empty (no cert to block)
+	bl, _ := s.GetBlocklist(ctx)
+	if len(bl) != 0 {
+		t.Errorf("blocklist len = %d, want 0 (no cert)", len(bl))
+	}
+}
+
+func TestBlockHostAndAddToBlocklist_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.BlockHostAndAddToBlocklist(context.Background(), "nonexistent", "reason")
+	if err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// --- Atomic Delete Host ---
+
+func TestDeleteHostAndBlockCert(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_del", NetworkID: net.ID, Name: "delete-me",
+		NebulaIP: "192.168.100.30", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	h.CertFingerprint = "fp-del-456"
+	if err := s.UpdateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteHostAndBlockCert(ctx, h.ID, "host deleted"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Host deleted
+	_, err := s.GetHost(ctx, h.ID)
+	if err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+
+	// Cert in blocklist
+	bl, _ := s.GetBlocklist(ctx)
+	found := false
+	for _, fp := range bl {
+		if fp == "fp-del-456" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("fingerprint not found in blocklist after delete")
+	}
+}
+
+func TestDeleteHostAndBlockCert_NoCert(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_nocert_del", NetworkID: net.ID, Name: "no-cert-del",
+		NebulaIP: "192.168.100.31", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteHostAndBlockCert(ctx, h.ID, "deleted"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Host deleted
+	_, err := s.GetHost(ctx, h.ID)
+	if err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+
+	// Blocklist empty
+	bl, _ := s.GetBlocklist(ctx)
+	if len(bl) != 0 {
+		t.Errorf("blocklist len = %d, want 0", len(bl))
+	}
+}
+
+func TestDeleteHostAndBlockCert_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	err := s.DeleteHostAndBlockCert(context.Background(), "nonexistent", "reason")
+	if err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestBlocklist_Remove(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

@@ -96,6 +96,11 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}
+	if hostAddr.Is4() != prefix.Addr().Is4() {
+		s.logger.Error("IP family mismatch", "host_ip", host.NebulaIP, "network_cidr", network.CIDR)
+		writeError(w, http.StatusInternalServerError, "enrollment failed")
+		return
+	}
 	hostPrefix := netip.PrefixFrom(hostAddr, prefix.Bits())
 
 	// CA operations — lock needed only for Sign + CACertPEM

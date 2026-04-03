@@ -100,6 +100,9 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 	if err != nil {
 		return nil, fmt.Errorf("parse current cert: %w", err)
 	}
+	if len(currentCert.PublicKey()) == 0 {
+		return nil, fmt.Errorf("current certificate has empty public key")
+	}
 
 	network, err := s.store.GetNetwork(ctx, host.NetworkID)
 	if err != nil {
@@ -114,6 +117,9 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 	hostAddr, err := netip.ParseAddr(host.NebulaIP)
 	if err != nil {
 		return nil, fmt.Errorf("parse host IP: %w", err)
+	}
+	if hostAddr.Is4() != prefix.Addr().Is4() {
+		return nil, fmt.Errorf("IP family mismatch: host %s vs network %s", host.NebulaIP, network.CIDR)
 	}
 
 	// CA operations — lock needed only for Sign + CACertPEM

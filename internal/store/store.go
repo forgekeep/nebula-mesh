@@ -37,6 +37,8 @@ type Store interface {
 	UpdateHostCert(ctx context.Context, id, fingerprint string, expiresAt time.Time) error
 	UpdateHostStatus(ctx context.Context, id string, status models.HostStatus) error
 	DeleteHost(ctx context.Context, id string) error
+	BlockHostAndAddToBlocklist(ctx context.Context, id, reason string) (*models.Host, error)
+	DeleteHostAndBlockCert(ctx context.Context, id, reason string) error
 
 	// Enrollment tokens
 	CreateToken(ctx context.Context, t *models.EnrollmentToken) error

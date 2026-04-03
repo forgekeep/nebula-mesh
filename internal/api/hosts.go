@@ -144,29 +144,11 @@ func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-
-	// Get host to add cert to blocklist
-	host, err := s.store.GetHost(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "host not found")
-		return
-	}
-	if err != nil {
-		s.logger.Error("get host for delete", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to get host")
-		return
-	}
-
-	// Add to blocklist if enrolled
-	if host.CertFingerprint != "" {
-		if err := s.store.AddToBlocklist(r.Context(), host.CertFingerprint, host.ID, "host deleted"); err != nil {
-			s.logger.Error("blocklist on delete", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to add to blocklist")
+	if err := s.store.DeleteHostAndBlockCert(r.Context(), id, "host deleted"); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "host not found")
 			return
 		}
-	}
-
-	if err := s.store.DeleteHost(r.Context(), id); err != nil {
 		s.logger.Error("delete host", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete host")
 		return
@@ -177,32 +159,17 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	host, err := s.store.GetHost(r.Context(), id)
+	host, err := s.store.BlockHostAndAddToBlocklist(r.Context(), id, "manually blocked")
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "host not found")
 		return
 	}
 	if err != nil {
-		s.logger.Error("get host for block", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to get host")
+		s.logger.Error("block host", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to block host")
 		return
 	}
 
-	if host.CertFingerprint != "" {
-		if err := s.store.AddToBlocklist(r.Context(), host.CertFingerprint, host.ID, "manually blocked"); err != nil {
-			s.logger.Error("add to blocklist", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to block host")
-			return
-		}
-	}
-
-	if err := s.store.UpdateHostStatus(r.Context(), host.ID, models.HostStatusBlocked); err != nil {
-		s.logger.Error("update host status", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to update host")
-		return
-	}
-
-	host.Status = models.HostStatusBlocked
 	writeJSON(w, http.StatusOK, host)
 }
 

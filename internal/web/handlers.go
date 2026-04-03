@@ -263,27 +263,14 @@ func (w *Web) handleHostDetail(rw http.ResponseWriter, r *http.Request) {
 
 func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	host, err := w.store.GetHost(r.Context(), id)
+	_, err := w.store.BlockHostAndAddToBlocklist(r.Context(), id, "blocked via UI")
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(rw, r)
 		return
 	}
 	if err != nil {
-		w.logger.Error("get host for block", "error", err)
-		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	if host.CertFingerprint != "" {
-		if err := w.store.AddToBlocklist(r.Context(), host.CertFingerprint, host.ID, "blocked via UI"); err != nil {
-			w.logger.Error("add to blocklist", "error", err)
-			http.Error(rw, "Failed to block host", http.StatusInternalServerError)
-			return
-		}
-	}
-	if err := w.store.UpdateHostStatus(r.Context(), host.ID, models.HostStatusBlocked); err != nil {
-		w.logger.Error("update host status", "error", err)
-		http.Error(rw, "Failed to update host", http.StatusInternalServerError)
+		w.logger.Error("block host", "error", err)
+		http.Error(rw, "Failed to block host", http.StatusInternalServerError)
 		return
 	}
 
@@ -293,18 +280,11 @@ func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
 
 func (w *Web) handleHostDelete(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	host, err := w.store.GetHost(r.Context(), id)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		w.logger.Error("get host for delete", "error", err)
-		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	if host != nil && host.CertFingerprint != "" {
-		if err := w.store.AddToBlocklist(r.Context(), host.CertFingerprint, host.ID, "deleted via UI"); err != nil {
-			w.logger.Error("add to blocklist on delete", "error", err)
+	if err := w.store.DeleteHostAndBlockCert(r.Context(), id, "deleted via UI"); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(rw, r)
+			return
 		}
-	}
-	if err := w.store.DeleteHost(r.Context(), id); err != nil {
 		w.logger.Error("delete host", "error", err)
 		http.Error(rw, "Failed to delete host", http.StatusInternalServerError)
 		return

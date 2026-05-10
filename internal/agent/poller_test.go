@@ -125,9 +125,9 @@ func TestPoller_WithConfigUpdate(t *testing.T) {
 }
 
 func TestPoller_FingerprintEscaped(t *testing.T) {
-	var receivedFP string
+	var receivedFP atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedFP = r.URL.Query().Get("fingerprint")
+		receivedFP.Store(r.URL.Query().Get("fingerprint"))
 		json.NewEncoder(w).Encode(UpdatesResponse{HasUpdates: false, Blocklist: []string{}})
 	}))
 	defer server.Close()
@@ -144,8 +144,9 @@ func TestPoller_FingerprintEscaped(t *testing.T) {
 	defer cancel()
 	p.Run(ctx)
 
-	if receivedFP != "fp with spaces&special=chars" {
-		t.Errorf("fingerprint = %q, want %q", receivedFP, "fp with spaces&special=chars")
+	got, _ := receivedFP.Load().(string)
+	if got != "fp with spaces&special=chars" {
+		t.Errorf("fingerprint = %q, want %q", got, "fp with spaces&special=chars")
 	}
 }
 

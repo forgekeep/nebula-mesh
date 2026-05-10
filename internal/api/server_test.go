@@ -64,6 +64,52 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestHealthz(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestReadyz_DBHealthy(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/readyz", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestReadyz_DBClosed(t *testing.T) {
+	srv, st := newTestServer(t)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/readyz", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestMetrics(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte("cmdline")) {
+		t.Errorf("expected expvar output to contain 'cmdline', got: %s", w.Body.String())
+	}
+}
+
 // --- Auth Middleware ---
 
 func TestAuthMiddleware_NoHeader(t *testing.T) {

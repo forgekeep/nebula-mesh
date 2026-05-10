@@ -126,3 +126,71 @@ func TestLoadServerConfig_FileNotFound(t *testing.T) {
 		t.Fatal("expected error for missing file, got nil")
 	}
 }
+
+func TestLoadServerConfig_TLSPartialFails(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+
+	data := []byte(`tls_cert: "/etc/nebula/cert.pem"`)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadServerConfig(cfgPath); err == nil {
+		t.Fatal("expected error when only tls_cert is set, got nil")
+	}
+}
+
+func TestSaveServerConfig_Roundtrip(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+
+	original := &ServerConfig{
+		Listen:   ":9090",
+		DataDir:  "/tmp/nebula",
+		DBPath:   "/tmp/nebula/db",
+		APIKey:   "abc123",
+		LogLevel: "warn",
+	}
+	if err := SaveServerConfig(cfgPath, original); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	info, err := os.Stat(cfgPath)
+	if err != nil {
+		t.Fatalf("stat saved config: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("perm = %o, want 0600", info.Mode().Perm())
+	}
+
+	loaded, err := LoadServerConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.APIKey != original.APIKey || loaded.Listen != original.Listen {
+		t.Errorf("roundtrip mismatch: %+v vs %+v", loaded, original)
+	}
+}
+
+func TestSaveServerConfig_AtomicReplace(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+
+	if err := os.WriteFile(cfgPath, []byte("listen: \":7000\"\nlog_level: \"info\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	updated := &ServerConfig{Listen: ":8000", DataDir: "/d", DBPath: "/d/db", APIKey: "k", LogLevel: "info"}
+	if err := SaveServerConfig(cfgPath, updated); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	loaded, err := LoadServerConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.Listen != ":8000" {
+		t.Errorf("Listen = %q, want :8000", loaded.Listen)
+	}
+}

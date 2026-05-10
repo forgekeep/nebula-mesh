@@ -74,5 +74,6 @@ type Store interface {
 
 	// Lifecycle
 	Migrate(ctx context.Context) error
+	Ping(ctx context.Context) error
 	Close() error
 }

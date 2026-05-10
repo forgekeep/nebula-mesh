@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"expvar"
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -51,8 +54,11 @@ func (s *Server) setupRoutes() {
 	r.Use(requestLogger(s.logger))
 	r.Use(maxBodySize(1 << 20)) // 1MB
 
-	// Public endpoints
-	r.Get("/health", s.handleHealth)
+	// Public endpoints — operations and enrollment
+	r.Get("/health", s.handleHealth) // legacy alias
+	r.Get("/healthz", s.handleHealth)
+	r.Get("/readyz", s.handleReady)
+	r.Method("GET", "/metrics", expvar.Handler())
 	r.Post("/api/v1/enroll", s.handleEnroll)
 	r.Get("/api/v1/agent/updates", s.handleAgentUpdates)
 
@@ -87,6 +93,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleReady reports readiness — verifies the database is reachable.
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := contextWithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.store.Ping(ctx); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable", "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
 // writeJSON sends a JSON response.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -104,3 +121,11 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // ConfigGenerator is used by handlers to generate Nebula configs.
 // Kept separate to avoid circular deps.
 var _ = configgen.GeneratorInput{} // compile-time check that configgen is importable
+
+// contextWithTimeout wraps context.WithTimeout for tests that may pass a nil request context.
+func contextWithTimeout(parent context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	return context.WithTimeout(parent, d)
+}

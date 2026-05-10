@@ -89,6 +89,11 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
+// Ping verifies the database connection is alive.
+func (s *SQLiteStore) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
 // --- Networks ---
 
 func (s *SQLiteStore) CreateNetwork(_ context.Context, n *models.Network) error {

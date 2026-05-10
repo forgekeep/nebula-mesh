@@ -17,7 +17,12 @@ import (
 )
 
 // Init initializes the management server: creates CA, generates API key, and initializes the database.
+// configPath is required — the generated API key is written back to this file.
 func Init(configPath string) error {
+	if configPath == "" {
+		return fmt.Errorf("--config is required")
+	}
+
 	cfg, err := loadOrCreateConfig(configPath)
 	if err != nil {
 		return err
@@ -67,8 +72,11 @@ func Init(configPath string) error {
 			return fmt.Errorf("generate API key: %w", err)
 		}
 		cfg.APIKey = hex.EncodeToString(keyBytes)
+		if err := config.SaveServerConfig(configPath, cfg); err != nil {
+			return fmt.Errorf("save config with API key: %w", err)
+		}
 		fmt.Printf("API key: %s\n", cfg.APIKey)
-		fmt.Println("Save this API key — it won't be shown again.")
+		fmt.Printf("Saved to: %s\n", configPath)
 	}
 
 	// Initialize database
@@ -93,14 +101,24 @@ func Init(configPath string) error {
 	return nil
 }
 
+// loadOrCreateConfig loads an existing config or creates a new one with defaults
+// at path if the file does not exist.
 func loadOrCreateConfig(path string) (*config.ServerConfig, error) {
-	if path != "" {
+	if _, err := os.Stat(path); err == nil {
 		return config.LoadServerConfig(path)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("stat config: %w", err)
 	}
-	return &config.ServerConfig{
+
+	cfg := &config.ServerConfig{
 		Listen:   ":8080",
 		DataDir:  "/var/lib/nebula-mgmt",
 		DBPath:   "/var/lib/nebula-mgmt/nebula.db",
 		LogLevel: "info",
-	}, nil
+	}
+	if err := config.SaveServerConfig(path, cfg); err != nil {
+		return nil, fmt.Errorf("create initial config: %w", err)
+	}
+	fmt.Printf("Created config: %s\n", path)
+	return cfg, nil
 }

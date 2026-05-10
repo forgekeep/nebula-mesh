@@ -1,5 +1,11 @@
 listen: ":8080"
 data_dir: "/var/lib/nebula-mgmt"
 db_path: "/var/lib/nebula-mgmt/nebula.db"
-api_key: ""  # generated on init
+api_key: ""  # generated on `nebula-mgmt init` and written back to this file
+ui_password: ""  # falls back to api_key if empty
 log_level: "info"
+
+# TLS — both must be set together. If empty, server runs plain HTTP
+# (recommended only behind a TLS-terminating reverse proxy like nginx/caddy).
+tls_cert: ""
+tls_key: ""

@@ -130,9 +130,16 @@ func Serve(configPath string) error {
 		}
 	}()
 
-	logger.Info("server starting", "listen", cfg.Listen)
-	if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
-		return fmt.Errorf("server error: %w", err)
+	if cfg.TLSCert != "" && cfg.TLSKey != "" {
+		logger.Info("server starting (TLS)", "listen", cfg.Listen, "cert", cfg.TLSCert)
+		if err := httpServer.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey); err != http.ErrServerClosed {
+			return fmt.Errorf("server error: %w", err)
+		}
+	} else {
+		logger.Warn("server starting WITHOUT TLS — recommended only behind a TLS-terminating proxy", "listen", cfg.Listen)
+		if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
+			return fmt.Errorf("server error: %w", err)
+		}
 	}
 
 	<-ctx.Done()

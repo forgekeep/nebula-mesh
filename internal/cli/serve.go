@@ -19,6 +19,32 @@ import (
 	"golang.org/x/term"
 )
 
+// caPassphraseEnv is read by readCAPassphrase before falling back to TTY prompt.
+const caPassphraseEnv = "NEBULA_MGMT_CA_PASSPHRASE"
+
+// readCAPassphrase reads the CA passphrase from $NEBULA_MGMT_CA_PASSPHRASE if set,
+// otherwise prompts on the controlling terminal. Returns an error when stdin
+// is not a TTY and the env var is not set (typical of systemd / Docker without -i).
+func readCAPassphrase() (string, error) {
+	if v, ok := os.LookupEnv(caPassphraseEnv); ok {
+		if v == "" {
+			return "", fmt.Errorf("%s is set but empty", caPassphraseEnv)
+		}
+		return v, nil
+	}
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return "", fmt.Errorf("stdin is not a TTY and %s is unset — cannot read CA passphrase", caPassphraseEnv)
+	}
+	fmt.Print("Enter CA passphrase: ")
+	passBytes, err := term.ReadPassword(fd)
+	fmt.Println()
+	if err != nil {
+		return "", err
+	}
+	return string(passBytes), nil
+}
+
 // Serve starts the management server.
 func Serve(configPath string) error {
 	cfg, err := config.LoadServerConfig(configPath)
@@ -44,14 +70,12 @@ func Serve(configPath string) error {
 	certPath := filepath.Join(cfg.DataDir, "ca.crt")
 	keyPath := filepath.Join(cfg.DataDir, "ca.key")
 
-	fmt.Print("Enter CA passphrase: ")
-	passBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
+	passphrase, err := readCAPassphrase()
 	if err != nil {
 		return fmt.Errorf("read passphrase: %w", err)
 	}
 
-	ca, err := pki.LoadCA(certPath, keyPath, string(passBytes))
+	ca, err := pki.LoadCA(certPath, keyPath, passphrase)
 	if err != nil {
 		return fmt.Errorf("load CA: %w", err)
 	}
@@ -83,7 +107,7 @@ func Serve(configPath string) error {
 	apiSrv := api.NewServer(s, ca, cfg.APIKey, logger, api.CAConfig{
 		CertPath:   certPath,
 		KeyPath:    keyPath,
-		Passphrase: string(passBytes),
+		Passphrase: passphrase,
 	})
 
 	// Create Web UI

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build / test / lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: build
+        run: go build ./...
+
+      - name: test (race)
+        run: go test -race -count=1 ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.1
+          args: --timeout=5m
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: nebula-mgmt:ci-${{ github.sha }}

@@ -1,0 +1,46 @@
+[Unit]
+Description=Nebula Management Server
+Documentation=https://github.com/juev/nebula-mgmt
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nebula-mgmt
+Group=nebula-mgmt
+
+# CA passphrase must be supplied via this file (mode 0600, owned by root or nebula-mgmt).
+# Format: NEBULA_MGMT_CA_PASSPHRASE=your-passphrase-here
+EnvironmentFile=/etc/nebula-mgmt/passphrase.env
+
+ExecStart=/usr/local/bin/nebula-mgmt serve --config /etc/nebula-mgmt/server.yml
+Restart=on-failure
+RestartSec=5s
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# State paths the service is allowed to write to
+ReadWritePaths=/var/lib/nebula-mgmt
+StateDirectory=nebula-mgmt
+StateDirectoryMode=0750
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

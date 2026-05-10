@@ -13,7 +13,6 @@ import (
 	"github.com/juev/nebula-mgmt/internal/config"
 	"github.com/juev/nebula-mgmt/internal/pki"
 	"github.com/juev/nebula-mgmt/internal/store"
-	"golang.org/x/term"
 )
 
 // Init initializes the management server: creates CA, generates API key, and initializes the database.
@@ -33,14 +32,11 @@ func Init(configPath string) error {
 		return fmt.Errorf("create data dir: %w", err)
 	}
 
-	// Get passphrase for CA key
-	fmt.Print("Enter passphrase for CA key: ")
-	passBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
+	// Get passphrase for CA key (env var or interactive)
+	passphrase, err := readCAPassphrase()
 	if err != nil {
 		return fmt.Errorf("read passphrase: %w", err)
 	}
-	passphrase := string(passBytes)
 	if passphrase == "" {
 		return fmt.Errorf("passphrase cannot be empty")
 	}

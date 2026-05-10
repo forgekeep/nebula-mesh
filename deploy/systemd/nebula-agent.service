@@ -1,0 +1,42 @@
+[Unit]
+Description=Nebula Management Agent
+Documentation=https://github.com/juev/nebula-mgmt
+After=network-online.target nebula.service
+Wants=network-online.target
+PartOf=nebula.service
+
+[Service]
+Type=simple
+# Agent needs to write to /etc/nebula and send SIGHUP to nebula.service —
+# either run as root, or grant CAP_KILL + write access to the nebula data dir.
+User=root
+Group=root
+
+ExecStart=/usr/local/bin/nebula-agent run --config /etc/nebula-agent/agent.yml
+Restart=on-failure
+RestartSec=5s
+
+# Hardening (root, but limit syscall surface)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallFilter=kill
+
+ReadWritePaths=/etc/nebula
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

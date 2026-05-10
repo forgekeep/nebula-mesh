@@ -1,0 +1,15 @@
+.git/
+.github/
+bin/
+tests/
+*.md
+!README.md
+*.db
+*.log
+.vscode/
+.idea/
+*.swp
+plan.md
+research.md
+nebula-research.md
+details.md

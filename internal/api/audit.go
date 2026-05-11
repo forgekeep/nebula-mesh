@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/juev/nebula-mgmt/internal/store"
+	"github.com/juev/nebula-mesh/internal/store"
 )
 
 const defaultAuditLimit = 100

@@ -8,7 +8,7 @@ Self-hosted платформа для полного управления Nebula
 
 ```
 nebula-mgmt/
-├── go.mod                          # github.com/juev/nebula-mgmt
+├── go.mod                          # github.com/juev/nebula-mesh
 ├── go.sum
 ├── .gitignore
 ├── .golangci.yml                   # Linter configuration
@@ -256,7 +256,7 @@ POST   /api/v1/agent/status               # Report: статус агента (o
 ### 1.1 Инициализация проекта
 
 **Что делаем:**
-- `go mod init github.com/juev/nebula-mgmt`
+- `go mod init github.com/juev/nebula-mesh`
 - Минимальные `main.go` для обоих бинарников (пустые, но компилируемые)
 - `.gitignore` (бинарники, SQLite files, `*.key`, `.env`)
 - `.golangci.yml` (golangci-lint config)

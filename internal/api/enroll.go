@@ -9,9 +9,9 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/juev/nebula-mgmt/internal/configgen"
-	"github.com/juev/nebula-mgmt/internal/pki"
-	"github.com/juev/nebula-mgmt/internal/store"
+	"github.com/juev/nebula-mesh/internal/configgen"
+	"github.com/juev/nebula-mesh/internal/pki"
+	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/slackhq/nebula/cert"
 )
 

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mgmt/internal/models"
-	"github.com/juev/nebula-mgmt/internal/store"
+	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/juev/nebula-mesh/internal/store"
 )
 
 const testPassword = "test-password-123"

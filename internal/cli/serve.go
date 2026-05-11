@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/juev/nebula-mgmt/internal/api"
-	"github.com/juev/nebula-mgmt/internal/config"
-	"github.com/juev/nebula-mgmt/internal/pki"
-	"github.com/juev/nebula-mgmt/internal/store"
-	"github.com/juev/nebula-mgmt/internal/web"
+	"github.com/juev/nebula-mesh/internal/api"
+	"github.com/juev/nebula-mesh/internal/config"
+	"github.com/juev/nebula-mesh/internal/pki"
+	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/juev/nebula-mesh/internal/web"
 	"golang.org/x/term"
 )
 

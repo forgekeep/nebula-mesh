@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juev/nebula-mgmt/internal/models"
-	"github.com/juev/nebula-mgmt/internal/store/migrations"
+	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/juev/nebula-mesh/internal/store/migrations"
 
 	_ "modernc.org/sqlite"
 )

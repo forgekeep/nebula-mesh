@@ -11,9 +11,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/juev/nebula-mgmt/internal/configgen"
-	"github.com/juev/nebula-mgmt/internal/pki"
-	"github.com/juev/nebula-mgmt/internal/store"
+	"github.com/juev/nebula-mesh/internal/configgen"
+	"github.com/juev/nebula-mesh/internal/pki"
+	"github.com/juev/nebula-mesh/internal/store"
 )
 
 // CAConfig holds paths and passphrase for CA persistence.

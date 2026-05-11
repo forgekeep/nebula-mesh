@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mgmt/internal/models"
-	"github.com/juev/nebula-mgmt/internal/pki"
-	"github.com/juev/nebula-mgmt/internal/store"
+	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/juev/nebula-mesh/internal/pki"
+	"github.com/juev/nebula-mesh/internal/store"
 )
 
 const testAPIKey = "test-api-key-12345"

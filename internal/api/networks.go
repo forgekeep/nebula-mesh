@@ -9,8 +9,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/juev/nebula-mgmt/internal/models"
-	"github.com/juev/nebula-mgmt/internal/store"
+	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/juev/nebula-mesh/internal/store"
 )
 
 type createNetworkRequest struct {

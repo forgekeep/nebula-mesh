@@ -9,8 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/juev/nebula-mgmt/internal/agent"
-	"github.com/juev/nebula-mgmt/internal/config"
+	"github.com/juev/nebula-mesh/internal/agent"
+	"github.com/juev/nebula-mesh/internal/config"
 )
 
 func main() {

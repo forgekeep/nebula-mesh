@@ -10,16 +10,10 @@ builds:
   - id: nebula-mgmt
     binary: nebula-mgmt
     main: ./cmd/nebula-mgmt
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    flags:
-      - -trimpath
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -29,16 +23,10 @@ builds:
   - id: nebula-agent
     binary: nebula-agent
     main: ./cmd/nebula-agent
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    flags:
-      - -trimpath
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -46,20 +34,120 @@ builds:
       - -X main.date={{.Date}}
 
 archives:
-  - id: default
-    name_template: >-
-      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+  - id: server
+    ids: [nebula-mgmt]
+    name_template: "nebula-mgmt_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
     files:
       - LICENSE
       - README.md
       - CHANGELOG.md
       - configs/server.example.yml
+      - deploy/systemd/nebula-mgmt.service
+      - deploy/systemd/README.md
+
+  - id: agent
+    ids: [nebula-agent]
+    name_template: "nebula-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
       - configs/agent.example.yml
-      - deploy/**/*
+      - deploy/systemd/nebula-agent.service
+      - deploy/systemd/README.md
+
+dockers:
+  - id: server-amd64
+    goos: linux
+    goarch: amd64
+    ids: [nebula-mgmt]
+    dockerfile: deploy/docker/Dockerfile.server
+    image_templates:
+      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-amd64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title=nebula-mgmt"
+      - "--label=org.opencontainers.image.description=Self-hosted control plane for Slack Nebula"
+      - "--label=org.opencontainers.image.source=https://github.com/juev/nebula-mesh"
+      - "--label=org.opencontainers.image.licenses=MIT"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+
+  - id: server-arm64
+    goos: linux
+    goarch: arm64
+    ids: [nebula-mgmt]
+    dockerfile: deploy/docker/Dockerfile.server
+    image_templates:
+      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-arm64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title=nebula-mgmt"
+      - "--label=org.opencontainers.image.description=Self-hosted control plane for Slack Nebula"
+      - "--label=org.opencontainers.image.source=https://github.com/juev/nebula-mesh"
+      - "--label=org.opencontainers.image.licenses=MIT"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+
+  - id: agent-amd64
+    goos: linux
+    goarch: amd64
+    ids: [nebula-agent]
+    dockerfile: deploy/docker/Dockerfile.agent
+    image_templates:
+      - "ghcr.io/juev/nebula-agent:{{ .Version }}-amd64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title=nebula-agent"
+      - "--label=org.opencontainers.image.description=Polling agent for nebula-mesh"
+      - "--label=org.opencontainers.image.source=https://github.com/juev/nebula-mesh"
+      - "--label=org.opencontainers.image.licenses=MIT"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+
+  - id: agent-arm64
+    goos: linux
+    goarch: arm64
+    ids: [nebula-agent]
+    dockerfile: deploy/docker/Dockerfile.agent
+    image_templates:
+      - "ghcr.io/juev/nebula-agent:{{ .Version }}-arm64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title=nebula-agent"
+      - "--label=org.opencontainers.image.description=Polling agent for nebula-mesh"
+      - "--label=org.opencontainers.image.source=https://github.com/juev/nebula-mesh"
+      - "--label=org.opencontainers.image.licenses=MIT"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+
+docker_manifests:
+  - name_template: "ghcr.io/juev/nebula-mgmt:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-amd64"
+      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/juev/nebula-mgmt:latest"
+    image_templates:
+      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-amd64"
+      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/juev/nebula-agent:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/juev/nebula-agent:{{ .Version }}-amd64"
+      - "ghcr.io/juev/nebula-agent:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/juev/nebula-agent:latest"
+    image_templates:
+      - "ghcr.io/juev/nebula-agent:{{ .Version }}-amd64"
+      - "ghcr.io/juev/nebula-agent:{{ .Version }}-arm64"
 
 checksum:
   name_template: "checksums.txt"
@@ -102,7 +190,10 @@ release:
   header: |
     ## nebula-mesh {{ .Tag }}
 
-    See [README](https://github.com/juev/nebula-mesh#readme) for quickstart.
+    **Install** — see [README](https://github.com/juev/nebula-mesh#install) for the full snippets.
+
+    - Server: `nebula-mgmt_{{ .Version }}_<os>_<arch>.tar.gz` or `docker pull ghcr.io/juev/nebula-mgmt:{{ .Version }}`
+    - Agent: `nebula-agent_{{ .Version }}_<os>_<arch>.tar.gz` or `docker pull ghcr.io/juev/nebula-agent:{{ .Version }}`
   footer: |
     ---
 

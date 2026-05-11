@@ -57,17 +57,47 @@ Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it 
 
 ## Install
 
-### From a release (Linux / macOS, amd64 / arm64)
+Each release ships **two** independent artifact sets — install only what you need on each machine.
+
+| | Server (`nebula-mgmt`) | Agent (`nebula-agent`) |
+|---|---|---|
+| Where it runs | one VM / container — the control plane | every Nebula host — next to `nebula` |
+| Binary tarball | `nebula-mgmt_<v>_<os>_<arch>.tar.gz` | `nebula-agent_<v>_<os>_<arch>.tar.gz` |
+| Docker image | `ghcr.io/juev/nebula-mgmt` | `ghcr.io/juev/nebula-agent` |
+
+### Prebuilt binary (Linux / macOS, amd64 / arm64)
 
 ```sh
+# Pick one: BIN=nebula-mgmt   (control-plane VM)
+#          BIN=nebula-agent   (every Nebula host)
+BIN=nebula-mgmt
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
-curl -fsSL "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-mesh_${TAG#v}_${OS}_${ARCH}.tar.gz" | tar -xz
-# → nebula-mgmt, nebula-agent in the current directory
+curl -fsSL "https://github.com/juev/nebula-mesh/releases/download/${TAG}/${BIN}_${TAG#v}_${OS}_${ARCH}.tar.gz" | tar -xz
 ```
 
-Or grab a specific build from [Releases](https://github.com/juev/nebula-mesh/releases). Each release ships `checksums.txt` (SHA-256).
+Each release ships a `checksums.txt` with SHA-256 of every archive.
+
+### Docker (linux/amd64, linux/arm64)
+
+```sh
+# Server:
+docker run -d --name nebula-mgmt \
+  -p 8080:8080 \
+  -v nebula-mgmt-data:/var/lib/nebula-mgmt \
+  -v nebula-mgmt-etc:/etc/nebula-mgmt \
+  -e NEBULA_MGMT_CA_PASSPHRASE \
+  ghcr.io/juev/nebula-mgmt:latest
+
+# Agent (typically sidecar to nebula, sharing the same PID namespace):
+docker run -d --name nebula-agent \
+  -v /etc/nebula-agent:/etc/nebula-agent \
+  -v /etc/nebula:/etc/nebula \
+  ghcr.io/juev/nebula-agent:latest
+```
+
+Images are published to GitHub Container Registry with both `:vX.Y.Z` and `:latest` tags. See [Packages](https://github.com/juev?tab=packages&repo_name=nebula-mesh).
 
 ### From source
 

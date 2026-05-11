@@ -1,0 +1,16 @@
+# Dockerfile used by goreleaser to package the pre-built nebula-agent binary.
+# The agent must share a PID namespace with the Nebula process to signal it
+# via SIGHUP. Typical use: sidecar in a Pod that also runs slackhq/nebula.
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata && \
+    mkdir -p /etc/nebula-agent /etc/nebula
+
+COPY nebula-agent /usr/local/bin/nebula-agent
+
+WORKDIR /etc/nebula-agent
+
+VOLUME ["/etc/nebula-agent", "/etc/nebula"]
+
+ENTRYPOINT ["/usr/local/bin/nebula-agent"]
+CMD ["run", "--config", "/etc/nebula-agent/agent.yml"]

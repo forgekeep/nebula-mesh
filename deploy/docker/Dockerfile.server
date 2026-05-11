@@ -1,0 +1,23 @@
+# Dockerfile used by goreleaser to package the pre-built nebula-mgmt binary.
+# For a build-from-source variant, see /Dockerfile in the repo root.
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata wget && \
+    addgroup -S -g 10001 nebula && \
+    adduser  -S -u 10001 -G nebula nebula && \
+    mkdir -p /var/lib/nebula-mgmt /etc/nebula-mgmt && \
+    chown -R nebula:nebula /var/lib/nebula-mgmt /etc/nebula-mgmt
+
+COPY nebula-mgmt /usr/local/bin/nebula-mgmt
+
+USER nebula:nebula
+WORKDIR /var/lib/nebula-mgmt
+
+EXPOSE 8080
+VOLUME ["/var/lib/nebula-mgmt", "/etc/nebula-mgmt"]
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1
+
+ENTRYPOINT ["/usr/local/bin/nebula-mgmt"]
+CMD ["serve", "--config", "/etc/nebula-mgmt/server.yml"]

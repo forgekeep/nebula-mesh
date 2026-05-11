@@ -97,7 +97,7 @@ docker run -d --name nebula-agent \
   ghcr.io/juev/nebula-agent:latest
 ```
 
-Images are published to GitHub Container Registry with both `:vX.Y.Z` and `:latest` tags. See [Packages](https://github.com/juev?tab=packages&repo_name=nebula-mesh).
+Images are published to GitHub Container Registry with `:X.Y.Z` (semver, no `v` prefix) and `:latest` tags. See [Packages](https://github.com/juev?tab=packages&repo_name=nebula-mesh).
 
 ### From source
 

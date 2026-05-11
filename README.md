@@ -2,6 +2,10 @@
 
 > Self-hosted control plane for [Slack's Nebula](https://github.com/slackhq/nebula) mesh VPN — issue certificates, manage hosts, distribute config, and roll out changes from one place.
 
+![Dashboard](docs/screenshots/dashboard.png)
+
+<sub>More views: [hosts](docs/screenshots/hosts.png) · [host detail](docs/screenshots/host-detail.png) · [networks](docs/screenshots/networks.png)</sub>
+
 [![CI](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml/badge.svg)](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/juev/nebula-mesh?display_name=tag&sort=semver)](https://github.com/juev/nebula-mesh/releases/latest)
 [![Go Reference](https://pkg.go.dev/badge/github.com/juev/nebula-mesh.svg)](https://pkg.go.dev/github.com/juev/nebula-mesh)

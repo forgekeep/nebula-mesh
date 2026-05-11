@@ -3,6 +3,7 @@
 > Self-hosted control plane for [Slack's Nebula](https://github.com/slackhq/nebula) mesh VPN — issue certificates, manage hosts, distribute config, and roll out changes from one place.
 
 [![CI](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml/badge.svg)](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/juev/nebula-mesh?display_name=tag&sort=semver)](https://github.com/juev/nebula-mesh/releases/latest)
 [![Go Reference](https://pkg.go.dev/badge/github.com/juev/nebula-mesh.svg)](https://pkg.go.dev/github.com/juev/nebula-mesh)
 [![Go Report Card](https://goreportcard.com/badge/github.com/juev/nebula-mesh)](https://goreportcard.com/report/github.com/juev/nebula-mesh)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -50,17 +51,31 @@ Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it 
 - `nebula-mgmt` — management server (HTTP API + web UI + CLI subcommands)
 - `nebula-agent` — runs on each Nebula host, polls for updates, atomically rewrites Nebula config, `SIGHUP`s Nebula
 
-## Quickstart
+## Install
 
-Requires Go 1.26+. Pre-built binaries — see [Releases](../../releases).
+### From a release (Linux / macOS, amd64 / arm64)
 
-### 1. Build
+```sh
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
+curl -fsSL "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-mesh_${TAG#v}_${OS}_${ARCH}.tar.gz" | tar -xz
+# → nebula-mgmt, nebula-agent in the current directory
+```
+
+Or grab a specific build from [Releases](https://github.com/juev/nebula-mesh/releases). Each release ships `checksums.txt` (SHA-256).
+
+### From source
+
+Requires Go 1.26+.
 
 ```sh
 make build           # outputs bin/nebula-mgmt and bin/nebula-agent
 ```
 
-### 2. Run the server
+## Quickstart
+
+### 1. Run the server
 
 ```sh
 sudo mkdir -p /var/lib/nebula-mgmt /etc/nebula-mgmt
@@ -77,7 +92,7 @@ Open `http://localhost:8080/ui/` — log in with the API key shown by `init`.
 
 Non-interactive deployments (systemd, Docker): set `NEBULA_MGMT_CA_PASSPHRASE` instead of typing the passphrase at start.
 
-### 3. Enroll a host
+### 2. Enroll a host
 
 ```sh
 # On the server — create a host record:

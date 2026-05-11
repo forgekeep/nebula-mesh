@@ -1,117 +1,154 @@
-# nebula-mgmt
+# nebula-mesh
 
-Self-hosted management platform for [Nebula](https://github.com/slackhq/nebula) mesh networks. Provides a REST API, web UI, CLI, and an enrollment agent for issuing/rotating certificates and distributing Nebula configuration to hosts.
+> Self-hosted control plane for [Slack's Nebula](https://github.com/slackhq/nebula) mesh VPN — issue certificates, manage hosts, distribute config, and roll out changes from one place.
 
-Two binaries:
+[![CI](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml/badge.svg)](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/juev/nebula-mesh.svg)](https://pkg.go.dev/github.com/juev/nebula-mesh)
+[![Go Report Card](https://goreportcard.com/badge/github.com/juev/nebula-mesh)](https://goreportcard.com/report/github.com/juev/nebula-mesh)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/juev/nebula-mesh)](go.mod)
 
-- `nebula-mgmt` — management server (HTTP API + web UI + CLI)
-- `nebula-agent` — runs on each Nebula host, polls the server for updates and reloads Nebula via SIGHUP
+Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it leaves the operator to hand-roll certificate issuance, rotation, distribution and revocation — usually with shell scripts and a CA on a laptop. **nebula-mesh** is the missing management layer: a single Go binary plus an enrollment agent that turn Nebula into a self-service mesh you can run on one VM.
 
-## Build
+## Why
 
-Requires Go 1.26+.
+| | Hand-rolled scripts | DefinedNetworking (managed) | **nebula-mesh** |
+|---|---|---|---|
+| Self-hosted | ✅ | ❌ | ✅ |
+| Web UI + REST API | ❌ | ✅ | ✅ |
+| Cert rotation & revocation | manual | ✅ | ✅ |
+| Single static binary | ✅ | n/a | ✅ |
+| Cost | your time | per-host | free (MIT) |
+| Lock-in | none | vendor | none |
 
-```sh
-make build
-# binaries in ./bin/
+## Features
+
+- **Web UI + REST API + CLI** — one server, three interfaces. Built with chi + Go templates + htmx (no SPA build step).
+- **PKI lifecycle** — CA on init (encrypted with passphrase), per-host certs signed via `slackhq/nebula/cert`, blocklist-backed revocation.
+- **Zero-trust enrollment** — hosts join with a single-use token; private keys never leave the host.
+- **Auto-rotation** — agent polls the server, atomically writes new certs/config (temp + fsync + rename), reloads Nebula via `SIGHUP`.
+- **Audit trail** — every API mutation is recorded with actor, action, target.
+- **Per-network firewall rules** — managed declaratively via API, distributed to all hosts.
+- **Production-ready basics** — `/healthz`, `/readyz`, `expvar` metrics, structured `slog` logs, optional in-process TLS, SQLite (WAL) with embedded migrations.
+- **Tiny footprint** — two static binaries (~15–25 MiB each), SQLite, no external deps. Runs on a $5 VM.
+
+## Architecture
+
+```
+┌──────────┐   REST/UI   ┌─────────────────────┐
+│ operator │ ──────────▶ │   nebula-mgmt       │
+└──────────┘   (HTTPS)   │  ┌───────────────┐  │
+                         │  │ chi API       │  │
+┌──────────┐   poll      │  │ web UI (htmx) │  │
+│ nebula-  │ ──────────▶ │  │ PKI + store   │  │
+│ agent    │ ◀────────── │  │ (SQLite WAL)  │  │
+│ + nebula │   updates   │  └───────────────┘  │
+└──────────┘             └─────────────────────┘
+   each host                  one VM / container
 ```
 
-Test and lint:
+- `nebula-mgmt` — management server (HTTP API + web UI + CLI subcommands)
+- `nebula-agent` — runs on each Nebula host, polls for updates, atomically rewrites Nebula config, `SIGHUP`s Nebula
+
+## Quickstart
+
+Requires Go 1.26+. Pre-built binaries — see [Releases](../../releases).
+
+### 1. Build
 
 ```sh
-make test    # go test -v -race ./...
-make lint    # golangci-lint run ./...
+make build           # outputs bin/nebula-mgmt and bin/nebula-agent
 ```
 
-## Quickstart (server)
+### 2. Run the server
 
 ```sh
-# 1. Initialize: creates CA, generates 32-byte API key, writes config.
 sudo mkdir -p /var/lib/nebula-mgmt /etc/nebula-mgmt
 sudo cp configs/server.example.yml /etc/nebula-mgmt/server.yml
-sudo bin/nebula-mgmt init --config /etc/nebula-mgmt/server.yml
-# Prompts for a CA passphrase. The generated API key is written back
-# into the config file (api_key field).
 
-# 2. Run the server.
+# One-time: creates CA, generates API key, persists both into the config.
+sudo bin/nebula-mgmt init --config /etc/nebula-mgmt/server.yml
+
+# Serve.
 sudo bin/nebula-mgmt serve --config /etc/nebula-mgmt/server.yml
-# Prompts for the CA passphrase on each start.
 ```
 
-For non-interactive deployments (systemd, Docker without `-it`), set the CA passphrase via the `NEBULA_MGMT_CA_PASSPHRASE` env var. The server refuses to start if stdin is not a TTY and the env var is unset.
+Open `http://localhost:8080/ui/` — log in with the API key shown by `init`.
 
-By default the server listens on `:8080` over plain HTTP. For production:
+Non-interactive deployments (systemd, Docker): set `NEBULA_MGMT_CA_PASSPHRASE` instead of typing the passphrase at start.
 
-- Set `tls_cert` and `tls_key` in the config to terminate TLS in-process, **or**
-- Run behind a TLS-terminating reverse proxy (nginx, caddy, traefik) and keep `tls_cert`/`tls_key` empty.
-
-## Endpoints
-
-- `/healthz` — liveness (always 200 if the process is running)
-- `/readyz` — readiness (200 if DB reachable, 503 otherwise)
-- `/metrics` — runtime stats via stdlib `expvar` (cmdline, memstats)
-- `/health` — legacy alias of `/healthz`
-- `/ui/` — web UI (basic auth, password from `ui_password` or `api_key`)
-- `/api/v1/enroll` — public, agent enrollment with token
-- `/api/v1/agent/updates` — public, agent poll endpoint
-- `/api/v1/...` — protected, requires `Authorization: Bearer <api_key>`
-
-See `internal/api/server.go` for the full route list.
-
-## Quickstart (agent)
-
-On each Nebula host:
+### 3. Enroll a host
 
 ```sh
-# 1. Create a host on the server (requires API key):
+# On the server — create a host record:
 nebula-mgmt host create \
   --server https://mgmt.example.com:8080 \
   --api-key "$API_KEY" \
   --network "$NETWORK_ID" \
-  --name "web-1" \
-  --ip "192.168.100.10"
-# Prints an enrollment token.
+  --name web-1 --ip 192.168.100.10
+# → prints an enrollment token
 
-# 2. On the host: enroll once.
+# On the host — one-time enrollment + start the polling agent:
 sudo cp configs/agent.example.yml /etc/nebula-agent/agent.yml
 sudo nebula-agent enroll \
   --server https://mgmt.example.com:8080 \
   --token "$ENROLL_TOKEN" \
   --data-dir /etc/nebula
-# Writes host.crt, host.key, ca.crt, config.yml to data-dir.
-
-# 3. Start the polling agent (after Nebula is running).
 sudo nebula-agent run --config /etc/nebula-agent/agent.yml
 ```
 
-The agent polls the server every `poll_interval` and writes updates atomically (temp file + fsync + rename), then sends `SIGHUP` to the Nebula process via `nebula_pid_file`.
+The agent now keeps `host.crt` / `host.key` / `ca.crt` / `config.yml` in sync and signals Nebula on changes.
 
 ## Deployment
 
-- **Docker** — `Dockerfile` provided for the server. Build: `docker build -t nebula-mgmt .`
-- **systemd** — unit files in `deploy/systemd/`. Copy to `/etc/systemd/system/`, then `systemctl enable --now nebula-mgmt`.
-- **TLS** — see configuration above.
+- **Docker** — `docker build -t nebula-mgmt .` (Dockerfile in repo).
+- **systemd** — unit files in [`deploy/systemd/`](deploy/systemd/).
+- **TLS** — set `tls_cert` + `tls_key` for in-process TLS, or front with nginx/caddy/traefik.
 
-## Architecture
+## Endpoints
 
-- `cmd/` — binary entrypoints
-- `internal/config` — YAML config loading and atomic save
-- `internal/pki` — wraps `slackhq/nebula/cert` (CA create/load/sign, blocklist)
-- `internal/store` — SQLite persistence (WAL, foreign keys, embedded migrations)
-- `internal/api` — REST API (chi router, bearer auth, audit log, firewall rules)
-- `internal/web` — server-rendered UI (Go templates + htmx)
-- `internal/agent` — poll loop + atomic file writes + SIGHUP signaling
-- `internal/configgen` — Nebula config.yml generator from templates
-- `internal/cli` — `init`, `serve`, `host`, `network` subcommands
-- `tests/integration` — end-to-end flow
+| Path | Auth | Purpose |
+|---|---|---|
+| `/healthz` | none | liveness |
+| `/readyz` | none | readiness (DB reachable) |
+| `/metrics` | none | `expvar` runtime stats |
+| `/ui/` | session cookie | web UI |
+| `/api/v1/enroll` | enrollment token | agent first-contact |
+| `/api/v1/agent/updates` | host cert | agent poll |
+| `/api/v1/...` | `Bearer <api_key>` | admin REST API |
 
-## Security notes
+Full route list in [`internal/api/server.go`](internal/api/server.go).
 
-- API key has full admin rights — store it like a database password (file mode 0600 enforced by `SaveServerConfig`).
-- CA private key is encrypted with a passphrase entered interactively at init/start time. Do not store the passphrase in environment variables or config files in production.
-- Always run the management server behind TLS (in-process or reverse proxy).
-- Nebula firewall rules are set per network in the API; the default policy allows only ICMP inbound.
+## Status
+
+**Beta.** Core flows (init, enroll, poll, rotate, revoke, audit) are covered by unit + integration tests with `-race`. API surface is not yet frozen — expect breaking changes until `v1.0.0`. Please open issues for anything rough.
+
+## Roadmap
+
+- [ ] Lighthouse auto-assignment based on host role
+- [ ] Multi-operator auth (OIDC / per-user API keys)
+- [ ] Prometheus exporter (today: `expvar`)
+- [ ] Built-in cert expiry alerts
+- [ ] Bootstrap-from-cloud-init recipes (Terraform / Ansible modules)
+- [ ] Web UI: live host status (currently htmx polling)
+
+Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Security
+
+- API key has full admin rights — file mode `0600` is enforced on save.
+- CA private key is encrypted with a passphrase entered interactively at `init` / `serve`. In production, prefer `NEBULA_MGMT_CA_PASSPHRASE` injected via a secret manager.
+- Always run the management server behind TLS.
+- Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+Issues, PRs, and discussions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and `make test && make lint` before opening a PR.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
+
+## Acknowledgements
+
+Built on top of [`slackhq/nebula`](https://github.com/slackhq/nebula). nebula-mesh is an independent project and is not affiliated with or endorsed by Slack.

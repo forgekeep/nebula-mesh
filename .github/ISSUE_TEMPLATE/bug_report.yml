@@ -1,0 +1,42 @@
+name: Bug report
+description: Report unexpected behaviour in nebula-mgmt or nebula-agent
+labels: ["bug", "needs-triage"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear, concise description of the bug — what you did, what you expected, what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps to reproduce. Commands, config snippets, API calls.
+      placeholder: |
+        1. nebula-mgmt init ...
+        2. nebula-mgmt host create ...
+        3. observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `nebula-mgmt --version`, or commit SHA if built from source.
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS / arch
+      placeholder: "Ubuntu 24.04 / amd64"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log output with `log_level: debug` if possible.
+      render: shell

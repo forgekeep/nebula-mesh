@@ -107,6 +107,8 @@ Requires Go 1.26+.
 make build           # outputs bin/nebula-mgmt and bin/nebula-agent
 ```
 
+After install, `nebula-mgmt version` and `nebula-agent --version` print the build version, short commit, and build date.
+
 ## Quickstart
 
 ### 1. Run the server

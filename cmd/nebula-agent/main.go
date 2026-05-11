@@ -11,6 +11,14 @@ import (
 
 	"github.com/juev/nebula-mesh/internal/agent"
 	"github.com/juev/nebula-mesh/internal/config"
+	"github.com/juev/nebula-mesh/internal/version"
+)
+
+// Populated at build time via -ldflags (see .goreleaser.yml).
+var (
+	versionStr = "dev"
+	commit     = "none"
+	date       = "unknown"
 )
 
 func main() {
@@ -23,7 +31,7 @@ func main() {
 func run() error {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: nebula-agent <command> [flags]")
-		fmt.Fprintln(os.Stderr, "commands: enroll, run")
+		fmt.Fprintln(os.Stderr, "commands: enroll, run, version")
 		return fmt.Errorf("no command specified")
 	}
 
@@ -32,6 +40,9 @@ func run() error {
 		return runEnroll(os.Args[2:])
 	case "run":
 		return runAgent(os.Args[2:])
+	case "version", "--version", "-v":
+		version.Print(os.Stdout, "nebula-agent", versionStr, commit, date)
+		return nil
 	default:
 		return fmt.Errorf("unknown command: %s", os.Args[1])
 	}

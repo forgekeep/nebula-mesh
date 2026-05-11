@@ -14,7 +14,7 @@ COPY . .
 
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath \
-        -ldflags "-s -w -X main.version=${VERSION}" \
+        -ldflags "-s -w -X main.versionStr=${VERSION}" \
         -o /out/nebula-mgmt ./cmd/nebula-mgmt
 
 FROM alpine:3.20

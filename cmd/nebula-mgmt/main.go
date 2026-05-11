@@ -7,6 +7,14 @@ import (
 	"strings"
 
 	"github.com/juev/nebula-mesh/internal/cli"
+	"github.com/juev/nebula-mesh/internal/version"
+)
+
+// Populated at build time via -ldflags (see .goreleaser.yml).
+var (
+	versionStr = "dev"
+	commit     = "none"
+	date       = "unknown"
 )
 
 func main() {
@@ -31,6 +39,9 @@ func run() error {
 		return runHost(os.Args[2:])
 	case "network":
 		return runNetwork(os.Args[2:])
+	case "version", "--version", "-v":
+		version.Print(os.Stdout, "nebula-mgmt", versionStr, commit, date)
+		return nil
 	default:
 		printUsage()
 		return fmt.Errorf("unknown command: %s", os.Args[1])
@@ -39,7 +50,7 @@ func run() error {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: nebula-mgmt <command> [flags]")
-	fmt.Fprintln(os.Stderr, "commands: init, serve, host, network")
+	fmt.Fprintln(os.Stderr, "commands: init, serve, host, network, version")
 }
 
 func runInit(args []string) error {

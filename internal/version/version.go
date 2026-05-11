@@ -31,7 +31,7 @@ func Print(w io.Writer, name, version, commit, date string) {
 	if len(c) > shortCommitLen {
 		c = c[:shortCommitLen]
 	}
-	fmt.Fprintf(w, "%s %s (%s, built %s)\n", name, v, c, d)
+	_, _ = fmt.Fprintf(w, "%s %s (%s, built %s)\n", name, v, c, d)
 }
 
 // Resolve returns the version triple, falling back to VCS info from the

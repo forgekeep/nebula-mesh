@@ -242,6 +242,22 @@ local record or removing them in the IdP.
 - **systemd** — unit files in [`deploy/systemd/`](deploy/systemd/).
 - **TLS** — set `tls_cert` + `tls_key` for in-process TLS, or front with nginx/caddy/traefik.
 
+### Backups
+
+Two artifacts must be backed up together: the CA key material in `data_dir`
+and the SQLite database in `db_path`. The CA passphrase is intentionally
+**not** stored on disk — keep it in your secret manager.
+
+```sh
+sudo tar --xattrs -czf /backups/nebula-mgmt-$(date +%F).tar.gz \
+    /var/lib/nebula-mgmt/ca.crt \
+    /var/lib/nebula-mgmt/ca.key \
+    /var/lib/nebula-mgmt/nebula.db
+```
+
+See [ADR 0001](docs/adr/0001-ca-key-storage.md) for the rationale behind
+keeping the CA key on the filesystem instead of in the database.
+
 ## Endpoints
 
 | Path | Auth | Purpose |

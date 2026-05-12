@@ -1,0 +1,24 @@
+{{define "title"}}Profile — Nebula Mesh{{end}}
+
+{{define "content"}}
+<h1>Profile</h1>
+
+<div class="card">
+    <table>
+        <tr><th style="width:200px">Username</th><td><code>{{.Operator.Username}}</code></td></tr>
+        {{if .Operator.DisplayName}}<tr><th>Display name</th><td>{{.Operator.DisplayName}}</td></tr>{{end}}
+        <tr><th>Role</th><td><span class="badge badge-enrolled">{{.Operator.Role}}</span></td></tr>
+        <tr><th>Status</th><td>{{.Operator.Status}}</td></tr>
+        <tr><th>Authentication</th><td>{{.Operator.AuthProvider}}{{if .Operator.TOTPEnabled}} + TOTP{{end}}</td></tr>
+        {{if .Operator.LastLoginAt}}<tr><th>Last login</th><td>{{.Operator.LastLoginAt.Format "2006-01-02 15:04 UTC"}}</td></tr>{{end}}
+        <tr><th>Account ID</th><td><code>{{.Operator.ID}}</code></td></tr>
+        <tr><th>Created</th><td>{{.Operator.CreatedAt.Format "2006-01-02 15:04 UTC"}}</td></tr>
+    </table>
+</div>
+
+<div class="card">
+    <h2>Account actions</h2>
+    <p style="margin-bottom:12px"><a href="/ui/2fa">Manage two-factor authentication →</a></p>
+    <a href="/ui/logout" class="btn btn-danger">Sign out</a>
+</div>
+{{end}}

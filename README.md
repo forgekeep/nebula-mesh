@@ -150,6 +150,8 @@ sudo nebula-agent run --config /etc/nebula-agent/agent.yml
 
 The agent now keeps `host.crt` / `host.key` / `ca.crt` / `config.yml` in sync and signals Nebula on changes.
 
+> Full nebula-agent operations guide: [`docs/agent.md`](docs/agent.md) — installation, configuration, troubleshooting, upgrade, and security notes.
+
 ### 3. Manage hosts from the CLI
 
 ```sh

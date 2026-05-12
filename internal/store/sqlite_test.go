@@ -1510,6 +1510,55 @@ func TestDeleteHostAndBlockCert_BumpsForEnrolledLighthouse(t *testing.T) {
 	}
 }
 
+// --- Cert-expiry alert dedup ---
+
+func TestCertAlerts_RecordAndGet(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_alert", NetworkID: net.ID, Name: "alertable",
+		NebulaIP: "192.168.100.50", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	// No alert yet → ErrNotFound.
+	if _, err := s.GetCertAlert(ctx, h.ID); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound before any alert, got %v", err)
+	}
+
+	notAfter := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+	if err := s.RecordCertAlert(ctx, h.ID, notAfter); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetCertAlert(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(notAfter) {
+		t.Errorf("alerted_not_after = %v, want %v", got, notAfter)
+	}
+
+	// Upsert: same host, new not_after.
+	notAfter2 := time.Now().Add(48 * time.Hour).UTC().Truncate(time.Second)
+	if err := s.RecordCertAlert(ctx, h.ID, notAfter2); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetCertAlert(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(notAfter2) {
+		t.Errorf("after upsert, alerted_not_after = %v, want %v", got, notAfter2)
+	}
+}
+
 func TestDeleteHostAndBlockCert_NoBumpForRegularHost(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

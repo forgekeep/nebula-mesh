@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/juev/nebula-mesh/internal/alerts"
 	"github.com/juev/nebula-mesh/internal/api"
 	"github.com/juev/nebula-mesh/internal/config"
 	"github.com/juev/nebula-mesh/internal/keystore"
@@ -198,6 +199,32 @@ func Serve(configPath string) error {
 
 	// Start session cleanup (stops on ctx cancel)
 	webUI.StartSessionCleanup(ctx)
+
+	// Cert-expiry alerter — periodic scan that fans alerts out to audit log
+	// and (optionally) a webhook. Disabled by default; opt in via the
+	// `alerts` block in server config.
+	if cfg.Alerts.Enabled {
+		sinks := []alerts.Sink{&alerts.AuditSink{Store: s}}
+		if cfg.Alerts.WebhookURL != "" {
+			sinks = append(sinks, &alerts.WebhookSink{
+				URL:        cfg.Alerts.WebhookURL,
+				HMACSecret: cfg.Alerts.WebhookHMACSecret,
+			})
+		}
+		scanner := &alerts.Scanner{
+			Store:     s,
+			Threshold: cfg.Alerts.ThresholdDuration(),
+			Interval:  cfg.Alerts.IntervalDuration(),
+			Sinks:     sinks,
+			Logger:    logger,
+		}
+		go scanner.StartLoop(ctx)
+		logger.Info("cert-expiry alerter enabled",
+			"interval", scanner.Interval,
+			"threshold", scanner.Threshold,
+			"webhook", cfg.Alerts.WebhookURL != "",
+		)
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

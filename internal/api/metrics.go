@@ -232,9 +232,10 @@ func (m *metrics) recordSignature(caID string) {
 // The collector is queried on every Prometheus scrape, so the work is bounded
 // by the scrape cadence (typically 15-60s) and the host/cert table sizes.
 type storeCollector struct {
-	store store.Store
-	hosts *prometheus.Desc
-	exp   *prometheus.Desc
+	store    store.Store
+	hosts    *prometheus.Desc
+	exp      *prometheus.Desc
+	perHost  *prometheus.Desc
 }
 
 func newStoreCollector(s store.Store) *storeCollector {
@@ -250,12 +251,18 @@ func newStoreCollector(s store.Store) *storeCollector {
 			"Seconds remaining until the soonest-to-expire enrolled certificate.",
 			nil, nil,
 		),
+		perHost: prometheus.NewDesc(
+			"nebula_mgmt_cert_expiring_seconds",
+			"Seconds remaining until the current certificate of each enrolled host expires.",
+			[]string{"host", "network"}, nil,
+		),
 	}
 }
 
 func (c *storeCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.hosts
 	ch <- c.exp
+	ch <- c.perHost
 }
 
 func (c *storeCollector) Collect(ch chan<- prometheus.Metric) {
@@ -278,16 +285,32 @@ func (c *storeCollector) Collect(ch chan<- prometheus.Metric) {
 	// Soonest-cert-expiry gauge: wall-clock seconds remaining until the
 	// soonest-to-expire enrolled certificate. Negative values mean the cert
 	// has already expired. Reports +Inf when no certs exist so absence is
-	// distinguishable from "expiring now".
+	// distinguishable from "expiring now". Also emits a per-host
+	// nebula_mgmt_cert_expiring_seconds{host, network} so alerting rules
+	// can target individual hosts (see issue #41 Prometheus sink).
 	seconds := math.Inf(1)
-	if certs, err := c.store.ListEnrolledHostCerts(ctx); err == nil && len(certs) > 0 {
-		soonest := certs[0].NotAfter
-		for _, ci := range certs[1:] {
-			if ci.NotAfter.Before(soonest) {
+	if certs, err := c.store.ListEnrolledHostCerts(ctx); err == nil {
+		hostNetwork := map[string]string{}
+		if hosts, herr := c.store.ListHosts(ctx, store.HostFilter{}); herr == nil {
+			for _, h := range hosts {
+				hostNetwork[h.ID] = h.NetworkID
+			}
+		}
+
+		soonest := time.Time{}
+		for _, ci := range certs {
+			remaining := time.Until(ci.NotAfter).Seconds()
+			ch <- prometheus.MustNewConstMetric(
+				c.perHost, prometheus.GaugeValue, remaining,
+				ci.HostID, hostNetwork[ci.HostID],
+			)
+			if soonest.IsZero() || ci.NotAfter.Before(soonest) {
 				soonest = ci.NotAfter
 			}
 		}
-		seconds = time.Until(soonest).Seconds()
+		if !soonest.IsZero() {
+			seconds = time.Until(soonest).Seconds()
+		}
 	}
 	ch <- prometheus.MustNewConstMetric(c.exp, prometheus.GaugeValue, seconds)
 }

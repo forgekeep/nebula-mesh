@@ -50,7 +50,7 @@ Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it 
 - **Per-host advanced overrides** — `listen_host`, `mtu`, `tun_device`, `punchy`, `unsafe_routes` opt-in per host without touching the network default.
 - **Audit trail** — every mutating UI / API / CLI call is recorded with actor, action, target, plus a stable `ca_id` on host events.
 - **Per-network firewall rules** — managed declaratively via API, distributed to all hosts.
-- **Production-ready basics** — `/healthz`, `/readyz`, Prometheus exporter at `/metrics` (legacy `expvar` view at `/debug/vars`), structured `slog` logs, optional in-process TLS, SQLite (WAL) with tracked migrations.
+- **Production-ready basics** — `/healthz`, `/readyz`, Prometheus exporter at `/metrics` (legacy `expvar` view at `/debug/vars`), built-in cert-expiry alerter (audit + webhook + per-host Prometheus gauge), structured `slog` logs, optional in-process TLS, SQLite (WAL) with tracked migrations.
 - **Tiny footprint** — two static binaries (~15–25 MiB each), SQLite, no external deps. Runs on a $5 VM.
 
 ## Architecture
@@ -323,7 +323,6 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 
 Open issues tracked individually so you can subscribe to the ones you care about:
 
-- [#41](https://github.com/juev/nebula-mesh/issues/41) — Built-in cert-expiry alerts (audit + webhook + metric)
 - [#42](https://github.com/juev/nebula-mesh/issues/42) — Bootstrap recipes (Terraform module, Ansible roles, cloud-init samples)
 - [#43](https://github.com/juev/nebula-mesh/issues/43) — Web UI: live host status via SSE (today: htmx polling on a 30s interval)
 

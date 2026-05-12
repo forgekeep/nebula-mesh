@@ -84,6 +84,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"007_operator_oidc.up.sql",
 		"008_host_advanced.up.sql",
 		"009_per_operator_cas.up.sql",
+		"010_cert_alerts.up.sql",
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.
@@ -1091,6 +1092,37 @@ func (s *SQLiteStore) GetBlocklist(_ context.Context) ([]string, error) {
 		result = append(result, fp)
 	}
 	return result, rows.Err()
+}
+
+// --- Cert-expiry alert dedup ---
+
+// RecordCertAlert upserts the (host_id, alerted_not_after) tuple so subsequent
+// scans for the same cert do not re-emit the alert. Update alerted_at to now
+// on every call so dashboards can show "last fired" times.
+func (s *SQLiteStore) RecordCertAlert(_ context.Context, hostID string, alertedNotAfter time.Time) error {
+	_, err := s.db.Exec(
+		`INSERT INTO cert_alerts (host_id, alerted_not_after, alerted_at) VALUES (?, ?, ?)
+		 ON CONFLICT(host_id) DO UPDATE SET alerted_not_after = excluded.alerted_not_after, alerted_at = excluded.alerted_at`,
+		hostID, alertedNotAfter, time.Now(),
+	)
+	if err != nil {
+		return fmt.Errorf("record cert alert: %w", err)
+	}
+	return nil
+}
+
+// GetCertAlert returns the alerted_not_after recorded for hostID, or
+// ErrNotFound when no alert has been recorded yet.
+func (s *SQLiteStore) GetCertAlert(_ context.Context, hostID string) (time.Time, error) {
+	var t time.Time
+	err := s.db.QueryRow(`SELECT alerted_not_after FROM cert_alerts WHERE host_id = ?`, hostID).Scan(&t)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, ErrNotFound
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("get cert alert: %w", err)
+	}
+	return t, nil
 }
 
 // --- Config Versioning ---

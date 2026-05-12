@@ -85,6 +85,13 @@ type Store interface {
 	AddAuditEntry(ctx context.Context, actor, action, resource, details string) error
 	ListAuditEntries(ctx context.Context, filter AuditFilter) ([]*models.AuditEntry, error)
 
+	// Cert-expiry alert dedup state. RecordCertAlert remembers that an
+	// alert was emitted for the given host whose current cert expires at
+	// alertedNotAfter; GetCertAlert returns the previously alerted
+	// not_after, or ErrNotFound if no alert has been recorded yet.
+	RecordCertAlert(ctx context.Context, hostID string, alertedNotAfter time.Time) error
+	GetCertAlert(ctx context.Context, hostID string) (time.Time, error)
+
 	// Operators
 	CreateOperator(ctx context.Context, op *models.Operator) error
 	GetOperator(ctx context.Context, id string) (*models.Operator, error)

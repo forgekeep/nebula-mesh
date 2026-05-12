@@ -1,0 +1,1 @@
+ALTER TABLE hosts ADD COLUMN advanced_json TEXT NOT NULL DEFAULT '';

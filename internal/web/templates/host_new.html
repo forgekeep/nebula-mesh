@@ -42,6 +42,41 @@
             <label>Listen Port (for lighthouse/relay)</label>
             <input type="number" name="listen_port" class="form-control" placeholder="4242">
         </div>
+
+        <details style="margin: 16px 0;">
+            <summary style="cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 14px;">
+                Advanced configuration (optional)
+            </summary>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 8px 0;">
+                Empty fields inherit the network default. See
+                <a href="https://nebula.defined.net/docs/config" target="_blank">Nebula config docs</a>.
+            </p>
+            <div class="form-group">
+                <label>Listen host (advanced.listen_host)</label>
+                <input type="text" name="adv_listen_host" class="form-control" placeholder="0.0.0.0">
+            </div>
+            <div class="form-group">
+                <label>TUN MTU (advanced.mtu)</label>
+                <input type="number" name="adv_mtu" class="form-control" placeholder="1300" min="576" max="9216">
+            </div>
+            <div class="form-group">
+                <label>TUN device name (advanced.tun_device)</label>
+                <input type="text" name="adv_tun_device" class="form-control" placeholder="nebula1">
+            </div>
+            <div class="form-group">
+                <label>Punchy (advanced.punchy)</label>
+                <select name="adv_punchy" class="form-control">
+                    <option value="">inherit (true)</option>
+                    <option value="true">force true</option>
+                    <option value="false">disable</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Unsafe routes (one per line: <code>CIDR via NEBULA_IP</code>)</label>
+                <textarea name="adv_unsafe_routes" class="form-control" rows="3" placeholder="192.168.10.0/24 via 10.0.0.99"></textarea>
+            </div>
+        </details>
+
         <button type="submit" class="btn btn-primary">Create Host</button>
     </form>
 </div>

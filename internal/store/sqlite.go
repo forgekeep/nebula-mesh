@@ -69,6 +69,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"005_operators.up.sql",
 		"006_operator_totp.up.sql",
 		"007_operator_oidc.up.sql",
+		"008_host_advanced.up.sql",
 	}
 	for _, f := range migrationFiles {
 		sqlBytes, err := migrations.FS.ReadFile(f)
@@ -160,13 +161,17 @@ func (s *SQLiteStore) CreateHost(_ context.Context, h *models.Host) error {
 	if err != nil {
 		return fmt.Errorf("marshal groups: %w", err)
 	}
+	advancedJSON, err := marshalAdvanced(h.Advanced)
+	if err != nil {
+		return err
+	}
 
 	_, err = s.db.Exec(
-		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		h.ID, h.NetworkID, h.Name, h.NebulaIP, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
-		h.Status, h.CreatedAt, h.UpdatedAt,
+		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("insert host: %w", err)
@@ -174,11 +179,23 @@ func (s *SQLiteStore) CreateHost(_ context.Context, h *models.Host) error {
 	return nil
 }
 
+func marshalAdvanced(adv *models.HostAdvanced) (string, error) {
+	if adv == nil {
+		return "", nil
+	}
+	b, err := json.Marshal(adv)
+	if err != nil {
+		return "", fmt.Errorf("marshal advanced: %w", err)
+	}
+	return string(b), nil
+}
+
 func (s *SQLiteStore) scanHost(scanner interface {
 	Scan(dest ...any) error
 }) (*models.Host, error) {
 	h := &models.Host{}
 	var groupsJSON string
+	var advancedJSON string
 	var publicIP sql.NullString
 	var certFP sql.NullString
 	var certExpires sql.NullTime
@@ -188,7 +205,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 		&h.ID, &h.NetworkID, &h.Name, &h.NebulaIP, &groupsJSON,
 		&h.Role, &h.IsLighthouse, &h.IsRelay, &publicIP, &h.ListenPort,
 		&h.Status, &certFP, &certExpires, &lastSeen,
-		&h.CreatedAt, &h.UpdatedAt,
+		&h.CreatedAt, &h.UpdatedAt, &advancedJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -196,6 +213,13 @@ func (s *SQLiteStore) scanHost(scanner interface {
 
 	if err := json.Unmarshal([]byte(groupsJSON), &h.Groups); err != nil {
 		return nil, fmt.Errorf("unmarshal groups: %w", err)
+	}
+	if advancedJSON != "" {
+		var adv models.HostAdvanced
+		if err := json.Unmarshal([]byte(advancedJSON), &adv); err != nil {
+			return nil, fmt.Errorf("unmarshal advanced: %w", err)
+		}
+		h.Advanced = &adv
 	}
 	if publicIP.Valid {
 		h.PublicIP = publicIP.String
@@ -213,7 +237,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	return h, nil
 }
 
-const hostColumns = `id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at`
+const hostColumns = `id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json`
 
 func (s *SQLiteStore) GetHost(_ context.Context, id string) (*models.Host, error) {
 	row := s.db.QueryRow(`SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
@@ -293,14 +317,18 @@ func (s *SQLiteStore) UpdateHost(_ context.Context, h *models.Host) error {
 		return fmt.Errorf("marshal groups: %w", err)
 	}
 
+	advancedJSON, err := marshalAdvanced(h.Advanced)
+	if err != nil {
+		return err
+	}
 	h.UpdatedAt = time.Now()
 	result, err := s.db.Exec(
 		`UPDATE hosts SET name=?, nebula_ip=?, groups_json=?, role=?, is_lighthouse=?, is_relay=?,
 		 public_ip=?, listen_port=?, status=?, cert_fingerprint=?, cert_expires_at=?,
-		 last_seen_at=?, updated_at=? WHERE id=?`,
+		 last_seen_at=?, updated_at=?, advanced_json=? WHERE id=?`,
 		h.Name, h.NebulaIP, string(groupsJSON), h.Role, h.IsLighthouse, h.IsRelay,
 		h.PublicIP, h.ListenPort, h.Status, h.CertFingerprint, h.CertExpiresAt,
-		h.LastSeenAt, h.UpdatedAt, h.ID,
+		h.LastSeenAt, h.UpdatedAt, advancedJSON, h.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update host: %w", err)
@@ -560,13 +588,17 @@ func (s *SQLiteStore) CreateHostAndToken(_ context.Context, h *models.Host, t *m
 	if err != nil {
 		return fmt.Errorf("marshal groups: %w", err)
 	}
+	advancedJSON, err := marshalAdvanced(h.Advanced)
+	if err != nil {
+		return err
+	}
 
 	_, err = tx.Exec(
-		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		h.ID, h.NetworkID, h.Name, h.NebulaIP, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
-		h.Status, h.CreatedAt, h.UpdatedAt,
+		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("insert host: %w", err)

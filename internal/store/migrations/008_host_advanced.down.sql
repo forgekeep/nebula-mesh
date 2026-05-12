@@ -1,0 +1,2 @@
+-- SQLite < 3.35 does not support DROP COLUMN cleanly; the advanced_json
+-- column simply becomes unused after a rollback.

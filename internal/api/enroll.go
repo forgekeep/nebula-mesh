@@ -153,8 +153,8 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate config
-	configYAML, err := configgen.Generate(configgen.GeneratorInput{
+	// Generate config (including any per-host advanced overrides)
+	input := configgen.GeneratorInput{
 		HostName:     host.Name,
 		NebulaIP:     host.NebulaIP,
 		IsLighthouse: host.IsLighthouse,
@@ -170,7 +170,17 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		FirewallOutbound: []configgen.FirewallRule{
 			{Port: "any", Proto: "any", Group: "any"},
 		},
-	})
+	}
+	if adv := host.Advanced; adv != nil {
+		input.PunchyOverride = adv.Punchy
+		input.ListenHost = adv.ListenHost
+		input.MTU = adv.MTU
+		input.TunDevice = adv.TunDevice
+		for _, u := range adv.UnsafeRoutes {
+			input.UnsafeRoutes = append(input.UnsafeRoutes, configgen.AdvancedUnsafeRoute{Route: u.Route, Via: u.Via})
+		}
+	}
+	configYAML, err := configgen.Generate(input)
 	if err != nil {
 		s.logger.Error("generate config", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")

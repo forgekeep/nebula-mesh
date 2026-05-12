@@ -41,3 +41,11 @@ func actorIsAdmin(ctx context.Context) bool {
 	}
 	return op.Role == "admin"
 }
+
+// recordAuditAction writes an audit log entry and bumps the matching
+// Prometheus audit counter. The DB write is best-effort to match prior
+// fire-and-forget semantics; counter updates always run regardless of error.
+func (s *Server) recordAuditAction(ctx context.Context, action, resource, details string) {
+	_ = s.store.AddAuditEntry(ctx, ActorName(ctx), action, resource, details)
+	s.metrics.recordAudit(action)
+}

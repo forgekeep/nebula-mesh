@@ -30,6 +30,29 @@ type ServerConfig struct {
 	// can still create operators manually via the existing
 	// `nebula-mgmt user create` CLI or `POST /api/v1/operators` API.
 	AllowSelfRegistration bool `yaml:"allow_self_registration,omitempty"`
+
+	// Metrics configures the optional /metrics Prometheus exporter. Default
+	// is "enabled" so out-of-the-box installs can be scraped immediately;
+	// air-gapped deployments can set Prometheus=false to drop the route.
+	Metrics MetricsConfig `yaml:"metrics,omitempty"`
+}
+
+// MetricsConfig toggles the Prometheus exporter. Legacy Go expvar stays on
+// /debug/vars regardless.
+type MetricsConfig struct {
+	// Prometheus is a pointer so an unset value (yaml omitted) is treated
+	// as the default (true). A user setting `prometheus: false` cleanly
+	// disables the exporter.
+	Prometheus *bool `yaml:"prometheus,omitempty"`
+}
+
+// PrometheusEnabled returns whether the Prometheus exporter should be served.
+// Defaults to true when unset.
+func (m MetricsConfig) PrometheusEnabled() bool {
+	if m.Prometheus == nil {
+		return true
+	}
+	return *m.Prometheus
 }
 
 // OIDCConfig configures an OpenID Connect identity provider for operator

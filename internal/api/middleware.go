@@ -6,9 +6,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/juev/nebula-mesh/internal/store"
 )
 
@@ -98,4 +100,28 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.status = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// metricsMiddleware records every served HTTP request and its server-side
+// latency on the server's private Prometheus registry. The route label is the
+// chi route pattern (e.g. /api/v1/hosts/{id}) rather than the raw URL, so the
+// label cardinality stays bounded by the number of declared routes.
+func (s *Server) metricsMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			ww := &responseWriter{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(ww, r)
+
+			if s.metrics == nil {
+				return
+			}
+			route := chi.RouteContext(r.Context()).RoutePattern()
+			if route == "" {
+				route = r.URL.Path
+			}
+			s.metrics.httpRequests.WithLabelValues(r.Method, route, strconv.Itoa(ww.status)).Inc()
+			s.metrics.httpDuration.WithLabelValues(r.Method, route).Observe(time.Since(start).Seconds())
+		})
+	}
 }

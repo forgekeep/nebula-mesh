@@ -15,6 +15,20 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// Login label constants mirror those exported by the API server's metrics
+// layer (api.ResultOK / api.LoginFactorPassword / …). They are duplicated
+// here, not imported, to keep this package free of an api ↔ web edge — the
+// api package's metrics layer pre-seeds the same strings so the canonical
+// values stay aligned at the point of registration.
+const (
+	loginResultOK       = "ok"
+	loginResultDenied   = "denied"
+	loginResultError    = "error"
+	loginFactorPassword = "password"
+	loginFactorTOTP     = "totp"
+	loginFactorRecovery = "recovery"
+)
+
 // requireAuth middleware redirects to login if not authenticated.
 func (w *Web) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
@@ -42,22 +56,26 @@ func (w *Web) handleLogin(rw http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
 	result, ok, err := w.session.Login(rw, r, username, password)
 	if err != nil {
+		w.recordLogin(loginResultError, loginFactorPassword)
 		w.logger.Error("login", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
 	if !ok {
+		w.recordLogin(loginResultDenied, loginFactorPassword)
 		w.renderForRequest(rw, r, "login.html", map[string]any{
-			"Error":                "Invalid username or password",
-			"OIDCEnabled":          w.oidc.Enabled(),
+			"Error":                 "Invalid username or password",
+			"OIDCEnabled":           w.oidc.Enabled(),
 			"AllowSelfRegistration": w.allowSelfRegistration,
 		})
 		return
 	}
 	if result.NeedsTOTP {
+		w.recordLogin(loginResultOK, loginFactorPassword)
 		http.Redirect(rw, r, "/ui/login/totp", http.StatusSeeOther)
 		return
 	}
+	w.recordLogin(loginResultOK, loginFactorPassword)
 	http.Redirect(rw, r, "/ui/", http.StatusSeeOther)
 }
 
@@ -90,19 +108,28 @@ func (w *Web) handleTOTPLogin(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if !ok {
+		factor := loginFactorTOTP
+		if recovery != "" {
+			factor = loginFactorRecovery
+		}
+		w.recordLogin(loginResultDenied, factor)
 		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.failed", op.ID, "")
 		w.renderForRequest(rw, r, "login_totp.html", map[string]any{"Error": "Invalid TOTP code"})
 		return
 	}
 	if err := w.session.CompleteTwoFactor(rw, r, op.ID); err != nil {
+		w.recordLogin(loginResultError, loginFactorTOTP)
 		w.logger.Error("complete 2fa", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	factor := loginFactorTOTP
 	details := "totp"
 	if usedRecovery {
+		factor = loginFactorRecovery
 		details = "recovery"
 	}
+	w.recordLogin(loginResultOK, factor)
 	_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.verified", op.ID, details)
 	http.Redirect(rw, r, "/ui/", http.StatusSeeOther)
 }

@@ -152,6 +152,7 @@ func Serve(configPath string) error {
 		KeyPath:    keyPath,
 		Passphrase: passphrase,
 	})
+	apiSrv.WithMetricsEnabled(cfg.Metrics.PrometheusEnabled())
 	if caResolver != nil {
 		apiSrv.WithCAResolver(caResolver)
 		apiSrv.WithMaster(master)
@@ -164,6 +165,7 @@ func Serve(configPath string) error {
 		return fmt.Errorf("init web UI: %w", err)
 	}
 	webUI.AllowSelfRegistration(cfg.AllowSelfRegistration)
+	webUI.WithLoginRecorder(apiSrv.RecordLogin)
 
 	// Optional OIDC integration
 	if cfg.OIDC != nil && cfg.OIDC.Enabled {

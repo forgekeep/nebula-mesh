@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -35,6 +36,46 @@ type ServerConfig struct {
 	// is "enabled" so out-of-the-box installs can be scraped immediately;
 	// air-gapped deployments can set Prometheus=false to drop the route.
 	Metrics MetricsConfig `yaml:"metrics,omitempty"`
+
+	// Alerts configures the cert-expiry alerter (see issue #41). Disabled
+	// by default — operators must opt in by setting Enabled=true.
+	Alerts AlertsConfig `yaml:"alerts,omitempty"`
+}
+
+// AlertsConfig drives the periodic cert-expiry scanner and its sinks.
+// Threshold and Interval are parsed as Go durations (e.g. "72h", "5m").
+type AlertsConfig struct {
+	Enabled           bool   `yaml:"enabled,omitempty"`
+	Interval          string `yaml:"interval,omitempty"`
+	Threshold         string `yaml:"threshold,omitempty"`
+	WebhookURL        string `yaml:"webhook_url,omitempty"`
+	WebhookHMACSecret string `yaml:"webhook_hmac_secret,omitempty"`
+}
+
+// IntervalDuration returns Interval as a time.Duration. Falls back to 5m
+// when unset or unparseable, matching the documented default.
+func (a AlertsConfig) IntervalDuration() time.Duration {
+	if a.Interval == "" {
+		return 5 * time.Minute
+	}
+	d, err := time.ParseDuration(a.Interval)
+	if err != nil || d <= 0 {
+		return 5 * time.Minute
+	}
+	return d
+}
+
+// ThresholdDuration returns Threshold as a time.Duration. Falls back to 72h
+// (three days) when unset or unparseable, matching the documented default.
+func (a AlertsConfig) ThresholdDuration() time.Duration {
+	if a.Threshold == "" {
+		return 72 * time.Hour
+	}
+	d, err := time.ParseDuration(a.Threshold)
+	if err != nil || d <= 0 {
+		return 72 * time.Hour
+	}
+	return d
 }
 
 // MetricsConfig toggles the Prometheus exporter. Legacy Go expvar stays on

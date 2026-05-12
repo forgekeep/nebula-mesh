@@ -22,6 +22,28 @@ master_key: ""
 # calling POST /api/v1/operators) can add operators in a closed deployment.
 allow_self_registration: false
 
+# Optional /metrics Prometheus exporter. Defaults to enabled; set false in
+# air-gapped deployments to drop the route. Legacy Go expvar stays on
+# /debug/vars regardless.
+# metrics:
+#   prometheus: true
+
+# Cert-expiry alerter (issue #41). Disabled by default. When enabled, a
+# periodic scanner fans out alerts for hosts whose current certificate
+# expires inside `threshold` and that have not yet been alerted.
+#
+# Sinks:
+#   - audit log entry with action="cert.expiring" (always on when enabled)
+#   - HTTPS webhook (optional) — POSTs JSON, HMAC-SHA256 signed via the
+#     X-Nebula-Signature: sha256=<hex> header when `webhook_hmac_secret` is set.
+#
+# alerts:
+#   enabled: true
+#   interval: "5m"
+#   threshold: "72h"
+#   webhook_url: "https://alertmanager.example.com/api/v2/alerts"
+#   webhook_hmac_secret: "change-me"
+
 # Optional OpenID Connect identity provider for operator login. When enabled,
 # the Web UI offers a "Sign in with SSO" button on top of the local password
 # form. Local logins keep working alongside OIDC.

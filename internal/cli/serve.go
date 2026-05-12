@@ -168,6 +168,18 @@ func Serve(configPath string) error {
 	webUI.AllowSelfRegistration(cfg.AllowSelfRegistration)
 	webUI.WithLoginRecorder(apiSrv.RecordLogin)
 
+	// Live host-status SSE: API server fires HostSeenEmitter on each agent
+	// poll, EventBus fans out to subscribed browser tabs.
+	eventBus := web.NewEventBus()
+	webUI.WithEventBus(eventBus)
+	apiSrv.WithHostSeenEmitter(func(hostID string, lastSeen time.Time, networkID string) {
+		eventBus.Publish(web.HostSeenEvent{
+			HostID:    hostID,
+			LastSeen:  lastSeen,
+			NetworkID: networkID,
+		})
+	})
+
 	// Optional OIDC integration
 	if cfg.OIDC != nil && cfg.OIDC.Enabled {
 		oidcCtx, oidcCancel := context.WithTimeout(context.Background(), 10*time.Second)

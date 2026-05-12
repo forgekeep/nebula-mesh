@@ -402,16 +402,19 @@ func (w *Web) handleFavicon(rw http.ResponseWriter, _ *http.Request) {
 // --- Dashboard ---
 
 // hostView is a view-model that augments models.Host with the resolved
-// human-readable network name. Embedding keeps every existing template
-// field access (.ID, .Name, .NebulaIP, …) working unchanged.
+// human-readable network name and the computed "online" flag. Embedding
+// keeps every existing template field access (.ID, .Name, .NebulaIP, …)
+// working unchanged.
 type hostView struct {
 	*models.Host
 	NetworkName string
+	Online      bool
 }
 
-// buildHostViews resolves NetworkID → Network.Name for each host. If the
-// host's network is not present in networks, NetworkName is left empty so
-// the template can fall back to displaying the UUID.
+// buildHostViews resolves NetworkID → Network.Name for each host and
+// stamps the "online" flag (last_seen_at within hostOnlineThreshold). If
+// the host's network is not present in networks, NetworkName is left
+// empty so the template can fall back to displaying the UUID.
 func buildHostViews(hosts []*models.Host, networks []*models.Network) []hostView {
 	if len(hosts) == 0 {
 		return nil
@@ -420,9 +423,14 @@ func buildHostViews(hosts []*models.Host, networks []*models.Network) []hostView
 	for _, n := range networks {
 		idx[n.ID] = n.Name
 	}
+	now := time.Now()
 	out := make([]hostView, len(hosts))
 	for i, h := range hosts {
-		out[i] = hostView{Host: h, NetworkName: idx[h.NetworkID]}
+		out[i] = hostView{
+			Host:        h,
+			NetworkName: idx[h.NetworkID],
+			Online:      isHostOnline(h.LastSeenAt, hostOnlineThreshold, now),
+		}
 	}
 	return out
 }

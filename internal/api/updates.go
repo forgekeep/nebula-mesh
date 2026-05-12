@@ -44,6 +44,8 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	if err := s.store.UpdateHostLastSeen(r.Context(), host.ID, now); err != nil {
 		s.logger.Error("update last seen", "error", err)
+	} else if s.hostSeen != nil {
+		s.hostSeen(host.ID, now, host.NetworkID)
 	}
 
 	// Get blocklist

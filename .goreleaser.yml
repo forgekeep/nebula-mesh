@@ -76,6 +76,51 @@ archives:
       - deploy/systemd/nebula-agent.service
       - deploy/systemd/README.md
 
+nfpms:
+  - id: nebula-agent
+    package_name: nebula-agent
+    ids: [nebula-agent]
+    vendor: "juev"
+    homepage: "https://github.com/juev/nebula-mesh"
+    maintainer: "juev <https://github.com/juev>"
+    description: |
+      Polling agent for the nebula-mesh management server.
+      Enrolls a host, keeps host.crt/host.key/ca.crt/config.yml in sync,
+      and signals Slack Nebula on changes.
+    license: MIT
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    section: net
+    contents:
+      - src: configs/agent.example.yml
+        dst: /etc/nebula-agent/agent.example.yml
+        type: config|noreplace
+      - src: deploy/systemd/nebula-agent.service
+        dst: /lib/systemd/system/nebula-agent.service
+      - src: docs/agent.md
+        dst: /usr/share/doc/nebula-agent/agent.md
+      - src: LICENSE
+        dst: /usr/share/doc/nebula-agent/LICENSE
+    overrides:
+      rpm:
+        dependencies:
+          - shadow-utils
+      deb:
+        dependencies:
+          - adduser
+    scripts:
+      postinstall: deploy/packaging/postinstall.sh
+      preremove:   deploy/packaging/preremove.sh
+      postremove:  deploy/packaging/postremove.sh
+    rpm:
+      group: System Environment/Daemons
+      summary: Polling agent for nebula-mesh
+    deb:
+      fields:
+        Bugs: "https://github.com/juev/nebula-mesh/issues"
+      lintian_overrides:
+        - "statically-linked-binary"
+
 dockers:
   - id: server-amd64
     goos: linux

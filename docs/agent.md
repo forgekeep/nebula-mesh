@@ -72,9 +72,34 @@ Unsupported targets and reasoning:
 - `openbsd`, `netbsd`, `ios`, `android` — operationally impractical for a
   long-running polling agent.
 
-### 1. From a release archive
+### 1a. From a Linux distro package (recommended on Debian / Ubuntu / RHEL)
 
-Replace `<version>` and `<platform>` as needed:
+Each tagged release publishes `.deb` and `.rpm` packages for `amd64` and `arm64`:
+
+```sh
+# Debian / Ubuntu
+curl -fsSL -O https://github.com/juev/nebula-mesh/releases/download/<version>/nebula-agent_<version>_linux_amd64.deb
+sudo apt install ./nebula-agent_<version>_linux_amd64.deb
+
+# RHEL / Fedora / CentOS Stream / Rocky / Alma
+sudo rpm -i https://github.com/juev/nebula-mesh/releases/download/<version>/nebula-agent_<version>_linux_amd64.rpm
+```
+
+The package:
+
+- installs `/usr/bin/nebula-agent` and `/lib/systemd/system/nebula-agent.service`;
+- ships an example config at `/etc/nebula-agent/agent.example.yml`;
+- creates the `nebula-agent` system user/group for future hardening;
+- **does not** create `/etc/nebula-agent/agent.yml`, start, or enable the service — you must copy the example, edit it, run `nebula-agent enroll`, then `systemctl enable --now nebula-agent`;
+- on upgrade, leaves `/etc/nebula-agent/agent.yml` and `/etc/nebula/{host.crt,host.key,ca.crt,config.yml}` untouched;
+- on removal, stops and disables the service but keeps `/etc/nebula-agent` and `/etc/nebula` intact (so host keys survive accidental removals). `apt purge` / `dnf remove --purge` will additionally delete the system user.
+
+Checksums for every artifact are published in `checksums.txt` next to the package.
+
+### 1b. From a release archive (other platforms)
+
+For platforms without a native package (macOS, FreeBSD, Windows, Linux/arm v7),
+replace `<version>` and `<platform>` as needed:
 
 ```sh
 curl -fsSL -o nebula-agent.tar.gz \

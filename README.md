@@ -28,7 +28,32 @@
 
 Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it leaves the operator to hand-roll certificate issuance, rotation, distribution and revocation — usually with shell scripts and a CA on a laptop. **nebula-mesh** is the missing management layer: a single Go binary plus an enrollment agent that turn Nebula into a self-service mesh you can run on one VM.
 
-## Why
+### Install (30 seconds)
+
+```sh
+# Server (one VM): grab the latest release tarball.
+TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
+curl -fsSL "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-mgmt_${TAG#v}_linux_amd64.tar.gz" | tar -xz
+
+# Agent (each Nebula host): install the .deb / .rpm.
+sudo apt install -y "./nebula-agent_${TAG#v}_linux_amd64.deb"   # or rpm -i …
+```
+
+### Run
+
+```sh
+sudo ./nebula-mgmt init   --config /etc/nebula-mgmt/server.yml
+sudo ./nebula-mgmt serve  --config /etc/nebula-mgmt/server.yml
+```
+
+Open `http://<server>:8080/ui/` to log in with the credentials `init` printed.
+
+**Jump to:** [Why](#why) · [Features](#features) · [Architecture](#architecture) · [Install](#install) · [Quickstart](#quickstart) · [Operators & auth](#operators-auth-and-tenancy) · [Deployment](#deployment) · [Endpoints](#endpoints) · [Status](#status) · [Roadmap](#roadmap) · [Security](#security)
+
+<details>
+<summary><strong>Why</strong> — when this beats hand-rolled scripts or a managed service</summary>
+<a name="why"></a>
+
 
 | | Hand-rolled scripts | DefinedNetworking (managed) | **nebula-mesh** |
 |---|---|---|---|
@@ -39,7 +64,12 @@ Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it 
 | Cost | your time | per-host | free (MIT) |
 | Lock-in | none | vendor | none |
 
-## Features
+</details>
+
+<details>
+<summary><strong>Features</strong> — what nebula-mesh actually does</summary>
+<a name="features"></a>
+
 
 - **Web UI + REST API + CLI** — one server, three interfaces. Built with chi + Go templates + htmx (no SPA build step).
 - **PKI lifecycle** — per-operator CAs encrypted at rest in SQLite under a process-wide AES-256-GCM master key (envelope encryption per [ADR 0002](docs/adr/0002-per-operator-cas.md)); per-host certs signed via `slackhq/nebula/cert`; blocklist-backed revocation.
@@ -53,7 +83,12 @@ Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it 
 - **Production-ready basics** — `/healthz`, `/readyz`, Prometheus exporter at `/metrics` (legacy `expvar` view at `/debug/vars`), built-in cert-expiry alerter (audit + webhook + per-host Prometheus gauge), structured `slog` logs, optional in-process TLS, SQLite (WAL) with tracked migrations.
 - **Tiny footprint** — two static binaries (~15–25 MiB each), SQLite, no external deps. Runs on a $5 VM.
 
-## Architecture
+</details>
+
+<details>
+<summary><strong>Architecture</strong> — one VM, two binaries</summary>
+<a name="architecture"></a>
+
 
 ```
 ┌──────────┐   REST/UI   ┌─────────────────────┐
@@ -71,7 +106,12 @@ Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it 
 - `nebula-mgmt` — management server (HTTP API + web UI + CLI subcommands)
 - `nebula-agent` — runs on each Nebula host, polls for updates, atomically rewrites Nebula config, `SIGHUP`s Nebula
 
-## Install
+</details>
+
+<details>
+<summary><strong>Install</strong> — distro packages, prebuilt binaries, Docker, from source</summary>
+<a name="install"></a>
+
 
 Each release ships **two** independent artifact sets — install only what you need on each machine.
 
@@ -153,7 +193,12 @@ make build           # outputs bin/nebula-mgmt and bin/nebula-agent
 
 After install, `nebula-mgmt version` and `nebula-agent --version` print the build version, short commit, and build date.
 
-## Quickstart
+</details>
+
+<details>
+<summary><strong>Quickstart</strong> — run the server, enroll a host, manage from the CLI</summary>
+<a name="quickstart"></a>
+
 
 ### Run the server
 
@@ -217,7 +262,12 @@ nebula-mgmt host unblock --server ... --api-key "$API_KEY" --id "$HOST_ID"
 nebula-mgmt host delete  --server ... --api-key "$API_KEY" --id "$HOST_ID"
 ```
 
-## Operators, auth, and tenancy
+</details>
+
+<details>
+<summary><strong>Operators, auth, and tenancy</strong> — accounts, TOTP, OIDC, self-registration, per-operator CAs</summary>
+<a name="operators-auth-and-tenancy"></a>
+
 
 Each interactive admin should have their own operator account and per-operator API key. On `nebula-mgmt init`, an `admin` operator is seeded from `ui_password` (or `api_key` as a fallback); the config `api_key` is registered as `admin`'s first API key and continues to work as a legacy fallback.
 
@@ -284,7 +334,12 @@ nebula-mgmt ca delete --server ... --api-key "$OPERATOR_KEY" --id "$CA_ID"
 
 Non-admin operators see and manage only the CAs they own; admins see all. Hosts enrolled under a tenant CA receive **that** CA's certificate, not the default one. Audit log entries (`ca.created`, `ca.deleted`, plus existing `host.*` events with the host's `ca_id`) record both the actor and the affected CA. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the encryption-at-rest design.
 
-## Deployment
+</details>
+
+<details>
+<summary><strong>Deployment</strong> — Docker / systemd / TLS, and how to back up the DB + master key</summary>
+<a name="deployment"></a>
+
 
 - **Docker** — `docker build -t nebula-mgmt .` (Dockerfile in repo).
 - **systemd** — unit files in [`deploy/systemd/`](deploy/systemd/).
@@ -300,7 +355,12 @@ sudo cp /var/lib/nebula-mgmt/nebula.db /backups/nebula-$(date +%F).db
 
 Keep `NEBULA_MGMT_MASTER_KEY` in your secret manager — both the DB and the master key are required to mint a certificate. The legacy `data_dir/ca.crt` / `data_dir/ca.key` produced by `nebula-mgmt init` are kept for one release as a rollback artifact, then deletable once the import into the `cas` table has succeeded.
 
-## Endpoints
+</details>
+
+<details>
+<summary><strong>Endpoints</strong> — public, agent, and admin routes at a glance</summary>
+<a name="endpoints"></a>
+
 
 | Path | Auth | Purpose |
 |---|---|---|
@@ -315,20 +375,42 @@ Keep `NEBULA_MGMT_MASTER_KEY` in your secret manager — both the DB and the mas
 
 Full route list in [`internal/api/server.go`](internal/api/server.go).
 
-## Status
+</details>
+
+<details>
+<summary><strong>Status</strong> — beta; what's stable and what may still move</summary>
+<a name="status"></a>
+
 
 **Beta.** Core flows (init, enroll, poll, rotate, revoke, audit, multi-CA) are covered by unit + integration tests with `-race`. API surface is not yet frozen — expect breaking changes until `v1.0.0`. Please open issues for anything rough.
 
-## Roadmap
+</details>
+
+<details open>
+<summary><strong>Roadmap</strong> — what's next (7 open issues)</summary>
+<a name="roadmap"></a>
+
 
 Open issues tracked individually so you can subscribe to the ones you care about:
 
+- [#45](https://github.com/juev/nebula-mesh/issues/45) — Web UI: admin-only operator and API-key management
+- [#46](https://github.com/juev/nebula-mesh/issues/46) — Web UI: per-operator CA management (create / list / retire / delete)
+- [#47](https://github.com/juev/nebula-mesh/issues/47) — Web UI: admin Settings page (toggle self-reg, log level, policy flags …)
+- [#48](https://github.com/juev/nebula-mesh/issues/48) — Configurable password policy (length, character classes, common-passwords)
+- [#49](https://github.com/juev/nebula-mesh/issues/49) — Admin-enforced 2FA: `enforce_2fa` toggle, forced enrolment gate after login
+- [#51](https://github.com/juev/nebula-mesh/issues/51) — `.deb`/`.rpm` packaging polish + official nginx/caddy/traefik snippets
+- [#52](https://github.com/juev/nebula-mesh/issues/52) — Rate-limit the Web UI and auth endpoints (5 req/s on login by default)
 
 Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), distro packages (deb/rpm) and the cross-platform agent build matrix.
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Security
+</details>
+
+<details open>
+<summary><strong>Security</strong> — auth, authz, key handling, transport, disclosure</summary>
+<a name="security"></a>
+
 
 - **Authentication.** Interactive logins are bcrypt-verified against the operator's password; sessions are DB-backed and revoked atomically on `user disable`. Optional TOTP 2FA + recovery codes. Optional OIDC SSO.
 - **Authorization.** Operator-management API and CA-management API require `role: admin`; non-admin operators can only see and act on the CAs they own.
@@ -337,14 +419,30 @@ Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Transport.** Always run the management server behind TLS — set `tls_cert` + `tls_key`, or front with nginx/caddy/traefik.
 - **Disclosure.** Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 
-## Contributing
+</details>
+
+<details>
+<summary><strong>Contributing</strong> — workflow + test/lint expectations</summary>
+<a name="contributing"></a>
+
 
 Issues, PRs, and discussions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and `make test && make lint` before opening a PR.
 
-## License
+</details>
+
+<details>
+<summary><strong>License</strong> — MIT</summary>
+<a name="license"></a>
+
 
 MIT — see [LICENSE](LICENSE).
 
-## Acknowledgements
+</details>
+
+<details>
+<summary><strong>Acknowledgements</strong></summary>
+<a name="acknowledgements"></a>
 
 Built on top of [`slackhq/nebula`](https://github.com/slackhq/nebula). nebula-mesh is an independent project and is not affiliated with or endorsed by Slack.
+
+</details>

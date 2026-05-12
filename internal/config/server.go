@@ -19,6 +19,11 @@ type ServerConfig struct {
 	TLSKey     string      `yaml:"tls_key,omitempty"`
 	OIDC       *OIDCConfig `yaml:"oidc,omitempty"`
 
+	// MasterKey is a base64-encoded 32-byte AES-256 key used to wrap
+	// per-CA DEKs in the cas table. May be supplied via the
+	// NEBULA_MGMT_MASTER_KEY env var instead.
+	MasterKey string `yaml:"master_key,omitempty"`
+
 	// AllowSelfRegistration controls whether unauthenticated visitors can
 	// create their own operator account through /ui/register. Defaults to
 	// false so closed deployments stay closed by default; administrators

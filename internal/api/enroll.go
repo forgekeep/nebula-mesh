@@ -96,12 +96,18 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CA operations — lock needed only for Sign + CACertPEM
+	// Resolve the CA that owns this host's network and sign with it.
+	caMgr, err := s.caForHost(r.Context(), host)
+	if err != nil {
+		s.logger.Error("resolve host CA", "error", err, "host", host.ID, "ca_id", host.CAID)
+		writeError(w, http.StatusInternalServerError, "enrollment failed")
+		return
+	}
 	hostCert, caCertPEM, err := func() (cert.Certificate, []byte, error) {
 		s.caMu.RLock()
 		defer s.caMu.RUnlock()
 
-		c, signErr := s.ca.Sign(pki.SignRequest{
+		c, signErr := caMgr.Sign(pki.SignRequest{
 			Name:      host.Name,
 			PublicKey: pubKey,
 			Networks:  []netip.Prefix{hostPrefix},
@@ -111,7 +117,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		if signErr != nil {
 			return nil, nil, signErr
 		}
-		ca, caErr := s.ca.CACertPEM()
+		ca, caErr := caMgr.CACertPEM()
 		if caErr != nil {
 			return nil, nil, caErr
 		}

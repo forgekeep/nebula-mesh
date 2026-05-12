@@ -115,12 +115,16 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 		return nil, err
 	}
 
+	caMgr, err := s.caForHost(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("resolve host CA: %w", err)
+	}
 	// CA operations — lock needed only for Sign + CACertPEM
 	newCert, caCertPEM, caErr := func() (cert.Certificate, []byte, error) {
 		s.caMu.RLock()
 		defer s.caMu.RUnlock()
 
-		c, signErr := s.ca.Sign(pki.SignRequest{
+		c, signErr := caMgr.Sign(pki.SignRequest{
 			Name:      host.Name,
 			PublicKey: currentCert.PublicKey(),
 			Networks:  []netip.Prefix{hostPrefix},
@@ -130,7 +134,7 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 		if signErr != nil {
 			return nil, nil, fmt.Errorf("sign renewed cert: %w", signErr)
 		}
-		ca, err := s.ca.CACertPEM()
+		ca, err := caMgr.CACertPEM()
 		if err != nil {
 			return nil, nil, fmt.Errorf("get CA cert PEM: %w", err)
 		}

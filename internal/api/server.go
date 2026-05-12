@@ -39,6 +39,7 @@ type Server struct {
 	apiKey         string
 	metrics        *metrics
 	metricsEnabled bool
+	hostSeen       HostSeenEmitter
 }
 
 // NewServer creates a new API server.
@@ -82,6 +83,19 @@ func (s *Server) RecordLogin(result, factor string) {
 func (s *Server) WithMetricsEnabled(enabled bool) {
 	s.metricsEnabled = enabled
 	s.setupRoutes()
+}
+
+// HostSeenEmitter is invoked after every successful agent poll so the Web
+// UI can stream a live "host X just polled" event over its SSE endpoint.
+// hostID is the DB id, lastSeen is the wall-clock timestamp the agent's
+// poll was observed at, and networkID is included so per-network views can
+// filter without an extra lookup.
+type HostSeenEmitter func(hostID string, lastSeen time.Time, networkID string)
+
+// WithHostSeenEmitter wires the callback the API server fires when an
+// agent polls. Passing nil disables emission.
+func (s *Server) WithHostSeenEmitter(emit HostSeenEmitter) {
+	s.hostSeen = emit
 }
 
 // WithDefaultCAID records the id of the CA seeded from the legacy

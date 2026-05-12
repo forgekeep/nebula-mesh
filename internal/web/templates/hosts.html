@@ -8,17 +8,18 @@
 
 {{if .Hosts}}
 <div class="card">
-    <table>
-        <thead><tr><th>Name</th><th>Nebula IP</th><th>Network</th><th>Role</th><th>Status</th><th>Last Seen</th><th></th></tr></thead>
+    <table id="hosts-table">
+        <thead><tr><th>Name</th><th>Nebula IP</th><th>Network</th><th>Role</th><th>Status</th><th>Online</th><th>Last Seen</th><th></th></tr></thead>
         <tbody>
         {{range .Hosts}}
-        <tr>
+        <tr id="host-{{.ID}}" data-host-id="{{.ID}}">
             <td><a href="/ui/hosts/{{.ID}}">{{.Name}}</a></td>
             <td>{{.NebulaIP}}</td>
             <td><span title="{{.NetworkID}}">{{if .NetworkName}}{{.NetworkName}}{{else}}{{.NetworkID}}{{end}}</span></td>
             <td>{{.Role}}</td>
             <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
-            <td>{{if .LastSeenAt}}{{.LastSeenAt.Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
+            <td><span class="badge badge-online" data-online="{{.Online}}">{{if .Online}}online{{else}}offline{{end}}</span></td>
+            <td class="host-last-seen">{{if .LastSeenAt}}{{.LastSeenAt.Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
             <td>
                 {{if ne (printf "%s" .Status) "blocked"}}
                 <button class="btn btn-sm btn-danger"
@@ -33,6 +34,33 @@
         </tbody>
     </table>
 </div>
+<script>
+// Subscribe to live host.seen events. When SSE is unavailable (proxy
+// stripping text/event-stream, ancient browser) we silently fall back to
+// the existing 30s htmx polling.
+(function () {
+    if (!window.EventSource) { return; }
+    var es = new EventSource("/ui/events");
+    es.addEventListener("host.seen", function (msg) {
+        try {
+            var ev = JSON.parse(msg.data);
+            var row = document.getElementById("host-" + ev.host_id);
+            if (!row) { return; }
+            var badge = row.querySelector(".badge-online");
+            if (badge) {
+                badge.dataset.online = "true";
+                badge.textContent = "online";
+            }
+            var lastSeen = row.querySelector(".host-last-seen");
+            if (lastSeen && ev.last_seen) {
+                var d = new Date(ev.last_seen);
+                lastSeen.textContent = d.toISOString().slice(0, 16).replace("T", " ");
+            }
+        } catch (e) { /* ignore malformed events */ }
+    });
+    es.onerror = function () { /* browser auto-retries; nothing to do */ };
+})();
+</script>
 {{else}}
 <div class="card empty">No hosts found.</div>
 {{end}}

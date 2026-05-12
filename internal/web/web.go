@@ -35,6 +35,7 @@ type Web struct {
 	oidc                  *OIDC
 	allowSelfRegistration bool
 	loginRecorder         func(result, factor string)
+	events                *EventBus
 }
 
 // WithLoginRecorder wires an external sink (typically the API server's
@@ -143,6 +144,7 @@ func (w *Web) setupRoutes() {
 		r.Post("/ui/2fa/disable", w.handleTwoFADisable)
 		r.Post("/ui/2fa/recovery-codes", w.handleTwoFARegenCodes)
 		r.Get("/ui/partials/stats", w.handlePartialStats)
+		r.Get("/ui/events", w.handleHostEvents)
 		r.Get("/ui/logout", w.handleLogout)
 	})
 

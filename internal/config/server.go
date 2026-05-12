@@ -18,6 +18,13 @@ type ServerConfig struct {
 	TLSCert    string      `yaml:"tls_cert,omitempty"`
 	TLSKey     string      `yaml:"tls_key,omitempty"`
 	OIDC       *OIDCConfig `yaml:"oidc,omitempty"`
+
+	// AllowSelfRegistration controls whether unauthenticated visitors can
+	// create their own operator account through /ui/register. Defaults to
+	// false so closed deployments stay closed by default; administrators
+	// can still create operators manually via the existing
+	// `nebula-mgmt user create` CLI or `POST /api/v1/operators` API.
+	AllowSelfRegistration bool `yaml:"allow_self_registration,omitempty"`
 }
 
 // OIDCConfig configures an OpenID Connect identity provider for operator

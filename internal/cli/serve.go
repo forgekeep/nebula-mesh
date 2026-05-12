@@ -126,6 +126,7 @@ func Serve(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("init web UI: %w", err)
 	}
+	webUI.AllowSelfRegistration(cfg.AllowSelfRegistration)
 
 	// Optional OIDC integration
 	if cfg.OIDC != nil && cfg.OIDC.Enabled {

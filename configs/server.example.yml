@@ -10,6 +10,11 @@ log_level: "info"
 tls_cert: ""
 tls_key: ""
 
+# Allow unauthenticated visitors to register their own operator account via
+# /ui/register. Default is false: only the seeded admin (or an existing admin
+# calling POST /api/v1/operators) can add operators in a closed deployment.
+allow_self_registration: false
+
 # Optional OpenID Connect identity provider for operator login. When enabled,
 # the Web UI offers a "Sign in with SSO" button on top of the local password
 # form. Local logins keep working alongside OIDC.

@@ -27,13 +27,18 @@ func (w *Web) Session() *SessionManager { return w.session }
 
 // Web is the web UI handler.
 type Web struct {
-	router    chi.Router
-	store     store.Store
-	templates map[string]*template.Template
-	logger    *slog.Logger
-	session   *SessionManager
-	oidc      *OIDC
+	router                 chi.Router
+	store                  store.Store
+	templates              map[string]*template.Template
+	logger                 *slog.Logger
+	session                *SessionManager
+	oidc                   *OIDC
+	allowSelfRegistration  bool
 }
+
+// AllowSelfRegistration enables the public /ui/register flow. Must be set
+// before ServeHTTP is invoked. Default is false.
+func (w *Web) AllowSelfRegistration(allow bool) { w.allowSelfRegistration = allow }
 
 // WithOIDC attaches an OIDC provider and registers its login/callback routes.
 // Must be called before ServeHTTP is invoked.
@@ -73,7 +78,7 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 	}
 
 	// Login pages are standalone (no layout)
-	for _, page := range []string{"login.html", "login_totp.html"} {
+	for _, page := range []string{"login.html", "login_totp.html", "register.html"} {
 		tmpl, err := template.ParseFS(templateFS, "templates/"+page)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", page, err)
@@ -100,6 +105,8 @@ func (w *Web) setupRoutes() {
 	r.Post("/ui/login", w.handleLogin)
 	r.Get("/ui/login/totp", w.handleTOTPLoginPage)
 	r.Post("/ui/login/totp", w.handleTOTPLogin)
+	r.Get("/ui/register", w.handleRegisterPage)
+	r.Post("/ui/register", w.handleRegister)
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
@@ -145,7 +152,7 @@ func (w *Web) render(rw http.ResponseWriter, name string, data any) {
 	}
 	// For pages with layout, execute "layout.html"; for standalone pages, execute the file directly
 	execName := "layout.html"
-	if name == "login.html" || name == "login_totp.html" {
+	if name == "login.html" || name == "login_totp.html" || name == "register.html" {
 		execName = name
 	}
 	var buf bytes.Buffer

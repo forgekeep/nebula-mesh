@@ -214,6 +214,23 @@ sensitive operations (`operator.2fa.enabled`, `disabled`, `regen_codes`,
 API tokens are not affected — they continue to authenticate non-interactive
 clients.
 
+### Configurable self-registration
+
+By default, only administrators can create operator accounts (via the
+`nebula-mgmt user create` CLI or the REST API). To let unauthenticated
+visitors sign up themselves, set in `server.yml`:
+
+```yaml
+allow_self_registration: true
+```
+
+The login page then shows a *Create an account* link to `/ui/register`.
+Server-side checks gate the endpoint regardless of UI state — disabling
+the flag is sufficient to block self-registration. Newly self-registered
+operators get the `user` role; only operators with `role: admin` can
+call the operator-management API (`POST /api/v1/operators`,
+`disable`, etc).
+
 ### 6. Single sign-on via OIDC (optional)
 
 Configure an `oidc:` block in `server.yml` (see `configs/server.example.yml`)

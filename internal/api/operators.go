@@ -23,6 +23,10 @@ type createOperatorRequest struct {
 }
 
 func (s *Server) handleCreateOperator(w http.ResponseWriter, r *http.Request) {
+	if !actorIsAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "operator management requires the admin role")
+		return
+	}
 	var req createOperatorRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")

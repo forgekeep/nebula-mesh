@@ -39,6 +39,10 @@ func run() error {
 		return runHost(os.Args[2:])
 	case "network":
 		return runNetwork(os.Args[2:])
+	case "user":
+		return runUser(os.Args[2:])
+	case "apikey":
+		return runAPIKey(os.Args[2:])
 	case "version", "--version", "-v":
 		version.Print(os.Stdout, "nebula-mgmt", versionStr, commit, date)
 		return nil
@@ -50,9 +54,11 @@ func run() error {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: nebula-mgmt <command> [flags]")
-	fmt.Fprintln(os.Stderr, "commands: init, serve, host, network, version")
+	fmt.Fprintln(os.Stderr, "commands: init, serve, host, network, user, apikey, version")
 	fmt.Fprintln(os.Stderr, "  host <create|list|delete|block|unblock>")
 	fmt.Fprintln(os.Stderr, "  network <create|list>")
+	fmt.Fprintln(os.Stderr, "  user <create|list|disable|enable>")
+	fmt.Fprintln(os.Stderr, "  apikey <create|revoke>")
 }
 
 func runInit(args []string) error {
@@ -184,6 +190,98 @@ func runNetworkCreate(args []string) error {
 	}
 
 	return cli.NetworkCreate(*server, *apiKey, *name, *cidr)
+}
+
+func runUser(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: nebula-mgmt user <create|list|disable|enable>")
+	}
+	switch args[0] {
+	case "create":
+		return runUserCreate(args[1:])
+	case "list":
+		return runUserList(args[1:])
+	case "disable":
+		return runHostAction(args[1:], "user disable", cli.UserDisable)
+	case "enable":
+		return runHostAction(args[1:], "user enable", cli.UserEnable)
+	default:
+		return fmt.Errorf("unknown user subcommand: %s", args[0])
+	}
+}
+
+func runUserCreate(args []string) error {
+	fs := flag.NewFlagSet("user create", flag.ExitOnError)
+	server := fs.String("server", "http://localhost:8080", "management server URL")
+	apiKey := fs.String("api-key", "", "API key")
+	username := fs.String("username", "", "operator username")
+	password := fs.String("password", "", "operator password")
+	displayName := fs.String("display-name", "", "operator display name")
+	role := fs.String("role", "admin", "operator role")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *apiKey == "" {
+		return fmt.Errorf("--api-key is required")
+	}
+	return cli.UserCreate(*server, *apiKey, *username, *password, *displayName, *role)
+}
+
+func runUserList(args []string) error {
+	fs := flag.NewFlagSet("user list", flag.ExitOnError)
+	server := fs.String("server", "http://localhost:8080", "management server URL")
+	apiKey := fs.String("api-key", "", "API key")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *apiKey == "" {
+		return fmt.Errorf("--api-key is required")
+	}
+	return cli.UserList(*server, *apiKey)
+}
+
+func runAPIKey(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: nebula-mgmt apikey <create|revoke>")
+	}
+	switch args[0] {
+	case "create":
+		return runAPIKeyCreate(args[1:])
+	case "revoke":
+		return runAPIKeyRevoke(args[1:])
+	default:
+		return fmt.Errorf("unknown apikey subcommand: %s", args[0])
+	}
+}
+
+func runAPIKeyCreate(args []string) error {
+	fs := flag.NewFlagSet("apikey create", flag.ExitOnError)
+	server := fs.String("server", "http://localhost:8080", "management server URL")
+	apiKey := fs.String("api-key", "", "API key")
+	operator := fs.String("operator", "", "operator ID")
+	name := fs.String("name", "", "key name (optional)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *apiKey == "" || *operator == "" {
+		return fmt.Errorf("--api-key and --operator are required")
+	}
+	return cli.APIKeyCreate(*server, *apiKey, *operator, *name)
+}
+
+func runAPIKeyRevoke(args []string) error {
+	fs := flag.NewFlagSet("apikey revoke", flag.ExitOnError)
+	server := fs.String("server", "http://localhost:8080", "management server URL")
+	apiKey := fs.String("api-key", "", "API key")
+	operator := fs.String("operator", "", "operator ID")
+	id := fs.String("id", "", "API key ID")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *apiKey == "" || *operator == "" || *id == "" {
+		return fmt.Errorf("--api-key, --operator, --id are required")
+	}
+	return cli.APIKeyRevoke(*server, *apiKey, *operator, *id)
 }
 
 func runNetworkList(args []string) error {

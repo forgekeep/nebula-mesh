@@ -166,6 +166,37 @@ nebula-mgmt host unblock --server ... --api-key "$API_KEY" --id "$HOST_ID"
 nebula-mgmt host delete  --server ... --api-key "$API_KEY" --id "$HOST_ID"
 ```
 
+### 4. Manage operators (multi-user)
+
+Each interactive admin should have their own operator account and per-operator
+API key. On `nebula-mgmt init`, an `admin` operator is seeded from the config's
+`ui_password` (or `api_key` as a fallback) and the config `api_key` is registered
+as `admin`'s first API key.
+
+```sh
+# List operators
+nebula-mgmt user list --server ... --api-key "$ADMIN_KEY"
+
+# Create another operator
+nebula-mgmt user create --server ... --api-key "$ADMIN_KEY" \
+  --username alice --password 's3cret!' --display-name "Alice"
+
+# Create a per-operator API key (token shown once)
+nebula-mgmt apikey create --server ... --api-key "$ADMIN_KEY" \
+  --operator "$ALICE_ID" --name laptop-cli
+
+# Revoke a key
+nebula-mgmt apikey revoke --server ... --api-key "$ADMIN_KEY" \
+  --operator "$ALICE_ID" --id "$KEY_ID"
+
+# Disable / re-enable an operator (invalidates sessions and API keys atomically)
+nebula-mgmt user disable --server ... --api-key "$ADMIN_KEY" --id "$ALICE_ID"
+nebula-mgmt user enable  --server ... --api-key "$ADMIN_KEY" --id "$ALICE_ID"
+```
+
+Audit log entries (`/api/v1/audit-log`) record the actor for every mutating
+operator/host action.
+
 ## Deployment
 
 - **Docker** — `docker build -t nebula-mgmt .` (Dockerfile in repo).

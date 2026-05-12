@@ -64,7 +64,7 @@ func (s *Server) setupRoutes() {
 
 	// Protected endpoints (require API key)
 	r.Group(func(r chi.Router) {
-		r.Use(bearerAuth(s.apiKey))
+		r.Use(bearerAuth(s.store, s.apiKey))
 		r.Post("/api/v1/networks", s.handleCreateNetwork)
 		r.Get("/api/v1/networks", s.handleListNetworks)
 		r.Get("/api/v1/networks/{id}", s.handleGetNetwork)
@@ -80,6 +80,13 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/v1/networks/{id}/firewall", s.handleGetFirewall)
 		r.Put("/api/v1/networks/{id}/firewall", s.handleUpdateFirewall)
 		r.Get("/api/v1/audit-log", s.handleGetAuditLog)
+		r.Get("/api/v1/operators", s.handleListOperators)
+		r.Post("/api/v1/operators", s.handleCreateOperator)
+		r.Post("/api/v1/operators/{id}/disable", s.handleDisableOperator)
+		r.Post("/api/v1/operators/{id}/enable", s.handleEnableOperator)
+		r.Get("/api/v1/operators/{id}/api-keys", s.handleListOperatorAPIKeys)
+		r.Post("/api/v1/operators/{id}/api-keys", s.handleCreateOperatorAPIKey)
+		r.Delete("/api/v1/operators/{id}/api-keys/{kid}", s.handleRevokeOperatorAPIKey)
 	})
 
 	s.router = r

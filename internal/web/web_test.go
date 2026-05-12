@@ -13,9 +13,13 @@ import (
 
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
+	"golang.org/x/crypto/bcrypt"
 )
 
-const testPassword = "test-password-123"
+const (
+	testPassword = "test-password-123"
+	testUsername = "admin"
+)
 
 func newTestWeb(t *testing.T) (*Web, *store.SQLiteStore) {
 	t.Helper()
@@ -28,8 +32,22 @@ func newTestWeb(t *testing.T) (*Web, *store.SQLiteStore) {
 	}
 	t.Cleanup(func() { s.Close() })
 
+	// Seed an admin operator that tests can log in as.
+	hash, err := bcrypt.GenerateFromPassword([]byte(testPassword), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateOperator(context.Background(), &models.Operator{
+		ID:           "admin-test-id",
+		Username:     testUsername,
+		DisplayName:  "Administrator",
+		PasswordHash: string(hash),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	w, err := New(s, testPassword, logger)
+	w, err := New(s, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +56,7 @@ func newTestWeb(t *testing.T) (*Web, *store.SQLiteStore) {
 
 func loginSession(t *testing.T, w *Web) []*http.Cookie {
 	t.Helper()
-	form := url.Values{"password": {testPassword}}
+	form := url.Values{"username": {testUsername}, "password": {testPassword}}
 	req := httptest.NewRequest("POST", "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
@@ -82,7 +100,7 @@ func TestLogin_Success(t *testing.T) {
 
 func TestLogin_WrongPassword(t *testing.T) {
 	w, _ := newTestWeb(t)
-	form := url.Values{"password": {"wrong"}}
+	form := url.Values{"username": {testUsername}, "password": {"wrong"}}
 	req := httptest.NewRequest("POST", "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
@@ -91,8 +109,25 @@ func TestLogin_WrongPassword(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "Invalid password") {
+	if !strings.Contains(rec.Body.String(), "Invalid username or password") {
 		t.Error("should show error message")
+	}
+}
+
+func TestLogin_DisabledOperator(t *testing.T) {
+	w, s := newTestWeb(t)
+	ctx := context.Background()
+	if err := s.DisableOperator(ctx, "admin-test-id"); err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"username": {testUsername}, "password": {testPassword}}
+	req := httptest.NewRequest("POST", "/ui/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if !strings.Contains(rec.Body.String(), "Invalid username or password") {
+		t.Error("disabled operator should not be able to log in")
 	}
 }
 
@@ -297,13 +332,15 @@ func TestLogout(t *testing.T) {
 }
 
 func TestIsAuthenticated_ExpiredSession(t *testing.T) {
-	sm := NewSessionManager(testPassword)
+	_, s := newTestWeb(t)
+	sm := NewSessionManager(s)
 
-	// Manually inject an expired session
 	token := "expired-token-123"
-	sm.mu.Lock()
-	sm.sessions[token] = session{expiresAt: time.Now().Add(-1 * time.Hour)}
-	sm.mu.Unlock()
+	if err := s.CreateOperatorSession(context.Background(), &models.OperatorSession{
+		Token: token, OperatorID: "admin-test-id", ExpiresAt: time.Now().Add(-1 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	req := httptest.NewRequest("GET", "/", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
@@ -311,23 +348,18 @@ func TestIsAuthenticated_ExpiredSession(t *testing.T) {
 	if sm.IsAuthenticated(req) {
 		t.Error("expired session should not be authenticated")
 	}
-
-	// Session should be deleted from map
-	sm.mu.RLock()
-	_, exists := sm.sessions[token]
-	sm.mu.RUnlock()
-	if exists {
-		t.Error("expired session should be removed from sessions map")
-	}
 }
 
 func TestIsAuthenticated_ValidSession(t *testing.T) {
-	sm := NewSessionManager(testPassword)
+	_, s := newTestWeb(t)
+	sm := NewSessionManager(s)
 
 	token := "valid-token-456"
-	sm.mu.Lock()
-	sm.sessions[token] = session{expiresAt: time.Now().Add(1 * time.Hour)}
-	sm.mu.Unlock()
+	if err := s.CreateOperatorSession(context.Background(), &models.OperatorSession{
+		Token: token, OperatorID: "admin-test-id", ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	req := httptest.NewRequest("GET", "/", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
@@ -338,7 +370,8 @@ func TestIsAuthenticated_ValidSession(t *testing.T) {
 }
 
 func TestIsAuthenticated_NoCookie(t *testing.T) {
-	sm := NewSessionManager(testPassword)
+	_, s := newTestWeb(t)
+	sm := NewSessionManager(s)
 	req := httptest.NewRequest("GET", "/", nil)
 
 	if sm.IsAuthenticated(req) {
@@ -346,33 +379,54 @@ func TestIsAuthenticated_NoCookie(t *testing.T) {
 	}
 }
 
+func TestIsAuthenticated_DisabledOperator(t *testing.T) {
+	_, s := newTestWeb(t)
+	sm := NewSessionManager(s)
+
+	token := "tok-disabled"
+	if err := s.CreateOperatorSession(context.Background(), &models.OperatorSession{
+		Token: token, OperatorID: "admin-test-id", ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DisableOperator(context.Background(), "admin-test-id"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+
+	if sm.IsAuthenticated(req) {
+		t.Error("disabled operator's session should not be authenticated")
+	}
+}
+
 func TestSessionCleanup(t *testing.T) {
-	sm := NewSessionManager(testPassword)
+	_, s := newTestWeb(t)
+	sm := NewSessionManager(s)
+	ctx := context.Background()
 
-	// Inject expired sessions
-	sm.mu.Lock()
-	sm.sessions["expired-1"] = session{expiresAt: time.Now().Add(-2 * time.Hour)}
-	sm.sessions["expired-2"] = session{expiresAt: time.Now().Add(-1 * time.Hour)}
-	sm.sessions["valid-1"] = session{expiresAt: time.Now().Add(1 * time.Hour)}
-	sm.mu.Unlock()
+	if err := s.CreateOperatorSession(ctx, &models.OperatorSession{
+		Token: "expired-1", OperatorID: "admin-test-id", ExpiresAt: time.Now().Add(-2 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateOperatorSession(ctx, &models.OperatorSession{
+		Token: "valid-1", OperatorID: "admin-test-id", ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	sm.StartCleanup(ctx, 50*time.Millisecond) // short interval for test
-
-	// Wait for cleanup tick
+	cleanupCtx, cancel := context.WithCancel(context.Background())
+	sm.StartCleanup(cleanupCtx, 50*time.Millisecond)
 	time.Sleep(150 * time.Millisecond)
 	cancel()
 
-	sm.mu.RLock()
-	count := len(sm.sessions)
-	_, validExists := sm.sessions["valid-1"]
-	sm.mu.RUnlock()
-
-	if count != 1 {
-		t.Errorf("sessions count = %d, want 1 (only valid)", count)
+	if _, err := s.GetOperatorBySession(ctx, "valid-1"); err != nil {
+		t.Errorf("valid session removed: %v", err)
 	}
-	if !validExists {
-		t.Error("valid session should survive cleanup")
+	if _, err := s.GetOperatorBySession(ctx, "expired-1"); err == nil {
+		t.Error("expired session should have been cleaned up")
 	}
 }
 

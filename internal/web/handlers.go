@@ -30,8 +30,12 @@ func (w *Web) handleLoginPage(rw http.ResponseWriter, _ *http.Request) {
 }
 
 func (w *Web) handleLogin(rw http.ResponseWriter, r *http.Request) {
+	username := r.FormValue("username")
+	if username == "" {
+		username = "admin"
+	}
 	password := r.FormValue("password")
-	ok, err := w.session.Login(rw, password)
+	_, ok, err := w.session.Login(rw, r, username, password)
 	if err != nil {
 		w.logger.Error("login", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
@@ -41,7 +45,7 @@ func (w *Web) handleLogin(rw http.ResponseWriter, r *http.Request) {
 		http.Redirect(rw, r, "/ui/", http.StatusSeeOther)
 		return
 	}
-	w.render(rw, "login.html", map[string]any{"Error": "Invalid password"})
+	w.render(rw, "login.html", map[string]any{"Error": "Invalid username or password"})
 }
 
 func (w *Web) handleLogout(rw http.ResponseWriter, r *http.Request) {

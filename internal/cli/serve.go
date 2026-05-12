@@ -14,6 +14,7 @@ import (
 	"github.com/juev/nebula-mesh/internal/alerts"
 	"github.com/juev/nebula-mesh/internal/api"
 	"github.com/juev/nebula-mesh/internal/config"
+	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
@@ -154,6 +155,19 @@ func Serve(configPath string) error {
 		Passphrase: passphrase,
 	})
 	apiSrv.WithMetricsEnabled(cfg.Metrics.PrometheusEnabled())
+
+	// Build a single rate limiter shared by API and Web. The Web UI runs
+	// auth/ui groups; the API server runs api/enroll/agent_poll groups.
+	rlCfg := ratelimit.Default()
+	rlCfg.Enabled = cfg.RateLimit.IsEnabled()
+	rlCfg.TrustProxyHeader = cfg.RateLimit.TrustProxyHeader
+	for name, gc := range cfg.RateLimit.Groups {
+		if gc.Rate > 0 && gc.Burst > 0 {
+			rlCfg.Groups[name] = ratelimit.GroupConfig{Rate: gc.Rate, Burst: gc.Burst}
+		}
+	}
+	limiter := ratelimit.New(rlCfg)
+	apiSrv.WithRateLimiter(limiter)
 	if caResolver != nil {
 		apiSrv.WithCAResolver(caResolver)
 		apiSrv.WithMaster(master)
@@ -167,6 +181,7 @@ func Serve(configPath string) error {
 	}
 	webUI.AllowSelfRegistration(cfg.AllowSelfRegistration)
 	webUI.WithLoginRecorder(apiSrv.RecordLogin)
+	webUI.WithRateLimiter(limiter)
 
 	// Live host-status SSE: API server fires HostSeenEmitter on each agent
 	// poll, EventBus fans out to subscribed browser tabs.

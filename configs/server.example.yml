@@ -44,6 +44,21 @@ allow_self_registration: false
 #   webhook_url: "https://alertmanager.example.com/api/v2/alerts"
 #   webhook_hmac_secret: "change-me"
 
+# Per-IP rate limiter (issue #52). Enabled by default; set `enabled: false`
+# in trusted networks. When the management server runs behind a reverse
+# proxy that adds X-Forwarded-For, set `trust_proxy_header: true` so the
+# limiter keys on the real client IP instead of the proxy's RemoteAddr.
+#
+# rate_limit:
+#   enabled: true
+#   trust_proxy_header: false
+#   groups:
+#     auth:        { rate: 5,  burst: 10 }   # /ui/login, /ui/register, /ui/2fa/*, /ui/oidc/callback
+#     ui:          { rate: 30, burst: 60 }   # all other /ui/* routes
+#     api:         { rate: 30, burst: 60 }   # bearer-authenticated /api/v1/*
+#     enroll:      { rate: 2,  burst: 5 }    # /api/v1/enroll
+#     agent_poll:  { rate: 60, burst: 120 }  # /api/v1/agent/updates
+
 # Optional OpenID Connect identity provider for operator login. When enabled,
 # the Web UI offers a "Sign in with SSO" button on top of the local password
 # form. Local logins keep working alongside OIDC.

@@ -14,6 +14,7 @@ import (
 	"github.com/juev/nebula-mesh/internal/configgen"
 	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/pki"
+	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -40,6 +41,7 @@ type Server struct {
 	metrics        *metrics
 	metricsEnabled bool
 	hostSeen       HostSeenEmitter
+	limiter        *ratelimit.Limiter
 }
 
 // NewServer creates a new API server.
@@ -75,6 +77,12 @@ func (s *Server) WithMaster(m *keystore.Master) { s.master = m }
 // "password" / "totp" / "recovery" / "oidc".
 func (s *Server) RecordLogin(result, factor string) {
 	s.metrics.recordLogin(result, factor)
+}
+
+// WithRateLimiter installs a rate-limit middleware. nil disables limiting.
+func (s *Server) WithRateLimiter(l *ratelimit.Limiter) {
+	s.limiter = l
+	s.setupRoutes()
 }
 
 // WithMetricsEnabled toggles the Prometheus /metrics endpoint. Disable in
@@ -121,11 +129,18 @@ func (s *Server) setupRoutes() {
 		r.Method("GET", "/metrics", promhttp.HandlerFor(s.metrics.reg, promhttp.HandlerOpts{}))
 	}
 	r.Method("GET", "/debug/vars", expvar.Handler())
-	r.Post("/api/v1/enroll", s.handleEnroll)
-	r.Get("/api/v1/agent/updates", s.handleAgentUpdates)
+	r.Group(func(r chi.Router) {
+		r.Use(s.rateLimitMiddleware("enroll"))
+		r.Post("/api/v1/enroll", s.handleEnroll)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(s.rateLimitMiddleware("agent_poll"))
+		r.Get("/api/v1/agent/updates", s.handleAgentUpdates)
+	})
 
 	// Protected endpoints (require API key)
 	r.Group(func(r chi.Router) {
+		r.Use(s.rateLimitMiddleware("api"))
 		r.Use(bearerAuth(s.store, s.apiKey))
 		r.Post("/api/v1/networks", s.handleCreateNetwork)
 		r.Get("/api/v1/networks", s.handleListNetworks)

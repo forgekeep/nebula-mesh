@@ -486,6 +486,12 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		groups = []string{}
 	}
 
+	advanced, err := parseAdvancedFromForm(r)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	now := time.Now()
 	host := &models.Host{
 		ID:           uuid.New().String(),
@@ -499,6 +505,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		PublicIP:     r.FormValue("public_ip"),
 		ListenPort:   listenPort,
 		Status:       models.HostStatusPending,
+		Advanced:     advanced,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}

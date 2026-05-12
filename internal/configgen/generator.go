@@ -19,6 +19,12 @@ type FirewallRule struct {
 	Group string // "any", "admin", etc.
 }
 
+// AdvancedUnsafeRoute mirrors models.UnsafeRoute for the template.
+type AdvancedUnsafeRoute struct {
+	Route string
+	Via   string
+}
+
 // GeneratorInput contains all parameters needed to generate a Nebula config.
 type GeneratorInput struct {
 	HostName         string
@@ -33,6 +39,13 @@ type GeneratorInput struct {
 	Relays           []string
 	FirewallInbound  []FirewallRule
 	FirewallOutbound []FirewallRule
+
+	// Optional per-host overrides. Zero values mean "use the default".
+	PunchyOverride   *bool
+	ListenHost       string
+	MTU              int
+	TunDevice        string
+	UnsafeRoutes     []AdvancedUnsafeRoute
 }
 
 const configTemplate = `pki:
@@ -51,7 +64,7 @@ lighthouse:
   {{- end }}
 
 listen:
-  host: 0.0.0.0
+  host: {{ if .ListenHost }}{{ .ListenHost }}{{ else }}0.0.0.0{{ end }}
   port: {{ if gt .ListenPort 0 }}{{ .ListenPort }}{{ else }}4242{{ end }}
 
 {{- else }}
@@ -69,13 +82,30 @@ lighthouse:
     {{- end }}
 
 listen:
-  host: 0.0.0.0
+  host: {{ if .ListenHost }}{{ .ListenHost }}{{ else }}0.0.0.0{{ end }}
   port: {{ if gt .ListenPort 0 }}{{ .ListenPort }}{{ else }}0{{ end }}
 
 {{- end }}
 
 punchy:
-  punch: true
+  punch: {{ if .PunchyOverride }}{{ .PunchyOverride }}{{ else }}true{{ end }}
+{{- if or .MTU .TunDevice .UnsafeRoutes }}
+
+tun:
+  {{- if .TunDevice }}
+  dev: {{ .TunDevice }}
+  {{- end }}
+  {{- if .MTU }}
+  mtu: {{ .MTU }}
+  {{- end }}
+  {{- if .UnsafeRoutes }}
+  unsafe_routes:
+    {{- range .UnsafeRoutes }}
+    - route: {{ .Route }}
+      via: {{ .Via }}
+    {{- end }}
+  {{- end }}
+{{- end }}
 
 {{- if .IsRelay }}
 

@@ -164,6 +164,38 @@ The PID file approach does not translate cleanly to containers; either run Nebul
 under its own supervisor that watches `config.yml` for changes, or restart the
 Nebula container when the agent rewrites configuration.
 
+## Advanced per-host configuration
+
+The host creation page (`/ui/hosts/new`) and the REST API (`POST /api/v1/hosts`)
+support an optional **advanced** block for per-host overrides. The basic form
+is unchanged; the advanced fields appear behind a collapsed *Advanced
+configuration* details section in the UI and as a structured `advanced`
+object in the API:
+
+```jsonc
+{
+  "network_id": "…", "name": "edge-1", "nebula_ip": "10.0.0.1",
+  "advanced": {
+    "listen_host": "10.0.0.1",   // override default 0.0.0.0
+    "mtu": 1300,                  // tun.mtu
+    "tun_device": "nebula1",      // tun.dev
+    "punchy": false,              // disable hole-punching for this host
+    "unsafe_routes": [
+      { "route": "192.168.10.0/24", "via": "10.0.0.99" }
+    ]
+  }
+}
+```
+
+All advanced fields are optional. Omitted / empty fields inherit the network
+default — render output for those hosts is byte-identical to a host with no
+advanced block. Server-side validation rejects:
+
+- `mtu` outside the 576–9216 range;
+- non-IP `listen_host`;
+- whitespace or slashes in `tun_device`;
+- malformed CIDR or non-IP `via` in `unsafe_routes`.
+
 ## Configuration
 
 The agent reads a YAML config file. The shipped template is

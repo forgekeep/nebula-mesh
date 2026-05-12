@@ -15,13 +15,14 @@ import (
 )
 
 type createHostRequest struct {
-	NetworkID string   `json:"network_id"`
-	Name      string   `json:"name"`
-	NebulaIP  string   `json:"nebula_ip"`
-	Groups    []string `json:"groups"`
-	Role      string   `json:"role"`
-	PublicIP  string   `json:"public_ip,omitempty"`
-	ListenPort int    `json:"listen_port,omitempty"`
+	NetworkID  string               `json:"network_id"`
+	Name       string               `json:"name"`
+	NebulaIP   string               `json:"nebula_ip"`
+	Groups     []string             `json:"groups"`
+	Role       string               `json:"role"`
+	PublicIP   string               `json:"public_ip,omitempty"`
+	ListenPort int                  `json:"listen_port,omitempty"`
+	Advanced   *models.HostAdvanced `json:"advanced,omitempty"`
 }
 
 type createHostResponse struct {
@@ -63,6 +64,11 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		role = models.HostRoleHost
 	}
 
+	if err := validateHostAdvanced(req.Advanced); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	now := time.Now()
 	host := &models.Host{
 		ID:           uuid.New().String(),
@@ -76,6 +82,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		PublicIP:     req.PublicIP,
 		ListenPort:   req.ListenPort,
 		Status:       models.HostStatusPending,
+		Advanced:     req.Advanced,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}

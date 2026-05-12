@@ -81,6 +81,9 @@
         <div style="text-align:center; margin-top:16px; color:var(--text-muted); font-size:13px">or</div>
         <a href="/ui/oidc/login" class="btn" style="display:block; text-align:center; margin-top:12px; background:transparent; color:var(--text); border:1px solid var(--border); text-decoration:none">Sign in with SSO</a>
         {{end}}
+        {{if .AllowSelfRegistration}}
+        <a href="/ui/register" style="display:block; text-align:center; margin-top:16px; color:var(--text-muted); font-size:13px; text-decoration:none">Create an account</a>
+        {{end}}
     </div>
 </body>
 </html>

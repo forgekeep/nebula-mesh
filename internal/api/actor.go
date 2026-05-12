@@ -30,3 +30,14 @@ func ActorName(ctx context.Context) string {
 func withActor(ctx context.Context, op *models.Operator) context.Context {
 	return context.WithValue(ctx, actorContextKey, op)
 }
+
+// actorIsAdmin reports whether the request's authenticated actor has the
+// admin role. The legacy config-key fallback (no operator on context) is
+// also treated as admin, matching its pre-multi-operator behavior.
+func actorIsAdmin(ctx context.Context) bool {
+	op := ActorOf(ctx)
+	if op == nil {
+		return true // legacy config api_key — effectively root
+	}
+	return op.Role == "admin"
+}

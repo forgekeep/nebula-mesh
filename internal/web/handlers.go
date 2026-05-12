@@ -28,8 +28,9 @@ func (w *Web) requireAuth(next http.Handler) http.Handler {
 
 func (w *Web) handleLoginPage(rw http.ResponseWriter, _ *http.Request) {
 	w.render(rw, "login.html", map[string]any{
-		"Error":       "",
-		"OIDCEnabled": w.oidc.Enabled(),
+		"Error":                "",
+		"OIDCEnabled":          w.oidc.Enabled(),
+		"AllowSelfRegistration": w.allowSelfRegistration,
 	})
 }
 
@@ -47,8 +48,9 @@ func (w *Web) handleLogin(rw http.ResponseWriter, r *http.Request) {
 	}
 	if !ok {
 		w.render(rw, "login.html", map[string]any{
-			"Error":       "Invalid username or password",
-			"OIDCEnabled": w.oidc.Enabled(),
+			"Error":                "Invalid username or password",
+			"OIDCEnabled":          w.oidc.Enabled(),
+			"AllowSelfRegistration": w.allowSelfRegistration,
 		})
 		return
 	}
@@ -107,6 +109,70 @@ func (w *Web) handleTOTPLogin(rw http.ResponseWriter, r *http.Request) {
 
 func (w *Web) handleLogout(rw http.ResponseWriter, r *http.Request) {
 	w.session.Logout(rw, r)
+	http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+}
+
+// --- Self-registration ---
+
+func (w *Web) handleRegisterPage(rw http.ResponseWriter, _ *http.Request) {
+	if !w.allowSelfRegistration {
+		http.Error(rw, "self-registration is disabled", http.StatusForbidden)
+		return
+	}
+	w.render(rw, "register.html", map[string]any{"Error": ""})
+}
+
+func (w *Web) handleRegister(rw http.ResponseWriter, r *http.Request) {
+	if !w.allowSelfRegistration {
+		http.Error(rw, "self-registration is disabled", http.StatusForbidden)
+		return
+	}
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := r.FormValue("password")
+	confirm := r.FormValue("password_confirm")
+	displayName := strings.TrimSpace(r.FormValue("display_name"))
+
+	if username == "" || password == "" {
+		w.render(rw, "register.html", map[string]any{"Error": "Username and password are required"})
+		return
+	}
+	if len(password) < 8 {
+		w.render(rw, "register.html", map[string]any{"Error": "Password must be at least 8 characters long"})
+		return
+	}
+	if password != confirm {
+		w.render(rw, "register.html", map[string]any{"Error": "Password confirmation does not match"})
+		return
+	}
+
+	if _, err := w.store.GetOperatorByUsername(r.Context(), username); err == nil {
+		w.render(rw, "register.html", map[string]any{"Error": "Username already taken"})
+		return
+	} else if !errors.Is(err, store.ErrNotFound) {
+		w.logger.Error("register: lookup", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		w.logger.Error("register: hash", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	op := &models.Operator{
+		ID:           uuid.New().String(),
+		Username:     username,
+		DisplayName:  displayName,
+		PasswordHash: string(hash),
+		Role:         "user",
+	}
+	if err := w.store.CreateOperator(r.Context(), op); err != nil {
+		w.logger.Error("register: create", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	_ = w.store.AddAuditEntry(r.Context(), username, "operator.self_register", op.ID, "")
 	http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 }
 

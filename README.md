@@ -4,7 +4,20 @@
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
-<sub>More views: [hosts](docs/screenshots/hosts.png) · [host detail](docs/screenshots/host-detail.png) · [networks](docs/screenshots/networks.png)</sub>
+<sub>
+More views — UI:
+[hosts](docs/screenshots/hosts.png) ·
+[host detail](docs/screenshots/host-detail.png) ·
+[host create (with advanced)](docs/screenshots/host-new-advanced.png) ·
+[networks](docs/screenshots/networks.png) ·
+[profile](docs/screenshots/profile.png).
+Auth:
+[login](docs/screenshots/login.png) ·
+[register](docs/screenshots/register.png) ·
+[2FA: setup](docs/screenshots/2fa-setup.png) ·
+[2FA: enabled + recovery codes](docs/screenshots/2fa-enabled.png) ·
+[login → TOTP prompt](docs/screenshots/login-totp.png).
+</sub>
 
 [![CI](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml/badge.svg)](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/juev/nebula-mesh?display_name=tag&sort=semver)](https://github.com/juev/nebula-mesh/releases/latest)

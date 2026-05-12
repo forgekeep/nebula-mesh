@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	sessionCookieName = "nebula_session"
-	sessionDuration   = 24 * time.Hour
+	sessionCookieName  = "nebula_session"
+	sessionDuration    = 24 * time.Hour
+	pendingTOTPMaxLife = 5 * time.Minute
 )
 
 // SessionManager handles DB-backed cookie sessions for operator users.
@@ -30,41 +31,60 @@ func NewSessionManager(s store.Store) *SessionManager {
 	return &SessionManager{store: s}
 }
 
+// LoginResult is the outcome of the first authentication step.
+type LoginResult struct {
+	Operator   *models.Operator
+	NeedsTOTP  bool
+}
+
 // Login looks up the operator by username, verifies the password (bcrypt),
-// records a session, sets the cookie, and returns the operator. The boolean
-// is true when the credentials were valid.
-func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username, password string) (*models.Operator, bool, error) {
+// records a session, sets the cookie, and returns the operator. The second
+// return value is false when the credentials were invalid. When the operator
+// has TOTP enabled, the created session is in `pending_totp` state and the
+// caller must complete authentication via FinishTOTP.
+func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username, password string) (LoginResult, bool, error) {
 	if username == "" || password == "" {
-		return nil, false, nil
+		return LoginResult{}, false, nil
 	}
 	op, err := sm.store.GetOperatorByUsername(r.Context(), username)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil, false, nil
+		return LoginResult{}, false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("lookup operator: %w", err)
+		return LoginResult{}, false, fmt.Errorf("lookup operator: %w", err)
 	}
 	if op.Status != models.OperatorStatusActive {
-		return nil, false, nil
+		return LoginResult{}, false, nil
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(password)); err != nil {
-		return nil, false, nil
+		return LoginResult{}, false, nil
 	}
 
 	token, err := generateToken()
 	if err != nil {
-		return nil, false, err
+		return LoginResult{}, false, err
 	}
+	state := models.SessionStateAuthenticated
 	expires := time.Now().Add(sessionDuration)
+	if op.TOTPEnabled {
+		state = models.SessionStatePendingTOTP
+		expires = time.Now().Add(pendingTOTPMaxLife)
+	}
 	if err := sm.store.CreateOperatorSession(r.Context(), &models.OperatorSession{
 		Token:      token,
 		OperatorID: op.ID,
+		State:      state,
 		ExpiresAt:  expires,
 	}); err != nil {
-		return nil, false, fmt.Errorf("create session: %w", err)
+		return LoginResult{}, false, fmt.Errorf("create session: %w", err)
 	}
-	if err := sm.store.UpdateOperatorLastLogin(r.Context(), op.ID, time.Now()); err != nil {
-		slog.Debug("update last login", "error", err)
+	cookieMaxAge := int(sessionDuration.Seconds())
+	if op.TOTPEnabled {
+		cookieMaxAge = int(pendingTOTPMaxLife.Seconds())
+	} else {
+		if err := sm.store.UpdateOperatorLastLogin(r.Context(), op.ID, time.Now()); err != nil {
+			slog.Debug("update last login", "error", err)
+		}
 	}
 
 	http.SetCookie(w, &http.Cookie{
@@ -73,9 +93,48 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		MaxAge:   cookieMaxAge,
+	})
+	return LoginResult{Operator: op, NeedsTOTP: op.TOTPEnabled}, true, nil
+}
+
+// PendingOperator returns the operator awaiting second-factor confirmation
+// on the current session cookie, or nil if no pending session exists.
+func (sm *SessionManager) PendingOperator(r *http.Request) *models.Operator {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return nil
+	}
+	op, err := sm.store.GetPendingTwoFactorOperator(r.Context(), cookie.Value)
+	if err != nil {
+		return nil
+	}
+	return op
+}
+
+// CompleteTwoFactor promotes the current pending session to fully
+// authenticated, refreshes the cookie expiry, and updates last_login_at.
+func (sm *SessionManager) CompleteTwoFactor(w http.ResponseWriter, r *http.Request, operatorID string) error {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return fmt.Errorf("missing session cookie: %w", err)
+	}
+	newExpiry := time.Now().Add(sessionDuration)
+	if err := sm.store.PromoteOperatorSession(r.Context(), cookie.Value, newExpiry); err != nil {
+		return fmt.Errorf("promote session: %w", err)
+	}
+	if err := sm.store.UpdateOperatorLastLogin(r.Context(), operatorID, time.Now()); err != nil {
+		slog.Debug("update last login", "error", err)
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    cookie.Value,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
-	return op, true, nil
+	return nil
 }
 
 // Logout invalidates the session cookie and removes the DB record.

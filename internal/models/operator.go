@@ -27,6 +27,8 @@ type Operator struct {
 	AuthProvider  OperatorAuthProvider `json:"auth_provider"`
 	Status        OperatorStatus       `json:"status"`
 	Role          string               `json:"role"`
+	TOTPSecret    string               `json:"-"`
+	TOTPEnabled   bool                 `json:"totp_enabled"`
 	CreatedAt     time.Time            `json:"created_at"`
 	UpdatedAt     time.Time            `json:"updated_at"`
 	LastLoginAt   *time.Time           `json:"last_login_at,omitempty"`
@@ -43,10 +45,20 @@ type OperatorAPIKey struct {
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 }
 
-// OperatorSession represents an authenticated UI session.
+// SessionState is the lifecycle phase of an operator session.
+type SessionState string
+
+const (
+	SessionStateAuthenticated SessionState = "authenticated"
+	SessionStatePendingTOTP   SessionState = "pending_totp"
+)
+
+// OperatorSession represents a UI session. A session in `pending_totp` state
+// is awaiting a second-factor verification and is not yet authenticated.
 type OperatorSession struct {
 	Token      string
 	OperatorID string
+	State      SessionState
 	ExpiresAt  time.Time
 	CreatedAt  time.Time
 }

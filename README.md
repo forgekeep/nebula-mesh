@@ -197,6 +197,21 @@ nebula-mgmt user enable  --server ... --api-key "$ADMIN_KEY" --id "$ALICE_ID"
 Audit log entries (`/api/v1/audit-log`) record the actor for every mutating
 operator/host action.
 
+### 5. Enable two-factor authentication (TOTP)
+
+Open `/ui/2fa`, click **Enable 2FA**, scan the displayed `otpauth://` URL with
+1Password / Bitwarden / Google Authenticator / Aegis / Authy / any compatible
+app, and confirm with a 6-digit code. The server then shows ten one-time
+recovery codes — save them offline.
+
+On the next login the UI asks for the 6-digit code (or one recovery code) after
+the password. Disabling 2FA requires re-confirming the current password. All
+sensitive operations (`operator.2fa.enabled`, `disabled`, `regen_codes`,
+`failed`, `verified`) appear in the audit log.
+
+API tokens are not affected — they continue to authenticate non-interactive
+clients.
+
 ## Deployment
 
 - **Docker** — `docker build -t nebula-mgmt .` (Dockerfile in repo).

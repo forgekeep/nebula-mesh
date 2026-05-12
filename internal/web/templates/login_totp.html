@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Two-factor authentication — Nebula Mesh</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico">
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --border: #2d3148;
+            --text: #e1e4ed;
+            --text-muted: #8b8fa3;
+            --primary: #6c7aee;
+            --primary-hover: #5a68d6;
+            --danger: #e05555;
+            --radius: 8px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .login-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; width: 360px; }
+        .login-card h1 { font-size: 22px; margin-bottom: 16px; text-align: center; }
+        .login-card p { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; text-align: center; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
+        .form-control { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--text); font-size: 14px; font-family: monospace; letter-spacing: 0.1em; }
+        .btn { width: 100%; padding: 10px; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; border: none; background: var(--primary); color: #fff; }
+        .btn:hover { background: var(--primary-hover); }
+        .error { color: var(--danger); font-size: 13px; text-align: center; margin-bottom: 12px; }
+        .divider { color: var(--text-muted); text-align: center; font-size: 12px; margin: 12px 0; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>Two-factor authentication</h1>
+        <p>Enter the 6-digit code from your authenticator app, or use a recovery code.</p>
+        {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+        <form method="POST" action="/ui/login/totp">
+            <div class="form-group">
+                <label>Authenticator code</label>
+                <input type="text" name="code" class="form-control" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" autofocus>
+            </div>
+            <div class="divider">— or —</div>
+            <div class="form-group">
+                <label>Recovery code</label>
+                <input type="text" name="recovery_code" class="form-control" autocomplete="off">
+            </div>
+            <button type="submit" class="btn">Verify</button>
+        </form>
+    </div>
+</body>
+</html>

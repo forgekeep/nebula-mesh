@@ -83,6 +83,12 @@ type Store interface {
 	DisableOperator(ctx context.Context, id string) error
 	EnableOperator(ctx context.Context, id string) error
 
+	// Operator TOTP / recovery codes
+	SetOperatorTOTP(ctx context.Context, id, secret string, enabled bool) error
+	ReplaceOperatorRecoveryCodes(ctx context.Context, id string, codeHashes []string) error
+	ConsumeOperatorRecoveryCode(ctx context.Context, id, codeHash string) error
+	ListOperatorRecoveryCodes(ctx context.Context, id string) ([]string, error)
+
 	// Operator API keys
 	CreateOperatorAPIKey(ctx context.Context, k *models.OperatorAPIKey) error
 	GetOperatorByAPIKeyHash(ctx context.Context, keyHash string) (*models.Operator, *models.OperatorAPIKey, error)
@@ -93,6 +99,8 @@ type Store interface {
 	// Operator sessions
 	CreateOperatorSession(ctx context.Context, s *models.OperatorSession) error
 	GetOperatorBySession(ctx context.Context, token string) (*models.Operator, error)
+	GetPendingTwoFactorOperator(ctx context.Context, token string) (*models.Operator, error)
+	PromoteOperatorSession(ctx context.Context, token string, newExpiry time.Time) error
 	DeleteOperatorSession(ctx context.Context, token string) error
 	DeleteOperatorSessionsByOperator(ctx context.Context, operatorID string) error
 	DeleteExpiredOperatorSessions(ctx context.Context, before time.Time) error

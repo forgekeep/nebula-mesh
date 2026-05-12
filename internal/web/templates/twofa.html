@@ -1,0 +1,51 @@
+{{define "title"}}Two-factor authentication — Nebula Mesh{{end}}
+
+{{define "content"}}
+<h1>Two-factor authentication</h1>
+
+{{if .Error}}<div class="flash flash-error">{{.Error}}</div>{{end}}
+
+{{if .NewCodes}}
+<div class="card flash flash-success">
+    <h2>Recovery codes</h2>
+    <p>Save these codes somewhere safe — they are shown only once. Each code can be used once if you lose access to your authenticator app.</p>
+    <div class="token-display">
+{{range .NewCodes}}{{.}}
+{{end}}
+    </div>
+</div>
+{{end}}
+
+<div class="card">
+    <h2>Status</h2>
+    {{if .TOTPEnabled}}
+    <p>Two-factor authentication is <strong>enabled</strong> for <code>{{.Operator.Username}}</code>.</p>
+    <form method="POST" action="/ui/2fa/disable" style="margin-top:16px">
+        <div class="form-group">
+            <label>Confirm with current password to disable</label>
+            <input type="password" name="password" class="form-control" required>
+        </div>
+        <button type="submit" class="btn btn-danger">Disable 2FA</button>
+    </form>
+    <form method="POST" action="/ui/2fa/recovery-codes" style="margin-top:16px">
+        <button type="submit" class="btn">Regenerate recovery codes</button>
+    </form>
+    {{else if .Setup}}
+    <p>Scan this URL in your authenticator app, or enter the secret manually:</p>
+    <div class="token-display">{{.Setup.OTPURL}}</div>
+    <p>Secret: <code>{{.Setup.SecretGroup}}</code></p>
+    <form method="POST" action="/ui/2fa/enable" style="margin-top:16px">
+        <div class="form-group">
+            <label>Enter the 6-digit code from your app to confirm</label>
+            <input type="text" name="code" class="form-control" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus>
+        </div>
+        <button type="submit" class="btn btn-primary">Enable 2FA</button>
+    </form>
+    {{else}}
+    <p>Two-factor authentication is <strong>not enabled</strong>.</p>
+    <form method="POST" action="/ui/2fa/setup" style="margin-top:16px">
+        <button type="submit" class="btn btn-primary">Enable 2FA</button>
+    </form>
+    {{end}}
+</div>
+{{end}}

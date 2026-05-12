@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // requireAuth middleware redirects to login if not authenticated.
@@ -35,22 +36,240 @@ func (w *Web) handleLogin(rw http.ResponseWriter, r *http.Request) {
 		username = "admin"
 	}
 	password := r.FormValue("password")
-	_, ok, err := w.session.Login(rw, r, username, password)
+	result, ok, err := w.session.Login(rw, r, username, password)
 	if err != nil {
 		w.logger.Error("login", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if ok {
-		http.Redirect(rw, r, "/ui/", http.StatusSeeOther)
+	if !ok {
+		w.render(rw, "login.html", map[string]any{"Error": "Invalid username or password"})
 		return
 	}
-	w.render(rw, "login.html", map[string]any{"Error": "Invalid username or password"})
+	if result.NeedsTOTP {
+		http.Redirect(rw, r, "/ui/login/totp", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(rw, r, "/ui/", http.StatusSeeOther)
+}
+
+func (w *Web) handleTOTPLoginPage(rw http.ResponseWriter, r *http.Request) {
+	if op := w.session.PendingOperator(r); op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	w.render(rw, "login_totp.html", map[string]any{"Error": ""})
+}
+
+func (w *Web) handleTOTPLogin(rw http.ResponseWriter, r *http.Request) {
+	op := w.session.PendingOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	code := strings.TrimSpace(r.FormValue("code"))
+	recovery := strings.TrimSpace(r.FormValue("recovery_code"))
+
+	ok := false
+	usedRecovery := false
+	if code != "" && verifyTOTP(op.TOTPSecret, code) {
+		ok = true
+	} else if recovery != "" {
+		if err := w.store.ConsumeOperatorRecoveryCode(r.Context(), op.ID, hashRecoveryCode(recovery)); err == nil {
+			ok = true
+			usedRecovery = true
+		}
+	}
+
+	if !ok {
+		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.failed", op.ID, "")
+		w.render(rw, "login_totp.html", map[string]any{"Error": "Invalid TOTP code"})
+		return
+	}
+	if err := w.session.CompleteTwoFactor(rw, r, op.ID); err != nil {
+		w.logger.Error("complete 2fa", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	details := "totp"
+	if usedRecovery {
+		details = "recovery"
+	}
+	_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.verified", op.ID, details)
+	http.Redirect(rw, r, "/ui/", http.StatusSeeOther)
 }
 
 func (w *Web) handleLogout(rw http.ResponseWriter, r *http.Request) {
 	w.session.Logout(rw, r)
 	http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+}
+
+// --- 2FA management ---
+
+func (w *Web) handleTwoFAPage(rw http.ResponseWriter, r *http.Request) {
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	w.render(rw, "twofa.html", map[string]any{
+		"Active":      "2fa",
+		"Operator":    op,
+		"TOTPEnabled": op.TOTPEnabled,
+		"Setup":       nil,
+		"NewCodes":    nil,
+		"Error":       "",
+	})
+}
+
+type totpSetup struct {
+	OTPURL       string
+	SecretGroup  string
+	SecretRaw    string
+}
+
+func (w *Web) handleTwoFASetup(rw http.ResponseWriter, r *http.Request) {
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	if op.TOTPEnabled {
+		http.Redirect(rw, r, "/ui/2fa", http.StatusSeeOther)
+		return
+	}
+	url, secret, err := generateTOTPSecret(op.Username)
+	if err != nil {
+		w.logger.Error("generate totp", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// Save the secret but keep totp_enabled=false until verification.
+	if err := w.store.SetOperatorTOTP(r.Context(), op.ID, secret, false); err != nil {
+		w.logger.Error("save pending totp", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.render(rw, "twofa.html", map[string]any{
+		"Active":      "2fa",
+		"Operator":    op,
+		"TOTPEnabled": false,
+		"Setup": &totpSetup{
+			OTPURL:      url,
+			SecretGroup: encodeSecretForDisplay(secret),
+			SecretRaw:   secret,
+		},
+		"NewCodes": nil,
+		"Error":    "",
+	})
+}
+
+func (w *Web) handleTwoFAEnable(rw http.ResponseWriter, r *http.Request) {
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	if op.TOTPSecret == "" {
+		http.Redirect(rw, r, "/ui/2fa", http.StatusSeeOther)
+		return
+	}
+	code := strings.TrimSpace(r.FormValue("code"))
+	if !verifyTOTP(op.TOTPSecret, code) {
+		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.enable_failed", op.ID, "")
+		w.render(rw, "twofa.html", map[string]any{
+			"Active":      "2fa",
+			"Operator":    op,
+			"TOTPEnabled": false,
+			"Setup": &totpSetup{
+				SecretGroup: encodeSecretForDisplay(op.TOTPSecret),
+				SecretRaw:   op.TOTPSecret,
+			},
+			"Error": "Invalid code; try again",
+		})
+		return
+	}
+	if err := w.store.SetOperatorTOTP(r.Context(), op.ID, op.TOTPSecret, true); err != nil {
+		w.logger.Error("enable totp", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	codes, hashes, err := generateRecoveryCodes(totpRecoveryCodeCount)
+	if err != nil {
+		w.logger.Error("generate recovery codes", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := w.store.ReplaceOperatorRecoveryCodes(r.Context(), op.ID, hashes); err != nil {
+		w.logger.Error("save recovery codes", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.enabled", op.ID, "")
+	w.render(rw, "twofa.html", map[string]any{
+		"Active":      "2fa",
+		"Operator":    op,
+		"TOTPEnabled": true,
+		"NewCodes":    codes,
+		"Error":       "",
+	})
+}
+
+func (w *Web) handleTwoFADisable(rw http.ResponseWriter, r *http.Request) {
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	password := r.FormValue("password")
+	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(password)); err != nil {
+		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.disable_failed", op.ID, "")
+		w.render(rw, "twofa.html", map[string]any{
+			"Active":      "2fa",
+			"Operator":    op,
+			"TOTPEnabled": op.TOTPEnabled,
+			"Error":       "Password does not match",
+		})
+		return
+	}
+	if err := w.store.SetOperatorTOTP(r.Context(), op.ID, "", false); err != nil {
+		w.logger.Error("disable totp", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.disabled", op.ID, "")
+	http.Redirect(rw, r, "/ui/2fa", http.StatusSeeOther)
+}
+
+func (w *Web) handleTwoFARegenCodes(rw http.ResponseWriter, r *http.Request) {
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	if !op.TOTPEnabled {
+		http.Redirect(rw, r, "/ui/2fa", http.StatusSeeOther)
+		return
+	}
+	codes, hashes, err := generateRecoveryCodes(totpRecoveryCodeCount)
+	if err != nil {
+		w.logger.Error("generate recovery codes", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := w.store.ReplaceOperatorRecoveryCodes(r.Context(), op.ID, hashes); err != nil {
+		w.logger.Error("save recovery codes", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.regen_codes", op.ID, "")
+	w.render(rw, "twofa.html", map[string]any{
+		"Active":      "2fa",
+		"Operator":    op,
+		"TOTPEnabled": true,
+		"NewCodes":    codes,
+		"Error":       "",
+	})
 }
 
 func (w *Web) handleFavicon(rw http.ResponseWriter, _ *http.Request) {

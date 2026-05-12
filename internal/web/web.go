@@ -46,6 +46,7 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		"host_new.html",
 		"host_detail.html",
 		"networks.html",
+		"twofa.html",
 	}
 	for _, page := range pages {
 		tmpl, err := template.ParseFS(templateFS, "templates/layout.html", "templates/"+page)
@@ -55,12 +56,14 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		w.templates[page] = tmpl
 	}
 
-	// Login is standalone (no layout)
-	loginTmpl, err := template.ParseFS(templateFS, "templates/login.html")
-	if err != nil {
-		return nil, fmt.Errorf("parse login template: %w", err)
+	// Login pages are standalone (no layout)
+	for _, page := range []string{"login.html", "login_totp.html"} {
+		tmpl, err := template.ParseFS(templateFS, "templates/"+page)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", page, err)
+		}
+		w.templates[page] = tmpl
 	}
-	w.templates["login.html"] = loginTmpl
 
 	w.setupRoutes()
 	return w, nil
@@ -79,6 +82,8 @@ func (w *Web) setupRoutes() {
 	// Login (public)
 	r.Get("/ui/login", w.handleLoginPage)
 	r.Post("/ui/login", w.handleLogin)
+	r.Get("/ui/login/totp", w.handleTOTPLoginPage)
+	r.Post("/ui/login/totp", w.handleTOTPLogin)
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
@@ -92,6 +97,11 @@ func (w *Web) setupRoutes() {
 		r.Delete("/ui/hosts/{id}", w.handleHostDelete)
 		r.Get("/ui/networks", w.handleNetworks)
 		r.Post("/ui/networks", w.handleNetworkCreate)
+		r.Get("/ui/2fa", w.handleTwoFAPage)
+		r.Post("/ui/2fa/setup", w.handleTwoFASetup)
+		r.Post("/ui/2fa/enable", w.handleTwoFAEnable)
+		r.Post("/ui/2fa/disable", w.handleTwoFADisable)
+		r.Post("/ui/2fa/recovery-codes", w.handleTwoFARegenCodes)
 		r.Get("/ui/partials/stats", w.handlePartialStats)
 		r.Get("/ui/logout", w.handleLogout)
 	})
@@ -119,7 +129,7 @@ func (w *Web) render(rw http.ResponseWriter, name string, data any) {
 	}
 	// For pages with layout, execute "layout.html"; for standalone pages, execute the file directly
 	execName := "layout.html"
-	if name == "login.html" {
+	if name == "login.html" || name == "login_totp.html" {
 		execName = name
 	}
 	var buf bytes.Buffer

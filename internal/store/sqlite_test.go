@@ -1271,3 +1271,266 @@ func TestCreateHostAndToken_DuplicateHost(t *testing.T) {
 		t.Error("token-2 should not exist after rollback")
 	}
 }
+
+// --- Host Config Version ---
+
+func TestHostConfigVersion_DefaultZero(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_cv", NetworkID: net.ID, Name: "cv-default",
+		NebulaIP: "192.168.100.10", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := s.GetHostConfigVersion(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 0 {
+		t.Errorf("default version = %d, want 0", v)
+	}
+}
+
+func TestUpdateHostConfigVersion(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_cv_update", NetworkID: net.ID, Name: "cv-update",
+		NebulaIP: "192.168.100.11", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.UpdateHostConfigVersion(ctx, h.ID, 7); err != nil {
+		t.Fatal(err)
+	}
+	v, err := s.GetHostConfigVersion(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 7 {
+		t.Errorf("version = %d, want 7", v)
+	}
+}
+
+func TestUpdateHostConfigVersion_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	err := s.UpdateHostConfigVersion(context.Background(), "nonexistent", 1)
+	if err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestGetHostConfigVersion_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.GetHostConfigVersion(context.Background(), "nonexistent")
+	if err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// --- Lighthouse-driven config_version bumps ---
+
+func TestSaveCertificateAndEnrollHost_BumpsLighthouseVersion(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	lh := &models.Host{
+		ID: "host_lh", NetworkID: net.ID, Name: "lighthouse-a",
+		NebulaIP: "192.168.100.5", Groups: []string{},
+		Role: models.HostRoleLighthouse, IsLighthouse: true,
+		PublicIP: "10.0.0.5", ListenPort: 4242,
+		Status:    models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, lh); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := s.GetNetworkConfigVersion(ctx, net.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	if err := s.SaveCertificateAndEnrollHost(ctx, lh.ID, []byte("dummy-cert-pem"), "fp-lh-1", now, now.Add(24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := s.GetNetworkConfigVersion(ctx, net.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before+1 {
+		t.Errorf("version = %d, want %d (bump on lighthouse enrollment)", after, before+1)
+	}
+}
+
+func TestSaveCertificateAndEnrollHost_NoBumpForRegularHost(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_regular", NetworkID: net.ID, Name: "plain",
+		NebulaIP: "192.168.100.6", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := s.GetNetworkConfigVersion(ctx, net.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	if err := s.SaveCertificateAndEnrollHost(ctx, h.ID, []byte("dummy"), "fp-h-1", now, now.Add(24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := s.GetNetworkConfigVersion(ctx, net.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Errorf("version = %d, want %d (no bump for plain host)", after, before)
+	}
+}
+
+func TestBlockHostAndAddToBlocklist_BumpsForEnrolledLighthouse(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	lh := &models.Host{
+		ID: "host_lh_block", NetworkID: net.ID, Name: "lh-block",
+		NebulaIP: "192.168.100.7", Groups: []string{},
+		Role: models.HostRoleLighthouse, IsLighthouse: true,
+		PublicIP: "10.0.0.7", ListenPort: 4242,
+		Status:    models.HostStatusEnrolled,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, lh); err != nil {
+		t.Fatal(err)
+	}
+	// Set fingerprint via UpdateHost so block records it on the blocklist
+	lh.CertFingerprint = "fp-lh-block"
+	if err := s.UpdateHost(ctx, lh); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := s.GetNetworkConfigVersion(ctx, net.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.BlockHostAndAddToBlocklist(ctx, lh.ID, "test block"); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := s.GetNetworkConfigVersion(ctx, net.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before+1 {
+		t.Errorf("version = %d, want %d (bump on enrolled lighthouse block)", after, before+1)
+	}
+}
+
+func TestBlockHostAndAddToBlocklist_NoBumpForPendingLighthouse(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	lh := &models.Host{
+		ID: "host_lh_pending", NetworkID: net.ID, Name: "lh-pending",
+		NebulaIP: "192.168.100.8", Groups: []string{},
+		Role: models.HostRoleLighthouse, IsLighthouse: true,
+		Status:    models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, lh); err != nil {
+		t.Fatal(err)
+	}
+
+	before, _ := s.GetNetworkConfigVersion(ctx, net.ID)
+	if _, err := s.BlockHostAndAddToBlocklist(ctx, lh.ID, "test"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.GetNetworkConfigVersion(ctx, net.ID)
+	if after != before {
+		t.Errorf("version = %d, want %d (pending lighthouse — no bump)", after, before)
+	}
+}
+
+func TestDeleteHostAndBlockCert_BumpsForEnrolledLighthouse(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	lh := &models.Host{
+		ID: "host_lh_del", NetworkID: net.ID, Name: "lh-del",
+		NebulaIP: "192.168.100.9", Groups: []string{},
+		Role: models.HostRoleLighthouse, IsLighthouse: true,
+		PublicIP: "10.0.0.9", ListenPort: 4242,
+		Status:    models.HostStatusEnrolled,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, lh); err != nil {
+		t.Fatal(err)
+	}
+	lh.CertFingerprint = "fp-lh-del"
+	if err := s.UpdateHost(ctx, lh); err != nil {
+		t.Fatal(err)
+	}
+
+	before, _ := s.GetNetworkConfigVersion(ctx, net.ID)
+	if err := s.DeleteHostAndBlockCert(ctx, lh.ID, "test delete"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.GetNetworkConfigVersion(ctx, net.ID)
+	if after != before+1 {
+		t.Errorf("version = %d, want %d (bump on enrolled lighthouse delete)", after, before+1)
+	}
+}
+
+func TestDeleteHostAndBlockCert_NoBumpForRegularHost(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_plain_del", NetworkID: net.ID, Name: "plain-del",
+		NebulaIP: "192.168.100.13", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	before, _ := s.GetNetworkConfigVersion(ctx, net.ID)
+	if err := s.DeleteHostAndBlockCert(ctx, h.ID, "test"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.GetNetworkConfigVersion(ctx, net.ID)
+	if after != before {
+		t.Errorf("version = %d, want %d (regular host — no bump)", after, before)
+	}
+}

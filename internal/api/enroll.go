@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/juev/nebula-mesh/internal/configgen"
+	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/slackhq/nebula/cert"
@@ -151,15 +152,43 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get lighthouses for config
-	lighthouses, err := s.getLighthouses(r.Context(), host.NetworkID)
+	// Pin the freshly-enrolled host to the current network config version so the
+	// next agent poll does not redundantly re-send the same config we already
+	// embedded in the enrollment response below.
+	networkVersion, err := s.store.GetNetworkConfigVersion(r.Context(), host.NetworkID)
 	if err != nil {
-		s.logger.Error("get lighthouses", "error", err)
+		s.logger.Error("get network config version", "error", err)
+		writeError(w, http.StatusInternalServerError, "enrollment failed")
+		return
+	}
+	if err := s.store.UpdateHostConfigVersion(r.Context(), host.ID, networkVersion); err != nil {
+		s.logger.Error("update host config version", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}
 
-	// Generate config (including any per-host advanced overrides)
+	configYAML, err := s.renderHostConfig(r.Context(), host)
+	if err != nil {
+		s.logger.Error("generate config", "error", err)
+		writeError(w, http.StatusInternalServerError, "enrollment failed")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, enrollResponse{
+		CertificatePEM:   string(certPEM),
+		CACertificatePEM: string(caCertPEM),
+		ConfigYAML:       string(configYAML),
+	})
+}
+
+// renderHostConfig produces the Nebula config.yml for the given host, resolving
+// the network's enrolled lighthouses and applying per-host advanced overrides.
+func (s *Server) renderHostConfig(ctx context.Context, host *models.Host) ([]byte, error) {
+	lighthouses, err := s.getLighthouses(ctx, host.NetworkID)
+	if err != nil {
+		return nil, fmt.Errorf("get lighthouses: %w", err)
+	}
+
 	input := configgen.GeneratorInput{
 		HostName:     host.Name,
 		NebulaIP:     host.NebulaIP,
@@ -186,38 +215,34 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 			input.UnsafeRoutes = append(input.UnsafeRoutes, configgen.AdvancedUnsafeRoute{Route: u.Route, Via: u.Via})
 		}
 	}
-	configYAML, err := configgen.Generate(input)
-	if err != nil {
-		s.logger.Error("generate config", "error", err)
-		writeError(w, http.StatusInternalServerError, "enrollment failed")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, enrollResponse{
-		CertificatePEM:   string(certPEM),
-		CACertificatePEM: string(caCertPEM),
-		ConfigYAML:       string(configYAML),
-	})
+	return configgen.Generate(input)
 }
 
+// getLighthouses returns every enrolled lighthouse in the given network. Pending
+// or blocked lighthouses are excluded so peer configs never advertise hosts that
+// cannot yet (or no longer) accept traffic.
 func (s *Server) getLighthouses(ctx context.Context, networkID string) ([]configgen.LighthouseInfo, error) {
-	hosts, err := s.store.ListHosts(ctx, store.HostFilter{NetworkID: networkID})
+	hosts, err := s.store.ListHosts(ctx, store.HostFilter{
+		NetworkID: networkID,
+		Status:    models.HostStatusEnrolled,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	result := make([]configgen.LighthouseInfo, 0)
 	for _, h := range hosts {
-		if h.IsLighthouse && h.PublicIP != "" {
-			port := h.ListenPort
-			if port == 0 {
-				port = 4242
-			}
-			result = append(result, configgen.LighthouseInfo{
-				NebulaIP:   h.NebulaIP,
-				PublicAddr: fmt.Sprintf("%s:%d", h.PublicIP, port),
-			})
+		if !h.IsLighthouse || h.PublicIP == "" {
+			continue
 		}
+		port := h.ListenPort
+		if port == 0 {
+			port = 4242
+		}
+		result = append(result, configgen.LighthouseInfo{
+			NebulaIP:   h.NebulaIP,
+			PublicAddr: fmt.Sprintf("%s:%d", h.PublicIP, port),
+		})
 	}
 	return result, nil
 }

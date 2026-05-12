@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -365,5 +366,210 @@ func TestAgentUpdates_CertSaveFailure(t *testing.T) {
 	if pollResp.StatusCode != http.StatusInternalServerError {
 		body, _ := io.ReadAll(pollResp.Body)
 		t.Errorf("expected 500 when cert save fails, got %d, body: %s", pollResp.StatusCode, string(body))
+	}
+}
+
+// enrollHost is a small helper used by the lighthouse auto-assignment tests
+// below: it creates a host, runs the full enrollment handshake, and returns
+// the host record plus its cert fingerprint (needed for agent polls).
+func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP string, extra map[string]any) (*models.Host, string, string) {
+	t.Helper()
+	payload := map[string]any{
+		"network_id": networkID,
+		"name":       name,
+		"nebula_ip":  nebulaIP,
+	}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	resp := apiCall(t, ts, "POST", "/api/v1/hosts", payload)
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("create host %s: HTTP %d: %s", name, resp.StatusCode, string(body))
+	}
+	var created struct {
+		Host            *models.Host `json:"host"`
+		EnrollmentToken string       `json:"enrollment_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created %s: %v", name, err)
+	}
+	resp.Body.Close()
+
+	privKey := make([]byte, 32)
+	if _, err := rand.Read(privKey); err != nil {
+		t.Fatal(err)
+	}
+	pubKey, err := curve25519.X25519(privKey, curve25519.Basepoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubKeyPEM := cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pubKey)
+
+	enrollData, _ := json.Marshal(map[string]string{
+		"token":          created.EnrollmentToken,
+		"public_key_pem": string(pubKeyPEM),
+	})
+	enrollResp, err := http.Post(ts.URL+"/api/v1/enroll", "application/json", bytes.NewReader(enrollData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer enrollResp.Body.Close()
+	if enrollResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(enrollResp.Body)
+		t.Fatalf("enroll %s: HTTP %d: %s", name, enrollResp.StatusCode, string(body))
+	}
+
+	var enrolled struct {
+		CertificatePEM string `json:"certificate_pem"`
+		ConfigYAML     string `json:"config_yaml"`
+	}
+	if err := json.NewDecoder(enrollResp.Body).Decode(&enrolled); err != nil {
+		t.Fatalf("decode enroll %s: %v", name, err)
+	}
+	hostCert, _, err := cert.UnmarshalCertificateFromPEM([]byte(enrolled.CertificatePEM))
+	if err != nil {
+		t.Fatalf("parse cert %s: %v", name, err)
+	}
+	fp, err := hostCert.Fingerprint()
+	if err != nil {
+		t.Fatalf("fingerprint %s: %v", name, err)
+	}
+
+	return created.Host, fp, enrolled.ConfigYAML
+}
+
+// pollAgent runs a single agent updates poll for the given fingerprint and
+// returns the decoded response.
+func pollAgent(t *testing.T, ts *httptest.Server, fingerprint string) struct {
+	HasUpdates bool     `json:"has_updates"`
+	ConfigYAML *string  `json:"config_yaml,omitempty"`
+	Blocklist  []string `json:"blocklist"`
+} {
+	t.Helper()
+	resp, err := http.Get(ts.URL + "/api/v1/agent/updates?fingerprint=" + fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("poll: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+	var out struct {
+		HasUpdates bool     `json:"has_updates"`
+		ConfigYAML *string  `json:"config_yaml,omitempty"`
+		Blocklist  []string `json:"blocklist"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode poll: %v", err)
+	}
+	return out
+}
+
+// TestE2E_LighthouseAutoAssignment exercises issue #39: when a lighthouse is
+// promoted, blocked, or deleted, peer agents must pick up the new lighthouse
+// layout on their next poll without any manual reconfiguration.
+func TestE2E_LighthouseAutoAssignment(t *testing.T) {
+	ts, _, _ := setupE2E(t)
+
+	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]string{
+		"name": "auto-lh-network",
+		"cidr": "192.168.50.0/24",
+	})
+	var network models.Network
+	if err := json.NewDecoder(resp.Body).Decode(&network); err != nil {
+		t.Fatalf("decode network: %v", err)
+	}
+	resp.Body.Close()
+
+	// 1. Enroll a peer host first, *before* any lighthouse exists. Its
+	// enrollment-time config must contain zero lighthouses.
+	_, peerFP, peerInitialCfg := enrollHost(t, ts, network.ID, "peer-1", "192.168.50.10", nil)
+	if strings.Contains(peerInitialCfg, "203.0.113.") {
+		t.Fatalf("initial peer config unexpectedly references a lighthouse public IP:\n%s", peerInitialCfg)
+	}
+
+	// 2. Initial poll immediately after enrollment — no version drift, no
+	// config redelivery.
+	updates := pollAgent(t, ts, peerFP)
+	if updates.ConfigYAML != nil {
+		t.Errorf("first poll: ConfigYAML must be nil (no version drift), got non-nil")
+	}
+
+	// 3. Now create and enroll a lighthouse. Enrolling a lighthouse must bump
+	// the network config_version.
+	_, _, _ = enrollHost(t, ts, network.ID, "lh-1", "192.168.50.1", map[string]any{
+		"role":        "lighthouse",
+		"public_ip":   "203.0.113.10",
+		"listen_port": 4242,
+	})
+
+	// 4. Peer poll — the agent must now receive a config_yaml that lists the
+	// newly enrolled lighthouse.
+	updates = pollAgent(t, ts, peerFP)
+	if updates.ConfigYAML == nil {
+		t.Fatal("peer poll after lighthouse promotion: ConfigYAML is nil, expected fresh config")
+	}
+	if !strings.Contains(*updates.ConfigYAML, "192.168.50.1") || !strings.Contains(*updates.ConfigYAML, "203.0.113.10:4242") {
+		t.Errorf("peer config does not advertise new lighthouse:\n%s", *updates.ConfigYAML)
+	}
+
+	// 5. Subsequent poll with no further changes — version is back in sync,
+	// no config is pushed.
+	updates = pollAgent(t, ts, peerFP)
+	if updates.ConfigYAML != nil {
+		t.Errorf("second poll: expected ConfigYAML=nil, got %q", *updates.ConfigYAML)
+	}
+
+	// 6. Add a second lighthouse — peer must pick up both on the next poll.
+	_, _, _ = enrollHost(t, ts, network.ID, "lh-2", "192.168.50.2", map[string]any{
+		"role":        "lighthouse",
+		"public_ip":   "203.0.113.20",
+		"listen_port": 4242,
+	})
+	updates = pollAgent(t, ts, peerFP)
+	if updates.ConfigYAML == nil {
+		t.Fatal("peer poll after second lighthouse: ConfigYAML is nil")
+	}
+	for _, want := range []string{"192.168.50.1", "192.168.50.2", "203.0.113.10:4242", "203.0.113.20:4242"} {
+		if !strings.Contains(*updates.ConfigYAML, want) {
+			t.Errorf("peer config missing %q:\n%s", want, *updates.ConfigYAML)
+		}
+	}
+
+	// 7. Block one lighthouse. Peer's next poll must see a config without the
+	// blocked lighthouse.
+	resp = apiCall(t, ts, "GET", "/api/v1/hosts?network_id="+network.ID, nil)
+	var allHosts []models.Host
+	if err := json.NewDecoder(resp.Body).Decode(&allHosts); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	var lh2ID string
+	for _, h := range allHosts {
+		if h.Name == "lh-2" {
+			lh2ID = h.ID
+		}
+	}
+	if lh2ID == "" {
+		t.Fatal("lh-2 not found in host list")
+	}
+	resp = apiCall(t, ts, "POST", "/api/v1/hosts/"+lh2ID+"/block", nil)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("block lh-2: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+	resp.Body.Close()
+
+	updates = pollAgent(t, ts, peerFP)
+	if updates.ConfigYAML == nil {
+		t.Fatal("peer poll after lighthouse block: ConfigYAML is nil")
+	}
+	if strings.Contains(*updates.ConfigYAML, "203.0.113.20:4242") {
+		t.Errorf("peer config still references blocked lighthouse public addr:\n%s", *updates.ConfigYAML)
+	}
+	if !strings.Contains(*updates.ConfigYAML, "203.0.113.10:4242") {
+		t.Errorf("peer config missing surviving lighthouse:\n%s", *updates.ConfigYAML)
 	}
 }

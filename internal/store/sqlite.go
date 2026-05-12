@@ -560,6 +560,8 @@ func (s *SQLiteStore) DeleteHost(_ context.Context, id string) error {
 }
 
 // BlockHostAndAddToBlocklist atomically blocks a host and adds its cert to the blocklist.
+// If the blocked host was an enrolled lighthouse, the network's config_version is
+// bumped so peers stop directing traffic at it on their next poll.
 func (s *SQLiteStore) BlockHostAndAddToBlocklist(_ context.Context, id, reason string) (*models.Host, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -591,6 +593,8 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(_ context.Context, id, reason s
 		}
 	}
 
+	wasEnrolledLighthouse := h.IsLighthouse && h.Status == models.HostStatusEnrolled
+
 	result, err := tx.Exec(
 		`UPDATE hosts SET status=?, updated_at=? WHERE id=?`,
 		models.HostStatusBlocked, time.Now(), id,
@@ -604,6 +608,15 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(_ context.Context, id, reason s
 	}
 	if rows == 0 {
 		return nil, ErrNotFound
+	}
+
+	if wasEnrolledLighthouse {
+		if _, err := tx.Exec(
+			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
+			h.NetworkID,
+		); err != nil {
+			return nil, fmt.Errorf("bump config version: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -667,6 +680,8 @@ func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(_ context.Context, id st
 }
 
 // DeleteHostAndBlockCert atomically deletes a host and adds its cert to the blocklist.
+// If the deleted host was an enrolled lighthouse, the network's config_version is
+// bumped so peers stop directing traffic at it on their next poll.
 func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -698,6 +713,8 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason strin
 		}
 	}
 
+	wasEnrolledLighthouse := h.IsLighthouse && h.Status == models.HostStatusEnrolled
+
 	result, err := tx.Exec(`DELETE FROM hosts WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete host: %w", err)
@@ -708,6 +725,15 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason strin
 	}
 	if rows == 0 {
 		return ErrNotFound
+	}
+
+	if wasEnrolledLighthouse {
+		if _, err := tx.Exec(
+			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
+			h.NetworkID,
+		); err != nil {
+			return fmt.Errorf("bump config version: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -844,6 +870,8 @@ func (s *SQLiteStore) SaveCertificate(_ context.Context, hostID string, certPEM 
 }
 
 // SaveCertificateAndEnrollHost atomically saves a certificate and marks the host as enrolled.
+// If the host has role=lighthouse, the network's config_version is bumped so peer
+// agents pick up the new lighthouse on their next poll.
 func (s *SQLiteStore) SaveCertificateAndEnrollHost(_ context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -854,6 +882,18 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(_ context.Context, hostID str
 			slog.Error("rollback", "error", err)
 		}
 	}()
+
+	var isLighthouse bool
+	var networkID string
+	err = tx.QueryRow(
+		`SELECT is_lighthouse, network_id FROM hosts WHERE id = ?`, hostID,
+	).Scan(&isLighthouse, &networkID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("get host role: %w", err)
+	}
 
 	if err := s.saveCertificateInTx(tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
 		return err
@@ -873,6 +913,15 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(_ context.Context, hostID str
 	}
 	if rows == 0 {
 		return ErrNotFound
+	}
+
+	if isLighthouse {
+		if _, err := tx.Exec(
+			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
+			networkID,
+		); err != nil {
+			return fmt.Errorf("bump config version: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -1064,6 +1113,36 @@ func (s *SQLiteStore) GetNetworkConfigVersion(_ context.Context, networkID strin
 		return 0, fmt.Errorf("get config version: %w", err)
 	}
 	return version, nil
+}
+
+func (s *SQLiteStore) GetHostConfigVersion(_ context.Context, hostID string) (int, error) {
+	var version int
+	err := s.db.QueryRow(`SELECT config_version FROM hosts WHERE id = ?`, hostID).Scan(&version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get host config version: %w", err)
+	}
+	return version, nil
+}
+
+func (s *SQLiteStore) UpdateHostConfigVersion(_ context.Context, hostID string, version int) error {
+	result, err := s.db.Exec(
+		`UPDATE hosts SET config_version=?, updated_at=? WHERE id=?`,
+		version, time.Now(), hostID,
+	)
+	if err != nil {
+		return fmt.Errorf("update host config version: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update host config version rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // --- Network Config ---

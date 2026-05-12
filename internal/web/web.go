@@ -73,6 +73,9 @@ func (w *Web) setupRoutes() {
 	staticSub, _ := fs.Sub(staticFS, "static")
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
+	// Favicon (public, served from embedded SVG)
+	r.Get("/favicon.ico", w.handleFavicon)
+
 	// Login (public)
 	r.Get("/ui/login", w.handleLoginPage)
 	r.Post("/ui/login", w.handleLogin)

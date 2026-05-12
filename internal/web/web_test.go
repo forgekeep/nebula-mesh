@@ -444,6 +444,23 @@ func TestBuildHostViews(t *testing.T) {
 	}
 }
 
+func TestFavicon(t *testing.T) {
+	w, _ := newTestWeb(t)
+	req := httptest.NewRequest("GET", "/favicon.ico", nil)
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "image/svg+xml") {
+		t.Errorf("Content-Type = %q, want image/svg+xml", ct)
+	}
+	if rec.Body.Len() == 0 {
+		t.Error("favicon body should not be empty")
+	}
+}
+
 func TestStaticFiles(t *testing.T) {
 	w, _ := newTestWeb(t)
 	req := httptest.NewRequest("GET", "/static/htmx.min.js", nil)

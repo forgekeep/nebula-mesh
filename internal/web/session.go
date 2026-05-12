@@ -98,6 +98,37 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 	return LoginResult{Operator: op, NeedsTOTP: op.TOTPEnabled}, true, nil
 }
 
+// StartAuthenticatedSession creates a fully authenticated session for the
+// given operator and sets the session cookie. Used by external login flows
+// (e.g. OIDC) that have already verified the operator's identity.
+func (sm *SessionManager) StartAuthenticatedSession(w http.ResponseWriter, r *http.Request, op *models.Operator) error {
+	token, err := generateToken()
+	if err != nil {
+		return err
+	}
+	expires := time.Now().Add(sessionDuration)
+	if err := sm.store.CreateOperatorSession(r.Context(), &models.OperatorSession{
+		Token:      token,
+		OperatorID: op.ID,
+		State:      models.SessionStateAuthenticated,
+		ExpiresAt:  expires,
+	}); err != nil {
+		return fmt.Errorf("create session: %w", err)
+	}
+	if err := sm.store.UpdateOperatorLastLogin(r.Context(), op.ID, time.Now()); err != nil {
+		slog.Debug("update last login", "error", err)
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(sessionDuration.Seconds()),
+	})
+	return nil
+}
+
 // PendingOperator returns the operator awaiting second-factor confirmation
 // on the current session cookie, or nil if no pending session exists.
 func (sm *SessionManager) PendingOperator(r *http.Request) *models.Operator {

@@ -27,7 +27,10 @@ func (w *Web) requireAuth(next http.Handler) http.Handler {
 }
 
 func (w *Web) handleLoginPage(rw http.ResponseWriter, _ *http.Request) {
-	w.render(rw, "login.html", map[string]any{"Error": ""})
+	w.render(rw, "login.html", map[string]any{
+		"Error":       "",
+		"OIDCEnabled": w.oidc.Enabled(),
+	})
 }
 
 func (w *Web) handleLogin(rw http.ResponseWriter, r *http.Request) {
@@ -43,7 +46,10 @@ func (w *Web) handleLogin(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		w.render(rw, "login.html", map[string]any{"Error": "Invalid username or password"})
+		w.render(rw, "login.html", map[string]any{
+			"Error":       "Invalid username or password",
+			"OIDCEnabled": w.oidc.Enabled(),
+		})
 		return
 	}
 	if result.NeedsTOTP {

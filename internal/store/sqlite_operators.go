@@ -11,7 +11,7 @@ import (
 	"github.com/juev/nebula-mesh/internal/models"
 )
 
-const operatorColumns = `id, username, display_name, password_hash, auth_provider, status, role, totp_secret, totp_enabled, created_at, updated_at, last_login_at`
+const operatorColumns = `id, username, display_name, password_hash, auth_provider, status, role, totp_secret, totp_enabled, oidc_issuer, oidc_subject, created_at, updated_at, last_login_at`
 
 func scanOperator(scanner interface {
 	Scan(dest ...any) error
@@ -25,6 +25,7 @@ func scanOperator(scanner interface {
 		&op.ID, &op.Username, &op.DisplayName, &op.PasswordHash,
 		&op.AuthProvider, &op.Status, &op.Role,
 		&op.TOTPSecret, &totpEnabled,
+		&op.OIDCIssuer, &op.OIDCSubject,
 		&op.CreatedAt, &op.UpdatedAt, &lastLogin,
 	); err != nil {
 		return nil, err
@@ -59,15 +60,33 @@ func (s *SQLiteStore) CreateOperator(_ context.Context, op *models.Operator) err
 		op.Role = "admin"
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO operators (id, username, display_name, password_hash, auth_provider, status, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO operators (id, username, display_name, password_hash, auth_provider, status, role, oidc_issuer, oidc_subject, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		op.ID, op.Username, op.DisplayName, op.PasswordHash,
 		op.AuthProvider, op.Status, op.Role,
+		op.OIDCIssuer, op.OIDCSubject,
 		op.CreatedAt, op.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert operator: %w", err)
 	}
 	return nil
+}
+
+// GetOperatorByOIDC returns the operator matching the issuer+subject pair, if
+// any. Used to look up federated operators after a successful OIDC callback.
+func (s *SQLiteStore) GetOperatorByOIDC(_ context.Context, issuer, subject string) (*models.Operator, error) {
+	row := s.db.QueryRow(
+		`SELECT `+operatorColumns+` FROM operators WHERE oidc_issuer = ? AND oidc_subject = ?`,
+		issuer, subject,
+	)
+	op, err := scanOperator(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get operator by oidc: %w", err)
+	}
+	return op, nil
 }
 
 func (s *SQLiteStore) GetOperator(_ context.Context, id string) (*models.Operator, error) {

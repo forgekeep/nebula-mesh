@@ -127,6 +127,18 @@ func Serve(configPath string) error {
 		return fmt.Errorf("init web UI: %w", err)
 	}
 
+	// Optional OIDC integration
+	if cfg.OIDC != nil && cfg.OIDC.Enabled {
+		oidcCtx, oidcCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		oidcProvider, err := web.NewOIDC(oidcCtx, cfg.OIDC, s, webUI.Session(), logger)
+		oidcCancel()
+		if err != nil {
+			return fmt.Errorf("init oidc: %w", err)
+		}
+		webUI.WithOIDC(oidcProvider)
+		logger.Info("oidc enabled", "issuer", cfg.OIDC.Issuer)
+	}
+
 	// Combine: Web UI + API
 	mux := http.NewServeMux()
 	mux.Handle("/ui/", webUI)

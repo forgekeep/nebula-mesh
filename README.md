@@ -212,6 +212,30 @@ sensitive operations (`operator.2fa.enabled`, `disabled`, `regen_codes`,
 API tokens are not affected — they continue to authenticate non-interactive
 clients.
 
+### 6. Single sign-on via OIDC (optional)
+
+Configure an `oidc:` block in `server.yml` (see `configs/server.example.yml`)
+to enable operator login through Keycloak / Authentik / Dex / Google
+Workspace / Okta / any standard OpenID Connect provider. Once enabled, the
+login page shows a **Sign in with SSO** button alongside the local form.
+
+```yaml
+oidc:
+  enabled: true
+  issuer: "https://keycloak.example.com/realms/nebula"
+  client_id: "nebula-mesh"
+  client_secret: "<from your provider>"
+  redirect_url: "https://mgmt.example.com:8080/ui/oidc/callback"
+  scopes: ["openid", "profile", "email", "groups"]
+  allowed_groups: ["nebula-admins"]
+```
+
+The first successful login for an unknown subject creates a local operator
+record (auth_provider=oidc) tied to the issuer+subject pair. Audit log
+entries record the operator's username for every action. Local and OIDC
+users coexist; revoking access for an OIDC user is done by disabling the
+local record or removing them in the IdP.
+
 ## Deployment
 
 - **Docker** — `docker build -t nebula-mgmt .` (Dockerfile in repo).

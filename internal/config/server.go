@@ -9,14 +9,32 @@ import (
 )
 
 type ServerConfig struct {
-	Listen     string `yaml:"listen"`
-	DataDir    string `yaml:"data_dir"`
-	DBPath     string `yaml:"db_path"`
-	APIKey     string `yaml:"api_key"`
-	UIPassword string `yaml:"ui_password,omitempty"`
-	LogLevel   string `yaml:"log_level"`
-	TLSCert    string `yaml:"tls_cert,omitempty"`
-	TLSKey     string `yaml:"tls_key,omitempty"`
+	Listen     string      `yaml:"listen"`
+	DataDir    string      `yaml:"data_dir"`
+	DBPath     string      `yaml:"db_path"`
+	APIKey     string      `yaml:"api_key"`
+	UIPassword string      `yaml:"ui_password,omitempty"`
+	LogLevel   string      `yaml:"log_level"`
+	TLSCert    string      `yaml:"tls_cert,omitempty"`
+	TLSKey     string      `yaml:"tls_key,omitempty"`
+	OIDC       *OIDCConfig `yaml:"oidc,omitempty"`
+}
+
+// OIDCConfig configures an OpenID Connect identity provider for operator
+// login. If nil or Enabled=false, OIDC login is not offered.
+type OIDCConfig struct {
+	Enabled       bool     `yaml:"enabled"`
+	Issuer        string   `yaml:"issuer"`
+	ClientID      string   `yaml:"client_id"`
+	ClientSecret  string   `yaml:"client_secret"`
+	RedirectURL   string   `yaml:"redirect_url"`
+	Scopes        []string `yaml:"scopes,omitempty"`
+	UsernameClaim string   `yaml:"username_claim,omitempty"` // default "preferred_username"
+	NameClaim     string   `yaml:"name_claim,omitempty"`     // default "name"
+	GroupsClaim   string   `yaml:"groups_claim,omitempty"`   // default "groups"
+	AllowedGroups []string `yaml:"allowed_groups,omitempty"`
+	AllowedEmails []string `yaml:"allowed_emails,omitempty"`
+	DefaultRole   string   `yaml:"default_role,omitempty"` // default "admin"
 }
 
 func LoadServerConfig(path string) (*ServerConfig, error) {

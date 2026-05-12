@@ -77,6 +77,7 @@ type Store interface {
 	CreateOperator(ctx context.Context, op *models.Operator) error
 	GetOperator(ctx context.Context, id string) (*models.Operator, error)
 	GetOperatorByUsername(ctx context.Context, username string) (*models.Operator, error)
+	GetOperatorByOIDC(ctx context.Context, issuer, subject string) (*models.Operator, error)
 	ListOperators(ctx context.Context) ([]*models.Operator, error)
 	UpdateOperatorPassword(ctx context.Context, id, passwordHash string) error
 	UpdateOperatorLastLogin(ctx context.Context, id string, t time.Time) error

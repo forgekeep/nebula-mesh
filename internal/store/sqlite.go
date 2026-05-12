@@ -68,6 +68,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"004_blocklist_fk.up.sql",
 		"005_operators.up.sql",
 		"006_operator_totp.up.sql",
+		"007_operator_oidc.up.sql",
 	}
 	for _, f := range migrationFiles {
 		sqlBytes, err := migrations.FS.ReadFile(f)

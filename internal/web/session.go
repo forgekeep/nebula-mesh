@@ -4,10 +4,15 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
-	"sync"
 	"time"
+
+	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/juev/nebula-mesh/internal/store"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -15,38 +20,52 @@ const (
 	sessionDuration   = 24 * time.Hour
 )
 
-type session struct {
-	expiresAt time.Time
-}
-
-// SessionManager handles cookie-based sessions.
+// SessionManager handles DB-backed cookie sessions for operator users.
 type SessionManager struct {
-	password string
-	mu       sync.RWMutex
-	sessions map[string]session
+	store store.Store
 }
 
-// NewSessionManager creates a new session manager.
-func NewSessionManager(password string) *SessionManager {
-	return &SessionManager{
-		password: password,
-		sessions: make(map[string]session),
+// NewSessionManager creates a new session manager backed by the given store.
+func NewSessionManager(s store.Store) *SessionManager {
+	return &SessionManager{store: s}
+}
+
+// Login looks up the operator by username, verifies the password (bcrypt),
+// records a session, sets the cookie, and returns the operator. The boolean
+// is true when the credentials were valid.
+func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username, password string) (*models.Operator, bool, error) {
+	if username == "" || password == "" {
+		return nil, false, nil
 	}
-}
-
-// Login validates the password and creates a session cookie.
-func (sm *SessionManager) Login(w http.ResponseWriter, password string) (bool, error) {
-	if password != sm.password {
-		return false, nil
+	op, err := sm.store.GetOperatorByUsername(r.Context(), username)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("lookup operator: %w", err)
+	}
+	if op.Status != models.OperatorStatusActive {
+		return nil, false, nil
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(password)); err != nil {
+		return nil, false, nil
 	}
 
 	token, err := generateToken()
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
-	sm.mu.Lock()
-	sm.sessions[token] = session{expiresAt: time.Now().Add(sessionDuration)}
-	sm.mu.Unlock()
+	expires := time.Now().Add(sessionDuration)
+	if err := sm.store.CreateOperatorSession(r.Context(), &models.OperatorSession{
+		Token:      token,
+		OperatorID: op.ID,
+		ExpiresAt:  expires,
+	}); err != nil {
+		return nil, false, fmt.Errorf("create session: %w", err)
+	}
+	if err := sm.store.UpdateOperatorLastLogin(r.Context(), op.ID, time.Now()); err != nil {
+		slog.Debug("update last login", "error", err)
+	}
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
@@ -56,18 +75,17 @@ func (sm *SessionManager) Login(w http.ResponseWriter, password string) (bool, e
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
-	return true, nil
+	return op, true, nil
 }
 
-// Logout invalidates the session.
+// Logout invalidates the session cookie and removes the DB record.
 func (sm *SessionManager) Logout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err == nil {
-		sm.mu.Lock()
-		delete(sm.sessions, cookie.Value)
-		sm.mu.Unlock()
+		if err := sm.store.DeleteOperatorSession(r.Context(), cookie.Value); err != nil {
+			slog.Debug("delete session", "error", err)
+		}
 	}
-
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
@@ -77,26 +95,28 @@ func (sm *SessionManager) Logout(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// IsAuthenticated checks if the request has a valid session.
-func (sm *SessionManager) IsAuthenticated(r *http.Request) bool {
+// CurrentOperator returns the operator owning the request's session cookie,
+// or nil if there is no valid session. A disabled operator's session is also
+// treated as invalid.
+func (sm *SessionManager) CurrentOperator(r *http.Request) *models.Operator {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
-		return false
+		return nil
 	}
-
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	sess, ok := sm.sessions[cookie.Value]
-	if !ok || time.Now().After(sess.expiresAt) {
-		delete(sm.sessions, cookie.Value)
-		return false
+	op, err := sm.store.GetOperatorBySession(r.Context(), cookie.Value)
+	if err != nil {
+		return nil
 	}
-	return true
+	return op
 }
 
-// StartCleanup runs a background goroutine that periodically removes expired sessions.
-// It stops when ctx is cancelled.
+// IsAuthenticated reports whether the request carries a valid session.
+func (sm *SessionManager) IsAuthenticated(r *http.Request) bool {
+	return sm.CurrentOperator(r) != nil
+}
+
+// StartCleanup runs a background goroutine that periodically deletes expired
+// sessions from the store. It stops when ctx is cancelled.
 func (sm *SessionManager) StartCleanup(ctx context.Context, interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
@@ -106,21 +126,12 @@ func (sm *SessionManager) StartCleanup(ctx context.Context, interval time.Durati
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				sm.removeExpired()
+				if err := sm.store.DeleteExpiredOperatorSessions(ctx, time.Now()); err != nil {
+					slog.Debug("cleanup expired sessions", "error", err)
+				}
 			}
 		}
 	}()
-}
-
-func (sm *SessionManager) removeExpired() {
-	now := time.Now()
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	for token, sess := range sm.sessions {
-		if now.After(sess.expiresAt) {
-			delete(sm.sessions, token)
-		}
-	}
 }
 
 func generateToken() (string, error) {

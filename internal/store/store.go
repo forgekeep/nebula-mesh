@@ -73,6 +73,30 @@ type Store interface {
 	AddAuditEntry(ctx context.Context, actor, action, resource, details string) error
 	ListAuditEntries(ctx context.Context, filter AuditFilter) ([]*models.AuditEntry, error)
 
+	// Operators
+	CreateOperator(ctx context.Context, op *models.Operator) error
+	GetOperator(ctx context.Context, id string) (*models.Operator, error)
+	GetOperatorByUsername(ctx context.Context, username string) (*models.Operator, error)
+	ListOperators(ctx context.Context) ([]*models.Operator, error)
+	UpdateOperatorPassword(ctx context.Context, id, passwordHash string) error
+	UpdateOperatorLastLogin(ctx context.Context, id string, t time.Time) error
+	DisableOperator(ctx context.Context, id string) error
+	EnableOperator(ctx context.Context, id string) error
+
+	// Operator API keys
+	CreateOperatorAPIKey(ctx context.Context, k *models.OperatorAPIKey) error
+	GetOperatorByAPIKeyHash(ctx context.Context, keyHash string) (*models.Operator, *models.OperatorAPIKey, error)
+	ListOperatorAPIKeys(ctx context.Context, operatorID string) ([]*models.OperatorAPIKey, error)
+	RevokeOperatorAPIKey(ctx context.Context, keyID string) error
+	TouchOperatorAPIKey(ctx context.Context, keyID string, t time.Time) error
+
+	// Operator sessions
+	CreateOperatorSession(ctx context.Context, s *models.OperatorSession) error
+	GetOperatorBySession(ctx context.Context, token string) (*models.Operator, error)
+	DeleteOperatorSession(ctx context.Context, token string) error
+	DeleteOperatorSessionsByOperator(ctx context.Context, operatorID string) error
+	DeleteExpiredOperatorSessions(ctx context.Context, before time.Time) error
+
 	// Lifecycle
 	Migrate(ctx context.Context) error
 	Ping(ctx context.Context) error

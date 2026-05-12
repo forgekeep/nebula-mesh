@@ -31,11 +31,11 @@ type Web struct {
 }
 
 // New creates a new Web UI handler.
-func New(s store.Store, password string, logger *slog.Logger) (*Web, error) {
+func New(s store.Store, logger *slog.Logger) (*Web, error) {
 	w := &Web{
 		store:     s,
 		logger:    logger,
-		session:   NewSessionManager(password),
+		session:   NewSessionManager(s),
 		templates: make(map[string]*template.Template),
 	}
 

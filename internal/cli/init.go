@@ -92,6 +92,16 @@ func Init(configPath string) error {
 		return fmt.Errorf("migrate database: %w", err)
 	}
 
+	uiPassword := cfg.UIPassword
+	if uiPassword == "" {
+		uiPassword = cfg.APIKey
+	}
+	if seeded, err := SeedAdminOperator(migrateCtx, s, uiPassword, cfg.APIKey); err != nil {
+		return fmt.Errorf("seed admin operator: %w", err)
+	} else if seeded {
+		fmt.Printf("Admin operator created: %s (password = ui_password from config; api_key seeded as their key)\n", DefaultAdminUsername)
+	}
+
 	fmt.Printf("Database initialized: %s\n", cfg.DBPath)
 	fmt.Println("Initialization complete.")
 	return nil

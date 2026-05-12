@@ -97,6 +97,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create host")
 		return
 	}
+	_ = s.store.AddAuditEntry(r.Context(), ActorName(r.Context()), "host.create", host.ID, host.Name)
 
 	writeJSON(w, http.StatusCreated, createHostResponse{
 		Host:            host,
@@ -148,6 +149,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete host")
 		return
 	}
+	_ = s.store.AddAuditEntry(r.Context(), ActorName(r.Context()), "host.delete", id, "")
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -164,6 +166,7 @@ func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to block host")
 		return
 	}
+	_ = s.store.AddAuditEntry(r.Context(), ActorName(r.Context()), "host.block", id, "")
 
 	writeJSON(w, http.StatusOK, host)
 }
@@ -180,6 +183,7 @@ func (s *Server) handleUnblockHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to unblock host")
 		return
 	}
+	_ = s.store.AddAuditEntry(r.Context(), ActorName(r.Context()), "host.unblock", id, "")
 
 	writeJSON(w, http.StatusOK, host)
 }

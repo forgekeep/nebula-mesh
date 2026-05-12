@@ -68,8 +68,12 @@
         {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
         <form method="POST" action="/ui/login">
             <div class="form-group">
+                <label>Username</label>
+                <input type="text" name="username" class="form-control" value="admin" autocomplete="username" autofocus required>
+            </div>
+            <div class="form-group">
                 <label>Password</label>
-                <input type="password" name="password" class="form-control" autofocus required>
+                <input type="password" name="password" class="form-control" autocomplete="current-password" required>
             </div>
             <button type="submit" class="btn">Sign In</button>
         </form>

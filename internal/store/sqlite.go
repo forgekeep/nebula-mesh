@@ -36,6 +36,13 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
+	// SQLite ":memory:" creates a per-connection database; restrict the
+	// connection pool to a single connection so migrations and subsequent
+	// queries hit the same store.
+	if dbPath == ":memory:" {
+		db.SetMaxOpenConns(1)
+	}
+
 	// Enable WAL mode and foreign keys
 	for _, pragma := range []string{
 		"PRAGMA journal_mode=WAL",
@@ -59,6 +66,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"002_config_version.up.sql",
 		"003_audit_log.up.sql",
 		"004_blocklist_fk.up.sql",
+		"005_operators.up.sql",
 	}
 	for _, f := range migrationFiles {
 		sqlBytes, err := migrations.FS.ReadFile(f)

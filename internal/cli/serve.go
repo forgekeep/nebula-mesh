@@ -103,6 +103,17 @@ func Serve(configPath string) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
+	// Seed an admin operator if the operators table is still empty (idempotent).
+	uiPassword := cfg.UIPassword
+	if uiPassword == "" {
+		uiPassword = cfg.APIKey
+	}
+	if seeded, err := SeedAdminOperator(migrateCtx, s, uiPassword, cfg.APIKey); err != nil {
+		return fmt.Errorf("seed admin operator: %w", err)
+	} else if seeded {
+		logger.Info("seeded initial admin operator", "username", DefaultAdminUsername)
+	}
+
 	// Create API server
 	apiSrv := api.NewServer(s, ca, cfg.APIKey, logger, api.CAConfig{
 		CertPath:   certPath,
@@ -111,11 +122,7 @@ func Serve(configPath string) error {
 	})
 
 	// Create Web UI
-	uiPassword := cfg.UIPassword
-	if uiPassword == "" {
-		uiPassword = cfg.APIKey // fallback to API key as password
-	}
-	webUI, err := web.New(s, uiPassword, logger)
+	webUI, err := web.New(s, logger)
 	if err != nil {
 		return fmt.Errorf("init web UI: %w", err)
 	}

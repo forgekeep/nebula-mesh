@@ -1,0 +1,39 @@
+---
+# Worked example: bootstrap a management server and a fleet of agents.
+#
+# Secrets are pulled from Ansible Vault — the example assumes you keep a
+# `group_vars/nebula_mgmt/vault.yml` and a host-scoped `vault.yml` per
+# agent with `nebula_agent_enroll_token` defined.
+#
+# Run with:
+#   ansible-playbook -i inventory.ini site.yml --ask-vault-pass
+
+- name: Bootstrap nebula-mgmt
+  hosts: nebula_mgmt
+  become: true
+  roles:
+    - role: nebula_mgmt
+      vars:
+        nebula_mgmt_release: "v0.3.0"
+        nebula_mgmt_tls_cert: /etc/nebula-mgmt/tls/fullchain.pem
+        nebula_mgmt_tls_key:  /etc/nebula-mgmt/tls/privkey.pem
+        # Pulled from Vault — never hard-code these.
+        nebula_mgmt_master_key:      "{{ vault_nebula_mgmt_master_key }}"
+        nebula_mgmt_ca_passphrase:   "{{ vault_nebula_mgmt_ca_passphrase }}"
+        nebula_mgmt_alerts_enabled:  true
+        nebula_mgmt_alerts_threshold: "72h"
+        nebula_mgmt_alerts_webhook_url: "https://alertmanager.example.com/api/v2/alerts"
+        nebula_mgmt_alerts_webhook_hmac_secret: "{{ vault_nebula_alerts_hmac }}"
+
+- name: Enrol nebula agents
+  hosts: nebula_agents
+  become: true
+  roles:
+    - role: nebula_agent
+      vars:
+        nebula_agent_release:     "v0.3.0"
+        nebula_agent_server_url:  "https://mgmt.internal.example.com:8080"
+        # `nebula_agent_enroll_token` MUST be set per-host. Either:
+        #   - keep it in host_vars/<hostname>/vault.yml, or
+        #   - mint it just-in-time with a delegated nebula-mgmt CLI call.
+        nebula_agent_enroll_token: "{{ vault_nebula_agent_enroll_token }}"

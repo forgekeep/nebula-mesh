@@ -323,10 +323,9 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 
 Open issues tracked individually so you can subscribe to the ones you care about:
 
-- [#42](https://github.com/juev/nebula-mesh/issues/42) — Bootstrap recipes (Terraform module, Ansible roles, cloud-init samples)
 - [#43](https://github.com/juev/nebula-mesh/issues/43) — Web UI: live host status via SSE (today: htmx polling on a 30s interval)
 
-Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, distro packages (deb/rpm) and the cross-platform agent build matrix.
+Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), distro packages (deb/rpm) and the cross-platform agent build matrix.
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 

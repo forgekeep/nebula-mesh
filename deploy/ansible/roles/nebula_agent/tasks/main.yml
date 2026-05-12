@@ -1,0 +1,89 @@
+---
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - nebula_agent_server_url | length > 0
+      - nebula_agent_enroll_token | length > 0
+    fail_msg: "nebula_agent_server_url and nebula_agent_enroll_token must be set per host (pull from Vault)."
+
+- name: Resolve release tag
+  ansible.builtin.set_fact:
+    nebula_agent_resolved_release: "{{ nebula_agent_release }}"
+  when: nebula_agent_release != "latest"
+
+- name: Resolve `latest` release tag from GitHub
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/juev/nebula-mesh/releases/latest
+    return_content: true
+  register: nebula_agent_latest_release
+  when: nebula_agent_release == "latest"
+
+- name: Set resolved release (from GitHub API)
+  ansible.builtin.set_fact:
+    nebula_agent_resolved_release: "{{ nebula_agent_latest_release.json.tag_name }}"
+  when: nebula_agent_release == "latest"
+
+- name: Detect target architecture
+  ansible.builtin.set_fact:
+    nebula_agent_arch: "{{ 'arm64' if ansible_architecture in ['aarch64', 'arm64'] else 'amd64' }}"
+
+- name: Install nebula-agent (Debian / Ubuntu)
+  when: ansible_os_family == 'Debian'
+  block:
+    - name: Download nebula-agent .deb
+      ansible.builtin.get_url:
+        url: "{{ nebula_agent_release_base_url }}/{{ nebula_agent_resolved_release }}/nebula-agent_{{ nebula_agent_resolved_release | regex_replace('^v', '') }}_linux_{{ nebula_agent_arch }}.deb"
+        dest: "/tmp/nebula-agent.deb"
+        mode: '0644'
+
+    - name: Install nebula-agent .deb
+      ansible.builtin.apt:
+        deb: /tmp/nebula-agent.deb
+        state: present
+
+- name: Install nebula-agent (RHEL / Rocky / Alma)
+  when: ansible_os_family == 'RedHat'
+  block:
+    - name: Download nebula-agent .rpm
+      ansible.builtin.get_url:
+        url: "{{ nebula_agent_release_base_url }}/{{ nebula_agent_resolved_release }}/nebula-agent_{{ nebula_agent_resolved_release | regex_replace('^v', '') }}_linux_{{ nebula_agent_arch }}.rpm"
+        dest: "/tmp/nebula-agent.rpm"
+        mode: '0644'
+
+    - name: Install nebula-agent .rpm
+      ansible.builtin.dnf:
+        name: /tmp/nebula-agent.rpm
+        state: present
+        disable_gpg_check: true
+
+- name: Render agent.yml
+  ansible.builtin.template:
+    src: agent.yml.j2
+    dest: /etc/nebula-agent/agent.yml
+    owner: root
+    group: root
+    mode: '0640'
+  notify: restart nebula-agent
+
+- name: Check if host has already enrolled
+  ansible.builtin.stat:
+    path: "{{ nebula_agent_data_dir }}/.fingerprint"
+  register: nebula_agent_fp_stat
+
+- name: Enroll (run once)
+  when: not nebula_agent_fp_stat.stat.exists
+  ansible.builtin.command:
+    cmd: >
+      nebula-agent enroll
+        --server {{ nebula_agent_server_url | quote }}
+        --token  {{ nebula_agent_enroll_token | quote }}
+        --data-dir {{ nebula_agent_data_dir | quote }}
+  changed_when: true
+  no_log: true
+
+- name: Enable + start nebula-agent
+  ansible.builtin.systemd:
+    name: nebula-agent
+    enabled: true
+    state: started
+    daemon_reload: true

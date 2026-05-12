@@ -1,0 +1,115 @@
+---
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - nebula_mgmt_master_key | length > 0
+      - nebula_mgmt_ca_passphrase | length > 0
+    fail_msg: "nebula_mgmt_master_key and nebula_mgmt_ca_passphrase must be set (pull from a secret manager)."
+
+- name: Resolve release tag
+  ansible.builtin.set_fact:
+    nebula_mgmt_resolved_release: "{{ nebula_mgmt_release }}"
+  when: nebula_mgmt_release != "latest"
+
+- name: Resolve `latest` release tag from GitHub
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/juev/nebula-mesh/releases/latest
+    return_content: true
+  register: nebula_mgmt_latest_release
+  when: nebula_mgmt_release == "latest"
+
+- name: Set resolved release (from GitHub API)
+  ansible.builtin.set_fact:
+    nebula_mgmt_resolved_release: "{{ nebula_mgmt_latest_release.json.tag_name }}"
+  when: nebula_mgmt_release == "latest"
+
+- name: Detect target architecture
+  ansible.builtin.set_fact:
+    nebula_mgmt_arch: "{{ 'arm64' if ansible_architecture in ['aarch64', 'arm64'] else 'amd64' }}"
+
+- name: Install nebula-mgmt (Debian / Ubuntu)
+  when: ansible_os_family == 'Debian'
+  block:
+    - name: Download nebula-mgmt .deb
+      ansible.builtin.get_url:
+        url: "{{ nebula_mgmt_release_base_url }}/{{ nebula_mgmt_resolved_release }}/nebula-mgmt_{{ nebula_mgmt_resolved_release | regex_replace('^v', '') }}_linux_{{ nebula_mgmt_arch }}.deb"
+        dest: "/tmp/nebula-mgmt.deb"
+        mode: '0644'
+
+    - name: Install nebula-mgmt .deb
+      ansible.builtin.apt:
+        deb: /tmp/nebula-mgmt.deb
+        state: present
+
+- name: Install nebula-mgmt (RHEL / Rocky / Alma)
+  when: ansible_os_family == 'RedHat'
+  block:
+    - name: Download nebula-mgmt .rpm
+      ansible.builtin.get_url:
+        url: "{{ nebula_mgmt_release_base_url }}/{{ nebula_mgmt_resolved_release }}/nebula-mgmt_{{ nebula_mgmt_resolved_release | regex_replace('^v', '') }}_linux_{{ nebula_mgmt_arch }}.rpm"
+        dest: "/tmp/nebula-mgmt.rpm"
+        mode: '0644'
+
+    - name: Install nebula-mgmt .rpm
+      ansible.builtin.dnf:
+        name: /tmp/nebula-mgmt.rpm
+        state: present
+        disable_gpg_check: true
+
+- name: Render server.yml
+  ansible.builtin.template:
+    src: server.yml.j2
+    dest: /etc/nebula-mgmt/server.yml
+    owner: root
+    group: nebula-mgmt
+    mode: '0640'
+  notify: restart nebula-mgmt
+
+- name: Render systemd drop-in for secrets
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/nebula-mgmt.service.d/override.conf
+    content: |
+      [Service]
+      EnvironmentFile=/etc/nebula-mgmt/secrets.env
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - reload systemd
+    - restart nebula-mgmt
+
+- name: Render secrets env
+  ansible.builtin.copy:
+    dest: /etc/nebula-mgmt/secrets.env
+    content: |
+      NEBULA_MGMT_MASTER_KEY={{ nebula_mgmt_master_key }}
+      NEBULA_MGMT_CA_PASSPHRASE={{ nebula_mgmt_ca_passphrase }}
+    owner: root
+    group: nebula-mgmt
+    mode: '0640'
+  notify: restart nebula-mgmt
+  no_log: true
+
+- name: Check if CA already exists (init idempotency guard)
+  ansible.builtin.stat:
+    path: "{{ nebula_mgmt_data_dir }}/ca.crt"
+  register: nebula_mgmt_ca_stat
+
+- name: Bootstrap (run init once)
+  when: not nebula_mgmt_ca_stat.stat.exists
+  ansible.builtin.command:
+    cmd: >
+      nebula-mgmt init --config /etc/nebula-mgmt/server.yml
+                       --admin-username {{ nebula_mgmt_admin_username | quote }}
+  become_user: nebula-mgmt
+  environment:
+    NEBULA_MGMT_MASTER_KEY: "{{ nebula_mgmt_master_key }}"
+    NEBULA_MGMT_CA_PASSPHRASE: "{{ nebula_mgmt_ca_passphrase }}"
+  changed_when: true
+
+- name: Enable + start nebula-mgmt
+  ansible.builtin.systemd:
+    name: nebula-mgmt
+    enabled: true
+    state: started
+    daemon_reload: true

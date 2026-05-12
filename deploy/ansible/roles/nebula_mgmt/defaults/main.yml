@@ -1,0 +1,30 @@
+---
+# Required (no sane default; set in your playbook / from Vault).
+nebula_mgmt_release: "latest"
+nebula_mgmt_master_key: ""
+nebula_mgmt_ca_passphrase: ""
+
+# Server config.
+nebula_mgmt_listen: ":8080"
+nebula_mgmt_data_dir: /var/lib/nebula-mgmt
+nebula_mgmt_db_path: "{{ nebula_mgmt_data_dir }}/nebula.db"
+nebula_mgmt_log_level: info
+nebula_mgmt_tls_cert: ""
+nebula_mgmt_tls_key: ""
+nebula_mgmt_allow_self_registration: false
+
+# /metrics (issue #40).
+nebula_mgmt_metrics_prometheus: true
+
+# Cert-expiry alerter (issue #41).
+nebula_mgmt_alerts_enabled: false
+nebula_mgmt_alerts_interval: "5m"
+nebula_mgmt_alerts_threshold: "72h"
+nebula_mgmt_alerts_webhook_url: ""
+nebula_mgmt_alerts_webhook_hmac_secret: ""
+
+# Seeded admin operator.
+nebula_mgmt_admin_username: admin
+
+# Where to fetch release artifacts. Override to mirror in restricted networks.
+nebula_mgmt_release_base_url: "https://github.com/juev/nebula-mesh/releases/download"

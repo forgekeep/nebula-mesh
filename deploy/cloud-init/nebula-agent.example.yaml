@@ -1,0 +1,33 @@
+#cloud-config
+# nebula-agent cloud-init bootstrap. Replace `<...>` placeholders.
+# The enrolment token is single-use and expires after 24h by default —
+# generate it freshly per host (e.g. via `nebula-mgmt host create`) and
+# inject it from your provisioning pipeline.
+
+write_files:
+  - path: /etc/nebula-agent/agent.yml
+    permissions: '0640'
+    content: |
+      server_url: "https://<mgmt-server-fqdn>:8080"
+      data_dir: "/etc/nebula"
+      poll_interval: "30s"
+      nebula_config_path: "/etc/nebula/config.yml"
+      nebula_pid_file: "/run/nebula.pid"
+
+runcmd:
+  - |
+    set -euo pipefail
+    version="v0.3.0"
+    arch=$(dpkg --print-architecture)
+    pkg=$(mktemp --suffix=.deb)
+    curl -fsSL -o "$pkg" \
+      "https://github.com/juev/nebula-mesh/releases/download/$${version}/nebula-agent_$${version#v}_linux_$${arch}.deb"
+    apt-get install -y "$pkg" || (apt-get update && apt-get install -y "$pkg")
+    systemctl daemon-reload
+    if [ ! -f /etc/nebula/.fingerprint ]; then
+      nebula-agent enroll \
+        --server "https://<mgmt-server-fqdn>:8080" \
+        --token  "<per-host-enrolment-token>" \
+        --data-dir /etc/nebula
+    fi
+    systemctl enable --now nebula-agent.service

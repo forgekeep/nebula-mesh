@@ -24,8 +24,21 @@ builds:
     binary: nebula-agent
     main: ./cmd/nebula-agent
     env: [CGO_ENABLED=0]
-    goos: [linux, darwin]
-    goarch: [amd64, arm64]
+    goos: [linux, darwin, freebsd, windows]
+    goarch: [amd64, arm64, arm]
+    goarm: ["7"]
+    ignore:
+      # No 32-bit arm darwin/freebsd/windows targets.
+      - goos: darwin
+        goarch: arm
+      - goos: freebsd
+        goarch: arm
+      - goos: windows
+        goarch: arm
+      # windows/arm64 — buildable but rarely useful for Nebula. Drop until
+      # demand emerges to keep the release matrix manageable.
+      - goos: windows
+        goarch: arm64
     flags: [-trimpath]
     ldflags:
       - -s -w
@@ -48,13 +61,18 @@ archives:
 
   - id: agent
     ids: [nebula-agent]
-    name_template: "nebula-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: >-
+      nebula-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
     formats: [tar.gz]
     files:
       - LICENSE
       - README.md
       - CHANGELOG.md
       - configs/agent.example.yml
+      - docs/agent.md
       - deploy/systemd/nebula-agent.service
       - deploy/systemd/README.md
 

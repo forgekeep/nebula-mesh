@@ -82,6 +82,32 @@ Each release ships **two** independent artifact sets — install only what you n
 | Linux distro packages | — | `nebula-agent_<v>_linux_<arch>.{deb,rpm}` |
 | Docker image | `ghcr.io/juev/nebula-mgmt` | `ghcr.io/juev/nebula-agent` |
 
+### Linux distro packages — recommended for the agent
+
+`nebula-agent` ships as `.deb` and `.rpm` for `amd64`, `arm64`, and `armv7` on every release. The package installs the binary at `/usr/bin/nebula-agent`, the systemd unit at `/lib/systemd/system/nebula-agent.service`, an example config at `/etc/nebula-agent/agent.example.yml`, and the operations guide at `/usr/share/doc/nebula-agent/agent.md`. The post-install script creates the `nebula-agent` system user but does **not** enable the service — you must enroll the host first.
+
+```sh
+TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/;s/armv7l/armv7/')
+
+# Debian / Ubuntu
+curl -fsSL -O "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-agent_${TAG#v}_linux_${ARCH}.deb"
+sudo apt install -y "./nebula-agent_${TAG#v}_linux_${ARCH}.deb"
+
+# RHEL / Fedora / CentOS Stream / Rocky / Alma
+sudo rpm -i "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-agent_${TAG#v}_linux_${ARCH}.rpm"
+
+# After install: edit the example, enroll, then enable the unit.
+sudo cp /etc/nebula-agent/agent.example.yml /etc/nebula-agent/agent.yml
+sudoedit /etc/nebula-agent/agent.yml
+sudo nebula-agent enroll --server <url> --token <token> --data-dir /etc/nebula
+sudo systemctl enable --now nebula-agent.service
+```
+
+`/etc/nebula-agent/agent.yml` is marked `config|noreplace`, so upgrades preserve your edits. `apt purge` / `dnf remove --purge` drops the system user but keeps `/etc/nebula-agent` and `/etc/nebula` intact so host keys survive an accidental removal. Full lifecycle reference: [`docs/agent.md`](docs/agent.md#from-a-linux-distro-package-recommended-on-debian--ubuntu--rhel).
+
+For `nebula-mgmt`, the agent on non-deb/rpm Linux distros, and non-Linux hosts, use the prebuilt tarball or Docker image below.
+
 ### Prebuilt binary (Linux / macOS / FreeBSD / Windows)
 
 ```sh

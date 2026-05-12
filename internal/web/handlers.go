@@ -440,7 +440,13 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	nebulaIP := r.FormValue("nebula_ip")
-	if nebulaIP != "" {
+	networkID := r.FormValue("network_id")
+	if nebulaIP != "" && networkID != "" {
+		if err := validateHostIPForNetwork(r.Context(), w.store, networkID, nebulaIP, ""); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else if nebulaIP != "" {
 		if _, err := netip.ParseAddr(nebulaIP); err != nil {
 			http.Error(rw, "invalid nebula_ip: "+err.Error(), http.StatusBadRequest)
 			return

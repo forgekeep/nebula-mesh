@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/netip"
 	"strings"
 	"time"
 
@@ -41,8 +40,13 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name, nebula_ip, and network_id are required")
 		return
 	}
-	if _, err := netip.ParseAddr(req.NebulaIP); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid nebula_ip: "+err.Error())
+	if err := validateHostIP(r.Context(), s.store, req.NetworkID, req.NebulaIP, ""); err != nil {
+		if IsHostIPValidationError(err) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.logger.Error("validate host ip", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to validate nebula_ip")
 		return
 	}
 	if req.ListenPort < 0 || req.ListenPort > 65535 {

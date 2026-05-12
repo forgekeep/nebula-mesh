@@ -111,8 +111,20 @@ func TestProtectedRouteRedirect(t *testing.T) {
 }
 
 func TestDashboard_Authenticated(t *testing.T) {
-	w, _ := newTestWeb(t)
+	w, s := newTestWeb(t)
 	cookies := loginSession(t, w)
+
+	ctx := context.Background()
+	if err := s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "demo", CIDR: "10.0.0.0/24", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateHost(ctx, &models.Host{
+		ID: "h1", NetworkID: "net1", Name: "web-1", NebulaIP: "10.0.0.1",
+		Groups: []string{"web"}, Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	req := httptest.NewRequest("GET", "/ui/", nil)
 	for _, c := range cookies {
@@ -124,8 +136,15 @@ func TestDashboard_Authenticated(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "Dashboard") {
+	body := rec.Body.String()
+	if !strings.Contains(body, "Dashboard") {
 		t.Error("dashboard should contain 'Dashboard' title")
+	}
+	if !strings.Contains(body, `title="net1"`) {
+		t.Error("Recent Hosts cell should contain network UUID as tooltip")
+	}
+	if !strings.Contains(body, ">demo<") {
+		t.Error("Recent Hosts cell should render network name 'demo'")
 	}
 }
 
@@ -155,6 +174,15 @@ func TestHostsPage(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "web-1") {
 		t.Error("hosts page should contain host name 'web-1'")
+	}
+	if !strings.Contains(body, "<th>Network</th>") {
+		t.Error("hosts page should contain Network column header")
+	}
+	if !strings.Contains(body, `title="net1"`) {
+		t.Error("hosts page should contain network UUID as tooltip")
+	}
+	if !strings.Contains(body, ">test<") {
+		t.Error("hosts page should render network name 'test'")
 	}
 }
 
@@ -345,6 +373,74 @@ func TestSessionCleanup(t *testing.T) {
 	}
 	if !validExists {
 		t.Error("valid session should survive cleanup")
+	}
+}
+
+func TestBuildHostViews(t *testing.T) {
+	netA := &models.Network{ID: "net-a", Name: "alpha"}
+	netB := &models.Network{ID: "net-b", Name: "beta"}
+	h1 := &models.Host{ID: "h1", NetworkID: "net-a", Name: "web-1"}
+	h2 := &models.Host{ID: "h2", NetworkID: "net-b", Name: "web-2"}
+	hOrphan := &models.Host{ID: "h3", NetworkID: "missing", Name: "orphan"}
+
+	tests := []struct {
+		name     string
+		hosts    []*models.Host
+		networks []*models.Network
+		want     []struct {
+			hostID, networkName string
+		}
+	}{
+		{
+			name:     "empty hosts and networks",
+			hosts:    nil,
+			networks: nil,
+			want:     nil,
+		},
+		{
+			name:     "empty hosts, networks present",
+			hosts:    nil,
+			networks: []*models.Network{netA},
+			want:     nil,
+		},
+		{
+			name:     "hosts with known networks",
+			hosts:    []*models.Host{h1, h2},
+			networks: []*models.Network{netA, netB},
+			want: []struct{ hostID, networkName string }{
+				{"h1", "alpha"},
+				{"h2", "beta"},
+			},
+		},
+		{
+			name:     "host with unknown network falls back to empty NetworkName",
+			hosts:    []*models.Host{h1, hOrphan},
+			networks: []*models.Network{netA},
+			want: []struct{ hostID, networkName string }{
+				{"h1", "alpha"},
+				{"h3", ""},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildHostViews(tc.hosts, tc.networks)
+			if len(got) != len(tc.want) {
+				t.Fatalf("len = %d, want %d", len(got), len(tc.want))
+			}
+			for i, w := range tc.want {
+				if got[i].Host == nil {
+					t.Fatalf("got[%d].Host is nil", i)
+				}
+				if got[i].ID != w.hostID {
+					t.Errorf("got[%d].ID = %q, want %q", i, got[i].ID, w.hostID)
+				}
+				if got[i].NetworkName != w.networkName {
+					t.Errorf("got[%d].NetworkName = %q, want %q", i, got[i].NetworkName, w.networkName)
+				}
+			}
+		})
 	}
 }
 

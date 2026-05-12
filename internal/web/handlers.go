@@ -51,6 +51,32 @@ func (w *Web) handleLogout(rw http.ResponseWriter, r *http.Request) {
 
 // --- Dashboard ---
 
+// hostView is a view-model that augments models.Host with the resolved
+// human-readable network name. Embedding keeps every existing template
+// field access (.ID, .Name, .NebulaIP, …) working unchanged.
+type hostView struct {
+	*models.Host
+	NetworkName string
+}
+
+// buildHostViews resolves NetworkID → Network.Name for each host. If the
+// host's network is not present in networks, NetworkName is left empty so
+// the template can fall back to displaying the UUID.
+func buildHostViews(hosts []*models.Host, networks []*models.Network) []hostView {
+	if len(hosts) == 0 {
+		return nil
+	}
+	idx := make(map[string]string, len(networks))
+	for _, n := range networks {
+		idx[n.ID] = n.Name
+	}
+	out := make([]hostView, len(hosts))
+	for i, h := range hosts {
+		out[i] = hostView{Host: h, NetworkName: idx[h.NetworkID]}
+	}
+	return out
+}
+
 type dashboardStats struct {
 	TotalHosts    int
 	EnrolledHosts int
@@ -105,7 +131,7 @@ func (w *Web) handleDashboard(rw http.ResponseWriter, r *http.Request) {
 	w.render(rw, "dashboard.html", map[string]any{
 		"Active":      "dashboard",
 		"Stats":       stats,
-		"RecentHosts": recentHosts,
+		"RecentHosts": buildHostViews(recentHosts, networks),
 	})
 }
 
@@ -132,6 +158,12 @@ func (w *Web) handlePartialStats(rw http.ResponseWriter, r *http.Request) {
 // --- Hosts ---
 
 func (w *Web) handleHosts(rw http.ResponseWriter, r *http.Request) {
+	networks, err := w.store.ListNetworks(r.Context())
+	if err != nil {
+		w.logger.Error("list networks", "error", err)
+		http.Error(rw, "Failed to load hosts", http.StatusInternalServerError)
+		return
+	}
 	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{Limit: 1000})
 	if err != nil {
 		w.logger.Error("list hosts", "error", err)
@@ -141,7 +173,7 @@ func (w *Web) handleHosts(rw http.ResponseWriter, r *http.Request) {
 
 	w.render(rw, "hosts.html", map[string]any{
 		"Active": "hosts",
-		"Hosts":  hosts,
+		"Hosts":  buildHostViews(hosts, networks),
 	})
 }
 

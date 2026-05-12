@@ -9,12 +9,13 @@
 {{if .Hosts}}
 <div class="card">
     <table>
-        <thead><tr><th>Name</th><th>Nebula IP</th><th>Role</th><th>Status</th><th>Last Seen</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Nebula IP</th><th>Network</th><th>Role</th><th>Status</th><th>Last Seen</th><th></th></tr></thead>
         <tbody>
         {{range .Hosts}}
         <tr>
             <td><a href="/ui/hosts/{{.ID}}">{{.Name}}</a></td>
             <td>{{.NebulaIP}}</td>
+            <td><span title="{{.NetworkID}}">{{if .NetworkName}}{{.NetworkName}}{{else}}{{.NetworkID}}{{end}}</span></td>
             <td>{{.Role}}</td>
             <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
             <td>{{if .LastSeenAt}}{{.LastSeenAt.Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>

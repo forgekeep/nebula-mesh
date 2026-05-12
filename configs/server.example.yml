@@ -9,3 +9,22 @@ log_level: "info"
 # (recommended only behind a TLS-terminating reverse proxy like nginx/caddy).
 tls_cert: ""
 tls_key: ""
+
+# Optional OpenID Connect identity provider for operator login. When enabled,
+# the Web UI offers a "Sign in with SSO" button on top of the local password
+# form. Local logins keep working alongside OIDC.
+#
+# Example: self-hosted Keycloak realm "nebula".
+# oidc:
+#   enabled: true
+#   issuer: "https://keycloak.example.com/realms/nebula"
+#   client_id: "nebula-mesh"
+#   client_secret: "<from Keycloak client credentials>"
+#   redirect_url: "https://mgmt.example.com:8080/ui/oidc/callback"
+#   scopes: ["openid", "profile", "email", "groups"]
+#   username_claim: "preferred_username"   # default
+#   name_claim: "name"                     # default
+#   groups_claim: "groups"                 # default
+#   allowed_groups: ["nebula-admins"]      # optional allowlist
+#   allowed_emails: []                     # optional allowlist
+#   default_role: "admin"                  # role for newly-federated users

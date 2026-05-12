@@ -21,6 +21,10 @@ var templateFS embed.FS
 //go:embed static/*
 var staticFS embed.FS
 
+// Session exposes the underlying session manager so callers can wire up
+// alternative login flows (e.g. OIDC) that need to issue sessions.
+func (w *Web) Session() *SessionManager { return w.session }
+
 // Web is the web UI handler.
 type Web struct {
 	router    chi.Router
@@ -28,6 +32,18 @@ type Web struct {
 	templates map[string]*template.Template
 	logger    *slog.Logger
 	session   *SessionManager
+	oidc      *OIDC
+}
+
+// WithOIDC attaches an OIDC provider and registers its login/callback routes.
+// Must be called before ServeHTTP is invoked.
+func (w *Web) WithOIDC(o *OIDC) {
+	w.oidc = o
+	if o == nil {
+		return
+	}
+	w.router.Get("/ui/oidc/login", o.HandleLogin)
+	w.router.Get("/ui/oidc/callback", o.HandleCallback)
 }
 
 // New creates a new Web UI handler.

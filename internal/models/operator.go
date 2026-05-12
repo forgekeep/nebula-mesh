@@ -29,6 +29,8 @@ type Operator struct {
 	Role          string               `json:"role"`
 	TOTPSecret    string               `json:"-"`
 	TOTPEnabled   bool                 `json:"totp_enabled"`
+	OIDCIssuer    string               `json:"oidc_issuer,omitempty"`
+	OIDCSubject   string               `json:"oidc_subject,omitempty"`
 	CreatedAt     time.Time            `json:"created_at"`
 	UpdatedAt     time.Time            `json:"updated_at"`
 	LastLoginAt   *time.Time           `json:"last_login_at,omitempty"`

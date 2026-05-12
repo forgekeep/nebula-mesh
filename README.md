@@ -1,30 +1,30 @@
 # nebula-mesh
 
-> Self-hosted control plane for [Slack's Nebula](https://github.com/slackhq/nebula) mesh VPN — issue certificates, manage hosts, distribute config, and roll out changes from one place.
-
-![Dashboard](docs/screenshots/dashboard.png)
-
-<sub>
-More views — UI:
-[hosts](docs/screenshots/hosts.png) ·
-[host detail](docs/screenshots/host-detail.png) ·
-[host create (with advanced)](docs/screenshots/host-new-advanced.png) ·
-[networks](docs/screenshots/networks.png) ·
-[profile](docs/screenshots/profile.png).
-Auth:
-[login](docs/screenshots/login.png) ·
-[register](docs/screenshots/register.png) ·
-[2FA: setup](docs/screenshots/2fa-setup.png) ·
-[2FA: enabled + recovery codes](docs/screenshots/2fa-enabled.png) ·
-[login → TOTP prompt](docs/screenshots/login-totp.png).
-</sub>
-
 [![CI](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml/badge.svg)](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/juev/nebula-mesh?display_name=tag&sort=semver)](https://github.com/juev/nebula-mesh/releases/latest)
 [![Go Reference](https://pkg.go.dev/badge/github.com/juev/nebula-mesh.svg)](https://pkg.go.dev/github.com/juev/nebula-mesh)
 [![Go Report Card](https://goreportcard.com/badge/github.com/juev/nebula-mesh)](https://goreportcard.com/report/github.com/juev/nebula-mesh)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/juev/nebula-mesh)](go.mod)
+
+> Self-hosted control plane for [Slack's Nebula](https://github.com/slackhq/nebula) mesh VPN — issue certificates, manage hosts, distribute config, and roll out changes from one place.
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+<sub>
+<strong>UI</strong>:
+<a href="docs/screenshots/hosts.png">hosts</a> ·
+<a href="docs/screenshots/host-detail.png">host detail</a> ·
+<a href="docs/screenshots/host-new-advanced.png">host create (advanced)</a> ·
+<a href="docs/screenshots/networks.png">networks</a> ·
+<a href="docs/screenshots/profile.png">profile</a><br>
+<strong>Auth</strong>:
+<a href="docs/screenshots/login.png">login</a> ·
+<a href="docs/screenshots/register.png">register</a> ·
+<a href="docs/screenshots/2fa-setup.png">2FA setup</a> ·
+<a href="docs/screenshots/2fa-enabled.png">2FA enabled + recovery codes</a> ·
+<a href="docs/screenshots/login-totp.png">login → TOTP prompt</a>
+</sub>
 
 Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it leaves the operator to hand-roll certificate issuance, rotation, distribution and revocation — usually with shell scripts and a CA on a laptop. **nebula-mesh** is the missing management layer: a single Go binary plus an enrollment agent that turn Nebula into a self-service mesh you can run on one VM.
 
@@ -42,12 +42,15 @@ Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it 
 ## Features
 
 - **Web UI + REST API + CLI** — one server, three interfaces. Built with chi + Go templates + htmx (no SPA build step).
-- **PKI lifecycle** — CA on init (encrypted with passphrase), per-host certs signed via `slackhq/nebula/cert`, blocklist-backed revocation.
+- **PKI lifecycle** — per-operator CAs encrypted at rest in SQLite under a process-wide AES-256-GCM master key (envelope encryption per [ADR 0002](docs/adr/0002-per-operator-cas.md)); per-host certs signed via `slackhq/nebula/cert`; blocklist-backed revocation.
+- **Multi-operator** — local accounts, OIDC (Keycloak / Authentik / Okta / …), TOTP 2FA with recovery codes, configurable self-registration, per-operator API keys with atomic disable.
+- **Per-operator CAs** — each operator's networks form an isolated trust domain; non-admin operators cannot see or sign against another operator's CA.
 - **Zero-trust enrollment** — hosts join with a single-use token; private keys never leave the host.
 - **Auto-rotation** — agent polls the server, atomically writes new certs/config (temp + fsync + rename), reloads Nebula via `SIGHUP`.
-- **Audit trail** — every API mutation is recorded with actor, action, target.
+- **Per-host advanced overrides** — `listen_host`, `mtu`, `tun_device`, `punchy`, `unsafe_routes` opt-in per host without touching the network default.
+- **Audit trail** — every mutating UI / API / CLI call is recorded with actor, action, target, plus a stable `ca_id` on host events.
 - **Per-network firewall rules** — managed declaratively via API, distributed to all hosts.
-- **Production-ready basics** — `/healthz`, `/readyz`, `expvar` metrics, structured `slog` logs, optional in-process TLS, SQLite (WAL) with embedded migrations.
+- **Production-ready basics** — `/healthz`, `/readyz`, `expvar` metrics, structured `slog` logs, optional in-process TLS, SQLite (WAL) with tracked migrations.
 - **Tiny footprint** — two static binaries (~15–25 MiB each), SQLite, no external deps. Runs on a $5 VM.
 
 ## Architecture
@@ -76,9 +79,10 @@ Each release ships **two** independent artifact sets — install only what you n
 |---|---|---|
 | Where it runs | one VM / container — the control plane | every Nebula host — next to `nebula` |
 | Binary tarball | `nebula-mgmt_<v>_<os>_<arch>.tar.gz` | `nebula-agent_<v>_<os>_<arch>.tar.gz` |
+| Linux distro packages | — | `nebula-agent_<v>_linux_<arch>.{deb,rpm}` |
 | Docker image | `ghcr.io/juev/nebula-mgmt` | `ghcr.io/juev/nebula-agent` |
 
-### Prebuilt binary (Linux / macOS, amd64 / arm64)
+### Prebuilt binary (Linux / macOS / FreeBSD / Windows)
 
 ```sh
 # Pick one: BIN=nebula-mgmt   (control-plane VM)
@@ -90,7 +94,7 @@ TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest |
 curl -fsSL "https://github.com/juev/nebula-mesh/releases/download/${TAG}/${BIN}_${TAG#v}_${OS}_${ARCH}.tar.gz" | tar -xz
 ```
 
-Each release ships a `checksums.txt` with SHA-256 of every archive.
+Full agent target matrix (incl. Linux `arm v7`, FreeBSD, Windows): [`docs/agent.md#supported-release-matrix`](docs/agent.md). Each release ships a `checksums.txt` with SHA-256 of every archive.
 
 ### Docker (linux/amd64, linux/arm64)
 
@@ -101,6 +105,7 @@ docker run -d --name nebula-mgmt \
   -v nebula-mgmt-data:/var/lib/nebula-mgmt \
   -v nebula-mgmt-etc:/etc/nebula-mgmt \
   -e NEBULA_MGMT_CA_PASSPHRASE \
+  -e NEBULA_MGMT_MASTER_KEY \
   ghcr.io/juev/nebula-mgmt:latest
 
 # Agent (typically sidecar to nebula, sharing the same PID namespace):
@@ -124,11 +129,16 @@ After install, `nebula-mgmt version` and `nebula-agent --version` print the buil
 
 ## Quickstart
 
-### 1. Run the server
+### Run the server
 
 ```sh
 sudo mkdir -p /var/lib/nebula-mgmt /etc/nebula-mgmt
 sudo cp configs/server.example.yml /etc/nebula-mgmt/server.yml
+
+# Generate a master key for the per-operator CA store and put it in your
+# secret manager. Provide it to the server via NEBULA_MGMT_MASTER_KEY (or
+# the master_key field in server.yml).
+openssl rand -base64 32
 
 # One-time: creates CA, generates API key, persists both into the config.
 sudo bin/nebula-mgmt init --config /etc/nebula-mgmt/server.yml
@@ -137,11 +147,11 @@ sudo bin/nebula-mgmt init --config /etc/nebula-mgmt/server.yml
 sudo bin/nebula-mgmt serve --config /etc/nebula-mgmt/server.yml
 ```
 
-Open `http://localhost:8080/ui/` — log in with the API key shown by `init`.
+Open `http://localhost:8080/ui/` — log in as `admin` with the password configured in `ui_password` (falls back to the API key shown by `init`).
 
-Non-interactive deployments (systemd, Docker): set `NEBULA_MGMT_CA_PASSPHRASE` instead of typing the passphrase at start.
+Non-interactive deployments (systemd, Docker): set `NEBULA_MGMT_CA_PASSPHRASE` and `NEBULA_MGMT_MASTER_KEY` instead of typing the passphrase at start.
 
-### 2. Enroll a host
+### Enroll a host
 
 ```sh
 # On the server — create a host record:
@@ -161,11 +171,11 @@ sudo nebula-agent enroll \
 sudo nebula-agent run --config /etc/nebula-agent/agent.yml
 ```
 
-The agent now keeps `host.crt` / `host.key` / `ca.crt` / `config.yml` in sync and signals Nebula on changes.
+The agent keeps `host.crt` / `host.key` / `ca.crt` / `config.yml` in sync and signals Nebula on changes.
 
 > Full nebula-agent operations guide: [`docs/agent.md`](docs/agent.md) — installation, configuration, troubleshooting, upgrade, and security notes.
 
-### 3. Manage hosts from the CLI
+### Manage hosts from the CLI
 
 ```sh
 # List hosts (optionally filter by network)
@@ -181,75 +191,40 @@ nebula-mgmt host unblock --server ... --api-key "$API_KEY" --id "$HOST_ID"
 nebula-mgmt host delete  --server ... --api-key "$API_KEY" --id "$HOST_ID"
 ```
 
-### 4. Manage operators (multi-user)
+## Operators, auth, and tenancy
 
-Each interactive admin should have their own operator account and per-operator
-API key. On `nebula-mgmt init`, an `admin` operator is seeded from the config's
-`ui_password` (or `api_key` as a fallback) and the config `api_key` is registered
-as `admin`'s first API key.
+Each interactive admin should have their own operator account and per-operator API key. On `nebula-mgmt init`, an `admin` operator is seeded from `ui_password` (or `api_key` as a fallback); the config `api_key` is registered as `admin`'s first API key and continues to work as a legacy fallback.
+
+### Manage operators
 
 ```sh
 # List operators
 nebula-mgmt user list --server ... --api-key "$ADMIN_KEY"
 
-# Create another operator
+# Create another operator (admin-only API)
 nebula-mgmt user create --server ... --api-key "$ADMIN_KEY" \
   --username alice --password 's3cret!' --display-name "Alice"
 
-# Create a per-operator API key (token shown once)
+# Per-operator API key (token shown once)
 nebula-mgmt apikey create --server ... --api-key "$ADMIN_KEY" \
   --operator "$ALICE_ID" --name laptop-cli
-
-# Revoke a key
 nebula-mgmt apikey revoke --server ... --api-key "$ADMIN_KEY" \
   --operator "$ALICE_ID" --id "$KEY_ID"
 
-# Disable / re-enable an operator (invalidates sessions and API keys atomically)
+# Disable / re-enable an operator — invalidates sessions and API keys atomically
 nebula-mgmt user disable --server ... --api-key "$ADMIN_KEY" --id "$ALICE_ID"
 nebula-mgmt user enable  --server ... --api-key "$ADMIN_KEY" --id "$ALICE_ID"
 ```
 
-Audit log entries (`/api/v1/audit-log`) record the actor for every mutating
-operator/host action.
+Audit log entries (`/api/v1/audit-log`) record the actor for every mutating operator/host action.
 
-### 5. Enable two-factor authentication (TOTP)
+### Two-factor authentication (TOTP)
 
-Open `/ui/2fa`, click **Enable 2FA**, scan the displayed `otpauth://` URL with
-1Password / Bitwarden / Google Authenticator / Aegis / Authy / any compatible
-app, and confirm with a 6-digit code. The server then shows ten one-time
-recovery codes — save them offline.
+Open `/ui/2fa`, click **Enable 2FA**, scan the displayed `otpauth://` URL with 1Password / Bitwarden / Google Authenticator / Aegis / Authy / any compatible app, and confirm with a 6-digit code. The server then shows ten one-time recovery codes — save them offline. On the next login the UI asks for the 6-digit code (or one recovery code) after the password. Disabling 2FA requires re-confirming the current password. All sensitive operations (`operator.2fa.enabled`, `disabled`, `regen_codes`, `failed`, `verified`) appear in the audit log. API tokens are unaffected.
 
-On the next login the UI asks for the 6-digit code (or one recovery code) after
-the password. Disabling 2FA requires re-confirming the current password. All
-sensitive operations (`operator.2fa.enabled`, `disabled`, `regen_codes`,
-`failed`, `verified`) appear in the audit log.
+### Single sign-on via OIDC
 
-API tokens are not affected — they continue to authenticate non-interactive
-clients.
-
-### Configurable self-registration
-
-By default, only administrators can create operator accounts (via the
-`nebula-mgmt user create` CLI or the REST API). To let unauthenticated
-visitors sign up themselves, set in `server.yml`:
-
-```yaml
-allow_self_registration: true
-```
-
-The login page then shows a *Create an account* link to `/ui/register`.
-Server-side checks gate the endpoint regardless of UI state — disabling
-the flag is sufficient to block self-registration. Newly self-registered
-operators get the `user` role; only operators with `role: admin` can
-call the operator-management API (`POST /api/v1/operators`,
-`disable`, etc).
-
-### 6. Single sign-on via OIDC (optional)
-
-Configure an `oidc:` block in `server.yml` (see `configs/server.example.yml`)
-to enable operator login through Keycloak / Authentik / Dex / Google
-Workspace / Okta / any standard OpenID Connect provider. Once enabled, the
-login page shows a **Sign in with SSO** button alongside the local form.
+Configure an `oidc:` block in `server.yml` (see `configs/server.example.yml`) to enable operator login through Keycloak / Authentik / Dex / Google Workspace / Okta / any standard OpenID Connect provider. The login page then shows a **Sign in with SSO** button alongside the local form.
 
 ```yaml
 oidc:
@@ -262,11 +237,26 @@ oidc:
   allowed_groups: ["nebula-admins"]
 ```
 
-The first successful login for an unknown subject creates a local operator
-record (auth_provider=oidc) tied to the issuer+subject pair. Audit log
-entries record the operator's username for every action. Local and OIDC
-users coexist; revoking access for an OIDC user is done by disabling the
-local record or removing them in the IdP.
+The first successful login for an unknown subject creates a local operator record (`auth_provider=oidc`) tied to the `issuer+subject` pair. Local and OIDC users coexist; revoke an OIDC user by disabling the local record or removing them in the IdP.
+
+### Configurable self-registration
+
+By default only administrators can create operator accounts. Set `allow_self_registration: true` in `server.yml` to let unauthenticated visitors sign up via `/ui/register`. Server-side checks gate the endpoint independently of the UI, so flipping the flag is enough to block self-registration. Self-registered operators get the `user` role; the operator-management API (`POST /api/v1/operators`, `disable`, etc) requires `role: admin`.
+
+### Per-operator CAs
+
+With `NEBULA_MGMT_MASTER_KEY` configured, operators can run their networks under isolated CAs:
+
+```sh
+# Create a CA scoped to a real operator (the legacy config key is denied)
+nebula-mgmt ca create --server ... --api-key "$OPERATOR_KEY" --name tenant-a
+# → prints CA id + fingerprint
+
+nebula-mgmt ca list   --server ... --api-key "$OPERATOR_KEY"
+nebula-mgmt ca delete --server ... --api-key "$OPERATOR_KEY" --id "$CA_ID"
+```
+
+Non-admin operators see and manage only the CAs they own; admins see all. Hosts enrolled under a tenant CA receive **that** CA's certificate, not the default one. Audit log entries (`ca.created`, `ca.deleted`, plus existing `host.*` events with the host's `ca_id`) record both the actor and the affected CA. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the encryption-at-rest design.
 
 ## Deployment
 
@@ -276,47 +266,13 @@ local record or removing them in the IdP.
 
 ### Backups & key handling
 
-Per [ADR 0002](docs/adr/0002-per-operator-cas.md) (which supersedes
-[ADR 0001](docs/adr/0001-ca-key-storage.md)), CA private keys live encrypted
-inside SQLite using envelope encryption: each CA owns a randomly-generated
-data-encryption key (DEK) wrapped under a process-wide AES-256-GCM master
-key (`NEBULA_MGMT_MASTER_KEY`, 32 random bytes, base64-encoded). The master
-key is supplied at server startup and **never written to disk or the DB**.
-
-Backup target collapses to a single file:
+Per [ADR 0002](docs/adr/0002-per-operator-cas.md) (supersedes [ADR 0001](docs/adr/0001-ca-key-storage.md)), CA private keys live encrypted inside SQLite using envelope encryption. The master key (`NEBULA_MGMT_MASTER_KEY`, 32 random bytes, base64-encoded) is supplied at startup and **never written to disk or the DB**. Backups collapse to a single file:
 
 ```sh
 sudo cp /var/lib/nebula-mgmt/nebula.db /backups/nebula-$(date +%F).db
 ```
 
-Keep `NEBULA_MGMT_MASTER_KEY` in your secret manager — both the DB and the
-master key are required to mint a certificate.
-
-The legacy `data_dir/ca.crt` and `data_dir/ca.key` files generated by
-`nebula-mgmt init` are still produced for one release as a rollback
-artifact. On the first `nebula-mgmt serve` with a configured
-`NEBULA_MGMT_MASTER_KEY`, they are imported into the `cas` table as the
-"default" CA owned by `admin` and may then be removed.
-
-### Per-operator CAs
-
-After upgrading and providing `NEBULA_MGMT_MASTER_KEY`, operators can run
-their networks under isolated CAs:
-
-```sh
-# Create a CA scoped to a real operator (the legacy config key is denied).
-nebula-mgmt ca create --server ... --api-key "$OPERATOR_KEY" --name tenant-a
-# → prints CA id + fingerprint
-
-nebula-mgmt ca list   --server ... --api-key "$OPERATOR_KEY"
-nebula-mgmt ca delete --server ... --api-key "$OPERATOR_KEY" --id "$CA_ID"
-```
-
-Authorization: non-admin operators see and manage only the CAs they own;
-admins see all. Hosts enrolled under a tenant CA receive **that** CA's
-certificate, not the default one. Audit log entries (`ca.created`,
-`ca.deleted`, plus existing `host.*` events with the host's `ca_id`)
-record both the actor and the affected CA.
+Keep `NEBULA_MGMT_MASTER_KEY` in your secret manager — both the DB and the master key are required to mint a certificate. The legacy `data_dir/ca.crt` / `data_dir/ca.key` produced by `nebula-mgmt init` are kept for one release as a rollback artifact, then deletable once the import into the `cas` table has succeeded.
 
 ## Endpoints
 
@@ -334,25 +290,30 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 
 ## Status
 
-**Beta.** Core flows (init, enroll, poll, rotate, revoke, audit) are covered by unit + integration tests with `-race`. API surface is not yet frozen — expect breaking changes until `v1.0.0`. Please open issues for anything rough.
+**Beta.** Core flows (init, enroll, poll, rotate, revoke, audit, multi-CA) are covered by unit + integration tests with `-race`. API surface is not yet frozen — expect breaking changes until `v1.0.0`. Please open issues for anything rough.
 
 ## Roadmap
 
-- [ ] Lighthouse auto-assignment based on host role
-- [ ] Multi-operator auth (OIDC / per-user API keys)
-- [ ] Prometheus exporter (today: `expvar`)
-- [ ] Built-in cert expiry alerts
-- [ ] Bootstrap-from-cloud-init recipes (Terraform / Ansible modules)
-- [ ] Web UI: live host status (currently htmx polling)
+Open issues tracked individually so you can subscribe to the ones you care about:
+
+- [#39](https://github.com/juev/nebula-mesh/issues/39) — Lighthouse auto-assignment based on host role
+- [#40](https://github.com/juev/nebula-mesh/issues/40) — Prometheus exporter (today: `expvar`)
+- [#41](https://github.com/juev/nebula-mesh/issues/41) — Built-in cert-expiry alerts (audit + webhook + metric)
+- [#42](https://github.com/juev/nebula-mesh/issues/42) — Bootstrap recipes (Terraform module, Ansible roles, cloud-init samples)
+- [#43](https://github.com/juev/nebula-mesh/issues/43) — Web UI: live host status via SSE (today: htmx polling on a 30s interval)
+
+Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, distro packages (deb/rpm) and the cross-platform agent build matrix.
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
 
-- API key has full admin rights — file mode `0600` is enforced on save.
-- CA private key is encrypted with a passphrase entered interactively at `init` / `serve`. In production, prefer `NEBULA_MGMT_CA_PASSPHRASE` injected via a secret manager.
-- Always run the management server behind TLS.
-- Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
+- **Authentication.** Interactive logins are bcrypt-verified against the operator's password; sessions are DB-backed and revoked atomically on `user disable`. Optional TOTP 2FA + recovery codes. Optional OIDC SSO.
+- **Authorization.** Operator-management API and CA-management API require `role: admin`; non-admin operators can only see and act on the CAs they own.
+- **API keys.** Per-operator, stored as SHA-256 hashes — disable an operator and every key revokes in the same transaction. The legacy config-file `api_key` continues to work as a fallback for backward compatibility.
+- **CA key material.** Stored encrypted at rest in SQLite under a process-wide AES-256-GCM master key (`NEBULA_MGMT_MASTER_KEY`), supplied at startup and never persisted. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the threat-model discussion.
+- **Transport.** Always run the management server behind TLS — set `tls_cert` + `tls_key`, or front with nginx/caddy/traefik.
+- **Disclosure.** Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 
 ## Contributing
 

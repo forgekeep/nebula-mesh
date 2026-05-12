@@ -68,6 +68,7 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		"host_detail.html",
 		"networks.html",
 		"twofa.html",
+		"profile.html",
 	}
 	for _, page := range pages {
 		tmpl, err := template.ParseFS(templateFS, "templates/layout.html", "templates/"+page)
@@ -120,6 +121,7 @@ func (w *Web) setupRoutes() {
 		r.Delete("/ui/hosts/{id}", w.handleHostDelete)
 		r.Get("/ui/networks", w.handleNetworks)
 		r.Post("/ui/networks", w.handleNetworkCreate)
+		r.Get("/ui/profile", w.handleProfilePage)
 		r.Get("/ui/2fa", w.handleTwoFAPage)
 		r.Post("/ui/2fa/setup", w.handleTwoFASetup)
 		r.Post("/ui/2fa/enable", w.handleTwoFAEnable)
@@ -141,6 +143,20 @@ func (w *Web) StartSessionCleanup(ctx context.Context) {
 // ServeHTTP implements http.Handler.
 func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	w.router.ServeHTTP(rw, r)
+}
+
+// renderForRequest renders a template with the current operator (if any)
+// injected as `.CurrentUser`, so the shared layout can show the profile chip
+// without each handler having to pass it explicitly. Standalone login /
+// register pages take this path too — the field is just unused there.
+func (w *Web) renderForRequest(rw http.ResponseWriter, r *http.Request, name string, data map[string]any) {
+	if data == nil {
+		data = map[string]any{}
+	}
+	if _, present := data["CurrentUser"]; !present {
+		data["CurrentUser"] = w.session.CurrentOperator(r)
+	}
+	w.render(rw, name, data)
 }
 
 func (w *Web) render(rw http.ResponseWriter, name string, data any) {

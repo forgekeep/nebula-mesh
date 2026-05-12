@@ -45,7 +45,38 @@
             font-weight: 600;
             border-bottom: 1px solid var(--border);
             margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
+        .profile-chip {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            border-radius: var(--radius);
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 400;
+            text-decoration: none;
+            transition: background 0.15s;
+        }
+        .profile-chip:hover { background: var(--bg-hover); color: var(--text); }
+        .profile-avatar {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: #fff;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .profile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .sidebar-nav a {
             display: block;
             padding: 10px 20px;
@@ -171,13 +202,17 @@
 <body>
     <div class="layout">
         <nav class="sidebar">
-            <div class="sidebar-brand">Nebula Mesh</div>
+            <div class="sidebar-brand">
+                <span>Nebula Mesh</span>
+                <a href="/ui/profile" class="profile-chip" title="Profile">
+                    <span class="profile-avatar">{{if .CurrentUser}}{{slice .CurrentUser.Username 0 1}}{{else}}?{{end}}</span>
+                    <span class="profile-name">{{if .CurrentUser}}{{or .CurrentUser.DisplayName .CurrentUser.Username}}{{end}}</span>
+                </a>
+            </div>
             <div class="sidebar-nav">
                 <a href="/ui/" {{if eq .Active "dashboard"}}class="active"{{end}}>Dashboard</a>
                 <a href="/ui/networks" {{if eq .Active "networks"}}class="active"{{end}}>Networks</a>
                 <a href="/ui/hosts" {{if eq .Active "hosts"}}class="active"{{end}}>Hosts</a>
-                <a href="/ui/2fa" {{if eq .Active "2fa"}}class="active"{{end}}>Two-factor auth</a>
-                <a href="/ui/logout">Logout</a>
             </div>
         </nav>
         <main class="main">

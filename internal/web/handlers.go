@@ -26,8 +26,8 @@ func (w *Web) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
-func (w *Web) handleLoginPage(rw http.ResponseWriter, _ *http.Request) {
-	w.render(rw, "login.html", map[string]any{
+func (w *Web) handleLoginPage(rw http.ResponseWriter, r *http.Request) {
+	w.renderForRequest(rw, r, "login.html", map[string]any{
 		"Error":                "",
 		"OIDCEnabled":          w.oidc.Enabled(),
 		"AllowSelfRegistration": w.allowSelfRegistration,
@@ -47,7 +47,7 @@ func (w *Web) handleLogin(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		w.render(rw, "login.html", map[string]any{
+		w.renderForRequest(rw, r, "login.html", map[string]any{
 			"Error":                "Invalid username or password",
 			"OIDCEnabled":          w.oidc.Enabled(),
 			"AllowSelfRegistration": w.allowSelfRegistration,
@@ -66,7 +66,7 @@ func (w *Web) handleTOTPLoginPage(rw http.ResponseWriter, r *http.Request) {
 		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 		return
 	}
-	w.render(rw, "login_totp.html", map[string]any{"Error": ""})
+	w.renderForRequest(rw, r, "login_totp.html", map[string]any{"Error": ""})
 }
 
 func (w *Web) handleTOTPLogin(rw http.ResponseWriter, r *http.Request) {
@@ -91,7 +91,7 @@ func (w *Web) handleTOTPLogin(rw http.ResponseWriter, r *http.Request) {
 
 	if !ok {
 		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.failed", op.ID, "")
-		w.render(rw, "login_totp.html", map[string]any{"Error": "Invalid TOTP code"})
+		w.renderForRequest(rw, r, "login_totp.html", map[string]any{"Error": "Invalid TOTP code"})
 		return
 	}
 	if err := w.session.CompleteTwoFactor(rw, r, op.ID); err != nil {
@@ -114,12 +114,12 @@ func (w *Web) handleLogout(rw http.ResponseWriter, r *http.Request) {
 
 // --- Self-registration ---
 
-func (w *Web) handleRegisterPage(rw http.ResponseWriter, _ *http.Request) {
+func (w *Web) handleRegisterPage(rw http.ResponseWriter, r *http.Request) {
 	if !w.allowSelfRegistration {
 		http.Error(rw, "self-registration is disabled", http.StatusForbidden)
 		return
 	}
-	w.render(rw, "register.html", map[string]any{"Error": ""})
+	w.renderForRequest(rw, r, "register.html", map[string]any{"Error": ""})
 }
 
 func (w *Web) handleRegister(rw http.ResponseWriter, r *http.Request) {
@@ -133,20 +133,20 @@ func (w *Web) handleRegister(rw http.ResponseWriter, r *http.Request) {
 	displayName := strings.TrimSpace(r.FormValue("display_name"))
 
 	if username == "" || password == "" {
-		w.render(rw, "register.html", map[string]any{"Error": "Username and password are required"})
+		w.renderForRequest(rw, r, "register.html", map[string]any{"Error": "Username and password are required"})
 		return
 	}
 	if len(password) < 8 {
-		w.render(rw, "register.html", map[string]any{"Error": "Password must be at least 8 characters long"})
+		w.renderForRequest(rw, r, "register.html", map[string]any{"Error": "Password must be at least 8 characters long"})
 		return
 	}
 	if password != confirm {
-		w.render(rw, "register.html", map[string]any{"Error": "Password confirmation does not match"})
+		w.renderForRequest(rw, r, "register.html", map[string]any{"Error": "Password confirmation does not match"})
 		return
 	}
 
 	if _, err := w.store.GetOperatorByUsername(r.Context(), username); err == nil {
-		w.render(rw, "register.html", map[string]any{"Error": "Username already taken"})
+		w.renderForRequest(rw, r, "register.html", map[string]any{"Error": "Username already taken"})
 		return
 	} else if !errors.Is(err, store.ErrNotFound) {
 		w.logger.Error("register: lookup", "error", err)
@@ -176,6 +176,20 @@ func (w *Web) handleRegister(rw http.ResponseWriter, r *http.Request) {
 	http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 }
 
+// --- Profile ---
+
+func (w *Web) handleProfilePage(rw http.ResponseWriter, r *http.Request) {
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	w.renderForRequest(rw, r, "profile.html", map[string]any{
+		"Active":   "profile",
+		"Operator": op,
+	})
+}
+
 // --- 2FA management ---
 
 func (w *Web) handleTwoFAPage(rw http.ResponseWriter, r *http.Request) {
@@ -184,7 +198,7 @@ func (w *Web) handleTwoFAPage(rw http.ResponseWriter, r *http.Request) {
 		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 		return
 	}
-	w.render(rw, "twofa.html", map[string]any{
+	w.renderForRequest(rw, r, "twofa.html", map[string]any{
 		"Active":      "2fa",
 		"Operator":    op,
 		"TOTPEnabled": op.TOTPEnabled,
@@ -222,7 +236,7 @@ func (w *Web) handleTwoFASetup(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	w.render(rw, "twofa.html", map[string]any{
+	w.renderForRequest(rw, r, "twofa.html", map[string]any{
 		"Active":      "2fa",
 		"Operator":    op,
 		"TOTPEnabled": false,
@@ -249,7 +263,7 @@ func (w *Web) handleTwoFAEnable(rw http.ResponseWriter, r *http.Request) {
 	code := strings.TrimSpace(r.FormValue("code"))
 	if !verifyTOTP(op.TOTPSecret, code) {
 		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.enable_failed", op.ID, "")
-		w.render(rw, "twofa.html", map[string]any{
+		w.renderForRequest(rw, r, "twofa.html", map[string]any{
 			"Active":      "2fa",
 			"Operator":    op,
 			"TOTPEnabled": false,
@@ -278,7 +292,7 @@ func (w *Web) handleTwoFAEnable(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.enabled", op.ID, "")
-	w.render(rw, "twofa.html", map[string]any{
+	w.renderForRequest(rw, r, "twofa.html", map[string]any{
 		"Active":      "2fa",
 		"Operator":    op,
 		"TOTPEnabled": true,
@@ -296,7 +310,7 @@ func (w *Web) handleTwoFADisable(rw http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
 	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(password)); err != nil {
 		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.disable_failed", op.ID, "")
-		w.render(rw, "twofa.html", map[string]any{
+		w.renderForRequest(rw, r, "twofa.html", map[string]any{
 			"Active":      "2fa",
 			"Operator":    op,
 			"TOTPEnabled": op.TOTPEnabled,
@@ -335,7 +349,7 @@ func (w *Web) handleTwoFARegenCodes(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.regen_codes", op.ID, "")
-	w.render(rw, "twofa.html", map[string]any{
+	w.renderForRequest(rw, r, "twofa.html", map[string]any{
 		"Active":      "2fa",
 		"Operator":    op,
 		"TOTPEnabled": true,
@@ -437,7 +451,7 @@ func (w *Web) handleDashboard(rw http.ResponseWriter, r *http.Request) {
 		recentHosts = recentHosts[len(recentHosts)-10:]
 	}
 
-	w.render(rw, "dashboard.html", map[string]any{
+	w.renderForRequest(rw, r, "dashboard.html", map[string]any{
 		"Active":      "dashboard",
 		"Stats":       stats,
 		"RecentHosts": buildHostViews(recentHosts, networks),
@@ -458,7 +472,7 @@ func (w *Web) handlePartialStats(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stats := computeStats(hosts, len(networks))
-	w.render(rw, "dashboard.html", map[string]any{
+	w.renderForRequest(rw, r, "dashboard.html", map[string]any{
 		"Active": "dashboard",
 		"Stats":  stats,
 	})
@@ -480,7 +494,7 @@ func (w *Web) handleHosts(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.render(rw, "hosts.html", map[string]any{
+	w.renderForRequest(rw, r, "hosts.html", map[string]any{
 		"Active": "hosts",
 		"Hosts":  buildHostViews(hosts, networks),
 	})
@@ -493,7 +507,7 @@ func (w *Web) handleHostNew(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
 		return
 	}
-	w.render(rw, "host_new.html", map[string]any{
+	w.renderForRequest(rw, r, "host_new.html", map[string]any{
 		"Active":   "hosts",
 		"Networks": networks,
 	})
@@ -589,7 +603,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.render(rw, "host_detail.html", map[string]any{
+	w.renderForRequest(rw, r, "host_detail.html", map[string]any{
 		"Active": "hosts",
 		"Host":   host,
 		"Token":  token.Token,
@@ -609,7 +623,7 @@ func (w *Web) handleHostDetail(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.render(rw, "host_detail.html", map[string]any{
+	w.renderForRequest(rw, r, "host_detail.html", map[string]any{
 		"Active": "hosts",
 		"Host":   host,
 	})
@@ -657,7 +671,7 @@ func (w *Web) handleNetworks(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
 		return
 	}
-	w.render(rw, "networks.html", map[string]any{
+	w.renderForRequest(rw, r, "networks.html", map[string]any{
 		"Active":   "networks",
 		"Networks": networks,
 	})

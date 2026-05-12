@@ -43,10 +43,38 @@ running and continue to update certificates as they approach expiry.
 
 ## Installation
 
+### Supported release matrix
+
+Each tagged release ships pre-built `nebula-agent` binaries for the OS/arch
+combinations listed below. The list aligns with the platforms Slack Nebula
+itself supports for production use; less common Nebula targets (mips, ppc64,
+openbsd, netbsd, ios, android) are *not* published — build from source if
+you need them.
+
+| OS | Architecture | Archive suffix | Notes |
+|---|---|---|---|
+| linux | amd64 | `linux_amd64.tar.gz` | Tested. Recommended default. |
+| linux | arm64 | `linux_arm64.tar.gz` | Tested. Raspberry Pi 4/5 64-bit OS, AWS Graviton, … |
+| linux | arm (v7) | `linux_armv7.tar.gz` | Built, not regularly tested. Raspberry Pi 3 / 32-bit Pi OS. |
+| darwin | amd64 | `darwin_amd64.tar.gz` | Intel Macs. |
+| darwin | arm64 | `darwin_arm64.tar.gz` | Apple Silicon. |
+| freebsd | amd64 | `freebsd_amd64.tar.gz` | Built. Use with the FreeBSD Nebula port. |
+| freebsd | arm64 | `freebsd_arm64.tar.gz` | Built, not regularly tested. |
+| windows | amd64 | `windows_amd64.zip` | Built. SIGHUP-based reload is unavailable on Windows — leave `nebula_pid_file` empty and restart Nebula manually. |
+
+Unsupported targets and reasoning:
+
+- `windows/arm64` — buildable, but no demand and no test coverage. Open an
+  issue if you need it.
+- `linux/mips*`, `linux/ppc64*`, `linux/riscv64` — Nebula upstream builds for
+  these; we do not yet, to keep the release size manageable. Build from
+  source: `GOOS=linux GOARCH=riscv64 go build ./cmd/nebula-agent`.
+- `openbsd`, `netbsd`, `ios`, `android` — operationally impractical for a
+  long-running polling agent.
+
 ### 1. From a release archive
 
-Pre-built binaries for Linux, macOS, FreeBSD on amd64 and arm64 are published with
-each tagged release. Replace `<version>` and `<platform>` as needed:
+Replace `<version>` and `<platform>` as needed:
 
 ```sh
 curl -fsSL -o nebula-agent.tar.gz \

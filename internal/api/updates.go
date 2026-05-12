@@ -80,7 +80,33 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp.HasUpdates = len(blocklist) > 0 || resp.CertificatePEM != nil
+	// Check if the network config version moved since this host's last poll.
+	// If it did, re-render the Nebula config with the current lighthouse list
+	// (and any other network-level config) and ship it to the agent.
+	netVersion, verErr := s.store.GetNetworkConfigVersion(r.Context(), host.NetworkID)
+	if verErr != nil {
+		s.logger.Error("get network config version", "error", verErr)
+	} else {
+		hostVersion, hvErr := s.store.GetHostConfigVersion(r.Context(), host.ID)
+		if hvErr != nil {
+			s.logger.Error("get host config version", "error", hvErr)
+		} else if hostVersion != netVersion {
+			configYAML, cfgErr := s.renderHostConfig(r.Context(), host)
+			if cfgErr != nil {
+				s.logger.Error("render host config", "host", host.Name, "error", cfgErr)
+			} else {
+				if uvErr := s.store.UpdateHostConfigVersion(r.Context(), host.ID, netVersion); uvErr != nil {
+					s.logger.Error("update host config version", "host", host.Name, "error", uvErr)
+				} else {
+					cfgStr := string(configYAML)
+					resp.ConfigYAML = &cfgStr
+					s.logger.Info("config rolled out", "host", host.Name, "from_version", hostVersion, "to_version", netVersion)
+				}
+			}
+		}
+	}
+
+	resp.HasUpdates = len(blocklist) > 0 || resp.CertificatePEM != nil || resp.ConfigYAML != nil
 	writeJSON(w, http.StatusOK, resp)
 }
 

@@ -322,13 +322,12 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 
 Open issues tracked individually so you can subscribe to the ones you care about:
 
-- [#39](https://github.com/juev/nebula-mesh/issues/39) — Lighthouse auto-assignment based on host role
 - [#40](https://github.com/juev/nebula-mesh/issues/40) — Prometheus exporter (today: `expvar`)
 - [#41](https://github.com/juev/nebula-mesh/issues/41) — Built-in cert-expiry alerts (audit + webhook + metric)
 - [#42](https://github.com/juev/nebula-mesh/issues/42) — Bootstrap recipes (Terraform module, Ansible roles, cloud-init samples)
 - [#43](https://github.com/juev/nebula-mesh/issues/43) — Web UI: live host status via SSE (today: htmx polling on a 30s interval)
 
-Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, distro packages (deb/rpm) and the cross-platform agent build matrix.
+Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, distro packages (deb/rpm) and the cross-platform agent build matrix.
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 

@@ -292,6 +292,16 @@ Certificate renewal is part of this same flow: when the server signs a new cert 
 the host (e.g. because the previous one is within its 30-day expiry window), the
 agent picks it up on the next poll.
 
+### Lighthouse routing is automatic
+
+Operators no longer wire lighthouse IPs into every peer host. The server resolves
+the network's currently enrolled `role: lighthouse` hosts (excluding `pending`
+and `blocked` ones) and embeds them in each peer's rendered `config.yml` under
+`static_host_map` and `lighthouse.hosts`. When a lighthouse is added, blocked,
+or deleted, the server bumps the network's `config_version`; each peer's next
+agent poll observes the version change and receives an updated `config.yml` in
+the same response — no manual reconfiguration required.
+
 ## Troubleshooting
 
 ### `dial tcp ...: connect: connection refused`

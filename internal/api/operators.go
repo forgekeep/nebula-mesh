@@ -54,7 +54,7 @@ func (s *Server) handleCreateOperator(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create operator")
 		return
 	}
-	_ = s.store.AddAuditEntry(r.Context(), ActorName(r.Context()), "operator.create", op.ID, op.Username)
+	s.recordAuditAction(r.Context(), auditOperatorCreate, op.ID, op.Username)
 	writeJSON(w, http.StatusCreated, op)
 }
 
@@ -82,7 +82,7 @@ func (s *Server) handleDisableOperator(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to disable operator")
 		return
 	}
-	_ = s.store.AddAuditEntry(r.Context(), ActorName(r.Context()), "operator.disable", id, "")
+	s.recordAuditAction(r.Context(), auditOperatorDisable, id, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -97,7 +97,7 @@ func (s *Server) handleEnableOperator(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to enable operator")
 		return
 	}
-	_ = s.store.AddAuditEntry(r.Context(), ActorName(r.Context()), "operator.enable", id, "")
+	s.recordAuditAction(r.Context(), auditOperatorEnable, id, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -145,7 +145,7 @@ func (s *Server) handleCreateOperatorAPIKey(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "failed to store api key")
 		return
 	}
-	_ = s.store.AddAuditEntry(r.Context(), ActorName(r.Context()), "operator.api_key.create", id, entry.ID)
+	s.recordAuditAction(r.Context(), auditOperatorAPIKeyCreate, id, entry.ID)
 	writeJSON(w, http.StatusCreated, createAPIKeyResponse{Key: plaintext, Entry: entry})
 }
 
@@ -161,7 +161,7 @@ func (s *Server) handleRevokeOperatorAPIKey(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "failed to revoke api key")
 		return
 	}
-	_ = s.store.AddAuditEntry(r.Context(), ActorName(r.Context()), "operator.api_key.revoke", id, kid)
+	s.recordAuditAction(r.Context(), auditOperatorAPIKeyRevoke, id, kid)
 	w.WriteHeader(http.StatusNoContent)
 }
 

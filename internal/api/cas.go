@@ -157,7 +157,7 @@ func (s *Server) handleCreateCA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to store CA")
 		return
 	}
-	_ = s.store.AddAuditEntry(r.Context(), ActorName(r.Context()), "ca.created", c.ID, c.Name)
+	s.recordAuditAction(r.Context(), auditCACreated, c.ID, c.Name)
 	writeJSON(w, http.StatusCreated, s.toCAResponse(c))
 }
 
@@ -184,7 +184,7 @@ func (s *Server) handleDeleteCA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	_ = s.store.AddAuditEntry(r.Context(), ActorName(r.Context()), "ca.deleted", id, "")
+	s.recordAuditAction(r.Context(), auditCADeleted, id, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 

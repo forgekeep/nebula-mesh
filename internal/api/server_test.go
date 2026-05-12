@@ -105,8 +105,10 @@ func TestMetrics(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
 	}
-	if !bytes.Contains(w.Body.Bytes(), []byte("cmdline")) {
-		t.Errorf("expected expvar output to contain 'cmdline', got: %s", w.Body.String())
+	// The /metrics path now serves Prometheus exposition. Legacy expvar
+	// content was moved to /debug/vars (see TestExpvarEndpoint_LegacyPath).
+	if !bytes.Contains(w.Body.Bytes(), []byte("nebula_mgmt_")) {
+		t.Errorf("expected prometheus output to contain nebula_mgmt_*, got: %s", w.Body.String())
 	}
 }
 

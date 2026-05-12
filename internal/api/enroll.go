@@ -42,18 +42,22 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	// Consume token (validates one-time use and expiry)
 	tok, err := s.store.ConsumeToken(r.Context(), req.Token)
 	if errors.Is(err, store.ErrNotFound) {
+		s.metrics.recordEnrollment(resultDenied)
 		writeError(w, http.StatusUnauthorized, "invalid enrollment token")
 		return
 	}
 	if errors.Is(err, store.ErrTokenUsed) {
+		s.metrics.recordEnrollment(resultDenied)
 		writeError(w, http.StatusConflict, "enrollment token already used")
 		return
 	}
 	if errors.Is(err, store.ErrTokenExpired) {
+		s.metrics.recordEnrollment(resultDenied)
 		writeError(w, http.StatusGone, "enrollment token expired")
 		return
 	}
 	if err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("consume token", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
@@ -62,10 +66,12 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	// Get host
 	host, err := s.store.GetHost(r.Context(), tok.HostID)
 	if errors.Is(err, store.ErrNotFound) {
+		s.metrics.recordEnrollment(resultError)
 		writeError(w, http.StatusInternalServerError, "host not found")
 		return
 	}
 	if err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("get host for enrollment", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
@@ -74,10 +80,12 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	// Get network
 	network, err := s.store.GetNetwork(r.Context(), host.NetworkID)
 	if errors.Is(err, store.ErrNotFound) {
+		s.metrics.recordEnrollment(resultError)
 		writeError(w, http.StatusInternalServerError, "network not found")
 		return
 	}
 	if err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("get network for enrollment", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
@@ -86,12 +94,14 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	// Parse public key from PEM
 	pubKey, _, _, err := cert.UnmarshalPublicKeyFromPEM([]byte(req.PublicKeyPEM))
 	if err != nil {
+		s.metrics.recordEnrollment(resultDenied)
 		writeError(w, http.StatusBadRequest, "invalid public key PEM")
 		return
 	}
 
 	hostPrefix, err := buildHostPrefix(host.NebulaIP, network.CIDR)
 	if err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("build host prefix", "error", err, "host_ip", host.NebulaIP, "cidr", network.CIDR)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
@@ -100,6 +110,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	// Resolve the CA that owns this host's network and sign with it.
 	caMgr, err := s.caForHost(r.Context(), host)
 	if err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("resolve host CA", "error", err, "host", host.ID, "ca_id", host.CAID)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
@@ -125,14 +136,17 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return c, ca, nil
 	}()
 	if err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("sign certificate", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}
+	s.metrics.recordSignature(host.CAID)
 
 	// Post-sign work — no CA lock needed
 	certPEM, err := hostCert.MarshalPEM()
 	if err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("marshal cert PEM", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
@@ -140,6 +154,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 
 	fp, err := hostCert.Fingerprint()
 	if err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("cert fingerprint", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
@@ -147,6 +162,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 
 	// Save certificate and enroll host atomically
 	if err := s.store.SaveCertificateAndEnrollHost(r.Context(), host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("save certificate and enroll host", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
@@ -157,11 +173,13 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	// embedded in the enrollment response below.
 	networkVersion, err := s.store.GetNetworkConfigVersion(r.Context(), host.NetworkID)
 	if err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("get network config version", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}
 	if err := s.store.UpdateHostConfigVersion(r.Context(), host.ID, networkVersion); err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("update host config version", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
@@ -169,11 +187,13 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 
 	configYAML, err := s.renderHostConfig(r.Context(), host)
 	if err != nil {
+		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("generate config", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}
 
+	s.metrics.recordEnrollment(resultOK)
 	writeJSON(w, http.StatusOK, enrollResponse{
 		CertificatePEM:   string(certPEM),
 		CACertificatePEM: string(caCertPEM),

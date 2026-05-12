@@ -15,6 +15,7 @@ import (
 	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // CAConfig holds paths and passphrase for CA persistence.
@@ -26,26 +27,30 @@ type CAConfig struct {
 
 // Server is the HTTP API server.
 type Server struct {
-	router      chi.Router
-	store       store.Store
-	caMu        sync.RWMutex
-	ca          *pki.CAManager  // legacy single-CA fallback when host.CAID is empty
-	caResolver  *pki.CAResolver // resolves CAs by id from the store (multi-CA)
-	master      *keystore.Master
-	defaultCAID string // id of the seeded default CA (when imported)
-	caConfig    CAConfig
-	logger      *slog.Logger
-	apiKey      string
+	router         chi.Router
+	store          store.Store
+	caMu           sync.RWMutex
+	ca             *pki.CAManager  // legacy single-CA fallback when host.CAID is empty
+	caResolver     *pki.CAResolver // resolves CAs by id from the store (multi-CA)
+	master         *keystore.Master
+	defaultCAID    string // id of the seeded default CA (when imported)
+	caConfig       CAConfig
+	logger         *slog.Logger
+	apiKey         string
+	metrics        *metrics
+	metricsEnabled bool
 }
 
 // NewServer creates a new API server.
 func NewServer(s store.Store, ca *pki.CAManager, apiKey string, logger *slog.Logger, caCfg CAConfig) *Server {
 	srv := &Server{
-		store:    s,
-		ca:       ca,
-		caConfig: caCfg,
-		logger:   logger,
-		apiKey:   apiKey,
+		store:          s,
+		ca:             ca,
+		caConfig:       caCfg,
+		logger:         logger,
+		apiKey:         apiKey,
+		metrics:        newMetrics(s),
+		metricsEnabled: true,
 	}
 	srv.setupRoutes()
 	return srv
@@ -61,6 +66,24 @@ func (s *Server) WithCAResolver(r *pki.CAResolver) {
 // WithMaster sets the master keystore used to create new CAs.
 func (s *Server) WithMaster(m *keystore.Master) { s.master = m }
 
+// RecordLogin records an operator login attempt against the server's
+// Prometheus metrics. Exposed so the Web UI handlers (a separate package)
+// can plumb their login outcomes through without an import cycle.
+//
+// Result is one of "ok" / "denied" / "error"; factor is one of
+// "password" / "totp" / "recovery" / "oidc".
+func (s *Server) RecordLogin(result, factor string) {
+	s.metrics.recordLogin(result, factor)
+}
+
+// WithMetricsEnabled toggles the Prometheus /metrics endpoint. Disable in
+// air-gapped deployments where the exporter is not scraped. Must be called
+// before the router is exercised by ServeHTTP — re-wires the routes.
+func (s *Server) WithMetricsEnabled(enabled bool) {
+	s.metricsEnabled = enabled
+	s.setupRoutes()
+}
+
 // WithDefaultCAID records the id of the CA seeded from the legacy
 // on-disk material. Used when host.CAID matches this id to short-circuit
 // to the legacy in-memory CAManager.
@@ -73,13 +96,17 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(requestLogger(s.logger))
+	r.Use(s.metricsMiddleware())
 	r.Use(maxBodySize(1 << 20)) // 1MB
 
 	// Public endpoints — operations and enrollment
 	r.Get("/health", s.handleHealth) // legacy alias
 	r.Get("/healthz", s.handleHealth)
 	r.Get("/readyz", s.handleReady)
-	r.Method("GET", "/metrics", expvar.Handler())
+	if s.metricsEnabled {
+		r.Method("GET", "/metrics", promhttp.HandlerFor(s.metrics.reg, promhttp.HandlerOpts{}))
+	}
+	r.Method("GET", "/debug/vars", expvar.Handler())
 	r.Post("/api/v1/enroll", s.handleEnroll)
 	r.Get("/api/v1/agent/updates", s.handleAgentUpdates)
 

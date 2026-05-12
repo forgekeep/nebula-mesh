@@ -27,13 +27,28 @@ func (w *Web) Session() *SessionManager { return w.session }
 
 // Web is the web UI handler.
 type Web struct {
-	router                 chi.Router
-	store                  store.Store
-	templates              map[string]*template.Template
-	logger                 *slog.Logger
-	session                *SessionManager
-	oidc                   *OIDC
-	allowSelfRegistration  bool
+	router                chi.Router
+	store                 store.Store
+	templates             map[string]*template.Template
+	logger                *slog.Logger
+	session               *SessionManager
+	oidc                  *OIDC
+	allowSelfRegistration bool
+	loginRecorder         func(result, factor string)
+}
+
+// WithLoginRecorder wires an external sink (typically the API server's
+// Prometheus metrics) that observes the outcome of every UI login attempt.
+// Must be set before ServeHTTP is invoked. Passing nil disables recording.
+func (w *Web) WithLoginRecorder(f func(result, factor string)) {
+	w.loginRecorder = f
+}
+
+// recordLogin is a nil-safe convenience wrapper used by the login handlers.
+func (w *Web) recordLogin(result, factor string) {
+	if w.loginRecorder != nil {
+		w.loginRecorder(result, factor)
+	}
 }
 
 // AllowSelfRegistration enables the public /ui/register flow. Must be set

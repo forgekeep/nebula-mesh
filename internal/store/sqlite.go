@@ -59,7 +59,20 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	return &SQLiteStore{db: db}, nil
 }
 
-// Migrate applies all pending migrations.
+// Migrate applies all pending migrations. Each migration file is executed
+// at most once per database — its name is recorded in `schema_migrations`
+// once applied. This fixes two latent issues:
+//
+//   - Destructive recreate-style migrations (e.g. 004_blocklist_fk, which
+//     rebuilds `blocklist` via blocklist_new + RENAME) used to run on every
+//     start, silently dropping columns that later migrations had added.
+//   - Multi-statement migration files used to be Exec'd as one string;
+//     `modernc.org/sqlite` stops processing the remainder of the blob on
+//     the first error (e.g. a duplicate-column ALTER), so the trailing
+//     statements were skipped. We now split each file by top-level `;`
+//     boundaries and Exec one statement at a time.
+//
+// See https://github.com/juev/nebula-mesh/issues/37.
 func (s *SQLiteStore) Migrate(_ context.Context) error {
 	migrationFiles := []string{
 		"001_initial.up.sql",
@@ -72,19 +85,151 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"008_host_advanced.up.sql",
 		"009_per_operator_cas.up.sql",
 	}
+
+	// Tracking table. Created once; idempotent on subsequent starts.
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		name        TEXT PRIMARY KEY,
+		applied_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+
 	for _, f := range migrationFiles {
+		applied, err := s.migrationApplied(f)
+		if err != nil {
+			return fmt.Errorf("check migration %s: %w", f, err)
+		}
+		if applied {
+			continue
+		}
 		sqlBytes, err := migrations.FS.ReadFile(f)
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", f, err)
 		}
-		if _, err := s.db.Exec(string(sqlBytes)); err != nil {
-			// Ignore "duplicate column" errors for idempotent ALTER TABLE
-			if !isDuplicateColumnErr(err) {
-				return fmt.Errorf("apply migration %s: %w", f, err)
+		for _, stmt := range splitSQLStatements(string(sqlBytes)) {
+			if _, err := s.db.Exec(stmt); err != nil {
+				if isDuplicateColumnErr(err) {
+					// Tolerated for backward compatibility with DBs that
+					// partially applied a buggy earlier version of this
+					// migration loader.
+					continue
+				}
+				return fmt.Errorf("apply migration %s stmt %q: %w", f, firstLine(stmt), err)
 			}
 		}
+		if _, err := s.db.Exec(`INSERT OR REPLACE INTO schema_migrations(name) VALUES (?)`, f); err != nil {
+			return fmt.Errorf("record migration %s: %w", f, err)
+		}
+	}
+
+	// Repair path for databases that applied the broken pre-#37 loader:
+	// `blocklist` may be missing the `ca_id` column even though every
+	// migration is now flagged as applied. Re-run the affected ALTER
+	// outside the normal migration flow so existing installs heal on the
+	// next start.
+	if err := s.repairBlocklistCAID(); err != nil {
+		return fmt.Errorf("repair blocklist ca_id: %w", err)
 	}
 	return nil
+}
+
+func (s *SQLiteStore) migrationApplied(name string) (bool, error) {
+	var got string
+	row := s.db.QueryRow(`SELECT name FROM schema_migrations WHERE name = ?`, name)
+	if err := row.Scan(&got); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return got == name, nil
+}
+
+// repairBlocklistCAID heals databases that ran the buggy multi-statement
+// migration loader before issue #37 was fixed. If `blocklist.ca_id` is
+// absent, add it (together with its index) so multi-CA logic works.
+func (s *SQLiteStore) repairBlocklistCAID() error {
+	row := s.db.QueryRow(`SELECT COUNT(1) FROM pragma_table_info('blocklist') WHERE name = 'ca_id'`)
+	var n int
+	if err := row.Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(`ALTER TABLE blocklist ADD COLUMN ca_id TEXT NOT NULL DEFAULT ''`); err != nil {
+		if !isDuplicateColumnErr(err) {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_blocklist_ca ON blocklist(ca_id)`); err != nil {
+		return err
+	}
+	return nil
+}
+
+// splitSQLStatements splits a SQL script on top-level `;` boundaries. It
+// understands single- and double-quoted strings and `--` line comments,
+// which is enough for the migration files we ship (no nested BEGIN/END or
+// string-quoted semicolons elsewhere). Empty trailing statements are
+// dropped.
+func splitSQLStatements(src string) []string {
+	var (
+		out      []string
+		current  []byte
+		inSingle bool
+		inDouble bool
+		inLine   bool
+		paren    int
+	)
+	for i := 0; i < len(src); i++ {
+		c := src[i]
+		if inLine {
+			current = append(current, c)
+			if c == '\n' {
+				inLine = false
+			}
+			continue
+		}
+		switch {
+		case !inSingle && !inDouble && c == '-' && i+1 < len(src) && src[i+1] == '-':
+			inLine = true
+			current = append(current, c)
+		case !inDouble && c == '\'':
+			inSingle = !inSingle
+			current = append(current, c)
+		case !inSingle && c == '"':
+			inDouble = !inDouble
+			current = append(current, c)
+		case !inSingle && !inDouble && c == '(':
+			paren++
+			current = append(current, c)
+		case !inSingle && !inDouble && c == ')':
+			if paren > 0 {
+				paren--
+			}
+			current = append(current, c)
+		case !inSingle && !inDouble && paren == 0 && c == ';':
+			stmt := strings.TrimSpace(string(current))
+			if stmt != "" {
+				out = append(out, stmt)
+			}
+			current = current[:0]
+		default:
+			current = append(current, c)
+		}
+	}
+	if tail := strings.TrimSpace(string(current)); tail != "" {
+		out = append(out, tail)
+	}
+	return out
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 func isDuplicateColumnErr(err error) bool {

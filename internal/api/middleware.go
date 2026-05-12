@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/store"
 )
 
@@ -100,6 +101,27 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.status = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// rateLimitMiddleware applies the per-IP token-bucket limiter for the
+// named route group. When the server has no limiter wired up (Enabled=
+// false in config) requests pass through unchanged.
+func (s *Server) rateLimitMiddleware(group string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if s.limiter == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			ip := s.limiter.ClientIP(r)
+			ok, retry := s.limiter.Allow(ip, group)
+			if !ok {
+				ratelimit.WriteRetryAfter(w, retry)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // metricsMiddleware records every served HTTP request and its server-side

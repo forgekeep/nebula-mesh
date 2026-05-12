@@ -40,6 +40,39 @@ type ServerConfig struct {
 	// Alerts configures the cert-expiry alerter (see issue #41). Disabled
 	// by default — operators must opt in by setting Enabled=true.
 	Alerts AlertsConfig `yaml:"alerts,omitempty"`
+
+	// RateLimit configures the per-IP, per-route-group token-bucket
+	// limiter that fronts the Web UI and API (see issue #52). Enabled
+	// by default so login + enrolment endpoints are protected from
+	// online brute-force out of the box.
+	RateLimit RateLimitConfig `yaml:"rate_limit,omitempty"`
+}
+
+// RateLimitConfig drives the rate-limit middleware. Enabled defaults to
+// true; turn it off in trusted-network deployments by setting
+// `rate_limit: { enabled: false }`. Set `trust_proxy_header: true` when
+// running behind a reverse proxy that adds X-Forwarded-For.
+type RateLimitConfig struct {
+	// Enabled is a pointer so an absent YAML block defaults to "true"
+	// (issue #52 requires on-by-default) while still allowing a
+	// `rate_limit: { enabled: false }` to disable it.
+	Enabled          *bool                          `yaml:"enabled,omitempty"`
+	TrustProxyHeader bool                           `yaml:"trust_proxy_header,omitempty"`
+	Groups           map[string]RateLimitGroupConfig `yaml:"groups,omitempty"`
+}
+
+// RateLimitGroupConfig is the per-group rate/burst pair.
+type RateLimitGroupConfig struct {
+	Rate  float64 `yaml:"rate"`
+	Burst int     `yaml:"burst"`
+}
+
+// IsEnabled returns whether the limiter should run. Default: true.
+func (c RateLimitConfig) IsEnabled() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
 }
 
 // AlertsConfig drives the periodic cert-expiry scanner and its sinks.

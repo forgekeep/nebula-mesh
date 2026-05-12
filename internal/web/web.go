@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/store"
 )
 
@@ -36,6 +37,37 @@ type Web struct {
 	allowSelfRegistration bool
 	loginRecorder         func(result, factor string)
 	events                *EventBus
+	limiter               *ratelimit.Limiter
+}
+
+// WithRateLimiter wires a shared rate limiter so auth + UI routes pick
+// up the same per-IP buckets the API server uses. nil disables limiting.
+func (w *Web) WithRateLimiter(l *ratelimit.Limiter) {
+	w.limiter = l
+	w.setupRoutes()
+}
+
+// rateLimitMiddleware blocks requests for ip+group when the bucket is
+// drained. Audit log calls are made by the handler when the request is
+// admitted; rate-limited refusals only emit the 429 + Retry-After here.
+func (w *Web) rateLimitMiddleware(group string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			if w.limiter == nil {
+				next.ServeHTTP(rw, r)
+				return
+			}
+			ip := w.limiter.ClientIP(r)
+			ok, retry := w.limiter.Allow(ip, group)
+			if !ok {
+				masked := ratelimit.MaskIP(ip)
+				_ = w.store.AddAuditEntry(r.Context(), "anonymous", "auth.rate_limited", masked, "route="+group)
+				ratelimit.WriteRetryAfter(rw, retry)
+				return
+			}
+			next.ServeHTTP(rw, r)
+		})
+	}
 }
 
 // WithLoginRecorder wires an external sink (typically the API server's
@@ -64,7 +96,7 @@ func (w *Web) WithOIDC(o *OIDC) {
 		return
 	}
 	w.router.Get("/ui/oidc/login", o.HandleLogin)
-	w.router.Get("/ui/oidc/callback", o.HandleCallback)
+	w.router.With(w.rateLimitMiddleware("auth")).Get("/ui/oidc/callback", o.HandleCallback)
 }
 
 // New creates a new Web UI handler.
@@ -117,16 +149,19 @@ func (w *Web) setupRoutes() {
 	// Favicon (public, served from embedded SVG)
 	r.Get("/favicon.ico", w.handleFavicon)
 
-	// Login (public)
+	// Login (public). Auth-group rate limit only on the form submissions
+	// — GET pages render the form and a 429 there would just confuse
+	// legitimate users who haven't yet pressed Submit.
 	r.Get("/ui/login", w.handleLoginPage)
-	r.Post("/ui/login", w.handleLogin)
+	r.With(w.rateLimitMiddleware("auth")).Post("/ui/login", w.handleLogin)
 	r.Get("/ui/login/totp", w.handleTOTPLoginPage)
-	r.Post("/ui/login/totp", w.handleTOTPLogin)
+	r.With(w.rateLimitMiddleware("auth")).Post("/ui/login/totp", w.handleTOTPLogin)
 	r.Get("/ui/register", w.handleRegisterPage)
-	r.Post("/ui/register", w.handleRegister)
+	r.With(w.rateLimitMiddleware("auth")).Post("/ui/register", w.handleRegister)
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
+		r.Use(w.rateLimitMiddleware("ui"))
 		r.Use(w.requireAuth)
 		r.Get("/ui/", w.handleDashboard)
 		r.Get("/ui/hosts", w.handleHosts)

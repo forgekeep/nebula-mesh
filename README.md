@@ -344,6 +344,7 @@ Non-admin operators see and manage only the CAs they own; admins see all. Hosts 
 - **Docker** — `docker build -t nebula-mgmt .` (Dockerfile in repo).
 - **systemd** — unit files in [`deploy/systemd/`](deploy/systemd/).
 - **TLS** — set `tls_cert` + `tls_key` for in-process TLS, or front with nginx/caddy/traefik.
+- **Rate limiting** — on by default. The Web UI, auth endpoints, `/api/v1/enroll`, and the bearer-authenticated admin API each run their own per-IP token bucket. Defaults: 5 req/s on login forms (burst 10), 2 req/s on enrolment (burst 5), 30 req/s on UI + admin API (burst 60), 60 req/s on agent polls (burst 120). Health (`/healthz`, `/readyz`, `/metrics`, `/debug/vars`, `/favicon.ico`, `/static/*`) is exempt. Run behind a reverse proxy? Set `rate_limit.trust_proxy_header: true` so the limiter keys on `X-Forwarded-For` instead of the proxy's connection address.
 
 ### Backups & key handling
 
@@ -387,7 +388,7 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 </details>
 
 <details open>
-<summary><strong>Roadmap</strong> — what's next (7 open issues)</summary>
+<summary><strong>Roadmap</strong> — what's next (6 open issues)</summary>
 <a name="roadmap"></a>
 
 
@@ -399,9 +400,8 @@ Open issues tracked individually so you can subscribe to the ones you care about
 - [#48](https://github.com/juev/nebula-mesh/issues/48) — Configurable password policy (length, character classes, common-passwords)
 - [#49](https://github.com/juev/nebula-mesh/issues/49) — Admin-enforced 2FA: `enforce_2fa` toggle, forced enrolment gate after login
 - [#51](https://github.com/juev/nebula-mesh/issues/51) — `.deb`/`.rpm` packaging polish + official nginx/caddy/traefik snippets
-- [#52](https://github.com/juev/nebula-mesh/issues/52) — Rate-limit the Web UI and auth endpoints (5 req/s on login by default)
 
-Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), distro packages (deb/rpm) and the cross-platform agent build matrix.
+Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, distro packages (deb/rpm) and the cross-platform agent build matrix.
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 

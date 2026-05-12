@@ -150,6 +150,22 @@ sudo nebula-agent run --config /etc/nebula-agent/agent.yml
 
 The agent now keeps `host.crt` / `host.key` / `ca.crt` / `config.yml` in sync and signals Nebula on changes.
 
+### 3. Manage hosts from the CLI
+
+```sh
+# List hosts (optionally filter by network)
+nebula-mgmt host list --server https://mgmt.example.com:8080 --api-key "$API_KEY"
+
+# Block a host (revokes cert via blocklist, status → blocked)
+nebula-mgmt host block   --server ... --api-key "$API_KEY" --id "$HOST_ID"
+
+# Unblock a host (status → pending; re-enrollment required for a new cert)
+nebula-mgmt host unblock --server ... --api-key "$API_KEY" --id "$HOST_ID"
+
+# Delete a host (also blocklists any existing cert)
+nebula-mgmt host delete  --server ... --api-key "$API_KEY" --id "$HOST_ID"
+```
+
 ## Deployment
 
 - **Docker** — `docker build -t nebula-mgmt .` (Dockerfile in repo).

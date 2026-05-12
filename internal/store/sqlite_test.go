@@ -1001,6 +1001,80 @@ func TestBlockHostAndAddToBlocklist_NotFound(t *testing.T) {
 	}
 }
 
+// --- Atomic Unblock Host ---
+
+func TestUnblockHostAndRemoveFromBlocklist(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_unblock", NetworkID: net.ID, Name: "unblock-me",
+		NebulaIP: "192.168.100.40", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	h.CertFingerprint = "fp-unblock-789"
+	if err := s.UpdateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.BlockHostAndAddToBlocklist(ctx, h.ID, "first blocked"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.UnblockHostAndRemoveFromBlocklist(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != models.HostStatusPending {
+		t.Errorf("status = %q, want pending", got.Status)
+	}
+
+	// fingerprint must be removed from blocklist
+	bl, _ := s.GetBlocklist(ctx)
+	for _, fp := range bl {
+		if fp == "fp-unblock-789" {
+			t.Error("fingerprint still in blocklist after unblock")
+		}
+	}
+}
+
+func TestUnblockHostAndRemoveFromBlocklist_NoCert(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_unblock_nocert", NetworkID: net.ID, Name: "no-cert-unblock",
+		NebulaIP: "192.168.100.41", Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusBlocked,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.UnblockHostAndRemoveFromBlocklist(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != models.HostStatusPending {
+		t.Errorf("status = %q, want pending", got.Status)
+	}
+}
+
+func TestUnblockHostAndRemoveFromBlocklist_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.UnblockHostAndRemoveFromBlocklist(context.Background(), "nonexistent")
+	if err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
 // --- Atomic Delete Host ---
 
 func TestDeleteHostAndBlockCert(t *testing.T) {

@@ -303,6 +303,70 @@ func TestDeleteHost(t *testing.T) {
 	}
 }
 
+func TestBlockAndUnblockHost(t *testing.T) {
+	srv, st := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	body, _ := json.Marshal(createHostRequest{
+		NetworkID: netID, Name: "block-cycle", NebulaIP: "192.168.100.50",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	var resp createHostResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	// Block
+	req = httptest.NewRequest("POST", "/api/v1/hosts/"+resp.Host.ID+"/block", nil)
+	authRequest(req)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("block status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+
+	// Verify host is blocked
+	got, err := st.GetHost(context.Background(), resp.Host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "blocked" {
+		t.Errorf("status after block = %q, want blocked", got.Status)
+	}
+
+	// Unblock
+	req = httptest.NewRequest("POST", "/api/v1/hosts/"+resp.Host.ID+"/unblock", nil)
+	authRequest(req)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("unblock status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+
+	got, err = st.GetHost(context.Background(), resp.Host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "pending" {
+		t.Errorf("status after unblock = %q, want pending", got.Status)
+	}
+}
+
+func TestUnblockHost_NotFound(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/v1/hosts/nonexistent/unblock", nil)
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
 func TestDeleteHost_WithCertBlocklisted(t *testing.T) {
 	srv, st := newTestServer(t)
 	netID := createNetwork(t, srv)

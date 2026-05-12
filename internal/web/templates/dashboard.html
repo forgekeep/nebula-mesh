@@ -40,7 +40,7 @@
         <tr>
             <td><a href="/ui/hosts/{{.ID}}">{{.Name}}</a></td>
             <td>{{.NebulaIP}}</td>
-            <td>{{.NetworkID}}</td>
+            <td><span title="{{.NetworkID}}">{{if .NetworkName}}{{.NetworkName}}{{else}}{{.NetworkID}}{{end}}</span></td>
             <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
         </tr>
         {{end}}

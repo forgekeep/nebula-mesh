@@ -51,6 +51,8 @@ func run() error {
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: nebula-mgmt <command> [flags]")
 	fmt.Fprintln(os.Stderr, "commands: init, serve, host, network, version")
+	fmt.Fprintln(os.Stderr, "  host <create|list|delete|block|unblock>")
+	fmt.Fprintln(os.Stderr, "  network <create|list>")
 }
 
 func runInit(args []string) error {
@@ -76,7 +78,7 @@ func runServe(args []string) error {
 
 func runHost(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: nebula-mgmt host <create|list>")
+		return fmt.Errorf("usage: nebula-mgmt host <create|list|delete|block|unblock>")
 	}
 
 	switch args[0] {
@@ -84,9 +86,29 @@ func runHost(args []string) error {
 		return runHostCreate(args[1:])
 	case "list":
 		return runHostList(args[1:])
+	case "delete":
+		return runHostAction(args[1:], "host delete", cli.HostDelete)
+	case "block":
+		return runHostAction(args[1:], "host block", cli.HostBlock)
+	case "unblock":
+		return runHostAction(args[1:], "host unblock", cli.HostUnblock)
 	default:
 		return fmt.Errorf("unknown host subcommand: %s", args[0])
 	}
+}
+
+func runHostAction(args []string, name string, action func(serverURL, apiKey, hostID string) error) error {
+	fs := flag.NewFlagSet(name, flag.ExitOnError)
+	server := fs.String("server", "http://localhost:8080", "management server URL")
+	apiKey := fs.String("api-key", "", "API key")
+	id := fs.String("id", "", "host ID")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *id == "" || *apiKey == "" {
+		return fmt.Errorf("--id and --api-key are required")
+	}
+	return action(*server, *apiKey, *id)
 }
 
 func runHostCreate(args []string) error {

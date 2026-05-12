@@ -39,6 +39,7 @@ type Store interface {
 	UpdateHostStatus(ctx context.Context, id string, status models.HostStatus) error
 	DeleteHost(ctx context.Context, id string) error
 	BlockHostAndAddToBlocklist(ctx context.Context, id, reason string) (*models.Host, error)
+	UnblockHostAndRemoveFromBlocklist(ctx context.Context, id string) (*models.Host, error)
 	DeleteHostAndBlockCert(ctx context.Context, id, reason string) error
 
 	// Enrollment tokens

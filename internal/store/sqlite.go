@@ -430,6 +430,58 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(_ context.Context, id, reason s
 	return h, nil
 }
 
+// UnblockHostAndRemoveFromBlocklist atomically marks a blocked host as pending
+// and removes its certificate fingerprint from the blocklist. The host must
+// re-enroll to obtain a new certificate after unblocking.
+func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(_ context.Context, id string) (*models.Host, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	row := tx.QueryRow(`SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
+	h, err := s.scanHost(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get host: %w", err)
+	}
+
+	if h.CertFingerprint != "" {
+		if _, err := tx.Exec(`DELETE FROM blocklist WHERE fingerprint = ?`, h.CertFingerprint); err != nil {
+			return nil, fmt.Errorf("remove from blocklist: %w", err)
+		}
+	}
+
+	result, err := tx.Exec(
+		`UPDATE hosts SET status=?, updated_at=? WHERE id=?`,
+		models.HostStatusPending, time.Now(), id,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("update host status: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("update host status rows affected: %w", err)
+	}
+	if rows == 0 {
+		return nil, ErrNotFound
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit unblock host: %w", err)
+	}
+
+	h.Status = models.HostStatusPending
+	return h, nil
+}
+
 // DeleteHostAndBlockCert atomically deletes a host and adds its cert to the blocklist.
 func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason string) error {
 	tx, err := s.db.Begin()

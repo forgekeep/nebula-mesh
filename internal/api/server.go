@@ -73,6 +73,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/v1/hosts/{id}", s.handleGetHost)
 		r.Delete("/api/v1/hosts/{id}", s.handleDeleteHost)
 		r.Post("/api/v1/hosts/{id}/block", s.handleBlockHost)
+		r.Post("/api/v1/hosts/{id}/unblock", s.handleUnblockHost)
 		r.Get("/api/v1/blocklist", s.handleGetBlocklist)
 		r.Get("/api/v1/ca", s.handleGetCA)
 		r.Post("/api/v1/ca/rotate", s.handleRotateCA)

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // HostCreate creates a host via the API.
@@ -68,6 +69,55 @@ func HostCreate(serverURL, apiKey, networkID, name, nebulaIP, role string, group
 
 	fmt.Printf("Host created: %s (ID: %s)\n", result.Host.Name, result.Host.ID)
 	fmt.Printf("Enrollment token: %s\n", result.EnrollmentToken)
+	return nil
+}
+
+// HostDelete deletes a host via the API.
+func HostDelete(serverURL, apiKey, hostID string) error {
+	return doHostAction(serverURL, apiKey, "DELETE", "/api/v1/hosts/"+hostID, http.StatusNoContent, "deleted")
+}
+
+// HostBlock blocks a host via the API.
+func HostBlock(serverURL, apiKey, hostID string) error {
+	return doHostAction(serverURL, apiKey, "POST", "/api/v1/hosts/"+hostID+"/block", http.StatusOK, "blocked")
+}
+
+// HostUnblock unblocks a host via the API. The host is moved back to pending
+// and must re-enroll to obtain a new certificate.
+func HostUnblock(serverURL, apiKey, hostID string) error {
+	return doHostAction(serverURL, apiKey, "POST", "/api/v1/hosts/"+hostID+"/unblock", http.StatusOK, "unblocked (re-enrollment required)")
+}
+
+func doHostAction(serverURL, apiKey, method, path string, wantStatus int, verb string) error {
+	if apiKey == "" {
+		return fmt.Errorf("--api-key is required")
+	}
+	if serverURL == "" {
+		return fmt.Errorf("--server is required")
+	}
+
+	req, err := http.NewRequest(method, serverURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request: %w", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Error("close response body", "error", err)
+		}
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != wantStatus {
+		return fmt.Errorf("failed (HTTP %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	fmt.Printf("Host %s.\n", verb)
 	return nil
 }
 

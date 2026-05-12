@@ -168,6 +168,22 @@ func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, host)
 }
 
+func (s *Server) handleUnblockHost(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	host, err := s.store.UnblockHostAndRemoveFromBlocklist(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "host not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("unblock host", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to unblock host")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, host)
+}
+
 func (s *Server) handleGetBlocklist(w http.ResponseWriter, r *http.Request) {
 	list, err := s.store.GetBlocklist(r.Context())
 	if err != nil {

@@ -49,6 +49,20 @@ func (w *Web) handleLogout(rw http.ResponseWriter, r *http.Request) {
 	http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 }
 
+func (w *Web) handleFavicon(rw http.ResponseWriter, _ *http.Request) {
+	data, err := staticFS.ReadFile("static/favicon.svg")
+	if err != nil {
+		w.logger.Error("read favicon", "error", err)
+		http.Error(rw, "favicon not found", http.StatusNotFound)
+		return
+	}
+	rw.Header().Set("Content-Type", "image/svg+xml")
+	rw.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := rw.Write(data); err != nil {
+		w.logger.Error("write favicon", "error", err)
+	}
+}
+
 // --- Dashboard ---
 
 // hostView is a view-model that augments models.Host with the resolved

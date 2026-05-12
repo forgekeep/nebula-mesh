@@ -1,0 +1,64 @@
+package pki
+
+import (
+	"context"
+	"crypto/ed25519"
+	"fmt"
+
+	"github.com/juev/nebula-mesh/internal/keystore"
+	"github.com/juev/nebula-mesh/internal/models"
+)
+
+// CAStore is the subset of the application store interface required by
+// CAResolver. Kept narrow so this package can depend only on what it uses.
+type CAStore interface {
+	GetCA(ctx context.Context, id string) (*models.CA, error)
+}
+
+// CAResolver loads CAs from the database, decrypts their private key
+// material with the master keystore, and returns a CAManager bound to the
+// requested CA. The unwrapped key material lives only inside the returned
+// manager; CAResolver does NOT cache anything across calls so a disable /
+// rotation takes effect immediately.
+type CAResolver struct {
+	store  CAStore
+	master *keystore.Master
+}
+
+// NewCAResolver builds a resolver. The master keystore must be the same
+// one used when CAs were created/imported.
+func NewCAResolver(store CAStore, master *keystore.Master) *CAResolver {
+	return &CAResolver{store: store, master: master}
+}
+
+// LoadByID returns a CAManager for the CA identified by caID. The caller
+// is responsible for not retaining the manager beyond the signing scope.
+func (r *CAResolver) LoadByID(ctx context.Context, caID string) (*CAManager, error) {
+	if r == nil {
+		return nil, fmt.Errorf("CAResolver is nil")
+	}
+	if r.master == nil {
+		return nil, fmt.Errorf("master keystore not configured")
+	}
+	c, err := r.store.GetCA(ctx, caID)
+	if err != nil {
+		return nil, fmt.Errorf("load CA %s: %w", caID, err)
+	}
+	dek, err := r.master.UnwrapDEK(keystore.WrappedKey{
+		Ciphertext: c.EncryptedKeyDEK,
+		Nonce:      c.NonceDEK,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unwrap DEK for CA %s: %w", caID, err)
+	}
+	defer keystore.Zeroize(dek)
+
+	keyBytes, err := keystore.OpenWithDEK(dek, keystore.WrappedBlob{
+		Ciphertext: c.EncryptedKeyMaterial,
+		Nonce:      c.NonceKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("decrypt CA %s key: %w", caID, err)
+	}
+	return LoadCAFromMaterial([]byte(c.CertPEM), ed25519.PrivateKey(keyBytes))
+}

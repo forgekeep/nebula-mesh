@@ -31,6 +31,7 @@ func ValidRole(r HostRole) bool {
 type Host struct {
 	ID              string         `json:"id"`
 	NetworkID       string         `json:"network_id"`
+	CAID            string         `json:"ca_id,omitempty"`
 	Name            string         `json:"name"`
 	NebulaIP        string         `json:"nebula_ip"`
 	Groups          []string       `json:"groups"`

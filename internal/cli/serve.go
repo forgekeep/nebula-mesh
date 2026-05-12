@@ -13,6 +13,7 @@ import (
 
 	"github.com/juev/nebula-mesh/internal/api"
 	"github.com/juev/nebula-mesh/internal/config"
+	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/juev/nebula-mesh/internal/web"
@@ -114,12 +115,48 @@ func Serve(configPath string) error {
 		logger.Info("seeded initial admin operator", "username", DefaultAdminUsername)
 	}
 
+	// Master keystore (optional but required for per-operator CAs)
+	masterB64 := cfg.MasterKey
+	if env := os.Getenv("NEBULA_MGMT_MASTER_KEY"); env != "" {
+		masterB64 = env
+	}
+	var (
+		master      *keystore.Master
+		caResolver  *pki.CAResolver
+		defaultCAID string
+	)
+	if masterB64 != "" {
+		master, err = keystore.NewMasterFromBase64(masterB64)
+		if err != nil {
+			return fmt.Errorf("master key: %w", err)
+		}
+		caResolver = pki.NewCAResolver(s, master)
+
+		// Import legacy on-disk CA into the cas table on first start.
+		adminOp, lookupErr := s.GetOperatorByUsername(migrateCtx, DefaultAdminUsername)
+		if lookupErr == nil {
+			defaultCAID, _, err = ImportLegacyCAIfNeeded(
+				migrateCtx, s, master, certPath, keyPath, passphrase, adminOp.ID,
+			)
+			if err != nil {
+				return fmt.Errorf("import legacy CA: %w", err)
+			}
+		}
+	} else {
+		logger.Warn("NEBULA_MGMT_MASTER_KEY is unset; per-operator CAs are disabled and existing single-CA flows continue to work")
+	}
+
 	// Create API server
 	apiSrv := api.NewServer(s, ca, cfg.APIKey, logger, api.CAConfig{
 		CertPath:   certPath,
 		KeyPath:    keyPath,
 		Passphrase: passphrase,
 	})
+	if caResolver != nil {
+		apiSrv.WithCAResolver(caResolver)
+		apiSrv.WithMaster(master)
+		apiSrv.WithDefaultCAID(defaultCAID)
+	}
 
 	// Create Web UI
 	webUI, err := web.New(s, logger)

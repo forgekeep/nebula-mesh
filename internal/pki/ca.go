@@ -83,6 +83,30 @@ func LoadCA(certPath, keyPath, passphrase string) (*CAManager, error) {
 	return &CAManager{caCert: c, caKey: rawKey}, nil
 }
 
+// LoadCAFromMaterial builds a CAManager from a PEM-encoded CA certificate
+// and the raw ed25519 private key. Used by the DB-backed multi-CA path
+// where key material is decrypted on demand via the keystore package.
+func LoadCAFromMaterial(certPEM []byte, rawKey ed25519.PrivateKey) (*CAManager, error) {
+	c, _, err := cert.UnmarshalCertificateFromPEM(certPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA cert: %w", err)
+	}
+	if !c.IsCA() {
+		return nil, fmt.Errorf("certificate is not a CA")
+	}
+	if len(rawKey) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf("raw key length: %d, want %d", len(rawKey), ed25519.PrivateKeySize)
+	}
+	return &CAManager{caCert: c, caKey: rawKey}, nil
+}
+
+// RawKey returns the in-memory ed25519 private key. Used by the migration
+// path to re-encrypt a legacy file-based CA under the master key. Treat
+// the returned slice as sensitive and zeroise once done.
+func (m *CAManager) RawKey() ed25519.PrivateKey {
+	return m.caKey
+}
+
 // Save writes the CA certificate and encrypted key to disk.
 func (m *CAManager) Save(certPath, keyPath, passphrase string) error {
 	certPEM, err := m.caCert.MarshalPEM()

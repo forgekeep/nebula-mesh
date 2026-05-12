@@ -43,6 +43,8 @@ func run() error {
 		return runUser(os.Args[2:])
 	case "apikey":
 		return runAPIKey(os.Args[2:])
+	case "ca":
+		return runCA(os.Args[2:])
 	case "version", "--version", "-v":
 		version.Print(os.Stdout, "nebula-mgmt", versionStr, commit, date)
 		return nil
@@ -54,11 +56,12 @@ func run() error {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: nebula-mgmt <command> [flags]")
-	fmt.Fprintln(os.Stderr, "commands: init, serve, host, network, user, apikey, version")
+	fmt.Fprintln(os.Stderr, "commands: init, serve, host, network, user, apikey, ca, version")
 	fmt.Fprintln(os.Stderr, "  host <create|list|delete|block|unblock>")
 	fmt.Fprintln(os.Stderr, "  network <create|list>")
 	fmt.Fprintln(os.Stderr, "  user <create|list|disable|enable>")
 	fmt.Fprintln(os.Stderr, "  apikey <create|revoke>")
+	fmt.Fprintln(os.Stderr, "  ca <create|list|delete>")
 }
 
 func runInit(args []string) error {
@@ -238,6 +241,50 @@ func runUserList(args []string) error {
 		return fmt.Errorf("--api-key is required")
 	}
 	return cli.UserList(*server, *apiKey)
+}
+
+func runCA(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: nebula-mgmt ca <create|list|delete>")
+	}
+	switch args[0] {
+	case "create":
+		return runCACreate(args[1:])
+	case "list":
+		return runCAList(args[1:])
+	case "delete":
+		return runHostAction(args[1:], "ca delete", cli.CADelete)
+	default:
+		return fmt.Errorf("unknown ca subcommand: %s", args[0])
+	}
+}
+
+func runCACreate(args []string) error {
+	fs := flag.NewFlagSet("ca create", flag.ExitOnError)
+	server := fs.String("server", "http://localhost:8080", "management server URL")
+	apiKey := fs.String("api-key", "", "API key (must belong to a real operator, not the legacy config key)")
+	name := fs.String("name", "", "CA name")
+	duration := fs.String("duration", "8760h", "CA lifetime, Go duration string (default 1 year)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *apiKey == "" || *name == "" {
+		return fmt.Errorf("--api-key and --name are required")
+	}
+	return cli.CACreate(*server, *apiKey, *name, *duration)
+}
+
+func runCAList(args []string) error {
+	fs := flag.NewFlagSet("ca list", flag.ExitOnError)
+	server := fs.String("server", "http://localhost:8080", "management server URL")
+	apiKey := fs.String("api-key", "", "API key")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *apiKey == "" {
+		return fmt.Errorf("--api-key is required")
+	}
+	return cli.CAList(*server, *apiKey)
 }
 
 func runAPIKey(args []string) error {

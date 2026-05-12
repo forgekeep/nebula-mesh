@@ -10,6 +10,13 @@ log_level: "info"
 tls_cert: ""
 tls_key: ""
 
+# Base64-encoded 32-byte AES-256 master key used to wrap per-CA data keys
+# in the cas table (ADR 0002). May also be supplied via the
+# NEBULA_MGMT_MASTER_KEY env var. Required for per-operator CAs; when
+# unset, only the legacy single-CA flow works.
+#   openssl rand -base64 32
+master_key: ""
+
 # Allow unauthenticated visitors to register their own operator account via
 # /ui/register. Default is false: only the seeded admin (or an existing admin
 # calling POST /api/v1/operators) can add operators in a closed deployment.

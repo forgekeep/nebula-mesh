@@ -70,6 +70,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"006_operator_totp.up.sql",
 		"007_operator_oidc.up.sql",
 		"008_host_advanced.up.sql",
+		"009_per_operator_cas.up.sql",
 	}
 	for _, f := range migrationFiles {
 		sqlBytes, err := migrations.FS.ReadFile(f)
@@ -109,8 +110,8 @@ func (s *SQLiteStore) Ping(ctx context.Context) error {
 
 func (s *SQLiteStore) CreateNetwork(_ context.Context, n *models.Network) error {
 	_, err := s.db.Exec(
-		`INSERT INTO networks (id, name, cidr, created_at) VALUES (?, ?, ?, ?)`,
-		n.ID, n.Name, n.CIDR, n.CreatedAt,
+		`INSERT INTO networks (id, name, cidr, created_at, ca_id) VALUES (?, ?, ?, ?, ?)`,
+		n.ID, n.Name, n.CIDR, n.CreatedAt, n.CAID,
 	)
 	if err != nil {
 		return fmt.Errorf("insert network: %w", err)
@@ -121,8 +122,8 @@ func (s *SQLiteStore) CreateNetwork(_ context.Context, n *models.Network) error 
 func (s *SQLiteStore) GetNetwork(_ context.Context, id string) (*models.Network, error) {
 	n := &models.Network{}
 	err := s.db.QueryRow(
-		`SELECT id, name, cidr, created_at FROM networks WHERE id = ?`, id,
-	).Scan(&n.ID, &n.Name, &n.CIDR, &n.CreatedAt)
+		`SELECT id, name, cidr, created_at, ca_id FROM networks WHERE id = ?`, id,
+	).Scan(&n.ID, &n.Name, &n.CIDR, &n.CreatedAt, &n.CAID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -133,7 +134,7 @@ func (s *SQLiteStore) GetNetwork(_ context.Context, id string) (*models.Network,
 }
 
 func (s *SQLiteStore) ListNetworks(_ context.Context) ([]*models.Network, error) {
-	rows, err := s.db.Query(`SELECT id, name, cidr, created_at FROM networks ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, name, cidr, created_at, ca_id FROM networks ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list networks: %w", err)
 	}
@@ -146,7 +147,7 @@ func (s *SQLiteStore) ListNetworks(_ context.Context) ([]*models.Network, error)
 	result := make([]*models.Network, 0)
 	for rows.Next() {
 		n := &models.Network{}
-		if err := rows.Scan(&n.ID, &n.Name, &n.CIDR, &n.CreatedAt); err != nil {
+		if err := rows.Scan(&n.ID, &n.Name, &n.CIDR, &n.CreatedAt, &n.CAID); err != nil {
 			return nil, fmt.Errorf("scan network: %w", err)
 		}
 		result = append(result, n)
@@ -167,11 +168,11 @@ func (s *SQLiteStore) CreateHost(_ context.Context, h *models.Host) error {
 	}
 
 	_, err = s.db.Exec(
-		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		h.ID, h.NetworkID, h.Name, h.NebulaIP, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
-		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON,
+		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON, h.CAID,
 	)
 	if err != nil {
 		return fmt.Errorf("insert host: %w", err)
@@ -205,7 +206,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 		&h.ID, &h.NetworkID, &h.Name, &h.NebulaIP, &groupsJSON,
 		&h.Role, &h.IsLighthouse, &h.IsRelay, &publicIP, &h.ListenPort,
 		&h.Status, &certFP, &certExpires, &lastSeen,
-		&h.CreatedAt, &h.UpdatedAt, &advancedJSON,
+		&h.CreatedAt, &h.UpdatedAt, &advancedJSON, &h.CAID,
 	)
 	if err != nil {
 		return nil, err
@@ -237,7 +238,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	return h, nil
 }
 
-const hostColumns = `id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json`
+const hostColumns = `id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id`
 
 func (s *SQLiteStore) GetHost(_ context.Context, id string) (*models.Host, error) {
 	row := s.db.QueryRow(`SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
@@ -594,11 +595,11 @@ func (s *SQLiteStore) CreateHostAndToken(_ context.Context, h *models.Host, t *m
 	}
 
 	_, err = tx.Exec(
-		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		h.ID, h.NetworkID, h.Name, h.NebulaIP, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
-		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON,
+		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON, h.CAID,
 	)
 	if err != nil {
 		return fmt.Errorf("insert host: %w", err)

@@ -23,6 +23,16 @@ type AuditFilter struct {
 
 // Store defines the persistence interface for the management server.
 type Store interface {
+	// CAs
+	CreateCA(ctx context.Context, c *models.CA) error
+	GetCA(ctx context.Context, id string) (*models.CA, error)
+	GetCAByFingerprint(ctx context.Context, fp string) (*models.CA, error)
+	ListCAs(ctx context.Context) ([]*models.CA, error)
+	ListCAsByOwner(ctx context.Context, ownerID string) ([]*models.CA, error)
+	UpdateCAStatus(ctx context.Context, id string, status models.CAStatus) error
+	DeleteCA(ctx context.Context, id string) error
+	BackfillCAID(ctx context.Context, caID string) error
+
 	// Networks
 	CreateNetwork(ctx context.Context, n *models.Network) error
 	GetNetwork(ctx context.Context, id string) (*models.Network, error)

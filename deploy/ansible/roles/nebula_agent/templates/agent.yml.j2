@@ -1,0 +1,7 @@
+server_url: "{{ nebula_agent_server_url }}"
+data_dir: "{{ nebula_agent_data_dir }}"
+poll_interval: "{{ nebula_agent_poll_interval }}"
+nebula_config_path: "{{ nebula_agent_nebula_config_path }}"
+{% if nebula_agent_nebula_pid_file %}
+nebula_pid_file: "{{ nebula_agent_nebula_pid_file }}"
+{% endif %}

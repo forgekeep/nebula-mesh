@@ -1,0 +1,25 @@
+listen: "{{ nebula_mgmt_listen }}"
+data_dir: "{{ nebula_mgmt_data_dir }}"
+db_path: "{{ nebula_mgmt_db_path }}"
+log_level: "{{ nebula_mgmt_log_level }}"
+{% if nebula_mgmt_tls_cert %}
+tls_cert: "{{ nebula_mgmt_tls_cert }}"
+tls_key: "{{ nebula_mgmt_tls_key }}"
+{% endif %}
+allow_self_registration: {{ nebula_mgmt_allow_self_registration | string | lower }}
+
+metrics:
+  prometheus: {{ nebula_mgmt_metrics_prometheus | string | lower }}
+
+{% if nebula_mgmt_alerts_enabled %}
+alerts:
+  enabled: true
+  interval: "{{ nebula_mgmt_alerts_interval }}"
+  threshold: "{{ nebula_mgmt_alerts_threshold }}"
+{% if nebula_mgmt_alerts_webhook_url %}
+  webhook_url: "{{ nebula_mgmt_alerts_webhook_url }}"
+{% if nebula_mgmt_alerts_webhook_hmac_secret %}
+  webhook_hmac_secret: "{{ nebula_mgmt_alerts_webhook_hmac_secret }}"
+{% endif %}
+{% endif %}
+{% endif %}

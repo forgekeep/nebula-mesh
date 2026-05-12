@@ -1,0 +1,12 @@
+---
+nebula_agent_release: "latest"
+nebula_agent_server_url: ""
+nebula_agent_enroll_token: ""
+
+nebula_agent_data_dir: /etc/nebula
+nebula_agent_poll_interval: "30s"
+nebula_agent_nebula_config_path: /etc/nebula/config.yml
+nebula_agent_nebula_pid_file: /run/nebula.pid
+
+# Where to fetch release artifacts. Override to mirror in restricted networks.
+nebula_agent_release_base_url: "https://github.com/juev/nebula-mesh/releases/download"

@@ -126,6 +126,9 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		"twofa.html",
 		"profile.html",
 		"settings.html",
+		"operators_list.html",
+		"operator_new.html",
+		"operator_detail.html",
 	}
 	for _, page := range pages {
 		tmpl, err := template.ParseFS(templateFS, "templates/layout.html", "templates/"+page)
@@ -186,6 +189,20 @@ func (w *Web) setupRoutes() {
 		r.Get("/ui/2fa/required", w.handleTwoFARequired)
 		r.Get("/ui/settings", w.handleSettingsPage)
 		r.Post("/ui/settings", w.handleSettingsSave)
+
+		// Admin-only operator + API-key management (issue #45).
+		r.Group(func(r chi.Router) {
+			r.Use(w.requireAdmin)
+			r.Get("/ui/operators", w.handleOperatorsList)
+			r.Get("/ui/operators/new", w.handleOperatorNewPage)
+			r.Post("/ui/operators", w.handleOperatorCreate)
+			r.Get("/ui/operators/{id}", w.handleOperatorDetail)
+			r.Post("/ui/operators/{id}/disable", w.handleOperatorDisable)
+			r.Post("/ui/operators/{id}/enable", w.handleOperatorEnable)
+			r.Post("/ui/operators/{id}/reset-password", w.handleOperatorResetPassword)
+			r.Post("/ui/operators/{id}/api-keys", w.handleOperatorCreateAPIKey)
+			r.Post("/ui/operators/{id}/api-keys/{kid}/revoke", w.handleOperatorRevokeAPIKey)
+		})
 		r.Post("/ui/2fa/setup", w.handleTwoFASetup)
 		r.Post("/ui/2fa/enable", w.handleTwoFAEnable)
 		r.Post("/ui/2fa/disable", w.handleTwoFADisable)

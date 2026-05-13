@@ -1,0 +1,24 @@
+{{define "title"}}New operator — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>New operator</h1>
+    <a href="/ui/operators">← Back to operators</a>
+</div>
+
+<form method="POST" action="/ui/operators" class="card">
+    {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+    <label>Username <input type="text" name="username" required></label>
+    <label>Display name <input type="text" name="display_name"></label>
+    <label>Password <input type="password" name="password" required></label>
+    <label>Confirm password <input type="password" name="password_confirm" required></label>
+    <label>
+        Role
+        <select name="role">
+            <option value="user">user</option>
+            <option value="admin">admin</option>
+        </select>
+    </label>
+    <button type="submit" class="btn btn-primary">Create</button>
+</form>
+{{end}}

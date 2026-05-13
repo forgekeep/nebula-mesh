@@ -125,6 +125,7 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		"networks.html",
 		"twofa.html",
 		"profile.html",
+		"settings.html",
 	}
 	for _, page := range pages {
 		tmpl, err := template.ParseFS(templateFS, "templates/layout.html", "templates/"+page)
@@ -183,6 +184,8 @@ func (w *Web) setupRoutes() {
 		r.Get("/ui/profile", w.handleProfilePage)
 		r.Get("/ui/2fa", w.handleTwoFAPage)
 		r.Get("/ui/2fa/required", w.handleTwoFARequired)
+		r.Get("/ui/settings", w.handleSettingsPage)
+		r.Post("/ui/settings", w.handleSettingsSave)
 		r.Post("/ui/2fa/setup", w.handleTwoFASetup)
 		r.Post("/ui/2fa/enable", w.handleTwoFAEnable)
 		r.Post("/ui/2fa/disable", w.handleTwoFADisable)

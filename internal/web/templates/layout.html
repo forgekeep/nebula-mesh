@@ -213,6 +213,9 @@
                 <a href="/ui/" {{if eq .Active "dashboard"}}class="active"{{end}}>Dashboard</a>
                 <a href="/ui/networks" {{if eq .Active "networks"}}class="active"{{end}}>Networks</a>
                 <a href="/ui/hosts" {{if eq .Active "hosts"}}class="active"{{end}}>Hosts</a>
+                {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
+                <a href="/ui/settings" {{if eq .Active "settings"}}class="active"{{end}}>Settings</a>
+                {{end}}
             </div>
         </nav>
         <main class="main">

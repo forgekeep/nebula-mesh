@@ -68,7 +68,7 @@ func (w *Web) handleLoginPage(rw http.ResponseWriter, r *http.Request) {
 	w.renderForRequest(rw, r, "login.html", map[string]any{
 		"Error":                "",
 		"OIDCEnabled":          w.oidc.Enabled(),
-		"AllowSelfRegistration": w.allowSelfRegistration,
+		"AllowSelfRegistration": w.allowSelfRegistrationEffective(r.Context()),
 	})
 }
 
@@ -90,7 +90,7 @@ func (w *Web) handleLogin(rw http.ResponseWriter, r *http.Request) {
 		w.renderForRequest(rw, r, "login.html", map[string]any{
 			"Error":                 "Invalid username or password",
 			"OIDCEnabled":           w.oidc.Enabled(),
-			"AllowSelfRegistration": w.allowSelfRegistration,
+			"AllowSelfRegistration": w.allowSelfRegistrationEffective(r.Context()),
 		})
 		return
 	}
@@ -166,7 +166,7 @@ func (w *Web) handleLogout(rw http.ResponseWriter, r *http.Request) {
 // --- Self-registration ---
 
 func (w *Web) handleRegisterPage(rw http.ResponseWriter, r *http.Request) {
-	if !w.allowSelfRegistration {
+	if !w.allowSelfRegistrationEffective(r.Context()) {
 		http.Error(rw, "self-registration is disabled", http.StatusForbidden)
 		return
 	}
@@ -174,7 +174,7 @@ func (w *Web) handleRegisterPage(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleRegister(rw http.ResponseWriter, r *http.Request) {
-	if !w.allowSelfRegistration {
+	if !w.allowSelfRegistrationEffective(r.Context()) {
 		http.Error(rw, "self-registration is disabled", http.StatusForbidden)
 		return
 	}

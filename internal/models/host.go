@@ -29,24 +29,28 @@ func ValidRole(r HostRole) bool {
 }
 
 type Host struct {
-	ID              string         `json:"id"`
-	NetworkID       string         `json:"network_id"`
-	CAID            string         `json:"ca_id,omitempty"`
-	Name            string         `json:"name"`
-	NebulaIP        string         `json:"nebula_ip"`
-	Groups          []string       `json:"groups"`
-	Role            HostRole       `json:"role"`
-	IsLighthouse    bool           `json:"is_lighthouse"`
-	IsRelay         bool           `json:"is_relay"`
-	PublicIP        string         `json:"public_ip,omitempty"`
-	ListenPort      int            `json:"listen_port,omitempty"`
-	Status          HostStatus     `json:"status"`
-	CertFingerprint string         `json:"cert_fingerprint,omitempty"`
-	CertExpiresAt   *time.Time     `json:"cert_expires_at,omitempty"`
-	LastSeenAt      *time.Time     `json:"last_seen_at,omitempty"`
-	Advanced        *HostAdvanced  `json:"advanced,omitempty"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
+	ID                  string        `json:"id"`
+	NetworkID           string        `json:"network_id"`
+	CAID                string        `json:"ca_id,omitempty"`
+	Name                string        `json:"name"`
+	NebulaIP            string        `json:"nebula_ip"`
+	Groups              []string      `json:"groups"`
+	Role                HostRole      `json:"role"`
+	IsLighthouse        bool          `json:"is_lighthouse"`
+	IsRelay             bool          `json:"is_relay"`
+	PublicIP            string        `json:"public_ip,omitempty"`
+	ListenPort          int           `json:"listen_port,omitempty"`
+	Status              HostStatus    `json:"status"`
+	CertFingerprint     string        `json:"cert_fingerprint,omitempty"`
+	PrevCertFingerprint string        `json:"prev_cert_fingerprint,omitempty"`
+	CertExpiresAt       *time.Time    `json:"cert_expires_at,omitempty"`
+	CertRotatedAt       *time.Time    `json:"cert_rotated_at,omitempty"`
+	PendingRekey        bool          `json:"pending_rekey,omitempty"`
+	SigningPubPEM       string        `json:"signing_pub_pem,omitempty"`
+	LastSeenAt          *time.Time    `json:"last_seen_at,omitempty"`
+	Advanced            *HostAdvanced `json:"advanced,omitempty"`
+	CreatedAt           time.Time     `json:"created_at"`
+	UpdatedAt           time.Time     `json:"updated_at"`
 }
 
 // UnsafeRoute is a single "unsafe route" entry: traffic for `Route` is sent

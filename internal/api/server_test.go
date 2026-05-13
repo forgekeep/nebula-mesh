@@ -849,9 +849,11 @@ func TestEnroll_HostDeletedAfterTokenCreated(t *testing.T) {
 	}
 
 	// Try enrollment — token is consumed OK, but GetHost returns ErrNotFound
+	_, _, signingPEM := generateSigningKeypair(t)
 	enrollBody, _ := json.Marshal(enrollRequest{
-		Token:        resp.EnrollmentToken,
-		PublicKeyPEM: "dummy-key",
+		Token:         resp.EnrollmentToken,
+		PublicKeyPEM:  "dummy-key",
+		SigningPubPEM: signingPEM,
 	})
 	req = httptest.NewRequest("POST", "/api/v1/enroll", bytes.NewBuffer(enrollBody))
 	w = httptest.NewRecorder()

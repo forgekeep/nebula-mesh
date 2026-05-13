@@ -2,8 +2,10 @@ package agent
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +17,16 @@ import (
 	"golang.org/x/crypto/curve25519"
 )
 
+// SigningPublicKeyPEMType is the PEM block type used by the agent for its
+// Ed25519 poll-signature public key (ADR 0004 §7.1).
+const SigningPublicKeyPEMType = "NEBULA ED25519 PUBLIC KEY"
+
+// SigningPrivateKeyPEMType is the PEM block type used to persist the Ed25519
+// signing private key on disk (mode 0600). The block bytes contain the full
+// 64-byte ed25519.PrivateKey (seed + public-key half), so SignerFromDisk can
+// reconstruct the keypair without re-deriving from a seed.
+const SigningPrivateKeyPEMType = "NEBULA ED25519 PRIVATE KEY"
+
 // EnrollResponse is the response from the enrollment endpoint.
 type EnrollResponse struct {
 	CertificatePEM   string `json:"certificate_pem"`
@@ -25,7 +37,7 @@ type EnrollResponse struct {
 // Enroll performs the enrollment flow: generates keypair, sends public key
 // to the server with the token, saves received cert and config to dataDir.
 func Enroll(serverURL, token, dataDir string) error {
-	// Generate X25519 keypair
+	// Generate X25519 keypair (for the Nebula handshake cert).
 	privKey := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, privKey); err != nil {
 		return fmt.Errorf("generate private key: %w", err)
@@ -35,13 +47,21 @@ func Enroll(serverURL, token, dataDir string) error {
 		return fmt.Errorf("derive public key: %w", err)
 	}
 
-	// Encode public key to PEM
+	// Generate Ed25519 signing keypair (for poll proof-of-possession, ADR 0004).
+	signingPub, signingPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return fmt.Errorf("generate signing keypair: %w", err)
+	}
+
+	// Encode keys to PEM.
 	pubKeyPEM := cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pubKey)
+	signingPubPEM := pem.EncodeToMemory(&pem.Block{Type: SigningPublicKeyPEMType, Bytes: signingPub})
 
 	// Send enrollment request
 	reqBody, err := json.Marshal(map[string]string{
-		"token":          token,
-		"public_key_pem": string(pubKeyPEM),
+		"token":                  token,
+		"public_key_pem":         string(pubKeyPEM),
+		"signing_public_key_pem": string(signingPubPEM),
 	})
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -79,6 +99,12 @@ func Enroll(serverURL, token, dataDir string) error {
 	privKeyPEM := cert.MarshalPrivateKeyToPEM(cert.Curve_CURVE25519, privKey)
 	if err := os.WriteFile(filepath.Join(dataDir, "host.key"), privKeyPEM, 0o600); err != nil {
 		return fmt.Errorf("write host key: %w", err)
+	}
+
+	// Save signing private key (ADR 0004 — used to sign poll requests).
+	signingPrivPEM := pem.EncodeToMemory(&pem.Block{Type: SigningPrivateKeyPEMType, Bytes: signingPriv})
+	if err := os.WriteFile(filepath.Join(dataDir, "host.signing.key"), signingPrivPEM, 0o600); err != nil {
+		return fmt.Errorf("write signing key: %w", err)
 	}
 
 	// Save certificate

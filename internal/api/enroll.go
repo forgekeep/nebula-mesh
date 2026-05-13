@@ -17,8 +17,9 @@ import (
 )
 
 type enrollRequest struct {
-	Token        string `json:"token"`
-	PublicKeyPEM string `json:"public_key_pem"`
+	Token         string `json:"token"`
+	PublicKeyPEM  string `json:"public_key_pem"`
+	SigningPubPEM string `json:"signing_public_key_pem"`
 }
 
 type enrollResponse struct {
@@ -36,6 +37,11 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 
 	if req.Token == "" || req.PublicKeyPEM == "" {
 		writeError(w, http.StatusBadRequest, "token and public_key_pem are required")
+		return
+	}
+	if _, err := decodeSigningPublicKeyPEM(req.SigningPubPEM); err != nil {
+		s.metrics.recordEnrollment(resultDenied)
+		writeError(w, http.StatusBadRequest, "signing_public_key_pem is required and must be Ed25519")
 		return
 	}
 
@@ -164,6 +170,15 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.SaveCertificateAndEnrollHost(r.Context(), host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
 		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("save certificate and enroll host", "error", err)
+		writeError(w, http.StatusInternalServerError, "enrollment failed")
+		return
+	}
+
+	// Bind the Ed25519 signing public key to the host so subsequent poll
+	// signatures verify against it (ADR 0004 §7.1).
+	if err := s.store.UpdateHostSigningPub(r.Context(), host.ID, req.SigningPubPEM); err != nil {
+		s.metrics.recordEnrollment(resultError)
+		s.logger.Error("update host signing pub", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}

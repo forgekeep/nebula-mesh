@@ -119,9 +119,11 @@ func TestMetricsEndpoint_EnrollmentIncrementsCounter(t *testing.T) {
 	}
 	pubPEM := cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pub)
 
+	_, _, signingPEM := generateSigningKeypair(t)
 	enrollBody, _ := json.Marshal(enrollRequest{
-		Token:        created.EnrollmentToken,
-		PublicKeyPEM: string(pubPEM),
+		Token:         created.EnrollmentToken,
+		PublicKeyPEM:  string(pubPEM),
+		SigningPubPEM: signingPEM,
 	})
 	req = httptest.NewRequest("POST", "/api/v1/enroll", bytes.NewBuffer(enrollBody))
 	w = httptest.NewRecorder()

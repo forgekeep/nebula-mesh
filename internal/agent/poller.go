@@ -2,18 +2,24 @@ package agent
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	agentpop "github.com/juev/nebula-mesh/internal/agent/pop"
+	corepop "github.com/juev/nebula-mesh/internal/pop"
 )
 
 // UpdatesResponse is the response from the agent updates endpoint.
@@ -39,18 +45,42 @@ type Poller struct {
 	config     PollerConfig
 	logger     *slog.Logger
 	signalFunc func() error // for testing: override SIGHUP sending
+	signingKey ed25519.PrivateKey
 }
 
-// NewPoller creates a new Poller.
-func NewPoller(cfg PollerConfig, logger *slog.Logger) *Poller {
+// NewPoller creates a new Poller and loads the Ed25519 signing key needed to
+// sign poll requests (ADR 0004 §7.1). If the key cannot be loaded the
+// returned error is propagated to the caller; the agent must re-enroll
+// before polling can resume.
+func NewPoller(cfg PollerConfig, logger *slog.Logger) (*Poller, error) {
+	priv, err := loadSigningKey(filepath.Join(cfg.DataDir, "host.signing.key"))
+	if err != nil {
+		return nil, fmt.Errorf("load signing key: %w", err)
+	}
 	p := &Poller{
-		config: cfg,
-		logger: logger,
+		config:     cfg,
+		logger:     logger,
+		signingKey: priv,
 	}
 	p.signalFunc = func() error {
 		return signalNebulaFromPID(cfg.PIDFile)
 	}
-	return p
+	return p, nil
+}
+
+func loadSigningKey(path string) (ed25519.PrivateKey, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil || block.Type != SigningPrivateKeyPEMType {
+		return nil, fmt.Errorf("signing key PEM at %s has wrong block type", path)
+	}
+	if len(block.Bytes) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf("signing key has length %d, want %d", len(block.Bytes), ed25519.PrivateKeySize)
+	}
+	return ed25519.PrivateKey(block.Bytes), nil
 }
 
 // Run starts the poll loop, blocking until ctx is cancelled.
@@ -74,10 +104,13 @@ func (p *Poller) Run(ctx context.Context) error {
 }
 
 func (p *Poller) poll(ctx context.Context) error {
-	u := fmt.Sprintf("%s/api/v1/agent/updates?fingerprint=%s", p.config.ServerURL, url.QueryEscape(p.config.Fingerprint))
+	u := p.config.ServerURL + "/api/v1/agent/updates"
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return fmt.Errorf("create poll request: %w", err)
+	}
+	if err := p.signRequest(req); err != nil {
+		return fmt.Errorf("sign poll request: %w", err)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -143,6 +176,32 @@ func (p *Poller) poll(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+// signRequest attaches the four ADR 0004 PoP headers to req: fingerprint,
+// timestamp, nonce, signature over the canonical string.
+func (p *Poller) signRequest(req *http.Request) error {
+	ts := time.Now().UTC().Format(time.RFC3339)
+	nonceBytes := make([]byte, 16)
+	if _, err := io.ReadFull(rand.Reader, nonceBytes); err != nil {
+		return fmt.Errorf("read nonce bytes: %w", err)
+	}
+	nonce := base64.StdEncoding.EncodeToString(nonceBytes)
+
+	host := req.URL.Host
+	if host == "" {
+		host = req.Host
+	}
+	canonical := corepop.CanonicalString(req.Method, req.URL.Path, host, ts, nonce)
+	sig, err := agentpop.Sign(p.signingKey, canonical)
+	if err != nil {
+		return fmt.Errorf("sign canonical: %w", err)
+	}
+	req.Header.Set(corepop.HeaderFingerprint, p.config.Fingerprint)
+	req.Header.Set(corepop.HeaderTimestamp, ts)
+	req.Header.Set(corepop.HeaderNonce, nonce)
+	req.Header.Set(corepop.HeaderSignature, agentpop.EncodeSignature(sig))
 	return nil
 }
 

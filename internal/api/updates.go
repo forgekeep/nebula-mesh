@@ -13,15 +13,18 @@ import (
 	apipop "github.com/juev/nebula-mesh/internal/api/pop"
 	corepop "github.com/juev/nebula-mesh/internal/pop"
 	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/google/uuid"
 	"github.com/slackhq/nebula/cert"
 )
 
 type agentUpdatesResponse struct {
-	HasUpdates     bool     `json:"has_updates"`
-	CertificatePEM *string  `json:"certificate_pem,omitempty"`
-	CACertPEM      *string  `json:"ca_certificate_pem,omitempty"`
-	ConfigYAML     *string  `json:"config_yaml,omitempty"`
-	Blocklist      []string `json:"blocklist"`
+	HasUpdates      bool     `json:"has_updates"`
+	CertificatePEM  *string  `json:"certificate_pem,omitempty"`
+	CACertPEM       *string  `json:"ca_certificate_pem,omitempty"`
+	ConfigYAML      *string  `json:"config_yaml,omitempty"`
+	Blocklist       []string `json:"blocklist"`
+	RekeyRequired   bool     `json:"rekey_required,omitempty"`
+	EnrollmentToken string   `json:"enrollment_token,omitempty"`
 }
 
 // pollClockSkew is the symmetric tolerance applied to X-Nebula-Timestamp
@@ -225,7 +228,25 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp.HasUpdates = len(blocklist) > 0 || resp.CertificatePEM != nil || resp.ConfigYAML != nil
+	// Rekey signal: force-rotate?new_key=true sets pending_rekey on the
+	// host row; the very next poll under the existing fingerprint carries
+	// a single-use enrollment token so the agent can re-enroll a fresh
+	// keypair. The pending_rekey flag is cleared once the token is minted
+	// so a follow-up poll doesn't re-issue another token.
+	if host.PendingRekey {
+		tokenStr := uuid.New().String()
+		expiresAt := now.Add(s.tokenTTLFor(r.Context(), host.NetworkID))
+		if err := s.store.CreateTokenForHost(r.Context(), host.ID, tokenStr, expiresAt); err != nil {
+			s.logger.Error("mint rekey token", "host", host.ID, "error", err)
+		} else if err := s.store.ClearPendingRekey(r.Context(), host.ID); err != nil {
+			s.logger.Error("clear pending_rekey", "host", host.ID, "error", err)
+		} else {
+			resp.RekeyRequired = true
+			resp.EnrollmentToken = tokenStr
+		}
+	}
+
+	resp.HasUpdates = len(blocklist) > 0 || resp.CertificatePEM != nil || resp.ConfigYAML != nil || resp.RekeyRequired
 	writeJSON(w, http.StatusOK, resp)
 }
 

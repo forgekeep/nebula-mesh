@@ -24,11 +24,45 @@ import (
 
 // UpdatesResponse is the response from the agent updates endpoint.
 type UpdatesResponse struct {
-	HasUpdates     bool     `json:"has_updates"`
-	CertificatePEM *string  `json:"certificate_pem,omitempty"`
-	CACertPEM      *string  `json:"ca_certificate_pem,omitempty"`
-	ConfigYAML     *string  `json:"config_yaml,omitempty"`
-	Blocklist      []string `json:"blocklist"`
+	HasUpdates      bool     `json:"has_updates"`
+	CertificatePEM  *string  `json:"certificate_pem,omitempty"`
+	CACertPEM       *string  `json:"ca_certificate_pem,omitempty"`
+	ConfigYAML      *string  `json:"config_yaml,omitempty"`
+	Blocklist       []string `json:"blocklist"`
+	RekeyRequired   bool     `json:"rekey_required,omitempty"`
+	EnrollmentToken string   `json:"enrollment_token,omitempty"`
+}
+
+// RekeyError is returned by Poller.poll when the server signals that the
+// agent must regenerate its keypair (force-rotate with new_key=true,
+// ADR 0004 §7.1). The token attached to the error is single-use and
+// short-lived; the caller is expected to invoke agent.Reenroll with it.
+type RekeyError struct {
+	Token string
+}
+
+func (e *RekeyError) Error() string { return "agent rekey required" }
+
+// IsRekey reports whether err carries a server rekey signal.
+func IsRekey(err error) bool {
+	var re *RekeyError
+	return err != nil && errorsAsRekey(err, &re)
+}
+
+func errorsAsRekey(err error, target **RekeyError) bool {
+	type unwrapper interface{ Unwrap() error }
+	for cur := err; cur != nil; {
+		if re, ok := cur.(*RekeyError); ok {
+			*target = re
+			return true
+		}
+		if u, ok := cur.(unwrapper); ok {
+			cur = u.Unwrap()
+			continue
+		}
+		break
+	}
+	return false
 }
 
 // RevocationError is returned by Poller.poll when the management server
@@ -140,6 +174,10 @@ func (p *Poller) Run(ctx context.Context) error {
 					p.logger.Error("poll loop stopped by server revocation signal", "error", err)
 					return err
 				}
+				if IsRekey(err) {
+					p.logger.Info("server requested rekey; stopping poll loop so caller can re-enroll")
+					return err
+				}
 				p.logger.Error("poll failed", "error", err)
 			}
 		}
@@ -187,6 +225,16 @@ func (p *Poller) poll(ctx context.Context) error {
 	var updates UpdatesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&updates); err != nil {
 		return fmt.Errorf("decode updates: %w", err)
+	}
+
+	// Server-driven rekey takes precedence over routine updates. The
+	// caller stops the loop, runs Reenroll(token), and restarts the
+	// poller against the freshly enrolled keypair.
+	if updates.RekeyRequired {
+		if updates.EnrollmentToken == "" {
+			return fmt.Errorf("server set rekey_required but no enrollment_token returned")
+		}
+		return &RekeyError{Token: updates.EnrollmentToken}
 	}
 
 	if !updates.HasUpdates {

@@ -192,22 +192,6 @@ func applyOverrides(cfg *config.AgentConfig, serverURL, dataDir string, pollInte
 }
 
 func startPoller(cfg *config.AgentConfig, logger *slog.Logger) error {
-	fingerprint, err := agent.ReadCertFingerprint(cfg.DataDir)
-	if err != nil {
-		return fmt.Errorf("read certificate fingerprint: %w", err)
-	}
-
-	poller, err := agent.NewPoller(agent.PollerConfig{
-		ServerURL:   cfg.ServerURL,
-		Fingerprint: fingerprint,
-		DataDir:     cfg.DataDir,
-		Interval:    cfg.PollInterval,
-		PIDFile:     cfg.NebulaPIDFile,
-	}, logger)
-	if err != nil {
-		return fmt.Errorf("create poller: %w", err)
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -220,17 +204,46 @@ func startPoller(cfg *config.AgentConfig, logger *slog.Logger) error {
 	}()
 
 	logger.Info("nebula-agent starting", "server", cfg.ServerURL, "poll_interval", cfg.PollInterval)
-	if err := poller.Run(ctx); err != nil {
-		// A 403 revoked / 410 gone signal means the operator deliberately
-		// stopped this agent. Exit cleanly so systemd does not restart us
-		// into the same denied state on a loop.
-		if agent.IsRevoked(err) {
-			logger.Error("agent revoked; exiting cleanly", "error", err)
+
+	for {
+		fingerprint, err := agent.ReadCertFingerprint(cfg.DataDir)
+		if err != nil {
+			return fmt.Errorf("read certificate fingerprint: %w", err)
+		}
+		poller, err := agent.NewPoller(agent.PollerConfig{
+			ServerURL:   cfg.ServerURL,
+			Fingerprint: fingerprint,
+			DataDir:     cfg.DataDir,
+			Interval:    cfg.PollInterval,
+			PIDFile:     cfg.NebulaPIDFile,
+		}, logger)
+		if err != nil {
+			return fmt.Errorf("create poller: %w", err)
+		}
+
+		runErr := poller.Run(ctx)
+		if runErr == nil || errors.Is(runErr, context.Canceled) {
 			return nil
 		}
-		return err
+		if agent.IsRevoked(runErr) {
+			// 403 revoked / 410 gone: operator stopped this agent. Exit
+			// cleanly so systemd does not restart us into a denied loop.
+			logger.Error("agent revoked; exiting cleanly", "error", runErr)
+			return nil
+		}
+		if agent.IsRekey(runErr) {
+			// Server-initiated rekey: re-enroll with the new token and
+			// restart the poller against the freshly generated keypair.
+			var re *agent.RekeyError
+			_ = errors.As(runErr, &re)
+			logger.Info("performing server-requested rekey")
+			if err := agent.Reenroll(cfg.ServerURL, re.Token, cfg.DataDir); err != nil {
+				return fmt.Errorf("rekey enrollment: %w", err)
+			}
+			continue
+		}
+		return runErr
 	}
-	return nil
 }
 
 // runLegacyEnroll preserves the old `nebula-agent enroll` invocation for one

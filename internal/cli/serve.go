@@ -26,6 +26,29 @@ import (
 // caPassphraseEnv is read by readCAPassphrase before falling back to TTY prompt.
 const caPassphraseEnv = "NEBULA_MGMT_CA_PASSPHRASE"
 
+// buildMux assembles the top-level routing per issue #69.
+//
+//   - /api/                  → API server (admin REST API, agent endpoints)
+//   - /healthz, /readyz      → API server (kept at root for monitoring scrapes)
+//   - /metrics, /debug/      → API server (kept at root for Prometheus / pprof)
+//   - /health                → API server (legacy alias)
+//   - / (everything else)    → Web UI (which 302s "/" to "/ui/")
+//
+// API endpoints under /api/ that are not registered in api.Server return 404
+// from the API surface (not from the UI router). Static assets and the
+// favicon are still served by the UI handler.
+func buildMux(webUI, apiSrv http.Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("/api/", apiSrv)
+	mux.Handle("/healthz", apiSrv)
+	mux.Handle("/readyz", apiSrv)
+	mux.Handle("/metrics", apiSrv)
+	mux.Handle("/debug/", apiSrv)
+	mux.Handle("/health", apiSrv) // legacy alias
+	mux.Handle("/", webUI)
+	return mux
+}
+
 // readCAPassphrase reads the CA passphrase from $NEBULA_MGMT_CA_PASSPHRASE if set,
 // otherwise prompts on the controlling terminal. Returns an error when stdin
 // is not a TTY and the env var is not set (typical of systemd / Docker without -i).
@@ -241,11 +264,7 @@ func Serve(configPath string) error {
 		logger.Info("oidc enabled", "issuer", cfg.OIDC.Issuer)
 	}
 
-	// Combine: Web UI + API
-	mux := http.NewServeMux()
-	mux.Handle("/ui/", webUI)
-	mux.Handle("/static/", webUI)
-	mux.Handle("/", apiSrv)
+	mux := buildMux(webUI, apiSrv)
 
 	httpServer := &http.Server{
 		Addr:         cfg.Listen,

@@ -165,6 +165,14 @@ func (w *Web) setupRoutes() {
 	// Favicon (public, served from embedded SVG)
 	r.Get("/favicon.ico", w.handleFavicon)
 
+	// Bare root redirects to the dashboard so first-time visitors land on /ui/
+	// instead of a 404. Per issue #69, the catch-all mux now sends "/" to the
+	// Web UI; this redirect keeps existing /ui/ links and bookmarks canonical
+	// instead of switching every UI URL to bare root in one go.
+	r.Get("/", func(rw http.ResponseWriter, req *http.Request) {
+		http.Redirect(rw, req, "/ui/", http.StatusFound)
+	})
+
 	// Login (public). Auth-group rate limit only on the form submissions
 	// — GET pages render the form and a 429 there would just confuse
 	// legitimate users who haven't yet pressed Submit.

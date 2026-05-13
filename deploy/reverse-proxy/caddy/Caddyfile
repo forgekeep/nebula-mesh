@@ -36,4 +36,50 @@ mgmt.example.com {
     # headers; nothing extra to configure for the rate limiter to see the
     # real client IP.
     reverse_proxy 127.0.0.1:8080
+
+    # ------------------------------------------------------------------
+    # Optional: mTLS on the UI only (issue #69).
+    #
+    # Require a client certificate from any browser hitting /ui/ or /,
+    # while leaving /api/ (admin API + agent endpoints) and the
+    # operations endpoints (/healthz, /readyz, /metrics, /debug/)
+    # reachable without one. Agents and Prometheus rarely speak mTLS.
+    #
+    # To enable:
+    #   1. Drop the operator-CA bundle into /etc/caddy/ui-clients-ca.pem.
+    #   2. Uncomment the tls block and the @ui matcher below.
+    #   3. systemctl reload caddy
+    #
+    # tls {
+    #     client_auth {
+    #         mode             require_and_verify
+    #         trusted_ca_cert_file /etc/caddy/ui-clients-ca.pem
+    #     }
+    # }
+    # @ui {
+    #     path /ui/* /
+    # }
+    # # Caddy applies the listener-level client_auth above to every
+    # # request; to keep /api, /healthz, /readyz, /metrics, /debug
+    # # client-cert-free, prefer the second-listener / second-site
+    # # approach below.
 }
+
+# Alternative: a second site (different hostname) that fronts the
+# Web UI with mTLS, while the public hostname above keeps the API and
+# ops endpoints anonymous. Browsers visit https://ui.mgmt.example.com,
+# agents and Prometheus visit https://mgmt.example.com.
+#
+# ui.mgmt.example.com {
+#     tls {
+#         client_auth {
+#             mode require_and_verify
+#             trusted_ca_cert_file /etc/caddy/ui-clients-ca.pem
+#         }
+#     }
+#     @api path /api/* /healthz /readyz /metrics /debug/*
+#     handle @api {
+#         respond 404
+#     }
+#     reverse_proxy 127.0.0.1:8080
+# }

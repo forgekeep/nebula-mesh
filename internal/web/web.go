@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/juev/nebula-mesh/internal/auth"
 	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/store"
 )
@@ -38,7 +39,13 @@ type Web struct {
 	loginRecorder         func(result, factor string)
 	events                *EventBus
 	limiter               *ratelimit.Limiter
+	passwordPolicy        auth.Policy
 }
+
+// WithPasswordPolicy installs the password policy used by registration
+// and any future self-service password change. Defaults to auth.Default()
+// when never called.
+func (w *Web) WithPasswordPolicy(p auth.Policy) { w.passwordPolicy = p }
 
 // WithRateLimiter wires a shared rate limiter so auth + UI routes pick
 // up the same per-IP buckets the API server uses. nil disables limiting.
@@ -102,10 +109,11 @@ func (w *Web) WithOIDC(o *OIDC) {
 // New creates a new Web UI handler.
 func New(s store.Store, logger *slog.Logger) (*Web, error) {
 	w := &Web{
-		store:     s,
-		logger:    logger,
-		session:   NewSessionManager(s),
-		templates: make(map[string]*template.Template),
+		store:          s,
+		logger:         logger,
+		session:        NewSessionManager(s),
+		templates:      make(map[string]*template.Template),
+		passwordPolicy: auth.Default(),
 	}
 
 	// Parse each page template with layout

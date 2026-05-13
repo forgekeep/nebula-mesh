@@ -13,6 +13,7 @@ import (
 
 	"github.com/juev/nebula-mesh/internal/alerts"
 	"github.com/juev/nebula-mesh/internal/api"
+	"github.com/juev/nebula-mesh/internal/auth"
 	"github.com/juev/nebula-mesh/internal/config"
 	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/keystore"
@@ -168,6 +169,23 @@ func Serve(configPath string) error {
 	}
 	limiter := ratelimit.New(rlCfg)
 	apiSrv.WithRateLimiter(limiter)
+
+	// Password policy — defaults from auth.Default(), overridden per field
+	// when the server config opts in.
+	pwPolicy := auth.Default()
+	if v := cfg.Password.MinLength; v != nil {
+		pwPolicy.MinLength = *v
+	}
+	if v := cfg.Password.RequireClasses; v != nil {
+		pwPolicy.RequireClasses = *v
+	}
+	if v := cfg.Password.BlockCommon; v != nil {
+		pwPolicy.BlockCommon = *v
+	}
+	if v := cfg.Password.BlockUsername; v != nil {
+		pwPolicy.BlockUsername = *v
+	}
+	apiSrv.WithPasswordPolicy(pwPolicy)
 	if caResolver != nil {
 		apiSrv.WithCAResolver(caResolver)
 		apiSrv.WithMaster(master)
@@ -182,6 +200,7 @@ func Serve(configPath string) error {
 	webUI.AllowSelfRegistration(cfg.AllowSelfRegistration)
 	webUI.WithLoginRecorder(apiSrv.RecordLogin)
 	webUI.WithRateLimiter(limiter)
+	webUI.WithPasswordPolicy(pwPolicy)
 
 	// Live host-status SSE: API server fires HostSeenEmitter on each agent
 	// poll, EventBus fans out to subscribed browser tabs.

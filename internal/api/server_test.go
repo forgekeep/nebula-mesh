@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/juev/nebula-mesh/internal/auth"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
@@ -36,6 +37,10 @@ func newTestServer(t *testing.T) (*Server, *store.SQLiteStore) {
 
 	logger := slog.Default()
 	srv := NewServer(s, ca, testAPIKey, logger, CAConfig{})
+	// Existing tests use deliberately weak passwords to keep fixtures
+	// readable. Production policy (10+ chars, 3 classes, common-pw block)
+	// is exercised in internal/auth — here we relax to "non-empty".
+	srv.WithPasswordPolicy(auth.Policy{})
 	return srv, s
 }
 

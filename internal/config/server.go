@@ -46,6 +46,20 @@ type ServerConfig struct {
 	// by default so login + enrolment endpoints are protected from
 	// online brute-force out of the box.
 	RateLimit RateLimitConfig `yaml:"rate_limit,omitempty"`
+
+	// Password configures the password policy applied to every server-
+	// side password-setting path (see issue #48). All knobs are
+	// optional: unset values fall back to the production defaults
+	// (10-char min, 3-of-4 classes, common-pw + username block on).
+	Password PasswordConfig `yaml:"password,omitempty"`
+}
+
+// PasswordConfig overrides the password policy defaults.
+type PasswordConfig struct {
+	MinLength      *int  `yaml:"min_length,omitempty"`
+	RequireClasses *int  `yaml:"require_classes,omitempty"`
+	BlockCommon    *bool `yaml:"block_common,omitempty"`
+	BlockUsername  *bool `yaml:"block_username,omitempty"`
 }
 
 // RateLimitConfig drives the rate-limit middleware. Enabled defaults to

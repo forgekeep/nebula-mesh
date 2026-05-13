@@ -7,7 +7,15 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/juev/nebula-mesh/internal/auth"
 )
+
+// strongPassword is the value used by registration tests that exercise
+// the happy path or are checking a different rule. It satisfies the
+// production password policy so we don't accidentally cross-test
+// password rules in places that aren't asserting on them.
+const strongPassword = "Correcthorse-Battery!Staple1"
 
 func TestRegister_DisabledByDefault(t *testing.T) {
 	w, _ := newTestWeb(t)
@@ -19,7 +27,7 @@ func TestRegister_DisabledByDefault(t *testing.T) {
 		t.Errorf("GET /ui/register = %d, want 403", rec.Code)
 	}
 
-	form := url.Values{"username": {"alice"}, "password": {"correcthorse"}, "password_confirm": {"correcthorse"}}
+	form := url.Values{"username": {"alice"}, "password": {strongPassword}, "password_confirm": {strongPassword}}
 	req = httptest.NewRequest("POST", "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec = httptest.NewRecorder()
@@ -36,8 +44,8 @@ func TestRegister_Enabled_CreatesOperator(t *testing.T) {
 	form := url.Values{
 		"username":         {"alice"},
 		"display_name":     {"Alice"},
-		"password":         {"correcthorse"},
-		"password_confirm": {"correcthorse"},
+		"password":         {strongPassword},
+		"password_confirm": {strongPassword},
 	}
 	req := httptest.NewRequest("POST", "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -62,8 +70,8 @@ func TestRegister_RejectsDuplicateUsername(t *testing.T) {
 
 	form := url.Values{
 		"username":         {testUsername}, // admin from newTestWeb seed
-		"password":         {"correcthorse"},
-		"password_confirm": {"correcthorse"},
+		"password":         {strongPassword},
+		"password_confirm": {strongPassword},
 	}
 	req := httptest.NewRequest("POST", "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -83,16 +91,17 @@ func TestRegister_RejectsShortPassword(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), "at least 8") {
+	if !strings.Contains(rec.Body.String(), "at least 10") {
 		t.Errorf("expected short-password error; body=%s", rec.Body.String())
 	}
+	_ = auth.Default() // import anchor
 }
 
 func TestRegister_RejectsMismatchedConfirmation(t *testing.T) {
 	w, _ := newTestWeb(t)
 	w.AllowSelfRegistration(true)
 
-	form := url.Values{"username": {"carol"}, "password": {"correcthorse"}, "password_confirm": {"different1"}}
+	form := url.Values{"username": {"carol"}, "password": {strongPassword}, "password_confirm": {strongPassword + "X"}}
 	req := httptest.NewRequest("POST", "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()

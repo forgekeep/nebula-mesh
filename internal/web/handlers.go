@@ -163,8 +163,8 @@ func (w *Web) handleRegister(rw http.ResponseWriter, r *http.Request) {
 		w.renderForRequest(rw, r, "register.html", map[string]any{"Error": "Username and password are required"})
 		return
 	}
-	if len(password) < 8 {
-		w.renderForRequest(rw, r, "register.html", map[string]any{"Error": "Password must be at least 8 characters long"})
+	if err := w.passwordPolicy.Validate(password, strings.ToLower(username)); err != nil {
+		w.renderForRequest(rw, r, "register.html", map[string]any{"Error": err.Error()})
 		return
 	}
 	if password != confirm {

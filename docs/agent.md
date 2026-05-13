@@ -90,7 +90,7 @@ The package:
 - installs `/usr/bin/nebula-agent` and `/lib/systemd/system/nebula-agent.service`;
 - ships an example config at `/etc/nebula-agent/agent.example.yml`;
 - creates the `nebula-agent` system user/group for future hardening;
-- **does not** create `/etc/nebula-agent/agent.yml`, start, or enable the service — you must copy the example, edit it, run `nebula-agent enroll`, then `systemctl enable --now nebula-agent`;
+- **does not** create `/etc/nebula-agent/agent.yml`, start, or enable the service — run `nebula-agent --server URL --token TOK` once to write the config + enroll, then `systemctl enable --now nebula-agent`;
 - on upgrade, leaves `/etc/nebula-agent/agent.yml` and `/etc/nebula/{host.crt,host.key,ca.crt,config.yml}` untouched;
 - on removal, stops and disables the service but keeps `/etc/nebula-agent` and `/etc/nebula` intact (so host keys survive accidental removals). `apt purge` / `dnf remove --purge` will additionally delete the system user.
 
@@ -123,9 +123,8 @@ on the host key and for sending `SIGHUP` to Nebula), and is hardened with the us
 
 ```sh
 sudo install -m 0644 deploy/systemd/nebula-agent.service /etc/systemd/system/
-sudo mkdir -p /etc/nebula-agent
-sudo install -m 0640 configs/agent.example.yml /etc/nebula-agent/agent.yml
-# edit /etc/nebula-agent/agent.yml first — see "Configuration"
+# First run enrolls the host and writes /etc/nebula-agent/agent.yml (mode 0600):
+sudo nebula-agent --server https://mgmt.example.com:8080 --token "$ENROLL_TOKEN"
 sudo systemctl daemon-reload
 sudo systemctl enable --now nebula-agent.service
 journalctl -u nebula-agent.service -f
@@ -151,7 +150,7 @@ services:
   nebula-agent:
     image: ghcr.io/juev/nebula-mesh:latest
     entrypoint: ["/usr/local/bin/nebula-agent"]
-    command: ["run", "--config", "/etc/nebula-agent/agent.yml"]
+    command: ["--config", "/etc/nebula-agent/agent.yml"]
     volumes:
       - nebula-conf:/etc/nebula
       - ./agent.yml:/etc/nebula-agent/agent.yml:ro
@@ -244,10 +243,14 @@ it through `POST /api/v1/hosts/{id}/enrollment-token` (or via the UI).
 ### 2. On the host
 
 ```sh
-sudo nebula-agent enroll \
+# First run: enrolls, writes config to /etc/nebula-agent/agent.yml (0600),
+# starts the poller. The token is single-use and is never written to disk.
+sudo nebula-agent \
   --server https://mgmt.example.com:8080 \
-  --token "$ENROLL_TOKEN" \
-  --data-dir /etc/nebula
+  --token "$ENROLL_TOKEN"
+
+# Optional: pick a non-default data dir on first run.
+sudo nebula-agent --server ... --token ... --data-dir /etc/nebula
 ```
 
 After a successful enrollment the agent writes the following to `data_dir`:
@@ -265,14 +268,40 @@ token returns `409 Conflict`.
 
 ### 3. Starting the run loop
 
-Once the host has been enrolled, the agent runs in a long-lived `run` loop:
+Once the host has been enrolled, subsequent invocations need no arguments — the
+agent reads `/etc/nebula-agent/agent.yml`, finds `host.crt`, and starts polling:
 
 ```sh
+sudo nebula-agent                                # default config path
+sudo nebula-agent --config /path/to/agent.yml    # non-default location
+```
+
+To change a setting later, edit the YAML file (preferred) or pass
+`--update-config` together with the override flag to overwrite a single field
+atomically:
+
+```sh
+sudo nebula-agent --update-config --poll-interval 60s
+```
+
+CLI overrides without `--update-config` are ignored on subsequent runs (a
+warning is logged) so a one-shot flag never silently rewrites persisted state.
+
+The agent exits non-zero if the host's certificate is missing and no `--token`
+is supplied — the error message tells you to pass `--token TOK` to enroll.
+
+### Legacy subcommands (deprecated)
+
+The previous two-step ceremony still works for one release for backward
+compatibility with existing scripts:
+
+```sh
+sudo nebula-agent enroll --server ... --token ... --data-dir /etc/nebula
 sudo nebula-agent run --config /etc/nebula-agent/agent.yml
 ```
 
-`nebula-agent run` exits with a non-zero status if the host's certificate file or
-fingerprint is missing — make sure `enroll` ran first.
+Both print a deprecation warning on stderr; switch to the unified form when
+convenient.
 
 ## How updates work
 
@@ -317,8 +346,8 @@ that `data_dir/host.crt` exists and is readable, then try removing
 
 ### `cannot read certificate fingerprint`
 
-`nebula-agent run` was launched before `nebula-agent enroll` succeeded. Run
-`enroll` first.
+`nebula-agent` was launched on a host with no `host.crt`. Pass `--token TOK`
+to enroll, or check that `data_dir/host.crt` exists (the path in `agent.yml`).
 
 ### Nebula keeps using the old config
 
@@ -363,7 +392,7 @@ delete` the old record and create a new one; on the host:
 ```sh
 sudo systemctl stop nebula-agent nebula
 sudo rm /etc/nebula/{host.crt,host.key,ca.crt,config.yml,.fingerprint}
-sudo nebula-agent enroll --server <url> --token <new-token> --data-dir /etc/nebula
+sudo nebula-agent --server <url> --token <new-token>
 sudo systemctl start nebula nebula-agent
 ```
 

@@ -49,17 +49,33 @@ const (
 // future RBAC tooling can share the same vocabulary instead of duplicating
 // string literals.
 const (
-	auditHostCreate           = "host.create"
-	auditHostDelete           = "host.delete"
-	auditHostBlock            = "host.block"
-	auditHostUnblock          = "host.unblock"
-	auditCACreated            = "ca.created"
-	auditCADeleted            = "ca.deleted"
-	auditOperatorCreate       = "operator.create"
-	auditOperatorDisable      = "operator.disable"
-	auditOperatorEnable       = "operator.enable"
-	auditOperatorAPIKeyCreate = "operator.api_key.create"
-	auditOperatorAPIKeyRevoke = "operator.api_key.revoke"
+	auditHostCreate              = "host.create"
+	auditHostDelete              = "host.delete"
+	auditHostBlock               = "host.block"
+	auditHostUnblock             = "host.unblock"
+	auditHostAuthFailed          = "host.auth.failed"
+	auditHostRotateCertRequested = "host.rotate-cert.requested"
+	auditHostReenrollRequested   = "host.reenroll.requested"
+	auditHostRekeyCompleted      = "host.rekey.completed"
+	auditCACreated               = "ca.created"
+	auditCADeleted               = "ca.deleted"
+	auditOperatorCreate          = "operator.create"
+	auditOperatorDisable         = "operator.disable"
+	auditOperatorEnable          = "operator.enable"
+	auditOperatorAPIKeyCreate    = "operator.api_key.create"
+	auditOperatorAPIKeyRevoke    = "operator.api_key.revoke"
+)
+
+// Audit reason codes used in the `details` field of host.auth.failed audit
+// entries (ADR 0004 §8 — telemetry). Surfaced as constants so server-side and
+// test code share one source of truth.
+const (
+	authReasonUnknownFingerprint = "unknown_fingerprint"
+	authReasonBadSignature       = "bad_signature"
+	authReasonTimestampSkew      = "timestamp_skew"
+	authReasonReplayedNonce      = "replayed_nonce"
+	authReasonRevoked            = "revoked"
+	authReasonGone               = "gone"
 )
 
 // caIDFallback is the label value used when a CA signing event happens on

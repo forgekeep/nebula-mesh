@@ -17,10 +17,11 @@ import (
 )
 
 var (
-	ErrNotFound       = errors.New("not found")
-	ErrTokenUsed      = errors.New("token already used")
-	ErrTokenExpired   = errors.New("token expired")
-	ErrDuplicateEntry = errors.New("duplicate entry")
+	ErrNotFound            = errors.New("not found")
+	ErrTokenUsed           = errors.New("token already used")
+	ErrTokenExpired        = errors.New("token expired")
+	ErrDuplicateEntry      = errors.New("duplicate entry")
+	ErrRekeyAlreadyPending = errors.New("rekey already pending")
 )
 
 // SQLiteStore implements Store using SQLite.
@@ -86,6 +87,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"009_per_operator_cas.up.sql",
 		"010_cert_alerts.up.sql",
 		"011_server_settings.up.sql",
+		"012_agent_auth.up.sql",
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.
@@ -346,14 +348,18 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	var advancedJSON string
 	var publicIP sql.NullString
 	var certFP sql.NullString
+	var prevCertFP sql.NullString
 	var certExpires sql.NullTime
+	var certRotatedAt sql.NullTime
 	var lastSeen sql.NullTime
+	var signingPub sql.NullString
 
 	err := scanner.Scan(
 		&h.ID, &h.NetworkID, &h.Name, &h.NebulaIP, &groupsJSON,
 		&h.Role, &h.IsLighthouse, &h.IsRelay, &publicIP, &h.ListenPort,
 		&h.Status, &certFP, &certExpires, &lastSeen,
 		&h.CreatedAt, &h.UpdatedAt, &advancedJSON, &h.CAID,
+		&prevCertFP, &certRotatedAt, &h.PendingRekey, &signingPub,
 	)
 	if err != nil {
 		return nil, err
@@ -375,17 +381,26 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	if certFP.Valid {
 		h.CertFingerprint = certFP.String
 	}
+	if prevCertFP.Valid {
+		h.PrevCertFingerprint = prevCertFP.String
+	}
 	if certExpires.Valid {
 		h.CertExpiresAt = &certExpires.Time
 	}
+	if certRotatedAt.Valid {
+		h.CertRotatedAt = &certRotatedAt.Time
+	}
 	if lastSeen.Valid {
 		h.LastSeenAt = &lastSeen.Time
+	}
+	if signingPub.Valid {
+		h.SigningPubPEM = signingPub.String
 	}
 
 	return h, nil
 }
 
-const hostColumns = `id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id`
+const hostColumns = `id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem`
 
 func (s *SQLiteStore) GetHost(_ context.Context, id string) (*models.Host, error) {
 	row := s.db.QueryRow(`SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
@@ -744,6 +759,122 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason strin
 	return nil
 }
 
+// --- Agent authorization (ADR 0004) ---
+
+// SetPrevFingerprint records the previous cert fingerprint and the rotation
+// timestamp on the host row. Called from SaveCertificateAndUpdateHostCert
+// before the new fingerprint is written so the overlap window is preserved.
+func (s *SQLiteStore) SetPrevFingerprint(_ context.Context, hostID, prev string, rotatedAt time.Time) error {
+	res, err := s.db.Exec(
+		`UPDATE hosts SET prev_cert_fingerprint = ?, cert_rotated_at = ?, updated_at = ? WHERE id = ?`,
+		prev, rotatedAt, time.Now(), hostID,
+	)
+	if err != nil {
+		return fmt.Errorf("set prev fingerprint: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set prev fingerprint rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ClearPrevFingerprint drops the rotation overlap state once the agent has
+// successfully polled under the new fingerprint or the wall-clock window
+// expired.
+func (s *SQLiteStore) ClearPrevFingerprint(_ context.Context, hostID string) error {
+	res, err := s.db.Exec(
+		`UPDATE hosts SET prev_cert_fingerprint = NULL, cert_rotated_at = NULL, updated_at = ? WHERE id = ?`,
+		time.Now(), hostID,
+	)
+	if err != nil {
+		return fmt.Errorf("clear prev fingerprint: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("clear prev fingerprint rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetPendingRekey flips the pending_rekey flag atomically. If the flag is
+// already set on this host the call returns ErrRekeyAlreadyPending so a
+// duplicate force-rotate request can be rejected with 409.
+func (s *SQLiteStore) SetPendingRekey(_ context.Context, hostID string) error {
+	res, err := s.db.Exec(
+		`UPDATE hosts SET pending_rekey = 1, updated_at = ? WHERE id = ? AND pending_rekey = 0`,
+		time.Now(), hostID,
+	)
+	if err != nil {
+		return fmt.Errorf("set pending rekey: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set pending rekey rows affected: %w", err)
+	}
+	if n == 0 {
+		// Either the host does not exist or pending_rekey is already 1.
+		// Distinguish by re-reading the row.
+		var exists int
+		row := s.db.QueryRow(`SELECT 1 FROM hosts WHERE id = ?`, hostID)
+		if err := row.Scan(&exists); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return fmt.Errorf("scan host existence: %w", err)
+		}
+		return ErrRekeyAlreadyPending
+	}
+	return nil
+}
+
+// ClearPendingRekey resets the pending_rekey flag, typically after the agent
+// has redeemed the rekey token and the new keypair has been bound to the
+// existing host row.
+func (s *SQLiteStore) ClearPendingRekey(_ context.Context, hostID string) error {
+	res, err := s.db.Exec(
+		`UPDATE hosts SET pending_rekey = 0, updated_at = ? WHERE id = ?`,
+		time.Now(), hostID,
+	)
+	if err != nil {
+		return fmt.Errorf("clear pending rekey: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("clear pending rekey rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateHostSigningPub stores the Ed25519 PEM public key bound to the host's
+// signing identity at enrollment / re-enrollment time.
+func (s *SQLiteStore) UpdateHostSigningPub(_ context.Context, hostID, signingPubPEM string) error {
+	res, err := s.db.Exec(
+		`UPDATE hosts SET signing_pub_pem = ?, updated_at = ? WHERE id = ?`,
+		signingPubPEM, time.Now(), hostID,
+	)
+	if err != nil {
+		return fmt.Errorf("update signing pub: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update signing pub rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // --- Enrollment Tokens ---
 
 // CreateHostAndToken atomically creates a host and its enrollment token.
@@ -799,6 +930,37 @@ func (s *SQLiteStore) CreateToken(_ context.Context, t *models.EnrollmentToken) 
 	)
 	if err != nil {
 		return fmt.Errorf("insert token: %w", err)
+	}
+	return nil
+}
+
+// CreateTokenForHost atomically invalidates any active enrollment tokens for
+// the host and writes a fresh single-use one. Used by the regenerate-token,
+// reenroll, and rekey flows (ADR 0004) where the host row must be preserved.
+func (s *SQLiteStore) CreateTokenForHost(_ context.Context, hostID, token string, expiresAt time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	if _, err := tx.Exec(`DELETE FROM enrollment_tokens WHERE host_id = ? AND used = 0`, hostID); err != nil {
+		return fmt.Errorf("delete previous tokens: %w", err)
+	}
+	now := time.Now()
+	id := fmt.Sprintf("etok_%d", now.UnixNano())
+	if _, err := tx.Exec(
+		`INSERT INTO enrollment_tokens (id, host_id, token, used, expires_at, created_at) VALUES (?, ?, ?, 0, ?, ?)`,
+		id, hostID, token, expiresAt, now,
+	); err != nil {
+		return fmt.Errorf("insert token: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit create token: %w", err)
 	}
 	return nil
 }

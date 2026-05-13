@@ -52,9 +52,26 @@ type Store interface {
 	UnblockHostAndRemoveFromBlocklist(ctx context.Context, id string) (*models.Host, error)
 	DeleteHostAndBlockCert(ctx context.Context, id, reason string) error
 
+	// Agent authorization (ADR 0004 / #75).
+	//
+	// SetPrevFingerprint records the prior cert fingerprint and the time of
+	// rotation; SaveCertificateAndUpdateHostCert is the natural caller.
+	// ClearPrevFingerprint drops the overlap window once the agent has
+	// successfully polled under the new fingerprint.
+	//
+	// SetPendingRekey is a compare-and-swap that succeeds only when the host
+	// is not already mid-rekey; the second concurrent call returns
+	// ErrRekeyAlreadyPending so the API layer can answer 409.
+	SetPrevFingerprint(ctx context.Context, hostID, prev string, rotatedAt time.Time) error
+	ClearPrevFingerprint(ctx context.Context, hostID string) error
+	SetPendingRekey(ctx context.Context, hostID string) error
+	ClearPendingRekey(ctx context.Context, hostID string) error
+	UpdateHostSigningPub(ctx context.Context, hostID, signingPubPEM string) error
+
 	// Enrollment tokens
 	CreateHostAndToken(ctx context.Context, h *models.Host, t *models.EnrollmentToken) error
 	CreateToken(ctx context.Context, t *models.EnrollmentToken) error
+	CreateTokenForHost(ctx context.Context, hostID, token string, expiresAt time.Time) error
 	ConsumeToken(ctx context.Context, token string) (*models.EnrollmentToken, error)
 
 	// Certificates

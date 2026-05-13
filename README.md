@@ -144,7 +144,7 @@ sudo rpm -i "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/n
 sudo rpm -i "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-agent_${VERSION}_linux_${ARCH}.rpm"
 ```
 
-**What the package does.** Installs the binary to `/usr/bin/`, the systemd unit to `/lib/systemd/system/`, and an example config at `/etc/nebula-{mgmt,agent}/`. The service is **not** auto-started — run `nebula-mgmt init` (server) or `nebula-agent enroll` (agent) first, then `sudo systemctl enable --now nebula-{mgmt,agent}`. Configs are marked `noreplace`, so upgrades preserve your edits. `apt purge` / `dnf remove --purge` keeps `/etc/nebula-agent` and `/etc/nebula` so host keys survive accidental removal.
+**What the package does.** Installs the binary to `/usr/bin/`, the systemd unit to `/lib/systemd/system/`, and an example config at `/etc/nebula-{mgmt,agent}/`. The service is **not** auto-started — run `nebula-mgmt init` (server) or `nebula-agent --server URL --token TOK` (agent) first, then `sudo systemctl enable --now nebula-{mgmt,agent}`. Configs are marked `noreplace`, so upgrades preserve your edits. `apt purge` / `dnf remove --purge` keeps `/etc/nebula-agent` and `/etc/nebula` so host keys survive accidental removal.
 
 ### Prebuilt binaries (other Linux, macOS, FreeBSD, Windows)
 
@@ -242,14 +242,16 @@ nebula-mgmt host create \
   --name web-1 --ip 192.168.100.10
 # → prints an enrollment token
 
-# On the host — one-time enrollment + start the polling agent:
-sudo cp configs/agent.example.yml /etc/nebula-agent/agent.yml
-sudo nebula-agent enroll \
+# On the host — single command on first run: enrolls, writes config, starts polling.
+sudo nebula-agent \
   --server https://mgmt.example.com:8080 \
-  --token "$ENROLL_TOKEN" \
-  --data-dir /etc/nebula
-sudo nebula-agent run --config /etc/nebula-agent/agent.yml
+  --token "$ENROLL_TOKEN"
+
+# Every subsequent run (e.g. under systemd):
+sudo nebula-agent
 ```
+
+The first invocation writes `/etc/nebula-agent/agent.yml` (mode 0600) from the supplied flags. Subsequent runs need no arguments — the agent reads its config, finds `host.crt`, and starts polling. The enrollment token is single-use and is never persisted. The legacy `nebula-agent enroll` / `nebula-agent run` subcommands still work for one release and emit a deprecation warning.
 
 The agent keeps `host.crt` / `host.key` / `ca.crt` / `config.yml` in sync and signals Nebula on changes.
 

@@ -440,8 +440,10 @@ Chi router с middleware chain:
 4. При ошибке → логировать, retry с backoff
 
 **CLI:**
-- `nebula-agent enroll --token=<TOKEN> --server=<URL> [--config=<path>]`
-- `nebula-agent run [--config=<path>]`
+- `nebula-agent --server=<URL> --token=<TOKEN> [--config=<path>] [--data-dir=<dir>]` — первый запуск: enroll, запись `agent.yml` (0600), старт поллера
+- `nebula-agent [--config=<path>]` — последующие запуски (token не нужен)
+- `nebula-agent --update-config --server=<URL>` — атомарно переписать поле в `agent.yml`
+- Legacy (deprecated, поддерживается один релиз): `nebula-agent enroll …` / `nebula-agent run …`
 
 ### 1.8 Server CLI
 

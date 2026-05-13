@@ -71,6 +71,10 @@
   register: nebula_agent_fp_stat
 
 - name: Enroll (run once)
+  # We use the deprecated `enroll` subcommand here because it is the only
+  # one-shot form: the unified `nebula-agent --token …` starts the poller
+  # after enrolling, which would block this task forever. See issue #67 for
+  # the unified UX; this subcommand is supported for one release.
   when: not nebula_agent_fp_stat.stat.exists
   ansible.builtin.command:
     cmd: >

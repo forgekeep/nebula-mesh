@@ -31,13 +31,13 @@ The service reads `NEBULA_MGMT_CA_PASSPHRASE` from `passphrase.env` and unlocks 
 
 ```sh
 sudo install -m 0755 bin/nebula-agent /usr/local/bin/nebula-agent
-sudo install -d -m 0755 /etc/nebula-agent
-sudo install -m 0644 configs/agent.example.yml /etc/nebula-agent/agent.yml
 
-# Edit /etc/nebula-agent/agent.yml: set server_url, data_dir, nebula_pid_file.
-# Then enroll once (writes host.crt/key and config.yml to data_dir):
-sudo nebula-agent enroll --server https://mgmt.example.com:8080 \
-                        --token "$ENROLL_TOKEN" --data-dir /etc/nebula
+# First run: enrolls the host and writes /etc/nebula-agent/agent.yml (mode 0600).
+sudo nebula-agent \
+  --server https://mgmt.example.com:8080 \
+  --token "$ENROLL_TOKEN"
+
+# The default data_dir is /etc/nebula; pass --data-dir on the first run to change it.
 
 sudo install -m 0644 deploy/systemd/nebula-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload

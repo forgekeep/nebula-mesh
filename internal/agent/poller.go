@@ -31,6 +31,45 @@ type UpdatesResponse struct {
 	Blocklist      []string `json:"blocklist"`
 }
 
+// RevocationError is returned by Poller.poll when the management server
+// signals that the agent should stop polling — either 403 revoked (the host
+// is blocked) or 410 gone (the host row has been deleted). Run() returns
+// this error so callers can exit with status 0 and avoid systemd
+// auto-restart loops.
+type RevocationError struct {
+	StatusCode int
+	Reason     string
+	Body       string
+}
+
+func (e *RevocationError) Error() string {
+	return fmt.Sprintf("agent revoked by server (HTTP %d, reason=%s): %s", e.StatusCode, e.Reason, e.Body)
+}
+
+// IsRevoked reports whether err originates from a 403/410 server response.
+func IsRevoked(err error) bool {
+	var re *RevocationError
+	return err != nil && errorsAs(err, &re)
+}
+
+func errorsAs(err error, target any) bool {
+	type unwrapper interface{ Unwrap() error }
+	for cur := err; cur != nil; {
+		if ptr, ok := target.(**RevocationError); ok {
+			if re, ok := cur.(*RevocationError); ok {
+				*ptr = re
+				return true
+			}
+		}
+		if u, ok := cur.(unwrapper); ok {
+			cur = u.Unwrap()
+			continue
+		}
+		break
+	}
+	return false
+}
+
 // PollerConfig holds configuration for the Poller.
 type PollerConfig struct {
 	ServerURL   string
@@ -97,6 +136,10 @@ func (p *Poller) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 			if err := p.poll(ctx); err != nil {
+				if IsRevoked(err) {
+					p.logger.Error("poll loop stopped by server revocation signal", "error", err)
+					return err
+				}
 				p.logger.Error("poll failed", "error", err)
 			}
 		}
@@ -124,6 +167,14 @@ func (p *Poller) poll(ctx context.Context) error {
 
 	if resp.StatusCode == http.StatusNotModified {
 		return nil
+	}
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusGone {
+		body, _ := io.ReadAll(resp.Body)
+		reason := "revoked"
+		if resp.StatusCode == http.StatusGone {
+			reason = "gone"
+		}
+		return &RevocationError{StatusCode: resp.StatusCode, Reason: reason, Body: string(body)}
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, readErr := io.ReadAll(resp.Body)

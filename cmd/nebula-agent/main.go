@@ -220,7 +220,17 @@ func startPoller(cfg *config.AgentConfig, logger *slog.Logger) error {
 	}()
 
 	logger.Info("nebula-agent starting", "server", cfg.ServerURL, "poll_interval", cfg.PollInterval)
-	return poller.Run(ctx)
+	if err := poller.Run(ctx); err != nil {
+		// A 403 revoked / 410 gone signal means the operator deliberately
+		// stopped this agent. Exit cleanly so systemd does not restart us
+		// into the same denied state on a loop.
+		if agent.IsRevoked(err) {
+			logger.Error("agent revoked; exiting cleanly", "error", err)
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // runLegacyEnroll preserves the old `nebula-agent enroll` invocation for one

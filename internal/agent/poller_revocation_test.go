@@ -1,0 +1,97 @@
+package agent
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+)
+
+func TestPoll_ReturnsRevocationErrorOn403(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"reason":"revoked","blocked_at":"2026-05-13T00:00:00Z"}`))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	writeSigningKey(t, dir)
+	p, err := NewPoller(PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "test-fp",
+		DataDir:     dir,
+		Interval:    time.Hour,
+	}, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.signalFunc = func() error { return nil }
+
+	pollErr := p.poll(context.Background())
+	if pollErr == nil {
+		t.Fatal("poll returned nil; expected RevocationError")
+	}
+	if !IsRevoked(pollErr) {
+		t.Fatalf("IsRevoked(err) = false; want true, err = %v", pollErr)
+	}
+	var re *RevocationError
+	if !errors.As(pollErr, &re) {
+		t.Fatalf("errors.As(*RevocationError) failed for %v", pollErr)
+	}
+	if re.StatusCode != http.StatusForbidden || re.Reason != "revoked" {
+		t.Errorf("got %+v, want 403/revoked", re)
+	}
+}
+
+func TestPoll_ReturnsRevocationErrorOn410(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusGone)
+		_, _ = w.Write([]byte(`{"reason":"gone"}`))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	writeSigningKey(t, dir)
+	p, err := NewPoller(PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "test-fp",
+		DataDir:     dir,
+		Interval:    time.Hour,
+	}, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.signalFunc = func() error { return nil }
+
+	pollErr := p.poll(context.Background())
+	if !IsRevoked(pollErr) {
+		t.Fatalf("IsRevoked(err) = false; want true, err = %v", pollErr)
+	}
+}
+
+func TestRun_StopsOnRevocation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"reason":"revoked"}`))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	writeSigningKey(t, dir)
+	p := newPoller(t, PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "test-fp",
+		DataDir:     dir,
+		Interval:    20 * time.Millisecond,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	runErr := p.Run(ctx)
+	if !IsRevoked(runErr) {
+		t.Errorf("Run did not propagate revocation; got %v", runErr)
+	}
+}

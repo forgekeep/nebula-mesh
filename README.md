@@ -30,27 +30,26 @@
 
 Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it leaves the operator to hand-roll certificate issuance, rotation, distribution and revocation — usually with shell scripts and a CA on a laptop. **nebula-mesh** is the missing management layer: a single Go binary plus an enrollment agent that turn Nebula into a self-service mesh you can run on one VM.
 
-### Install (30 seconds)
+### Install in 30 seconds
+
+On a fresh Debian / Ubuntu VM (`amd64`):
 
 ```sh
-# Server (one VM): grab the latest release tarball.
-TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
-curl -fsSL "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-mgmt_${TAG#v}_linux_amd64.tar.gz" | tar -xz
+# 1. Install the server.
+VERSION=0.2.0
+curl -fsSLO "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_amd64.deb"
+sudo apt install -y "./nebula-mgmt_${VERSION}_linux_amd64.deb"
 
-# Agent (each Nebula host): install the .deb / .rpm.
-sudo apt install -y "./nebula-agent_${TAG#v}_linux_amd64.deb"   # or rpm -i …
+# 2. Initialise and start.
+sudo nebula-mgmt init --config /etc/nebula-mgmt/server.yml
+sudo systemctl enable --now nebula-mgmt
 ```
 
-### Run
+Open `http://<server>:8080/ui/` and log in with the password printed by `init`.
 
-```sh
-sudo ./nebula-mgmt init   --config /etc/nebula-mgmt/server.yml
-sudo ./nebula-mgmt serve  --config /etc/nebula-mgmt/server.yml
-```
+For RPM / macOS / FreeBSD / Windows / Docker / source — and the host-side agent — see [Install](#install) below. For host enrolment and CLI walk-through, see [Quickstart](#quickstart).
 
-Open `http://<server>:8080/ui/` to log in with the credentials `init` printed.
-
-**Jump to:** [Why](#why) · [Features](#features) · [Architecture](#architecture) · [Install](#install) · [Quickstart](#quickstart) · [Operators & auth](#operators-auth-and-tenancy) · [Deployment](#deployment) · [Endpoints](#endpoints) · [Status](#status) · [Roadmap](#roadmap) · [Security](#security)
+**Jump to:** [Why](#why) · [Features](#features) · [Architecture](#architecture) · [Install](#install) · [Quickstart](#quickstart) · [Operators & auth](#operators-auth-and-tenancy) · [Deployment](#deployment) · [Endpoints](#endpoints) · [Status](#status) · [Security](#security)
 
 <a name="why"></a>
 ## Why
@@ -107,78 +106,68 @@ One VM, two binaries:
 - `nebula-agent` — runs on each Nebula host, polls for updates, atomically rewrites Nebula config, `SIGHUP`s Nebula
 
 <details>
-<summary><strong>Install</strong> — distro packages, prebuilt binaries, Docker, from source</summary>
+<summary><strong>Install</strong> — Linux packages, prebuilt binaries, Docker, from source</summary>
 <a name="install"></a>
 
 
-Each release ships **two** independent artifact sets — install only what you need on each machine.
+nebula-mesh ships **two** static binaries. Install whichever you need on each machine:
 
-| | Server (`nebula-mgmt`) | Agent (`nebula-agent`) |
-|---|---|---|
-| Where it runs | one VM / container — the control plane | every Nebula host — next to `nebula` |
-| Binary tarball | `nebula-mgmt_<v>_<os>_<arch>.tar.gz` | `nebula-agent_<v>_<os>_<arch>.tar.gz` |
-| Linux distro packages | `nebula-mgmt_<v>_linux_<arch>.{deb,rpm}` | `nebula-agent_<v>_linux_<arch>.{deb,rpm}` |
-| Docker image | `ghcr.io/juev/nebula-mgmt` | `ghcr.io/juev/nebula-agent` |
+| Binary | Where it runs |
+|---|---|
+| `nebula-mgmt` | one server (the control plane) |
+| `nebula-agent` | every Nebula host, next to `nebula` |
 
-### Linux distro packages — recommended for both server and agent
+Pick an install method below. The examples assume `VERSION=0.2.0` — replace with the latest from the [releases page](https://github.com/juev/nebula-mesh/releases/latest). Each release ships a `checksums.txt` (SHA-256).
 
-`nebula-mgmt` and `nebula-agent` both ship as `.deb` and `.rpm`. The server is published for `amd64` and `arm64`; the agent additionally covers `armv7`. Each package installs the binary at `/usr/bin/`, the systemd unit at `/lib/systemd/system/`, an example config at `/etc/nebula-{mgmt,agent}/`, and the operations guide at `/usr/share/doc/nebula-{mgmt,agent}/`. The post-install creates the matching system user but never auto-starts the service — operators run `nebula-mgmt init` (for the server) or `nebula-agent enroll` (for each host) first.
+### Debian / Ubuntu (`.deb`)
 
 ```sh
-TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
+VERSION=0.2.0
+ARCH=$(dpkg --print-architecture)   # amd64 | arm64 | armhf (agent only)
+
+# Server (control plane):
+curl -fsSLO "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_${ARCH}.deb"
+sudo apt install -y "./nebula-mgmt_${VERSION}_linux_${ARCH}.deb"
+
+# Agent (each Nebula host):
+curl -fsSLO "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-agent_${VERSION}_linux_${ARCH}.deb"
+sudo apt install -y "./nebula-agent_${VERSION}_linux_${ARCH}.deb"
+```
+
+### RHEL / Fedora / Rocky / Alma (`.rpm`)
+
+```sh
+VERSION=0.2.0
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-# nebula-mgmt (server VM)
-curl -fsSL -O "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-mgmt_${TAG#v}_linux_${ARCH}.deb"
-sudo apt install -y "./nebula-mgmt_${TAG#v}_linux_${ARCH}.deb"
-# server.yml lives at /etc/nebula-mgmt/server.example.yml — copy, edit, set
-# NEBULA_MGMT_MASTER_KEY / NEBULA_MGMT_CA_PASSPHRASE via a systemd drop-in,
-# then `nebula-mgmt init` and `systemctl enable --now nebula-mgmt`.
+sudo rpm -i "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_${ARCH}.rpm"
+sudo rpm -i "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-agent_${VERSION}_linux_${ARCH}.rpm"
 ```
 
-Full server lifecycle reference: [`docs/server.md`](docs/server.md).
+**What the package does.** Installs the binary to `/usr/bin/`, the systemd unit to `/lib/systemd/system/`, and an example config at `/etc/nebula-{mgmt,agent}/`. The service is **not** auto-started — run `nebula-mgmt init` (server) or `nebula-agent enroll` (agent) first, then `sudo systemctl enable --now nebula-{mgmt,agent}`. Configs are marked `noreplace`, so upgrades preserve your edits. `apt purge` / `dnf remove --purge` keeps `/etc/nebula-agent` and `/etc/nebula` so host keys survive accidental removal.
 
-#### Agent
+### Prebuilt binaries (other Linux, macOS, FreeBSD, Windows)
 
-`nebula-agent` is published with the same package shape, plus an `armv7` build for 32-bit Raspberry Pi targets.
-
-```sh
-TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
-ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/;s/armv7l/armv7/')
-
-# Debian / Ubuntu
-curl -fsSL -O "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-agent_${TAG#v}_linux_${ARCH}.deb"
-sudo apt install -y "./nebula-agent_${TAG#v}_linux_${ARCH}.deb"
-
-# RHEL / Fedora / CentOS Stream / Rocky / Alma
-sudo rpm -i "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-agent_${TAG#v}_linux_${ARCH}.rpm"
-
-# After install: edit the example, enroll, then enable the unit.
-sudo cp /etc/nebula-agent/agent.example.yml /etc/nebula-agent/agent.yml
-sudoedit /etc/nebula-agent/agent.yml
-sudo nebula-agent enroll --server <url> --token <token> --data-dir /etc/nebula
-sudo systemctl enable --now nebula-agent.service
-```
-
-`/etc/nebula-agent/agent.yml` is marked `config|noreplace`, so upgrades preserve your edits. `apt purge` / `dnf remove --purge` drops the system user but keeps `/etc/nebula-agent` and `/etc/nebula` intact so host keys survive an accidental removal. Full lifecycle reference: [`docs/agent.md`](docs/agent.md#from-a-linux-distro-package-recommended-on-debian--ubuntu--rhel).
-
-For `nebula-mgmt`, the agent on non-deb/rpm Linux distros, and non-Linux hosts, use the prebuilt tarball or Docker image below.
-
-### Prebuilt binary (Linux / macOS / FreeBSD / Windows)
+Download a tarball from the [releases page](https://github.com/juev/nebula-mesh/releases/latest) and extract:
 
 ```sh
-# Pick one: BIN=nebula-mgmt   (control-plane VM)
-#          BIN=nebula-agent   (every Nebula host)
-BIN=nebula-mgmt
+VERSION=0.2.0
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
-curl -fsSL "https://github.com/juev/nebula-mesh/releases/download/${TAG}/${BIN}_${TAG#v}_${OS}_${ARCH}.tar.gz" | tar -xz
+
+# Pick BIN=nebula-mgmt (server) or BIN=nebula-agent (host)
+BIN=nebula-mgmt
+curl -fsSL "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/${BIN}_${VERSION}_${OS}_${ARCH}.tar.gz" | tar -xz
 ```
 
-Full agent target matrix (incl. Linux `arm v7`, FreeBSD, Windows): [`docs/agent.md#supported-release-matrix`](docs/agent.md). Each release ships a `checksums.txt` with SHA-256 of every archive.
+Supported targets:
 
-### Docker (linux/amd64, linux/arm64)
+| | linux/amd64 | linux/arm64 | linux/armv7 | darwin/amd64 | darwin/arm64 | freebsd/amd64 | freebsd/arm64 | windows/amd64 |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `nebula-mgmt` | ✅ | ✅ | – | ✅ | ✅ | – | – | – |
+| `nebula-agent` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+### Docker
 
 ```sh
 # Server:
@@ -186,8 +175,8 @@ docker run -d --name nebula-mgmt \
   -p 8080:8080 \
   -v nebula-mgmt-data:/var/lib/nebula-mgmt \
   -v nebula-mgmt-etc:/etc/nebula-mgmt \
-  -e NEBULA_MGMT_CA_PASSPHRASE \
   -e NEBULA_MGMT_MASTER_KEY \
+  -e NEBULA_MGMT_CA_PASSPHRASE \
   ghcr.io/juev/nebula-mgmt:latest
 
 # Agent (typically sidecar to nebula, sharing the same PID namespace):
@@ -197,17 +186,21 @@ docker run -d --name nebula-agent \
   ghcr.io/juev/nebula-agent:latest
 ```
 
-Images are published to GitHub Container Registry with `:X.Y.Z` (semver, no `v` prefix) and `:latest` tags. See [Packages](https://github.com/juev?tab=packages&repo_name=nebula-mesh).
+Images: `ghcr.io/juev/nebula-mgmt`, `ghcr.io/juev/nebula-agent`. Tags: `:latest` and `:X.Y.Z` (semver, no `v` prefix). See [Packages](https://github.com/juev?tab=packages&repo_name=nebula-mesh).
 
 ### From source
 
 Requires Go 1.26+.
 
 ```sh
-make build           # outputs bin/nebula-mgmt and bin/nebula-agent
+git clone https://github.com/juev/nebula-mesh
+cd nebula-mesh
+make build   # → bin/nebula-mgmt, bin/nebula-agent
 ```
 
-After install, `nebula-mgmt version` and `nebula-agent --version` print the build version, short commit, and build date.
+Verify install with `nebula-mgmt version` / `nebula-agent --version`.
+
+Lifecycle references: [`docs/server.md`](docs/server.md) (server), [`docs/agent.md`](docs/agent.md) (agent).
 
 </details>
 
@@ -402,13 +395,6 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 ## Status
 
 **Beta.** Core flows (init, enroll, poll, rotate, revoke, audit, multi-CA) are covered by unit + integration tests with `-race`. API surface is not yet frozen — expect breaking changes until `v1.0.0`. Please open issues for anything rough.
-
-<a name="roadmap"></a>
-## Roadmap
-
-All originally-tracked roadmap items (issues #39–#53) have shipped. New ideas welcome — open an issue.
-
-Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA (opt-in **or** admin-enforced via `enforce_2fa`), self-registration, per-operator CAs (manage from CLI **or** `/ui/cas`), advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, configurable password policy with embedded common-password block, admin Settings page (toggle self-reg, log level, policy flags, …) at `/ui/settings`, admin operator + API-key management Web UI at `/ui/operators`, deb/rpm packages for both server and agent, reverse-proxy snippets for nginx / Caddy / Traefik ([`deploy/reverse-proxy/`](deploy/reverse-proxy/)), and the cross-platform agent build matrix.
 
 <a name="security"></a>
 ## Security

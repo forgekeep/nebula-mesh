@@ -63,6 +63,10 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	if role == "" {
 		role = models.HostRoleHost
 	}
+	if err := models.ValidateRoleReachability(role, req.PublicIP, req.ListenPort); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if err := validateHostAdvanced(req.Advanced); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

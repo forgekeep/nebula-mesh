@@ -70,6 +70,13 @@ allow_self_registration: false
 #   block_common:     true
 #   block_username:   true
 
+# Admin-enforced 2FA (issue #49). Defaults off. When true, local
+# operators without TOTP are gated into /ui/2fa/required immediately
+# after a successful password login; OIDC operators are exempt. The
+# value is persisted into server_settings on startup so the future
+# Settings UI (#47) can flip it without a restart.
+# enforce_2fa: false
+
 # Optional OpenID Connect identity provider for operator login. When enabled,
 # the Web UI offers a "Sign in with SSO" button on top of the local password
 # form. Local logins keep working alongside OIDC.

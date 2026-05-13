@@ -52,6 +52,13 @@ type ServerConfig struct {
 	// optional: unset values fall back to the production defaults
 	// (10-char min, 3-of-4 classes, common-pw + username block on).
 	Password PasswordConfig `yaml:"password,omitempty"`
+
+	// EnforceTOTP toggles admin-enforced 2FA (issue #49). When set, the
+	// value is written into the server_settings table on startup so it
+	// stays in effect across restarts. A nil pointer (unset YAML) leaves
+	// the DB value alone — the future Settings UI (#47) will edit the
+	// same row at runtime.
+	EnforceTOTP *bool `yaml:"enforce_2fa,omitempty"`
 }
 
 // PasswordConfig overrides the password policy defaults.

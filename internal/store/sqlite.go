@@ -85,6 +85,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"008_host_advanced.up.sql",
 		"009_per_operator_cas.up.sql",
 		"010_cert_alerts.up.sql",
+		"011_server_settings.up.sql",
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.
@@ -1123,6 +1124,35 @@ func (s *SQLiteStore) GetCertAlert(_ context.Context, hostID string) (time.Time,
 		return time.Time{}, fmt.Errorf("get cert alert: %w", err)
 	}
 	return t, nil
+}
+
+// --- Server settings (key/value) ---
+
+// GetServerSetting returns the stored value for key, or "" + ErrNotFound
+// when the key has never been set.
+func (s *SQLiteStore) GetServerSetting(_ context.Context, key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM server_settings WHERE key = ?`, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("get server setting: %w", err)
+	}
+	return value, nil
+}
+
+// SetServerSetting upserts a key/value pair into server_settings.
+func (s *SQLiteStore) SetServerSetting(_ context.Context, key, value string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO server_settings (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		key, value,
+	)
+	if err != nil {
+		return fmt.Errorf("set server setting: %w", err)
+	}
+	return nil
 }
 
 // --- Config Versioning ---

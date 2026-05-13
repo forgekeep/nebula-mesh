@@ -92,6 +92,12 @@ type Store interface {
 	RecordCertAlert(ctx context.Context, hostID string, alertedNotAfter time.Time) error
 	GetCertAlert(ctx context.Context, hostID string) (time.Time, error)
 
+	// Server-wide key/value settings (e.g. enforce_2fa). Empty string is
+	// returned when the key has never been set — callers convert to typed
+	// defaults via the helpers in the consuming package.
+	GetServerSetting(ctx context.Context, key string) (string, error)
+	SetServerSetting(ctx context.Context, key, value string) error
+
 	// Operators
 	CreateOperator(ctx context.Context, op *models.Operator) error
 	GetOperator(ctx context.Context, id string) (*models.Operator, error)

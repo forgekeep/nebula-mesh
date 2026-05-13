@@ -186,6 +186,18 @@ func Serve(configPath string) error {
 		pwPolicy.BlockUsername = *v
 	}
 	apiSrv.WithPasswordPolicy(pwPolicy)
+
+	// Persist enforce_2fa from server.yml into server_settings so the gate
+	// reads the same row admins will edit from the future Settings UI.
+	if cfg.EnforceTOTP != nil {
+		val := "false"
+		if *cfg.EnforceTOTP {
+			val = "true"
+		}
+		if err := s.SetServerSetting(context.Background(), "enforce_2fa", val); err != nil {
+			logger.Error("persist enforce_2fa setting", "error", err)
+		}
+	}
 	if caResolver != nil {
 		apiSrv.WithCAResolver(caResolver)
 		apiSrv.WithMaster(master)

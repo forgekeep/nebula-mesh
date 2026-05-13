@@ -182,6 +182,7 @@ func (w *Web) setupRoutes() {
 		r.Post("/ui/networks", w.handleNetworkCreate)
 		r.Get("/ui/profile", w.handleProfilePage)
 		r.Get("/ui/2fa", w.handleTwoFAPage)
+		r.Get("/ui/2fa/required", w.handleTwoFARequired)
 		r.Post("/ui/2fa/setup", w.handleTwoFASetup)
 		r.Post("/ui/2fa/enable", w.handleTwoFAEnable)
 		r.Post("/ui/2fa/disable", w.handleTwoFADisable)

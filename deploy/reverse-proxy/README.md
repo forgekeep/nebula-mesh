@@ -24,3 +24,23 @@ All three:
 The agent endpoints (`/api/v1/enroll`, `/api/v1/agent/updates`) carry
 their own bearer / token authentication — do **not** stack HTTP basic
 auth in the proxy on top of them.
+
+## Optional: mTLS on the UI only (issue #69)
+
+Each of the three snippets ships a commented-out block that gates the
+**UI surface only** behind a client certificate, leaving `/api/`,
+`/healthz`, `/readyz`, `/metrics`, and `/debug/` reachable without one.
+Why split the surfaces:
+
+- Browsers can present a client cert (per-operator, issued from your
+  internal PKI), giving an extra factor on top of the password / 2FA.
+- Agents authenticate with an enrollment token or their host cert at
+  the application layer — they have no operator-cert chain to present.
+- Prometheus / monitoring rarely scrapes through mTLS, and the ops
+  endpoints have no secrets in their responses.
+
+In-binary mTLS would require a second `net.Listener` per route, which
+expands the operational surface — keeping `crypto/tls.ClientAuth` in
+the reverse proxy is the cleaner lever. To enable on your setup,
+uncomment the marked block in the file for your proxy and supply the
+operator-CA bundle (the CA that signs operator client certs).

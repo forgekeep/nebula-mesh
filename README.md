@@ -378,20 +378,40 @@ Keep `NEBULA_MGMT_MASTER_KEY` in your secret manager — both the DB and the mas
 <a name="endpoints"></a>
 ## Endpoints
 
-Public, agent, and admin routes at a glance:
+The router (issue #69) splits the listener three ways: `/api/` for the API surface, root + `/ui/` for the Web UI, and a fixed list of ops paths kept at the root for monitoring scrapes. The bare `/` redirects browsers to `/ui/`.
 
-| Path | Auth | Purpose |
+| Prefix | Path | Auth | Purpose |
+|---|---|---|---|
+| UI | `/` | (redirect) | 302 to `/ui/` so first-time visitors land on the dashboard. |
+| UI | `/ui/` | session cookie | web UI (rate-limited, see below). |
+| UI | `/static/*`, `/favicon.ico` | none | UI assets. |
+| API | `/api/v1/enroll` | enrollment token | agent first-contact. |
+| API | `/api/v1/agent/updates` | host cert fingerprint | agent poll. |
+| API | `/api/v1/...` | `Bearer <api_key>` | admin REST API. |
+| Ops | `/healthz` | none | liveness. |
+| Ops | `/readyz` | none | readiness (DB reachable). |
+| Ops | `/metrics` | none | Prometheus exposition (see [`internal/api/metrics.go`](internal/api/metrics.go)). Disable via `metrics.prometheus: false`. |
+| Ops | `/debug/vars`, `/debug/pprof/*` | none | Go `expvar` / pprof. |
+| Ops | `/health` | none | legacy alias for `/healthz`. |
+
+Full route list in [`internal/api/server.go`](internal/api/server.go) and [`internal/web/web.go`](internal/web/web.go).
+
+### Per-endpoint rate-limit groups
+
+On by default; configurable in `server.yml`. Each group is a separate per-IP token bucket:
+
+| Group | Default (req/s / burst) | Endpoints |
 |---|---|---|
-| `/healthz` | none | liveness |
-| `/readyz` | none | readiness (DB reachable) |
-| `/metrics` | none | Prometheus exposition (counters, histograms, gauges — see [`internal/api/metrics.go`](internal/api/metrics.go)). Disable via `metrics.prometheus: false` for air-gapped installs. |
-| `/debug/vars` | none | Go `expvar` runtime stats (kept for backward compatibility). |
-| `/ui/` | session cookie | web UI |
-| `/api/v1/enroll` | enrollment token | agent first-contact |
-| `/api/v1/agent/updates` | host cert | agent poll |
-| `/api/v1/...` | `Bearer <api_key>` | admin REST API |
+| `auth` | 5 / 10 | `POST /ui/login`, `POST /ui/login/totp`, `POST /ui/register` |
+| `ui` | 30 / 60 | every other `/ui/...` page + the admin REST API under `/api/v1/...` |
+| `enroll` | 2 / 5 | `POST /api/v1/enroll` |
+| `agent_poll` | 60 / 120 | `GET /api/v1/agent/updates` |
 
-Full route list in [`internal/api/server.go`](internal/api/server.go).
+Ops endpoints (`/healthz`, `/readyz`, `/metrics`, `/debug/`, `/favicon.ico`, `/static/*`) are exempt so scrapes never get 429s. Behind a reverse proxy, set `rate_limit.trust_proxy_header: true` to key the buckets on `X-Forwarded-For` instead of the proxy's loopback connection.
+
+### Optional: mTLS on the UI only
+
+`crypto/tls.ClientAuth` is a listener-level setting, so per-route client-cert verification lives in the reverse proxy rather than in `nebula-mgmt` itself. Each snippet in [`deploy/reverse-proxy/`](deploy/reverse-proxy/) ships a commented-out block that gates `/ui/` (and `/`) behind a client cert while leaving `/api/` and the ops endpoints reachable without one — agents and Prometheus do not present operator certificates.
 
 <a name="status"></a>
 ## Status

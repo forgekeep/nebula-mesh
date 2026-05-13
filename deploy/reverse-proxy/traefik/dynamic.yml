@@ -60,3 +60,37 @@ http:
         contentTypeNosniff: true
         frameDeny: true
         referrerPolicy: "no-referrer"
+
+# --------------------------------------------------------------------
+# Optional: mTLS on the UI only (issue #69).
+#
+# Traefik client-cert verification is a per-router setting via a named
+# tls.options entry. Define an options block requiring a client cert,
+# then attach it to a router that matches only `/ui/*` and `/`. Leave
+# the main `nebula-mgmt` router above untouched so agents (/api/v1/...)
+# and Prometheus (/healthz, /readyz, /metrics, /debug/) keep working.
+#
+# Uncomment everything below to enable. Replace the CA bundle path with
+# the operator client-cert CA you control.
+#
+# tls:
+#   options:
+#     nebula-mgmt-ui-mtls:
+#       clientAuth:
+#         caFiles:
+#           - /etc/traefik/ui-clients-ca.pem
+#         clientAuthType: RequireAndVerifyClientCert
+#       minVersion: VersionTLS12
+#
+# http:
+#   routers:
+#     nebula-mgmt-ui:
+#       # Higher priority than the catch-all so /ui/* and "/" land here first.
+#       priority: 100
+#       rule: "Host(`mgmt.example.com`) && (PathPrefix(`/ui`) || Path(`/`) || PathPrefix(`/static`) || Path(`/favicon.ico`))"
+#       entryPoints: [websecure]
+#       service: nebula-mgmt
+#       middlewares: [nebula-mgmt-headers]
+#       tls:
+#         certResolver: letsencrypt
+#         options: nebula-mgmt-ui-mtls

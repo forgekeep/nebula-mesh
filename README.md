@@ -373,6 +373,8 @@ sudo cp /var/lib/nebula-mgmt/nebula.db /backups/nebula-$(date +%F).db
 
 Keep `NEBULA_MGMT_MASTER_KEY` in your secret manager — both the DB and the master key are required to mint a certificate. The legacy `data_dir/ca.crt` / `data_dir/ca.key` produced by `nebula-mgmt init` are kept for one release as a rollback artifact, then deletable once the import into the `cas` table has succeeded.
 
+The server administrator can decrypt every CA on the box (the master key is in process memory while the server runs). We accept this for the single-binary deployment story — see [ADR 0003](docs/adr/0003-ca-encryption-model.md) for the alternatives (operator-derived KEK, zero-knowledge, external signer) and why we did not adopt them today.
+
 </details>
 
 <a name="endpoints"></a>
@@ -404,7 +406,7 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 - **Authentication.** Interactive logins are bcrypt-verified against the operator's password; sessions are DB-backed and revoked atomically on `user disable`. Optional TOTP 2FA + recovery codes. Optional OIDC SSO.
 - **Authorization.** Operator-management API and CA-management API require `role: admin`; non-admin operators can only see and act on the CAs they own.
 - **API keys.** Per-operator, stored as SHA-256 hashes — disable an operator and every key revokes in the same transaction. The legacy config-file `api_key` continues to work as a fallback for backward compatibility.
-- **CA key material.** Stored encrypted at rest in SQLite under a process-wide AES-256-GCM master key (`NEBULA_MGMT_MASTER_KEY`), supplied at startup and never persisted. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the threat-model discussion.
+- **CA key material.** Stored encrypted at rest in SQLite under a process-wide AES-256-GCM master key (`NEBULA_MGMT_MASTER_KEY`), supplied at startup and never persisted. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the threat-model discussion and [ADR 0003](docs/adr/0003-ca-encryption-model.md) for the operator-derived-KEK / zero-knowledge alternatives we evaluated and deferred.
 - **Transport.** Always run the management server behind TLS — set `tls_cert` + `tls_key`, or front with nginx/caddy/traefik.
 - **Disclosure.** Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 

@@ -652,6 +652,11 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	if role == "" {
 		role = models.HostRoleHost
 	}
+	publicIP := r.FormValue("public_ip")
+	if err := models.ValidateRoleReachability(role, publicIP, listenPort); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	var groups []string
 	if g := strings.TrimSpace(r.FormValue("groups")); g != "" {
@@ -679,7 +684,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		Role:         role,
 		IsLighthouse: role == models.HostRoleLighthouse,
 		IsRelay:      role == models.HostRoleRelay,
-		PublicIP:     r.FormValue("public_ip"),
+		PublicIP:     publicIP,
 		ListenPort:   listenPort,
 		Status:       models.HostStatusPending,
 		Advanced:     advanced,

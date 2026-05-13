@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"errors"
+	"strings"
+	"time"
+)
 
 type HostStatus string
 
@@ -26,6 +30,36 @@ func ValidRole(r HostRole) bool {
 	default:
 		return false
 	}
+}
+
+// ErrRoleRequiresPublicIP is returned when a host with role=lighthouse or
+// role=relay is created without a non-empty public_ip. Such a host would
+// never be advertised to peers (see internal/api/enroll.go where
+// static_host_map / lighthouse.hosts only include hosts whose PublicIP is
+// set), so accept-and-silently-drop is replaced with reject-at-create.
+var ErrRoleRequiresPublicIP = errors.New("public_ip is required when role is lighthouse or relay")
+
+// ErrRoleRequiresListenPort is the listen_port counterpart of
+// ErrRoleRequiresPublicIP: peers compose static_host_map entries as
+// "public_ip:listen_port", so a zero port produces the same silent failure.
+var ErrRoleRequiresListenPort = errors.New("listen_port is required when role is lighthouse or relay")
+
+// ValidateRoleReachability rejects role/reachability combinations that
+// would result in a silently-useless host. role=lighthouse and role=relay
+// must both ship with a routable public_ip and a non-zero listen_port —
+// otherwise peer config.yml renders an empty static_host_map and the host
+// is never dialed (issue #94).
+func ValidateRoleReachability(role HostRole, publicIP string, listenPort int) error {
+	if role != HostRoleLighthouse && role != HostRoleRelay {
+		return nil
+	}
+	if strings.TrimSpace(publicIP) == "" {
+		return ErrRoleRequiresPublicIP
+	}
+	if listenPort == 0 {
+		return ErrRoleRequiresListenPort
+	}
+	return nil
 }
 
 type Host struct {

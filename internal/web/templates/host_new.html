@@ -8,11 +8,11 @@
     <form method="POST" action="/ui/hosts">
         <div class="form-group">
             <label>Network</label>
-            <select name="network_id" class="form-control" required>
+            <select id="network-select" name="network_id" class="form-control" required>
                 <option value="">Select network...</option>
                 {{$selected := .Form.NetworkID}}
                 {{range .Networks}}
-                <option value="{{.ID}}"{{if eq .ID $selected}} selected{{end}}>{{.Name}} ({{.CIDR}})</option>
+                <option value="{{.ID}}" data-cidr="{{.CIDR}}"{{if eq .ID $selected}} selected{{end}}>{{.Name}} ({{.CIDR}})</option>
                 {{end}}
             </select>
         </div>
@@ -22,7 +22,8 @@
         </div>
         <div class="form-group">
             <label>Nebula IP</label>
-            <input type="text" name="nebula_ip" class="form-control" placeholder="192.168.100.10" value="{{.Form.NebulaIP}}" required>
+            <input id="nebula-ip-input" type="text" name="nebula_ip" class="form-control" placeholder="192.168.100.10" value="{{.Form.NebulaIP}}" required>
+            <div id="nebula-ip-hint" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;"></div>
         </div>
         <div class="form-group">
             <label>Role</label>
@@ -82,4 +83,62 @@
         <button type="submit" class="btn btn-primary">Create Host</button>
     </form>
 </div>
+
+<script>
+(function() {
+    var sel = document.getElementById("network-select");
+    var ipInput = document.getElementById("nebula-ip-input");
+    var hint = document.getElementById("nebula-ip-hint");
+    if (!sel || !ipInput || !hint) {
+        return;
+    }
+
+    // computeByteAlignedPrefix returns the immutable octet prefix for a
+    // CIDR whose mask is a multiple of 8 (/8, /16, /24), e.g. "10.42.0/24"
+    // → "10.42.0.". Returns "" for any other mask — those need a free-form
+    // IP, so the JS shows only a hint instead of prefilling.
+    function computeByteAlignedPrefix(cidr) {
+        var m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/.exec(cidr);
+        if (!m) {
+            return "";
+        }
+        var bits = parseInt(m[5], 10);
+        if (bits === 8) { return m[1] + "."; }
+        if (bits === 16) { return m[1] + "." + m[2] + "."; }
+        if (bits === 24) { return m[1] + "." + m[2] + "." + m[3] + "."; }
+        return "";
+    }
+
+    var lastPrefix = "";
+
+    function update() {
+        var opt = sel.options[sel.selectedIndex];
+        var cidr = opt ? opt.getAttribute("data-cidr") : "";
+        if (!cidr) {
+            hint.textContent = "";
+            return;
+        }
+        var prefix = computeByteAlignedPrefix(cidr);
+        if (prefix) {
+            hint.textContent = "Network " + cidr + " — fill in the host portion only.";
+            // Replace the previous auto-filled prefix, but never clobber a
+            // value the operator typed in themselves (start of input differs
+            // from any known prefix we offered).
+            var current = ipInput.value;
+            if (current === "" || current === lastPrefix || (lastPrefix !== "" && current.indexOf(lastPrefix) === 0)) {
+                ipInput.value = prefix + (current.indexOf(lastPrefix) === 0 ? current.slice(lastPrefix.length) : "");
+            }
+            lastPrefix = prefix;
+        } else {
+            hint.textContent = "Network " + cidr + " — enter any IP within the range.";
+            lastPrefix = "";
+        }
+    }
+
+    sel.addEventListener("change", update);
+    // Run once on load so a re-rendered form (validation failure) or the
+    // initial GET with a single network selected still shows the hint.
+    update();
+})();
+</script>
 {{end}}

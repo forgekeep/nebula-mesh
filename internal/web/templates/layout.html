@@ -213,6 +213,7 @@
                 <a href="/ui/" {{if eq .Active "dashboard"}}class="active"{{end}}>Dashboard</a>
                 <a href="/ui/networks" {{if eq .Active "networks"}}class="active"{{end}}>Networks</a>
                 <a href="/ui/hosts" {{if eq .Active "hosts"}}class="active"{{end}}>Hosts</a>
+                <a href="/ui/cas"   {{if eq .Active "cas"}}class="active"{{end}}>CAs</a>
                 {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
                 <a href="/ui/operators" {{if eq .Active "operators"}}class="active"{{end}}>Operators</a>
                 <a href="/ui/settings"  {{if eq .Active "settings"}}class="active"{{end}}>Settings</a>

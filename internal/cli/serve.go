@@ -213,6 +213,9 @@ func Serve(configPath string) error {
 	webUI.WithLoginRecorder(apiSrv.RecordLogin)
 	webUI.WithRateLimiter(limiter)
 	webUI.WithPasswordPolicy(pwPolicy)
+	if master != nil {
+		webUI.WithMaster(master)
+	}
 
 	// Live host-status SSE: API server fires HostSeenEmitter on each agent
 	// poll, EventBus fans out to subscribed browser tabs.

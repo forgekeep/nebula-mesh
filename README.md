@@ -345,7 +345,7 @@ By default only administrators can create operator accounts. Set `allow_self_reg
 
 ### Per-operator CAs
 
-With `NEBULA_MGMT_MASTER_KEY` configured, operators can run their networks under isolated CAs:
+With `NEBULA_MGMT_MASTER_KEY` configured, operators can run their networks under isolated CAs. Mint, browse, retire, and delete CAs from the CLI (below), the REST API (`/api/v1/cas*`), or the Web UI at `/ui/cas` — every flow shares the same ownership check, so a non-admin operator only sees the CAs they own.
 
 ```sh
 # Create a CA scoped to a real operator (the legacy config key is denied)
@@ -411,16 +411,14 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 
 </details>
 
-<details open>
-<summary><strong>Roadmap</strong> — what's next (1 open issue)</summary>
+<details>
+<summary><strong>Roadmap</strong> — no open issues right now</summary>
 <a name="roadmap"></a>
 
 
-Open issues tracked individually so you can subscribe to the ones you care about:
+All originally-tracked roadmap items (issues #39–#53) have shipped. New ideas welcome — open an issue.
 
-- [#46](https://github.com/juev/nebula-mesh/issues/46) — Web UI: per-operator CA management (create / list / retire / delete)
-
-Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA (opt-in **or** admin-enforced via `enforce_2fa`), self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, configurable password policy with embedded common-password block, admin Settings page (toggle self-reg, log level, policy flags, …) at `/ui/settings`, admin operator + API-key management Web UI at `/ui/operators`, deb/rpm packages for both server and agent, reverse-proxy snippets for nginx / Caddy / Traefik ([`deploy/reverse-proxy/`](deploy/reverse-proxy/)), and the cross-platform agent build matrix.
+Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA (opt-in **or** admin-enforced via `enforce_2fa`), self-registration, per-operator CAs (manage from CLI **or** `/ui/cas`), advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, configurable password policy with embedded common-password block, admin Settings page (toggle self-reg, log level, policy flags, …) at `/ui/settings`, admin operator + API-key management Web UI at `/ui/operators`, deb/rpm packages for both server and agent, reverse-proxy snippets for nginx / Caddy / Traefik ([`deploy/reverse-proxy/`](deploy/reverse-proxy/)), and the cross-platform agent build matrix.
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 

@@ -1,0 +1,39 @@
+{{define "title"}}{{.CA.Name}} — CAs — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>{{.CA.Name}}</h1>
+    <a href="/ui/cas">← Back to CAs</a>
+</div>
+
+{{if .Error}}<div class="card error">{{.Error}}</div>{{end}}
+
+<div class="card">
+    <dl>
+        <dt>Status</dt>         <dd><span class="badge badge-{{.CA.Status}}">{{.CA.Status}}</span></dd>
+        <dt>Fingerprint</dt>    <dd><code>{{.CA.Fingerprint}}</code></dd>
+        <dt>Owner</dt>          <dd>{{.CA.OwnerOperatorID}}</dd>
+        <dt>Valid from</dt>     <dd>{{.CA.NotBefore.Format "2006-01-02 15:04 MST"}}</dd>
+        <dt>Valid until</dt>    <dd>{{.CA.NotAfter.Format "2006-01-02 15:04 MST"}}</dd>
+        <dt>Created</dt>        <dd>{{.CA.CreatedAt.Format "2006-01-02 15:04"}}</dd>
+    </dl>
+
+    <details>
+        <summary>Certificate PEM</summary>
+        <pre><code>{{.CA.CertPEM}}</code></pre>
+    </details>
+
+    <div class="row" style="margin-top:1em">
+        {{if eq (printf "%s" .CA.Status) "active"}}
+        <form method="POST" action="/ui/cas/{{.CA.ID}}/retire" style="display:inline">
+            <button type="submit" class="btn btn-warning"
+                    onclick="return confirm('Retire {{.CA.Name}}? Retired CAs can no longer sign new certificates; existing host certs keep working until they expire.')">Retire</button>
+        </form>
+        {{end}}
+        <form method="POST" action="/ui/cas/{{.CA.ID}}/delete" style="display:inline">
+            <button type="submit" class="btn btn-danger"
+                    onclick="return confirm('Delete {{.CA.Name}}? This is permanent.')">Delete</button>
+        </form>
+    </div>
+</div>
+{{end}}

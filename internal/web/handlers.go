@@ -598,17 +598,23 @@ func (w *Web) handleHosts(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleHostNew(rw http.ResponseWriter, r *http.Request) {
-	networks, err := w.store.ListNetworks(r.Context())
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	networks, err := w.accessibleNetworks(r.Context(), op)
 	if err != nil {
 		w.logger.Error("list networks for host form", "error", err)
 		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
 		return
 	}
 	w.renderForRequest(rw, r, "host_new.html", map[string]any{
-		"Active":   "hosts",
-		"Networks": networks,
-		"Form":     hostFormState{},
-		"Error":    "",
+		"Active":      "hosts",
+		"Networks":    networks,
+		"HasNetworks": len(networks) > 0,
+		"Form":        hostFormState{},
+		"Error":       "",
 	})
 }
 
@@ -617,8 +623,42 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "bad request", http.StatusBadRequest)
 		return
 	}
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
 
 	form := newHostFormState(r)
+
+	// Resolve the chosen network and check that the operator is allowed
+	// to attach a host to it (issue #93). admins keep their existing
+	// blanket access; users must own the CA that signs the network.
+	var network *models.Network
+	if networkID := form.NetworkID; networkID != "" {
+		n, err := w.store.GetNetwork(r.Context(), networkID)
+		if errors.Is(err, store.ErrNotFound) {
+			w.renderHostNewError(rw, r, form, "network not found")
+			return
+		}
+		if err != nil {
+			w.logger.Error("get network for host create", "error", err)
+			http.Error(rw, "Failed to load network", http.StatusInternalServerError)
+			return
+		}
+		if op.Role != "admin" {
+			if n.CAID == "" {
+				w.renderHostNewError(rw, r, form, "this network is not tied to a CA you own — pick a network you created")
+				return
+			}
+			ca, err := w.store.GetCA(r.Context(), n.CAID)
+			if err != nil || ca.OwnerOperatorID != op.ID {
+				w.renderHostNewError(rw, r, form, "this network is not tied to a CA you own — pick a network you created")
+				return
+			}
+		}
+		network = n
+	}
 
 	nebulaIP := form.NebulaIP
 	networkID := form.NetworkID
@@ -680,6 +720,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	host := &models.Host{
 		ID:           uuid.New().String(),
 		NetworkID:    networkID,
+		CAID:         networkCAID(network),
 		Name:         form.Name,
 		NebulaIP:     nebulaIP,
 		Groups:       groups,
@@ -766,18 +807,42 @@ func (w *Web) handleHostDelete(rw http.ResponseWriter, r *http.Request) {
 	rw.WriteHeader(http.StatusOK)
 }
 
+// networkCAID extracts CAID from a (possibly nil) network. Nil network
+// happens when the operator submits an empty network_id; the host create
+// path falls through to its own validation in that case.
+func networkCAID(n *models.Network) string {
+	if n == nil {
+		return ""
+	}
+	return n.CAID
+}
+
 // --- Networks ---
 
 func (w *Web) handleNetworks(rw http.ResponseWriter, r *http.Request) {
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
 	networks, err := w.store.ListNetworks(r.Context())
 	if err != nil {
 		w.logger.Error("list networks", "error", err)
 		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
 		return
 	}
+	cas, err := w.accessibleActiveCAs(r.Context(), op)
+	if err != nil {
+		w.logger.Error("list cas for networks page", "error", err)
+		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
+		return
+	}
 	w.renderForRequest(rw, r, "networks.html", map[string]any{
 		"Active":     "networks",
 		"Networks":   networks,
+		"CAs":        cas,
+		"HasCAs":     len(cas) > 0,
+		"IsAdmin":    op.Role == "admin",
 		"Form":       networkFormState{},
 		"Error":      "",
 		"ShowCreate": false,
@@ -789,13 +854,48 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "bad request", http.StatusBadRequest)
 		return
 	}
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+
 	form := newNetworkFormState(r)
+
+	cas, err := w.accessibleActiveCAs(r.Context(), op)
+	if err != nil {
+		w.logger.Error("list cas for network create", "error", err)
+		http.Error(rw, "Failed to load CAs", http.StatusInternalServerError)
+		return
+	}
+	// Non-admins must own at least one active CA. admins fall through
+	// to the legacy "no CA tied to network" path so existing deployments
+	// keep working until they migrate.
+	if op.Role != "admin" && len(cas) == 0 {
+		w.renderNetworksError(rw, r, form, cas, "You must create a CA before adding a network. Open the CAs page to mint one.")
+		return
+	}
+
 	if form.Name == "" || form.CIDR == "" {
-		w.renderNetworksError(rw, r, form, "name and cidr are required")
+		w.renderNetworksError(rw, r, form, cas, "name and cidr are required")
 		return
 	}
 	if _, err := netip.ParsePrefix(form.CIDR); err != nil {
-		w.renderNetworksError(rw, r, form, "invalid CIDR: "+err.Error())
+		w.renderNetworksError(rw, r, form, cas, "invalid CIDR: "+err.Error())
+		return
+	}
+
+	caID := form.CAID
+	if caID == "" && op.Role != "admin" {
+		if len(cas) == 1 {
+			caID = cas[0].ID
+		} else {
+			w.renderNetworksError(rw, r, form, cas, "pick a CA to sign certificates for this network")
+			return
+		}
+	}
+	if caID != "" && !containsCAID(cas, caID) {
+		w.renderNetworksError(rw, r, form, cas, "selected CA is not accessible to you")
 		return
 	}
 
@@ -803,6 +903,7 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 		ID:        uuid.New().String(),
 		Name:      form.Name,
 		CIDR:      form.CIDR,
+		CAID:      caID,
 		CreatedAt: time.Now(),
 	}
 

@@ -42,6 +42,7 @@ func newTestWeb(t *testing.T) (*Web, *store.SQLiteStore) {
 		Username:     testUsername,
 		DisplayName:  "Administrator",
 		PasswordHash: string(hash),
+		Role:         "admin",
 	}); err != nil {
 		t.Fatal(err)
 	}

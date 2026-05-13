@@ -3,8 +3,16 @@
 {{define "content"}}
 <h1>New Host</h1>
 
+{{if .Error}}<div class="card error" role="alert" style="color: var(--danger); border-left: 3px solid var(--danger);">{{.Error}}</div>{{end}}
+
+{{if not .HasNetworks}}
+<div class="card alert" role="alert" style="border-left: 3px solid var(--danger);">
+    <strong>No accessible networks.</strong>
+    Create a network you own first — every host inherits its signing CA from its network.
+    <a href="/ui/networks">Networks →</a>
+</div>
+{{else}}
 <div class="card">
-    {{if .Error}}<div class="error" role="alert" style="color: var(--danger); margin-bottom: 16px;">{{.Error}}</div>{{end}}
     <form method="POST" action="/ui/hosts">
         <div class="form-group">
             <label>Network</label>
@@ -83,6 +91,7 @@
         <button type="submit" class="btn btn-primary">Create Host</button>
     </form>
 </div>
+{{end}}
 
 <script>
 (function() {

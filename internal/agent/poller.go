@@ -106,11 +106,12 @@ func errorsAs(err error, target any) bool {
 
 // PollerConfig holds configuration for the Poller.
 type PollerConfig struct {
-	ServerURL   string
-	Fingerprint string
-	DataDir     string
-	Interval    time.Duration
-	PIDFile     string
+	ServerURL      string
+	Fingerprint    string
+	DataDir        string
+	SigningKeyPath string
+	Interval       time.Duration
+	PIDFile        string
 }
 
 // Poller periodically checks the management server for updates.
@@ -126,7 +127,10 @@ type Poller struct {
 // returned error is propagated to the caller; the agent must re-enroll
 // before polling can resume.
 func NewPoller(cfg PollerConfig, logger *slog.Logger) (*Poller, error) {
-	priv, err := loadSigningKey(filepath.Join(cfg.DataDir, "host.signing.key"))
+	if cfg.SigningKeyPath == "" {
+		return nil, fmt.Errorf("PollerConfig.SigningKeyPath is required")
+	}
+	priv, err := loadSigningKey(cfg.SigningKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("load signing key: %w", err)
 	}
@@ -182,6 +186,14 @@ func (p *Poller) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// PollOnce performs a single signed poll iteration and returns. The enroll
+// subcommand uses it to verify the freshly enrolled host can reach the
+// server before exiting. Errors are informational — callers decide whether
+// to gate behaviour on them; the daemon's Run() never invokes PollOnce.
+func (p *Poller) PollOnce(ctx context.Context) error {
+	return p.poll(ctx)
 }
 
 func (p *Poller) poll(ctx context.Context) error {

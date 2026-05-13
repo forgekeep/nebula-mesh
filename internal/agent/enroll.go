@@ -39,13 +39,23 @@ type EnrollResponse struct {
 // fresh (rekey) or bound to an unenrolled host (initial enroll), so the
 // agent path is identical. Exposed separately so the cmd-side rekey loop
 // reads cleanly.
-func Reenroll(serverURL, token, dataDir string) error {
-	return Enroll(serverURL, token, dataDir)
+func Reenroll(serverURL, token, dataDir, signingKeyPath string) error {
+	return Enroll(serverURL, token, dataDir, signingKeyPath)
 }
 
 // Enroll performs the enrollment flow: generates keypair, sends public key
-// to the server with the token, saves received cert and config to dataDir.
-func Enroll(serverURL, token, dataDir string) error {
+// to the server with the token, saves received cert and config to dataDir,
+// and writes the Ed25519 signing private key to signingKeyPath.
+//
+// signingKeyPath is intentionally separate from dataDir — Nebula's data dir
+// holds Nebula-owned secrets (host.key / host.crt / ca.crt / config.yml),
+// while the agent's PoP signing key (ADR 0004) is the agent's concern and
+// lives next to agent.yml (default /etc/nebula-agent/host.signing.key). The
+// parent directory of signingKeyPath is created with mode 0o755 if missing.
+func Enroll(serverURL, token, dataDir, signingKeyPath string) error {
+	if signingKeyPath == "" {
+		return fmt.Errorf("signingKeyPath is required")
+	}
 	// Generate X25519 keypair (for the Nebula handshake cert).
 	privKey := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, privKey); err != nil {
@@ -111,8 +121,12 @@ func Enroll(serverURL, token, dataDir string) error {
 	}
 
 	// Save signing private key (ADR 0004 — used to sign poll requests).
+	// Lives in its own directory, not dataDir; create parent if missing.
+	if err := os.MkdirAll(filepath.Dir(signingKeyPath), 0o755); err != nil {
+		return fmt.Errorf("create signing key dir: %w", err)
+	}
 	signingPrivPEM := pem.EncodeToMemory(&pem.Block{Type: SigningPrivateKeyPEMType, Bytes: signingPriv})
-	if err := os.WriteFile(filepath.Join(dataDir, "host.signing.key"), signingPrivPEM, 0o600); err != nil {
+	if err := os.WriteFile(signingKeyPath, signingPrivPEM, 0o600); err != nil {
 		return fmt.Errorf("write signing key: %w", err)
 	}
 

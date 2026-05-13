@@ -28,23 +28,28 @@ var (
 const defaultConfigPath = "/etc/nebula-agent/agent.yml"
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	err := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	stop() // release signal handler before any os.Exit to avoid gocritic exitAfterDefer.
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(args []string, stdout, stderr io.Writer) error {
-	// Dispatch deprecated subcommands first so the unified flag set does not
-	// need to understand "enroll" / "run" as positional arguments.
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	// Dispatch subcommands first so the unified flag set does not need to
+	// understand "enroll" / "run" as positional arguments. `enroll` is
+	// first-class (#88) and does NOT warn; `run` is still a deprecated alias.
 	if len(args) > 0 {
 		switch args[0] {
 		case "enroll":
-			_, _ = fmt.Fprintln(stderr, "warning: `nebula-agent enroll` is deprecated; pass --token and --server to `nebula-agent` instead")
-			return runLegacyEnroll(args[1:], stderr)
+			// First-class subcommand (#88). No deprecation warning — this
+			// is now the recommended way to enroll a host.
+			return runEnroll(ctx, args[1:], stdout, stderr)
 		case "run":
 			_, _ = fmt.Fprintln(stderr, "warning: `nebula-agent run` is deprecated; invoke `nebula-agent` without a subcommand")
-			return runLegacyRun(args[1:], stderr)
+			return runLegacyRun(ctx, args[1:], stderr)
 		case "version", "--version", "-v":
 			version.Print(stdout, "nebula-agent", versionStr, commit, date)
 			return nil
@@ -54,7 +59,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
-	return runUnified(args, stderr)
+	return runUnified(ctx, args, stderr)
 }
 
 func printUsage(w io.Writer) {
@@ -65,60 +70,115 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Every subsequent run    : nebula-agent")
 }
 
-// runUnified is the single-command entrypoint described in issue #67.
+// standbyTick is how often the daemon re-checks the filesystem for a
+// freshly written enrollment while in standby (#88). Exposed as a var
+// rather than const so tests can shorten it; production callers must
+// not mutate it at runtime.
+var standbyTick = 10 * time.Second
+
+// runUnified is the daemon entrypoint. After #88 it never fails fast on a
+// missing config or missing enrollment; instead it parks in standby and
+// re-checks every standbyTick until the operator runs `nebula-agent enroll`
+// (or systemd is told to stop the process).
 //
-// Startup algorithm:
-//  1. Resolve config path (--config PATH or defaultConfigPath).
-//  2. If config exists → load it; warn when CLI flags conflict; --update-config
-//     overwrites fields with CLI values before starting.
-//  3. If config missing → build AgentConfig from defaults + CLI flags, write
-//     it atomically. --server is required for first run.
-//  4. After config is in place:
-//     a. cert exists → start poller.
-//     b. cert missing and --token set → enroll, then start poller.
-//     c. cert missing and no --token → fatal with hint.
-//
-// The enrollment token is never written to disk.
-func runUnified(args []string, stderr io.Writer) error {
+// The legacy one-shot flow (`nebula-agent --server URL --token TOK`) still
+// works: when both flags are set the agent enrolls and immediately starts
+// the poll loop, just like before. That branch is used by Docker / non-
+// systemd setups and by `nebula-agent enroll` itself for its confirmation
+// poll.
+func runUnified(ctx context.Context, args []string, stderr io.Writer) error {
 	fs := flag.NewFlagSet("nebula-agent", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", defaultConfigPath, "config file path")
-	serverURL := fs.String("server", "", "management server URL (first run only)")
-	token := fs.String("token", "", "enrollment token (first run only, never written to disk)")
-	dataDir := fs.String("data-dir", "", "override data directory (first run only)")
-	pollInterval := fs.Duration("poll-interval", 0, "override poll interval (first run only)")
+	serverURL := fs.String("server", "", "management server URL (one-shot enroll+poll)")
+	token := fs.String("token", "", "enrollment token (one-shot enroll+poll; never persisted)")
+	dataDir := fs.String("data-dir", "", "override data directory (one-shot flow only)")
+	pollInterval := fs.Duration("poll-interval", 0, "override poll interval (one-shot flow only)")
 	updateConfig := fs.Bool("update-config", false, "overwrite on-disk config with CLI flags")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	cfg, err := resolveConfig(*configPath, *serverURL, *dataDir, *pollInterval, *updateConfig, stderr)
+	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	// One-shot enroll+poll path — explicit operator intent on the command
+	// line. Preserves the pre-#88 behaviour.
+	if *token != "" && *serverURL != "" {
+		cfg, err := resolveConfig(*configPath, *serverURL, *dataDir, *pollInterval, *updateConfig, stderr)
+		if err != nil {
+			return err
+		}
+		certPath := filepath.Join(cfg.DataDir, "host.crt")
+		if _, err := os.Stat(certPath); errors.Is(err, os.ErrNotExist) {
+			logger.Info("enrolling host", "server", cfg.ServerURL, "data_dir", cfg.DataDir, "signing_key", cfg.SigningKeyPath)
+			if err := agent.Enroll(cfg.ServerURL, *token, cfg.DataDir, cfg.SigningKeyPath); err != nil {
+				return fmt.Errorf("enrollment failed: %w", err)
+			}
+			logger.Info("enrollment successful")
+		} else if err != nil {
+			return fmt.Errorf("stat host certificate: %w", err)
+		}
+		return startPoller(ctx, cfg, logger)
+	}
+
+	// Daemon path — block in standby until the operator runs
+	// `nebula-agent enroll`, then transition to the poll loop.
+	cfg, err := awaitEnrollment(ctx, logger, *configPath)
 	if err != nil {
 		return err
 	}
+	return startPoller(ctx, cfg, logger)
+}
 
-	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
-
-	certPath := filepath.Join(cfg.DataDir, "host.crt")
-	switch _, err := os.Stat(certPath); {
-	case err == nil:
-		// Already enrolled — fall through to poller.
-	case errors.Is(err, os.ErrNotExist):
-		if *token == "" {
-			return fmt.Errorf("no host certificate at %s and no --token to enroll with; pass --token TOK to enroll", certPath)
-		}
-		logger.Info("enrolling host", "server", cfg.ServerURL, "data_dir", cfg.DataDir)
-		if err := agent.Enroll(cfg.ServerURL, *token, cfg.DataDir); err != nil {
-			return fmt.Errorf("enrollment failed: %w", err)
-		}
-		logger.Info("enrollment successful")
-	default:
-		return fmt.Errorf("stat host certificate: %w", err)
+// awaitEnrollment blocks until the agent has a usable config and the three
+// on-disk artefacts the poller needs (agent.yml, host.crt, signing key).
+// Returns ctx.Err() when the context is cancelled. The standby hint is
+// logged exactly once per process lifetime, even across multiple reasons,
+// to keep journals readable.
+func awaitEnrollment(ctx context.Context, logger *slog.Logger, configPath string) (*config.AgentConfig, error) {
+	cfg, reason := checkEnrollment(configPath)
+	if cfg != nil {
+		return cfg, nil
 	}
+	logger.Info("nebula-agent standby — run `nebula-agent enroll --server URL --token TOK` to bind", "reason", reason, "config", configPath, "tick", standbyTick)
+	ticker := time.NewTicker(standbyTick)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+			cfg, reason = checkEnrollment(configPath)
+			if cfg != nil {
+				logger.Info("enrollment detected; leaving standby", "config", configPath)
+				return cfg, nil
+			}
+			// Suppress per-tick log noise; the one-time hint above is
+			// enough. reason is recomputed for the next iteration only.
+			_ = reason
+		}
+	}
+}
 
-	return startPoller(cfg, logger)
+// checkEnrollment returns the loaded config when every required on-disk
+// artefact is present, and a short human-readable reason string otherwise.
+// All errors map to "missing" — the standby loop only cares whether the
+// agent is ready to poll, not why a previous attempt failed.
+func checkEnrollment(configPath string) (*config.AgentConfig, string) {
+	if _, err := os.Stat(configPath); err != nil {
+		return nil, "config missing: " + configPath
+	}
+	cfg, err := config.LoadAgentConfig(configPath)
+	if err != nil {
+		return nil, "config invalid: " + err.Error()
+	}
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, "host.crt")); err != nil {
+		return nil, "host.crt missing in " + cfg.DataDir
+	}
+	if _, err := os.Stat(cfg.SigningKeyPath); err != nil {
+		return nil, "signing key missing: " + cfg.SigningKeyPath
+	}
+	return cfg, ""
 }
 
 // resolveConfig loads the on-disk config or creates one from CLI flags.
@@ -191,18 +251,7 @@ func applyOverrides(cfg *config.AgentConfig, serverURL, dataDir string, pollInte
 	return changed
 }
 
-func startPoller(cfg *config.AgentConfig, logger *slog.Logger) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigCh
-		logger.Info("received signal, shutting down", "signal", sig)
-		cancel()
-	}()
-
+func startPoller(ctx context.Context, cfg *config.AgentConfig, logger *slog.Logger) error {
 	logger.Info("nebula-agent starting", "server", cfg.ServerURL, "poll_interval", cfg.PollInterval)
 
 	for {
@@ -211,11 +260,12 @@ func startPoller(cfg *config.AgentConfig, logger *slog.Logger) error {
 			return fmt.Errorf("read certificate fingerprint: %w", err)
 		}
 		poller, err := agent.NewPoller(agent.PollerConfig{
-			ServerURL:   cfg.ServerURL,
-			Fingerprint: fingerprint,
-			DataDir:     cfg.DataDir,
-			Interval:    cfg.PollInterval,
-			PIDFile:     cfg.NebulaPIDFile,
+			ServerURL:      cfg.ServerURL,
+			Fingerprint:    fingerprint,
+			DataDir:        cfg.DataDir,
+			SigningKeyPath: cfg.SigningKeyPath,
+			Interval:       cfg.PollInterval,
+			PIDFile:        cfg.NebulaPIDFile,
 		}, logger)
 		if err != nil {
 			return fmt.Errorf("create poller: %w", err)
@@ -237,7 +287,7 @@ func startPoller(cfg *config.AgentConfig, logger *slog.Logger) error {
 			var re *agent.RekeyError
 			_ = errors.As(runErr, &re)
 			logger.Info("performing server-requested rekey")
-			if err := agent.Reenroll(cfg.ServerURL, re.Token, cfg.DataDir); err != nil {
+			if err := agent.Reenroll(cfg.ServerURL, re.Token, cfg.DataDir, cfg.SigningKeyPath); err != nil {
 				return fmt.Errorf("rekey enrollment: %w", err)
 			}
 			continue
@@ -246,30 +296,96 @@ func startPoller(cfg *config.AgentConfig, logger *slog.Logger) error {
 	}
 }
 
-// runLegacyEnroll preserves the old `nebula-agent enroll` invocation for one
-// release. It does not persist any config — operators get the unified flow
-// the next time they invoke the agent.
-func runLegacyEnroll(args []string, stderr io.Writer) error {
+// runEnroll is the first-class `nebula-agent enroll` subcommand (#88). It
+// performs the enrollment side-effects (generate keypairs, hit
+// /api/v1/enroll, atomically persist agent.yml + the five enrollment files,
+// run one confirmation poll) and exits. It is designed to be called by an
+// operator from a shell — the long-running poll loop belongs to the
+// systemd-managed daemon, which picks up the freshly written files on its
+// next idle tick.
+func runEnroll(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	token := fs.String("token", "", "enrollment token")
-	serverURL := fs.String("server", "", "management server URL")
-	dataDir := fs.String("data-dir", "/etc/nebula", "data directory")
+	configPath := fs.String("config", defaultConfigPath, "agent config file path")
+	serverURL := fs.String("server", "", "management server URL (required)")
+	token := fs.String("token", "", "enrollment token (required; never persisted)")
+	dataDir := fs.String("data-dir", "/etc/nebula", "Nebula data directory")
+	signingKeyPath := fs.String("signing-key-path", "", "Ed25519 PoP signing key path; defaults to <config-dir>/host.signing.key")
+	pollInterval := fs.Duration("poll-interval", 30*time.Second, "poll interval written to agent.yml")
+	force := fs.Bool("force", false, "overwrite an existing enrollment")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *token == "" || *serverURL == "" {
-		return fmt.Errorf("--token and --server are required")
+	if *serverURL == "" || *token == "" {
+		return fmt.Errorf("--server and --token are required")
 	}
-	_, _ = fmt.Fprintf(stderr, "enrolling with server %s...\n", *serverURL)
-	if err := agent.Enroll(*serverURL, *token, *dataDir); err != nil {
+	if *signingKeyPath == "" {
+		*signingKeyPath = filepath.Join(filepath.Dir(*configPath), "host.signing.key")
+	}
+
+	// Refuse to overwrite an existing enrollment unless --force.
+	if !*force {
+		for _, p := range []string{
+			*configPath,
+			filepath.Join(*dataDir, "host.crt"),
+			*signingKeyPath,
+		} {
+			if _, err := os.Stat(p); err == nil {
+				return fmt.Errorf("already enrolled (found %s); pass --force to overwrite", p)
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("stat %s: %w", p, err)
+			}
+		}
+	}
+
+	_, _ = fmt.Fprintf(stdout, "enrolling with %s...\n", *serverURL)
+	if err := agent.Enroll(*serverURL, *token, *dataDir, *signingKeyPath); err != nil {
 		return fmt.Errorf("enrollment failed: %w", err)
 	}
-	_, _ = fmt.Fprintln(stderr, "enrollment successful")
+
+	cfg := config.DefaultAgentConfig()
+	cfg.ServerURL = *serverURL
+	cfg.DataDir = *dataDir
+	cfg.SigningKeyPath = *signingKeyPath
+	cfg.PollInterval = *pollInterval
+	cfg.NebulaConfigPath = filepath.Join(*dataDir, "config.yml")
+	if err := config.SaveAgentConfig(*configPath, cfg); err != nil {
+		return fmt.Errorf("write %s: %w", *configPath, err)
+	}
+	_, _ = fmt.Fprintf(stdout, "wrote %s\n", *configPath)
+
+	// One confirmation poll so the operator sees "enrollment + first poll
+	// succeeded" in the same command. Failures here are informational —
+	// the on-disk state is good; the idle daemon will retry.
+	fingerprint, err := agent.ReadCertFingerprint(*dataDir)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "warning: cannot read fresh cert fingerprint: %v\n", err)
+		_, _ = fmt.Fprintln(stdout, "enrollment successful (confirmation poll skipped)")
+		return nil
+	}
+	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	poller, err := agent.NewPoller(agent.PollerConfig{
+		ServerURL:      cfg.ServerURL,
+		Fingerprint:    fingerprint,
+		DataDir:        cfg.DataDir,
+		SigningKeyPath: cfg.SigningKeyPath,
+		Interval:       cfg.PollInterval,
+	}, logger)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "warning: poller init failed: %v\n", err)
+		_, _ = fmt.Fprintln(stdout, "enrollment successful (confirmation poll skipped)")
+		return nil
+	}
+	if err := poller.PollOnce(ctx); err != nil {
+		_, _ = fmt.Fprintf(stderr, "warning: first poll failed (enrollment files are valid; daemon will retry): %v\n", err)
+		_, _ = fmt.Fprintln(stdout, "enrollment successful")
+		return nil
+	}
+	_, _ = fmt.Fprintln(stdout, "enrollment successful (confirmation poll OK)")
 	return nil
 }
 
-func runLegacyRun(args []string, stderr io.Writer) error {
+func runLegacyRun(ctx context.Context, args []string, stderr io.Writer) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", defaultConfigPath, "config file path")
@@ -281,5 +397,5 @@ func runLegacyRun(args []string, stderr io.Writer) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	return startPoller(cfg, logger)
+	return startPoller(ctx, cfg, logger)
 }

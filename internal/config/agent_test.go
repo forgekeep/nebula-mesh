@@ -67,6 +67,20 @@ func TestLoadAgentConfig_Defaults(t *testing.T) {
 	if cfg.NebulaConfigPath != "/etc/nebula/config.yml" {
 		t.Errorf("NebulaConfigPath = %q, want default %q", cfg.NebulaConfigPath, "/etc/nebula/config.yml")
 	}
+	if cfg.SigningKeyPath != "/etc/nebula-agent/host.signing.key" {
+		t.Errorf("SigningKeyPath = %q, want default %q", cfg.SigningKeyPath, "/etc/nebula-agent/host.signing.key")
+	}
+}
+
+// TestAgentConfig_DefaultsHaveSigningKeyPath pins the per-agent signing-key
+// path to /etc/nebula-agent/ — outside Nebula's data_dir. The location is part
+// of the supported on-disk layout (ADR 0004 + #88) and is documented in
+// docs/agent.md; changing it requires a migration plan.
+func TestAgentConfig_DefaultsHaveSigningKeyPath(t *testing.T) {
+	cfg := DefaultAgentConfig()
+	if cfg.SigningKeyPath != "/etc/nebula-agent/host.signing.key" {
+		t.Errorf("SigningKeyPath = %q, want %q", cfg.SigningKeyPath, "/etc/nebula-agent/host.signing.key")
+	}
 }
 
 func TestLoadAgentConfig_MissingServerURL(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -23,11 +24,12 @@ func TestPoll_ReturnsRekeyError(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	writeSigningKey(t, dir)
+	seedSigningKeyAt(t, dir)
 	p, err := NewPoller(PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",
 		DataDir:     dir,
+		SigningKeyPath: filepath.Join(dir, "host.signing.key"),
 		Interval:    time.Hour,
 	}, slog.Default())
 	if err != nil {
@@ -62,11 +64,12 @@ func TestPoll_RejectsRekeyWithoutToken(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	writeSigningKey(t, dir)
+	seedSigningKeyAt(t, dir)
 	p, err := NewPoller(PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",
 		DataDir:     dir,
+		SigningKeyPath: filepath.Join(dir, "host.signing.key"),
 		Interval:    time.Hour,
 	}, slog.Default())
 	if err != nil {
@@ -95,11 +98,12 @@ func TestRun_StopsOnRekey(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	writeSigningKey(t, dir)
+	seedSigningKeyAt(t, dir)
 	p := newPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",
 		DataDir:     dir,
+		SigningKeyPath: filepath.Join(dir, "host.signing.key"),
 		Interval:    20 * time.Millisecond,
 	})
 

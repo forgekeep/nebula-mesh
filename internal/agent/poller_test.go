@@ -18,17 +18,18 @@ import (
 	corepop "github.com/juev/nebula-mesh/internal/pop"
 )
 
-// writeSigningKey seeds a temp data dir with a freshly generated Ed25519
-// signing private key in the on-disk PEM format the poller expects. Returns
-// the matching public key so tests can verify signatures.
-func writeSigningKey(t *testing.T, dir string) ed25519.PublicKey {
+// writeSigningKey writes a freshly generated Ed25519 private key to the
+// given path in the on-disk PEM format the poller expects. Returns the
+// matching public key so tests can verify signatures. The parent directory
+// must already exist.
+func writeSigningKey(t *testing.T, path string) ed25519.PublicKey {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	pemBytes := pem.EncodeToMemory(&pem.Block{Type: SigningPrivateKeyPEMType, Bytes: priv})
-	if err := os.WriteFile(filepath.Join(dir, "host.signing.key"), pemBytes, 0o600); err != nil {
+	if err := os.WriteFile(path, pemBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return pub
@@ -36,12 +37,28 @@ func writeSigningKey(t *testing.T, dir string) ed25519.PublicKey {
 
 func newPoller(t *testing.T, cfg PollerConfig) *Poller {
 	t.Helper()
+	if cfg.SigningKeyPath == "" {
+		// Default: put the signing key in a sibling dir to DataDir so tests
+		// that pre-write a signing key with writeSigningKey-on-DataDir
+		// continue to find it through the legacy code path. The cleaner
+		// fixture (signing key outside DataDir) is exercised by
+		// TestNewPoller_LoadsFromExplicitSigningKeyPath.
+		cfg.SigningKeyPath = filepath.Join(cfg.DataDir, "host.signing.key")
+	}
 	p, err := NewPoller(cfg, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
 	p.signalFunc = func() error { return nil }
 	return p
+}
+
+// seedSigningKeyAt is a convenience helper for tests that don't care where
+// the signing key lives — it writes one into the given DataDir's
+// host.signing.key (consistent with the default chosen by newPoller above).
+func seedSigningKeyAt(t *testing.T, dataDir string) {
+	t.Helper()
+	writeSigningKey(t, filepath.Join(dataDir, "host.signing.key"))
 }
 
 func TestPoller_NoUpdates(t *testing.T) {
@@ -57,7 +74,7 @@ func TestPoller_NoUpdates(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	writeSigningKey(t, dir)
+	seedSigningKeyAt(t, dir)
 	p := newPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",
@@ -92,7 +109,7 @@ func TestPoller_WithCertUpdate(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	writeSigningKey(t, dir)
+	seedSigningKeyAt(t, dir)
 	p := newPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",
@@ -135,7 +152,7 @@ func TestPoller_WithConfigUpdate(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	writeSigningKey(t, dir)
+	seedSigningKeyAt(t, dir)
 	p := newPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",
@@ -178,7 +195,7 @@ func TestPoller_SignsRequest(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	writeSigningKey(t, dir)
+	seedSigningKeyAt(t, dir)
 	p := newPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "fp-123",
@@ -211,7 +228,7 @@ func TestPoll_RespectsContext(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	writeSigningKey(t, dir)
+	seedSigningKeyAt(t, dir)
 	p := newPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",

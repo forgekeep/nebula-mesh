@@ -388,7 +388,7 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 </details>
 
 <details open>
-<summary><strong>Roadmap</strong> — what's next (6 open issues)</summary>
+<summary><strong>Roadmap</strong> — what's next (5 open issues)</summary>
 <a name="roadmap"></a>
 
 
@@ -397,11 +397,10 @@ Open issues tracked individually so you can subscribe to the ones you care about
 - [#45](https://github.com/juev/nebula-mesh/issues/45) — Web UI: admin-only operator and API-key management
 - [#46](https://github.com/juev/nebula-mesh/issues/46) — Web UI: per-operator CA management (create / list / retire / delete)
 - [#47](https://github.com/juev/nebula-mesh/issues/47) — Web UI: admin Settings page (toggle self-reg, log level, policy flags …)
-- [#48](https://github.com/juev/nebula-mesh/issues/48) — Configurable password policy (length, character classes, common-passwords)
 - [#49](https://github.com/juev/nebula-mesh/issues/49) — Admin-enforced 2FA: `enforce_2fa` toggle, forced enrolment gate after login
 - [#51](https://github.com/juev/nebula-mesh/issues/51) — `.deb`/`.rpm` packaging polish + official nginx/caddy/traefik snippets
 
-Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, distro packages (deb/rpm) and the cross-platform agent build matrix.
+Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, configurable password policy with embedded common-password block, distro packages (deb/rpm) and the cross-platform agent build matrix.
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/juev/nebula-mesh/internal/auth"
 	"github.com/juev/nebula-mesh/internal/configgen"
 	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/pki"
@@ -42,6 +43,7 @@ type Server struct {
 	metricsEnabled bool
 	hostSeen       HostSeenEmitter
 	limiter        *ratelimit.Limiter
+	passwordPolicy auth.Policy
 }
 
 // NewServer creates a new API server.
@@ -54,6 +56,7 @@ func NewServer(s store.Store, ca *pki.CAManager, apiKey string, logger *slog.Log
 		apiKey:         apiKey,
 		metrics:        newMetrics(s),
 		metricsEnabled: true,
+		passwordPolicy: auth.Default(),
 	}
 	srv.setupRoutes()
 	return srv
@@ -84,6 +87,10 @@ func (s *Server) WithRateLimiter(l *ratelimit.Limiter) {
 	s.limiter = l
 	s.setupRoutes()
 }
+
+// WithPasswordPolicy installs the policy applied to every server-side
+// password-setting path (operator create, future operator reset).
+func (s *Server) WithPasswordPolicy(p auth.Policy) { s.passwordPolicy = p }
 
 // WithMetricsEnabled toggles the Prometheus /metrics endpoint. Disable in
 // air-gapped deployments where the exporter is not scraped. Must be called

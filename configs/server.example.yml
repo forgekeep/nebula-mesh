@@ -59,6 +59,17 @@ allow_self_registration: false
 #     enroll:      { rate: 2,  burst: 5 }    # /api/v1/enroll
 #     agent_poll:  { rate: 60, burst: 120 }  # /api/v1/agent/updates
 
+# Password policy (issue #48). Defaults: min 10 chars, 3-of-4 character
+# classes (lower/upper/digit/symbol), reject the embedded "common
+# passwords" list, reject passwords equal-to or containing the username.
+# All fields are optional — unset = production default.
+#
+# password:
+#   min_length:       10
+#   require_classes:  3
+#   block_common:     true
+#   block_username:   true
+
 # Optional OpenID Connect identity provider for operator login. When enabled,
 # the Web UI offers a "Sign in with SSO" button on top of the local password
 # form. Local logins keep working alongside OIDC.

@@ -233,30 +233,9 @@ Non-interactive deployments (systemd, Docker): set `NEBULA_MGMT_CA_PASSPHRASE` a
 
 ### Enroll a host
 
-```sh
-# On the server — create a host record:
-nebula-mgmt host create \
-  --server https://mgmt.example.com:8080 \
-  --api-key "$API_KEY" \
-  --network "$NETWORK_ID" \
-  --name web-1 --ip 192.168.100.10
-# → prints an enrollment token
+Create a host record on the server (CLI or Web UI), grab the one-time enrollment token, run `nebula-agent` on the host with `--server` + `--token` once, then put the agent under systemd. The agent keeps `host.crt` / `host.key` / `host.signing.key` / `ca.crt` / `config.yml` in sync, signs every poll with the per-host Ed25519 key generated at enrollment (ADR 0004), and exits 0 when the server returns `403 revoked` or `410 gone`.
 
-# On the host — first run enrolls + writes config + exits. The token is
-# single-use and is never persisted to disk.
-sudo nebula-agent \
-  --server https://mgmt.example.com:8080 \
-  --token "$ENROLL_TOKEN"
-
-# Then hand the agent to systemd for continuous operation:
-sudo systemctl enable --now nebula-agent
-```
-
-The first invocation writes `/etc/nebula-agent/agent.yml` (mode 0600) from the supplied flags. Subsequent starts (under systemd or by hand) need no arguments — the agent reads its config, finds `host.crt`, and starts polling. The legacy `nebula-agent enroll` / `nebula-agent run` subcommands still work for one release and emit a deprecation warning.
-
-The agent keeps `host.crt` / `host.key` / `host.signing.key` / `ca.crt` / `config.yml` in sync and signals Nebula on changes. Every poll request is signed with the per-host Ed25519 key generated at enrollment (ADR 0004); the server replies `403 revoked` / `410 gone` when the operator blocks or deletes the host so the agent exits 0 instead of looping forever.
-
-> Full nebula-agent operations guide: [`docs/agent.md`](docs/agent.md) — installation, configuration, signed-poll headers, force-rotate / re-enroll endpoints, troubleshooting, upgrade, and security notes.
+> Full nebula-agent operations guide: [`docs/agent.md`](docs/agent.md) — installation, configuration, enrollment + systemd hand-off, signed-poll headers, force-rotate / re-enroll endpoints, troubleshooting, upgrade, and security notes.
 
 ### Manage hosts from the CLI
 

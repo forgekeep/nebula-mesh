@@ -257,11 +257,11 @@ After a successful enrollment the agent writes the following to `data_dir`:
 
 | File | Mode | Contents |
 |---|---|---|
-| `host.key` | 0600 | The host's Nebula private key (PEM, unencrypted). |
+| `host.key` | 0600 | The host's Nebula X25519 private key (PEM, unencrypted). |
+| `host.signing.key` | 0600 | The host's Ed25519 private key used to sign poll requests (ADR 0004). |
 | `host.crt` | 0644 | The host's signed certificate. |
 | `ca.crt`   | 0644 | The CA certificate; used by `nebula` to verify peers. |
 | `config.yml` | 0644 | The rendered Nebula config. |
-| `.fingerprint` | 0600 | The host's cert fingerprint; used by the agent to authenticate future updates. |
 
 The enrollment endpoint accepts the token exactly once. A second call with the same
 token returns `409 Conflict`.
@@ -303,11 +303,130 @@ sudo nebula-agent run --config /etc/nebula-agent/agent.yml
 Both print a deprecation warning on stderr; switch to the unified form when
 convenient.
 
+## Agent authorization (ADR 0004)
+
+Every poll request the agent sends to the management server is cryptographically
+signed with a per-host Ed25519 keypair that is generated at enrollment time and
+bound to the host row server-side. The fingerprint of `host.crt` identifies the
+host; the signature proves the agent still holds the matching private key. See
+[`docs/adr/0004-agent-authorization.md`](adr/0004-agent-authorization.md) for the
+decision history.
+
+### Keys on disk
+
+After a successful enrollment the agent's `data_dir` holds two private keys, both
+mode `0600`:
+
+| File | Purpose |
+|---|---|
+| `host.key` | X25519 private key used by Nebula for the Noise handshake between peers. |
+| `host.signing.key` | Ed25519 private key used only by the agent to sign poll requests. Never seen by Nebula. |
+
+The two keys share lifetime — force-rotate and re-enroll regenerate both
+together. The Ed25519 key exists because X25519 (the curve of `host.crt`) is a
+DH scheme that cannot sign arbitrary messages.
+
+### Headers on every poll
+
+Every `GET /api/v1/agent/updates` carries four headers:
+
+| Header | Value |
+|---|---|
+| `X-Nebula-Fingerprint` | `cert.Fingerprint(host.crt)` (SHA-256 of the cert PEM). |
+| `X-Nebula-Timestamp` | RFC3339 UTC, e.g. `2026-05-13T08:30:00Z`. |
+| `X-Nebula-Nonce` | 16 random bytes, base64-encoded. |
+| `X-Nebula-Signature` | Ed25519 signature, base64-encoded, over the canonical string below. |
+
+The canonical string is:
+
+```
+METHOD || "\n" || PATH || "\n" || HOST_HEADER || "\n" || TIMESTAMP || "\n" || NONCE
+```
+
+The server enforces:
+
+- All four headers present. Missing → `400 missing_signature`.
+- Fingerprint resolves to a live host row, or its `prev_cert_fingerprint`
+  during a rotation overlap window. Otherwise → `401 unknown_fingerprint`.
+  If the fingerprint is on the blocklist (host was deleted), the server
+  returns `410 gone` instead (see below).
+- Signature verifies against `host.signing_pub_pem` stored at enrollment.
+  Otherwise → `401 bad_signature`.
+- Timestamp within ±5 minutes of server time. Otherwise → `401 timestamp_skew`.
+- `(host_id, nonce)` not seen in the last 10 minutes by this server process.
+  Otherwise → `401 replayed_nonce`.
+
+Every failure path writes a `host.auth.failed` audit entry with a structured
+`details` field containing the reason code.
+
+Clock skew is a real operational concern. Run `chronyd` / `systemd-timesyncd` on
+every host; the ±5 min window will absorb routine drift but not an unset RTC.
+
+### Revocation signals
+
+- **`403 revoked`** — the host's status is `blocked` (e.g. the operator clicked
+  *Block* in the UI). Response body:
+
+  ```json
+  {"reason": "revoked", "message": "...", "blocked_at": "2026-05-13T08:30:00Z"}
+  ```
+
+- **`410 gone`** — the host row no longer exists but its fingerprint still
+  appears in the blocklist (the row was deleted server-side). Response body:
+
+  ```json
+  {"reason": "gone", "message": "...", "deleted_at": "2026-05-13T08:30:00Z"}
+  ```
+
+In both cases the agent logs at ERROR, stops the poll loop, and exits with
+status 0 so systemd does **not** auto-restart it into the same denied state.
+To re-attach the host: create a new host record on the server (or use
+`/api/v1/hosts/{id}/reenroll`) and run `nebula-agent --token <fresh>` once.
+
+### Cert rotation overlap window
+
+When the server auto-renews a host certificate inside `handleAgentUpdates`,
+the previous fingerprint is parked in `hosts.prev_cert_fingerprint`. The
+poll handler accepts either fingerprint for ~2 × `poll_interval` so the
+race between the server-side cert update and the agent's atomic on-disk
+write does not lock the agent out. The slot clears as soon as the agent
+comes back with the new fingerprint, or after the wall-clock window
+expires — whichever happens first.
+
+### Operator endpoints
+
+| Endpoint | Effect |
+|---|---|
+| `POST /api/v1/hosts/{id}/enrollment-token` | Mints a fresh single-use enrollment token bound to the existing host row. Previous active tokens are invalidated. Audit: `host.reenroll.requested` with `details=regenerate-token: <name>`. |
+| `POST /api/v1/hosts/{id}/reenroll` | Same mechanics as the previous endpoint; exposed as a discrete route so UIs can present "re-enroll" (lost keys) as a distinct intent. Audit: `host.reenroll.requested` with `details=reenroll: <name>`. |
+| `POST /api/v1/hosts/{id}/rotate-cert?new_key=false` | Re-signs the existing public key immediately. Returns the new cert + CA in the response body. Audit: `host.rotate-cert.requested` with `details=new_key=false`. |
+| `POST /api/v1/hosts/{id}/rotate-cert?new_key=true` | Sets `pending_rekey` on the host row. The next poll response carries `rekey_required: true` plus a single-use `enrollment_token`; the agent regenerates both keypairs and re-enrolls. A second concurrent call answers `409`. Audit: `host.rotate-cert.requested` with `details=new_key=true`. |
+
+`enrollment_token.ttl` is configurable: a per-network override sits in
+`network_config["enrollment_token_ttl"]`; the server-wide default lives in
+`enrollment_token_ttl` in `server.yml` (default `24h`).
+
+### Audit reason codes
+
+`host.auth.failed` entries carry one of the following reason codes in the
+`details` column. The Web UI's audit log renders them as discrete labels.
+
+| Reason | Cause |
+|---|---|
+| `unknown_fingerprint` | Fingerprint not bound to any live host row (and not blocklisted). |
+| `bad_signature` | Headers missing, signature failed Ed25519 verify, or signing key absent. |
+| `timestamp_skew` | RFC3339 timestamp outside ±5 minutes. |
+| `replayed_nonce` | Duplicate `(host_id, nonce)` observed inside the idle window. |
+| `revoked` | Host is in `blocked` state — 403 was returned. |
+| `gone` | Host row deleted; fingerprint still in the blocklist — 410 was returned. |
+
 ## How updates work
 
 Each `poll_interval` the agent:
 
-1. Sends `GET /api/v1/agent/updates` with the host's certificate as a Bearer token.
+1. Sends `GET /api/v1/agent/updates` with the four `X-Nebula-*` PoP headers
+   described in [Agent authorization](#agent-authorization-adr-0004). The
+   server verifies the signature and the timestamp / nonce before answering.
 2. The server replies with `304 Not Modified` if nothing changed (cheap), or the
    current `config.yml`, `host.crt`, and `ca.crt`.
 3. Each file the server returned is written **atomically**: the agent writes to a
@@ -340,9 +459,17 @@ The host cannot reach the management server's `server_url`. Verify with
 
 ### `401 unauthorized` after enroll
 
-The host certificate is missing or doesn't match what the server expects. Check
-that `data_dir/host.crt` exists and is readable, then try removing
-`data_dir/.fingerprint` and re-running `enroll` (you'll need a fresh token).
+Read the `error` field of the response — it carries one of the structured
+reason codes (`bad_signature`, `unknown_fingerprint`, `timestamp_skew`,
+`replayed_nonce`). The matching `host.auth.failed` audit entry on the server
+spells out which check failed. Common causes:
+
+- `timestamp_skew` — host clock is wrong; install `chronyd` or
+  `systemd-timesyncd`.
+- `bad_signature` — `host.signing.key` was rotated out from under the agent
+  (e.g. someone copied an old `data_dir` over the new one). Re-enroll.
+- `unknown_fingerprint` — `host.crt` no longer matches any host row.
+  Re-enroll the host (see [Re-enroll the same host](#re-enroll-the-same-host)).
 
 ### `cannot read certificate fingerprint`
 
@@ -386,20 +513,49 @@ Stop and remove `nebula-agent.service`, then delete `/etc/nebula` to clear secre
 
 ### Re-enroll the same host
 
-Useful after the host's keys are believed compromised. On the server, `host
-delete` the old record and create a new one; on the host:
+Useful after the host's keys are believed compromised. Two flavours:
 
-```sh
-sudo systemctl stop nebula-agent nebula
-sudo rm /etc/nebula/{host.crt,host.key,ca.crt,config.yml,.fingerprint}
-sudo nebula-agent --server <url> --token <new-token>
-sudo systemctl start nebula nebula-agent
-```
+1. **Preserve the host row** (recommended — keeps the IP allocation, group
+   membership, audit history). On the server:
+
+   ```sh
+   curl -X POST -H "Authorization: Bearer $API_KEY" \
+     https://mgmt.example.com:8080/api/v1/hosts/<host-id>/reenroll
+   # returns {"token": "...", "expires_at": "..."}
+   ```
+
+   On the host:
+
+   ```sh
+   sudo systemctl stop nebula-agent nebula
+   sudo rm /etc/nebula/{host.crt,host.key,host.signing.key,ca.crt,config.yml}
+   sudo nebula-agent --server <url> --token <new-token>
+   sudo systemctl start nebula nebula-agent
+   ```
+
+2. **Server-driven force-rotate** (no operator action on the host). On the
+   server:
+
+   ```sh
+   curl -X POST -H "Authorization: Bearer $API_KEY" \
+     "https://mgmt.example.com:8080/api/v1/hosts/<host-id>/rotate-cert?new_key=true"
+   ```
+
+   The next poll response carries `rekey_required: true` plus a fresh
+   token. The agent generates both keypairs, calls `/api/v1/enroll`, and
+   atomically swaps every file in `data_dir` before resuming polling.
+
+3. **Hard reset** (last resort, churns the host row). `host delete` the
+   old record on the server and create a new one; agent steps as in
+   option 1.
 
 ## Security notes
 
-- **Key file permissions.** `host.key` is written with mode `0600`. Make sure the
-  parent `data_dir` is not group- or world-readable.
+- **Key file permissions.** Both `host.key` and `host.signing.key` are written
+  with mode `0600`. Make sure the parent `data_dir` is not group- or
+  world-readable. Leaking `host.signing.key` lets an attacker poll on behalf
+  of the host until the operator either blocks it (`/block`) or force-rotates
+  it (`/rotate-cert?new_key=true`).
 - **TLS.** Set `server_url` to `https://…` in production. The agent uses the
   system trust store; if the management server uses a private CA, install the
   CA cert into the system trust store on every host.

@@ -55,6 +55,17 @@ func (w *Web) WithRateLimiter(l *ratelimit.Limiter) {
 	w.setupRoutes()
 }
 
+// noStore tells the browser not to cache UI responses. Without this Chrome
+// will sometimes serve a stale page from bfcache after a 303 redirect lands
+// back on the same URL, so freshly created networks / hosts only appear
+// after a hard reload.
+func (w *Web) noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		rw.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(rw, r)
+	})
+}
+
 // rateLimitMiddleware blocks requests for ip+group when the bucket is
 // drained. Audit log calls are made by the handler when the request is
 // admitted; rate-limited refusals only emit the 429 + Retry-After here.
@@ -135,7 +146,12 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		"ca_detail.html",
 	}
 	for _, page := range pages {
-		tmpl, err := template.ParseFS(templateFS, "templates/layout.html", "templates/"+page)
+		files := []string{"templates/layout.html", "templates/" + page}
+		// dashboard.html references the "stats" partial via {{template "stats" .}}
+		if page == "dashboard.html" {
+			files = append(files, "templates/stats_partial.html")
+		}
+		tmpl, err := template.ParseFS(templateFS, files...)
 		if err != nil {
 			return nil, fmt.Errorf("parse template %s: %w", page, err)
 		}
@@ -150,6 +166,15 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		}
 		w.templates[page] = tmpl
 	}
+
+	// Standalone partial for HTMX polling — rendered without layout so the
+	// `every 30s` swap on .stats-grid does not embed a whole new sidebar +
+	// dashboard inside the existing one.
+	partial, err := template.ParseFS(templateFS, "templates/stats_partial.html")
+	if err != nil {
+		return nil, fmt.Errorf("parse stats_partial.html: %w", err)
+	}
+	w.templates["stats_partial.html"] = partial
 
 	w.setupRoutes()
 	return w, nil
@@ -187,6 +212,7 @@ func (w *Web) setupRoutes() {
 	r.Group(func(r chi.Router) {
 		r.Use(w.rateLimitMiddleware("ui"))
 		r.Use(w.requireAuth)
+		r.Use(w.noStore)
 		r.Get("/ui/", w.handleDashboard)
 		r.Get("/ui/hosts", w.handleHosts)
 		r.Get("/ui/hosts/new", w.handleHostNew)
@@ -273,6 +299,9 @@ func (w *Web) render(rw http.ResponseWriter, name string, data any) {
 	execName := "layout.html"
 	if name == "login.html" || name == "login_totp.html" || name == "register.html" {
 		execName = name
+	}
+	if name == "stats_partial.html" {
+		execName = "stats"
 	}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, execName, data); err != nil {

@@ -1,0 +1,28 @@
+{{define "stats"}}
+<div class="stats-grid" hx-get="/ui/partials/stats" hx-trigger="every 30s" hx-swap="outerHTML">
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.TotalHosts}}</div>
+        <div class="stat-label">Total Hosts</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.EnrolledHosts}}</div>
+        <div class="stat-label">Enrolled</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.PendingHosts}}</div>
+        <div class="stat-label">Pending</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.BlockedHosts}}</div>
+        <div class="stat-label">Blocked</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.Networks}}</div>
+        <div class="stat-label">Networks</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{.Stats.ExpiringCerts}}</div>
+        <div class="stat-label">Expiring Soon</div>
+    </div>
+</div>
+{{end}}

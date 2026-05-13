@@ -570,9 +570,8 @@ func (w *Web) handlePartialStats(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stats := computeStats(hosts, len(networks))
-	w.renderForRequest(rw, r, "dashboard.html", map[string]any{
-		"Active": "dashboard",
-		"Stats":  stats,
+	w.renderForRequest(rw, r, "stats_partial.html", map[string]any{
+		"Stats": stats,
 	})
 }
 

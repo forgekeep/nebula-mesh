@@ -607,6 +607,8 @@ func (w *Web) handleHostNew(rw http.ResponseWriter, r *http.Request) {
 	w.renderForRequest(rw, r, "host_new.html", map[string]any{
 		"Active":   "hosts",
 		"Networks": networks,
+		"Form":     hostFormState{},
+		"Error":    "",
 	})
 }
 
@@ -616,50 +618,50 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nebulaIP := r.FormValue("nebula_ip")
-	networkID := r.FormValue("network_id")
+	form := newHostFormState(r)
+
+	nebulaIP := form.NebulaIP
+	networkID := form.NetworkID
 	if nebulaIP != "" && networkID != "" {
 		if err := validateHostIPForNetwork(r.Context(), w.store, networkID, nebulaIP, ""); err != nil {
-			http.Error(rw, err.Error(), http.StatusBadRequest)
+			w.renderHostNewError(rw, r, form, err.Error())
 			return
 		}
 	} else if nebulaIP != "" {
 		if _, err := netip.ParseAddr(nebulaIP); err != nil {
-			http.Error(rw, "invalid nebula_ip: "+err.Error(), http.StatusBadRequest)
+			w.renderHostNewError(rw, r, form, "invalid nebula_ip: "+err.Error())
 			return
 		}
 	}
 
-	listenPortStr := r.FormValue("listen_port")
 	var listenPort int
-	if listenPortStr != "" {
+	if form.ListenPort != "" {
 		var err error
-		listenPort, err = strconv.Atoi(listenPortStr)
+		listenPort, err = strconv.Atoi(form.ListenPort)
 		if err != nil {
-			http.Error(rw, "invalid listen_port: must be a number", http.StatusBadRequest)
+			w.renderHostNewError(rw, r, form, "invalid listen_port: must be a number")
 			return
 		}
 		if listenPort < 0 || listenPort > 65535 {
-			http.Error(rw, "listen_port must be between 0 and 65535", http.StatusBadRequest)
+			w.renderHostNewError(rw, r, form, "listen_port must be between 0 and 65535")
 			return
 		}
 	}
-	role := models.HostRole(r.FormValue("role"))
+	role := models.HostRole(form.Role)
 	if !models.ValidRole(role) {
-		http.Error(rw, "invalid role", http.StatusBadRequest)
+		w.renderHostNewError(rw, r, form, "invalid role")
 		return
 	}
 	if role == "" {
 		role = models.HostRoleHost
 	}
-	publicIP := r.FormValue("public_ip")
-	if err := models.ValidateRoleReachability(role, publicIP, listenPort); err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
+	if err := models.ValidateRoleReachability(role, form.PublicIP, listenPort); err != nil {
+		w.renderHostNewError(rw, r, form, err.Error())
 		return
 	}
 
 	var groups []string
-	if g := strings.TrimSpace(r.FormValue("groups")); g != "" {
+	if g := strings.TrimSpace(form.Groups); g != "" {
 		for _, s := range strings.Split(g, ",") {
 			groups = append(groups, strings.TrimSpace(s))
 		}
@@ -670,21 +672,21 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 
 	advanced, err := parseAdvancedFromForm(r)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
+		w.renderHostNewError(rw, r, form, err.Error())
 		return
 	}
 
 	now := time.Now()
 	host := &models.Host{
 		ID:           uuid.New().String(),
-		NetworkID:    r.FormValue("network_id"),
-		Name:         r.FormValue("name"),
+		NetworkID:    networkID,
+		Name:         form.Name,
 		NebulaIP:     nebulaIP,
 		Groups:       groups,
 		Role:         role,
 		IsLighthouse: role == models.HostRoleLighthouse,
 		IsRelay:      role == models.HostRoleRelay,
-		PublicIP:     publicIP,
+		PublicIP:     form.PublicIP,
 		ListenPort:   listenPort,
 		Status:       models.HostStatusPending,
 		Advanced:     advanced,
@@ -774,8 +776,11 @@ func (w *Web) handleNetworks(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.renderForRequest(rw, r, "networks.html", map[string]any{
-		"Active":   "networks",
-		"Networks": networks,
+		"Active":     "networks",
+		"Networks":   networks,
+		"Form":       networkFormState{},
+		"Error":      "",
+		"ShowCreate": false,
 	})
 }
 
@@ -784,21 +789,20 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "bad request", http.StatusBadRequest)
 		return
 	}
-	name := r.FormValue("name")
-	cidr := r.FormValue("cidr")
-	if name == "" || cidr == "" {
-		http.Error(rw, "name and cidr are required", http.StatusBadRequest)
+	form := newNetworkFormState(r)
+	if form.Name == "" || form.CIDR == "" {
+		w.renderNetworksError(rw, r, form, "name and cidr are required")
 		return
 	}
-	if _, err := netip.ParsePrefix(cidr); err != nil {
-		http.Error(rw, "invalid CIDR: "+err.Error(), http.StatusBadRequest)
+	if _, err := netip.ParsePrefix(form.CIDR); err != nil {
+		w.renderNetworksError(rw, r, form, "invalid CIDR: "+err.Error())
 		return
 	}
 
 	network := &models.Network{
 		ID:        uuid.New().String(),
-		Name:      name,
-		CIDR:      cidr,
+		Name:      form.Name,
+		CIDR:      form.CIDR,
 		CreatedAt: time.Now(),
 	}
 

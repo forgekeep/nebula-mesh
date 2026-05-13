@@ -1,0 +1,39 @@
+# nebula-mgmt — opinionated Caddy reverse-proxy snippet.
+#
+# Drop this into /etc/caddy/Caddyfile (or include from your existing
+# Caddyfile) and replace `mgmt.example.com`. Caddy will automatically
+# obtain and renew a Let's Encrypt certificate.
+#
+# Reload after editing:
+#   sudo systemctl reload caddy
+#
+# In server.yml, set `rate_limit.trust_proxy_header: true` so the
+# management server's rate limiter keys on the real client IP instead
+# of Caddy's loopback.
+
+mgmt.example.com {
+    encode gzip
+
+    # Security headers.
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "DENY"
+        Referrer-Policy           "no-referrer"
+    }
+
+    # SSE endpoint — disable buffering so /ui/events streams immediately.
+    @sse path /ui/events
+    reverse_proxy @sse 127.0.0.1:8080 {
+        flush_interval -1
+        transport http {
+            read_timeout  24h
+            write_timeout 24h
+        }
+    }
+
+    # Everything else — straight reverse proxy. Caddy auto-fills X-Forwarded-*
+    # headers; nothing extra to configure for the rate limiter to see the
+    # real client IP.
+    reverse_proxy 127.0.0.1:8080
+}

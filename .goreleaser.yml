@@ -77,6 +77,60 @@ archives:
       - deploy/systemd/README.md
 
 nfpms:
+  - id: nebula-mgmt
+    package_name: nebula-mgmt
+    ids: [nebula-mgmt]
+    vendor: "juev"
+    homepage: "https://github.com/juev/nebula-mesh"
+    maintainer: "juev <https://github.com/juev>"
+    description: |
+      Self-hosted control plane for Slack Nebula. Issues certificates,
+      manages hosts, distributes config to nebula-agent instances, and
+      exposes a Web UI + REST API + CLI for operators.
+    license: MIT
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    section: net
+    contents:
+      - src: configs/server.example.yml
+        dst: /etc/nebula-mgmt/server.example.yml
+        type: config|noreplace
+      - src: deploy/systemd/nebula-mgmt.service
+        dst: /lib/systemd/system/nebula-mgmt.service
+      - src: README.md
+        dst: /usr/share/doc/nebula-mgmt/README.md
+      - src: LICENSE
+        dst: /usr/share/doc/nebula-mgmt/LICENSE
+      - src: CHANGELOG.md
+        dst: /usr/share/doc/nebula-mgmt/CHANGELOG.md
+      - src: docs/server.md
+        dst: /usr/share/doc/nebula-mgmt/server.md
+      - src: deploy/reverse-proxy/nginx/nebula-mgmt.conf
+        dst: /usr/share/doc/nebula-mgmt/reverse-proxy/nginx.conf
+      - src: deploy/reverse-proxy/caddy/Caddyfile
+        dst: /usr/share/doc/nebula-mgmt/reverse-proxy/Caddyfile
+      - src: deploy/reverse-proxy/traefik/dynamic.yml
+        dst: /usr/share/doc/nebula-mgmt/reverse-proxy/traefik-dynamic.yml
+    overrides:
+      rpm:
+        dependencies:
+          - shadow-utils
+      deb:
+        dependencies:
+          - adduser
+    scripts:
+      postinstall: deploy/packaging/postinstall-mgmt.sh
+      preremove:   deploy/packaging/preremove-mgmt.sh
+      postremove:  deploy/packaging/postremove-mgmt.sh
+    rpm:
+      group: System Environment/Daemons
+      summary: Self-hosted control plane for Slack Nebula
+    deb:
+      fields:
+        Bugs: "https://github.com/juev/nebula-mesh/issues"
+      lintian_overrides:
+        - "statically-linked-binary"
+
   - id: nebula-agent
     package_name: nebula-agent
     ids: [nebula-agent]

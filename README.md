@@ -119,12 +119,30 @@ Each release ships **two** independent artifact sets — install only what you n
 |---|---|---|
 | Where it runs | one VM / container — the control plane | every Nebula host — next to `nebula` |
 | Binary tarball | `nebula-mgmt_<v>_<os>_<arch>.tar.gz` | `nebula-agent_<v>_<os>_<arch>.tar.gz` |
-| Linux distro packages | — | `nebula-agent_<v>_linux_<arch>.{deb,rpm}` |
+| Linux distro packages | `nebula-mgmt_<v>_linux_<arch>.{deb,rpm}` | `nebula-agent_<v>_linux_<arch>.{deb,rpm}` |
 | Docker image | `ghcr.io/juev/nebula-mgmt` | `ghcr.io/juev/nebula-agent` |
 
-### Linux distro packages — recommended for the agent
+### Linux distro packages — recommended for both server and agent
 
-`nebula-agent` ships as `.deb` and `.rpm` for `amd64`, `arm64`, and `armv7` on every release. The package installs the binary at `/usr/bin/nebula-agent`, the systemd unit at `/lib/systemd/system/nebula-agent.service`, an example config at `/etc/nebula-agent/agent.example.yml`, and the operations guide at `/usr/share/doc/nebula-agent/agent.md`. The post-install script creates the `nebula-agent` system user but does **not** enable the service — you must enroll the host first.
+`nebula-mgmt` and `nebula-agent` both ship as `.deb` and `.rpm`. The server is published for `amd64` and `arm64`; the agent additionally covers `armv7`. Each package installs the binary at `/usr/bin/`, the systemd unit at `/lib/systemd/system/`, an example config at `/etc/nebula-{mgmt,agent}/`, and the operations guide at `/usr/share/doc/nebula-{mgmt,agent}/`. The post-install creates the matching system user but never auto-starts the service — operators run `nebula-mgmt init` (for the server) or `nebula-agent enroll` (for each host) first.
+
+```sh
+TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+
+# nebula-mgmt (server VM)
+curl -fsSL -O "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-mgmt_${TAG#v}_linux_${ARCH}.deb"
+sudo apt install -y "./nebula-mgmt_${TAG#v}_linux_${ARCH}.deb"
+# server.yml lives at /etc/nebula-mgmt/server.example.yml — copy, edit, set
+# NEBULA_MGMT_MASTER_KEY / NEBULA_MGMT_CA_PASSPHRASE via a systemd drop-in,
+# then `nebula-mgmt init` and `systemctl enable --now nebula-mgmt`.
+```
+
+Full server lifecycle reference: [`docs/server.md`](docs/server.md).
+
+#### Agent
+
+`nebula-agent` is published with the same package shape, plus an `armv7` build for 32-bit Raspberry Pi targets.
 
 ```sh
 TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
@@ -343,7 +361,7 @@ Non-admin operators see and manage only the CAs they own; admins see all. Hosts 
 
 - **Docker** — `docker build -t nebula-mgmt .` (Dockerfile in repo).
 - **systemd** — unit files in [`deploy/systemd/`](deploy/systemd/).
-- **TLS** — set `tls_cert` + `tls_key` for in-process TLS, or front with nginx/caddy/traefik.
+- **TLS** — set `tls_cert` + `tls_key` for in-process TLS, or front with nginx/caddy/traefik. Working snippets for all three live in [`deploy/reverse-proxy/`](deploy/reverse-proxy/) and ship inside the `.deb`/`.rpm` at `/usr/share/doc/nebula-mgmt/reverse-proxy/`. Each is opinionated, preserves `X-Forwarded-For`, and disables buffering on `/ui/events` so the SSE feed reaches the browser in real time.
 - **Rate limiting** — on by default. The Web UI, auth endpoints, `/api/v1/enroll`, and the bearer-authenticated admin API each run their own per-IP token bucket. Defaults: 5 req/s on login forms (burst 10), 2 req/s on enrolment (burst 5), 30 req/s on UI + admin API (burst 60), 60 req/s on agent polls (burst 120). Health (`/healthz`, `/readyz`, `/metrics`, `/debug/vars`, `/favicon.ico`, `/static/*`) is exempt. Run behind a reverse proxy? Set `rate_limit.trust_proxy_header: true` so the limiter keys on `X-Forwarded-For` instead of the proxy's connection address.
 
 ### Backups & key handling
@@ -388,7 +406,7 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 </details>
 
 <details open>
-<summary><strong>Roadmap</strong> — what's next (5 open issues)</summary>
+<summary><strong>Roadmap</strong> — what's next (4 open issues)</summary>
 <a name="roadmap"></a>
 
 
@@ -398,9 +416,8 @@ Open issues tracked individually so you can subscribe to the ones you care about
 - [#46](https://github.com/juev/nebula-mesh/issues/46) — Web UI: per-operator CA management (create / list / retire / delete)
 - [#47](https://github.com/juev/nebula-mesh/issues/47) — Web UI: admin Settings page (toggle self-reg, log level, policy flags …)
 - [#49](https://github.com/juev/nebula-mesh/issues/49) — Admin-enforced 2FA: `enforce_2fa` toggle, forced enrolment gate after login
-- [#51](https://github.com/juev/nebula-mesh/issues/51) — `.deb`/`.rpm` packaging polish + official nginx/caddy/traefik snippets
 
-Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, configurable password policy with embedded common-password block, distro packages (deb/rpm) and the cross-platform agent build matrix.
+Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, configurable password policy with embedded common-password block, deb/rpm packages for both server and agent, reverse-proxy snippets for nginx / Caddy / Traefik ([`deploy/reverse-proxy/`](deploy/reverse-proxy/)), and the cross-platform agent build matrix.
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 

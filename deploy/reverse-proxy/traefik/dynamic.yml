@@ -1,0 +1,62 @@
+# nebula-mgmt — Traefik dynamic configuration (file provider).
+#
+# Drop this into /etc/traefik/dynamic/nebula-mgmt.yml (Traefik v3) and
+# point your file provider at /etc/traefik/dynamic/ — typically via
+# traefik.yml:
+#
+#   providers:
+#     file:
+#       directory: /etc/traefik/dynamic
+#       watch: true
+#
+# Adjust the entrypoints, host rule, and certResolver to your setup.
+# In server.yml, set `rate_limit.trust_proxy_header: true` so the
+# management server's rate limiter keys on the real client IP that
+# Traefik forwards.
+
+http:
+  routers:
+    nebula-mgmt:
+      rule: "Host(`mgmt.example.com`)"
+      entryPoints: [websecure]
+      service: nebula-mgmt
+      middlewares: [nebula-mgmt-headers]
+      tls:
+        certResolver: letsencrypt
+
+    # Dedicated router for /ui/events so we can attach an SSE-friendly
+    # middleware. The order is important: rule matches a path prefix
+    # first, falling back to the catch-all above.
+    nebula-mgmt-sse:
+      rule: "Host(`mgmt.example.com`) && Path(`/ui/events`)"
+      entryPoints: [websecure]
+      service: nebula-mgmt-sse
+      middlewares: [nebula-mgmt-headers]
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    nebula-mgmt:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8080"
+        passHostHeader: true
+
+    # Same backend; separate service so we can tune timeouts without
+    # affecting the regular HTTP traffic.
+    nebula-mgmt-sse:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8080"
+        passHostHeader: true
+        responseForwarding:
+          flushInterval: "100ms"
+
+  middlewares:
+    nebula-mgmt-headers:
+      headers:
+        stsSeconds: 63072000
+        stsIncludeSubdomains: true
+        contentTypeNosniff: true
+        frameDeny: true
+        referrerPolicy: "no-referrer"

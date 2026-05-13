@@ -90,9 +90,17 @@ The package:
 - installs `/usr/bin/nebula-agent` and `/lib/systemd/system/nebula-agent.service`;
 - ships an example config at `/etc/nebula-agent/agent.example.yml`;
 - creates the `nebula-agent` system user/group for future hardening;
-- **does not** create `/etc/nebula-agent/agent.yml`, start, or enable the service — run `nebula-agent --server URL --token TOK` once to write the config + enroll, then `systemctl enable --now nebula-agent`;
-- on upgrade, leaves `/etc/nebula-agent/agent.yml` and `/etc/nebula/{host.crt,host.key,ca.crt,config.yml}` untouched;
-- on removal, stops and disables the service but keeps `/etc/nebula-agent` and `/etc/nebula` intact (so host keys survive accidental removals). `apt purge` / `dnf remove --purge` will additionally delete the system user.
+- on fresh install runs `systemctl enable --now nebula-agent.service` so the daemon comes up immediately in **idle-standby** (#88) — no enrollment yet, no server traffic, journal logs one hint and the process sleeps;
+- on upgrade leaves the current enable-state alone, and leaves `/etc/nebula-agent/agent.yml` and `/etc/nebula/{host.crt,host.key,ca.crt,config.yml}` untouched;
+- on removal stops and disables the service but keeps `/etc/nebula-agent` and `/etc/nebula` intact (so host keys survive accidental removals). `apt purge` / `dnf remove --purge` will additionally delete the system user.
+
+Bind the host with one command after install:
+
+```sh
+sudo nebula-agent enroll --server <url> --token <token>
+```
+
+The running daemon detects the freshly written files within ~10 seconds and transitions from idle-standby to the poll loop without a restart. See [Enrollment](#enrollment) for the full flow.
 
 Checksums for every artifact are published in `checksums.txt` next to the package.
 
@@ -242,65 +250,64 @@ it through `POST /api/v1/hosts/{id}/enrollment-token` (or via the UI).
 
 ### 2. On the host
 
+After `apt install` / `dnf install`, `nebula-agent.service` is already running in **idle-standby** (#88) — confirm via `systemctl status nebula-agent`. Bind the host with one command:
+
 ```sh
-# First run: enrolls, writes config to /etc/nebula-agent/agent.yml (0600),
-# starts the poller. The token is single-use and is never written to disk.
+sudo nebula-agent enroll \
+  --server https://mgmt.example.com:8080 \
+  --token "$ENROLL_TOKEN"
+```
+
+The `enroll` subcommand:
+
+- generates both keypairs (X25519 for Nebula + Ed25519 for poll signatures);
+- hits `POST /api/v1/enroll` on the server;
+- atomically writes `agent.yml` (mode 0600) and the five enrollment files (see table below);
+- runs **one** confirmation signed poll so you see `enrollment successful (confirmation poll OK)` in the same command;
+- exits 0.
+
+The token is single-use and never persisted to disk. Pass `--force` to overwrite an existing enrollment (e.g. after key compromise) — without `--force` the command refuses to clobber `host.crt` / `agent.yml`.
+
+After a successful enrollment the agent owns the following files:
+
+| Path | Mode | Owner | Contents |
+|---|---|---|---|
+| `/etc/nebula-agent/agent.yml` | 0600 | agent | Agent daemon config (server URL, poll interval, paths). |
+| `/etc/nebula-agent/host.signing.key` | 0600 | **agent** | Ed25519 private key used only by the agent to sign poll requests (ADR 0004). Lives outside `/etc/nebula/` because Nebula does not read it. |
+| `/etc/nebula/host.key` | 0600 | Nebula | X25519 private key for the Nebula Noise handshake. |
+| `/etc/nebula/host.crt` | 0644 | Nebula | Signed certificate of this host. |
+| `/etc/nebula/ca.crt` | 0644 | Nebula | CA certificate (trust anchor for peer-cert verification). |
+| `/etc/nebula/config.yml` | 0644 | Nebula | Rendered Nebula config (lighthouses, firewall, …). |
+
+The running daemon detects all four required files (`agent.yml`, `host.crt`, `host.signing.key`) within ~10 s and transitions from idle-standby to the poll loop without a restart.
+
+### 3. Containers / non-systemd setups
+
+For Docker and other systemd-less environments where there is no idle daemon to wait, the legacy one-shot flow still works:
+
+```sh
 sudo nebula-agent \
   --server https://mgmt.example.com:8080 \
   --token "$ENROLL_TOKEN"
-
-# Optional: pick a non-default data dir on first run.
-sudo nebula-agent --server ... --token ... --data-dir /etc/nebula
 ```
 
-After a successful enrollment the agent writes the following to `data_dir`:
+That invocation enrolls and **then** starts the poll loop in the foreground. Use it as the container's main process (`ENTRYPOINT`).
 
-| File | Mode | Contents |
-|---|---|---|
-| `host.key` | 0600 | The host's Nebula X25519 private key (PEM, unencrypted). |
-| `host.signing.key` | 0600 | The host's Ed25519 private key used to sign poll requests (ADR 0004). |
-| `host.crt` | 0644 | The host's signed certificate. |
-| `ca.crt`   | 0644 | The CA certificate; used by `nebula` to verify peers. |
-| `config.yml` | 0644 | The rendered Nebula config. |
-
-The enrollment endpoint accepts the token exactly once. A second call with the same
-token returns `409 Conflict`.
-
-### 3. Starting the run loop
-
-Once the host has been enrolled, subsequent invocations need no arguments — the
-agent reads `/etc/nebula-agent/agent.yml`, finds `host.crt`, and starts polling:
-
-```sh
-sudo nebula-agent                                # default config path
-sudo nebula-agent --config /path/to/agent.yml    # non-default location
-```
-
-To change a setting later, edit the YAML file (preferred) or pass
-`--update-config` together with the override flag to overwrite a single field
-atomically:
+CLI overrides for the running daemon (e.g. `--poll-interval 60s`) take effect only with `--update-config`; otherwise a warning is logged and the on-disk file wins:
 
 ```sh
 sudo nebula-agent --update-config --poll-interval 60s
 ```
 
-CLI overrides without `--update-config` are ignored on subsequent runs (a
-warning is logged) so a one-shot flag never silently rewrites persisted state.
-
-The agent exits non-zero if the host's certificate is missing and no `--token`
-is supplied — the error message tells you to pass `--token TOK` to enroll.
-
 ### Legacy subcommands (deprecated)
 
-The previous two-step ceremony still works for one release for backward
-compatibility with existing scripts:
+`nebula-agent run` is a deprecated alias for `nebula-agent` without a subcommand:
 
 ```sh
-sudo nebula-agent enroll --server ... --token ... --data-dir /etc/nebula
 sudo nebula-agent run --config /etc/nebula-agent/agent.yml
 ```
 
-Both print a deprecation warning on stderr; switch to the unified form when
+It prints a deprecation warning on stderr; switch to the unified form when
 convenient.
 
 ## Agent authorization (ADR 0004)
@@ -314,17 +321,14 @@ decision history.
 
 ### Keys on disk
 
-After a successful enrollment the agent's `data_dir` holds two private keys, both
-mode `0600`:
+After a successful enrollment two private keys exist on the host, both mode `0600`. They live in **separate directories** because they belong to separate processes (#88):
 
-| File | Purpose |
-|---|---|
-| `host.key` | X25519 private key used by Nebula for the Noise handshake between peers. |
-| `host.signing.key` | Ed25519 private key used only by the agent to sign poll requests. Never seen by Nebula. |
+| Path | Owner | Purpose |
+|---|---|---|
+| `/etc/nebula/host.key` | Nebula | X25519 private key used by Nebula for the Noise handshake between peers. |
+| `/etc/nebula-agent/host.signing.key` | agent | Ed25519 private key used only by the agent to sign poll requests. Never seen by Nebula. |
 
-The two keys share lifetime — force-rotate and re-enroll regenerate both
-together. The Ed25519 key exists because X25519 (the curve of `host.crt`) is a
-DH scheme that cannot sign arbitrary messages.
+The two keys share lifetime — force-rotate and re-enroll regenerate both together. The Ed25519 key exists because X25519 (the curve of `host.crt`) is a DH scheme that cannot sign arbitrary messages.
 
 ### Headers on every poll
 
@@ -527,11 +531,13 @@ Useful after the host's keys are believed compromised. Two flavours:
    On the host:
 
    ```sh
-   sudo systemctl stop nebula-agent nebula
-   sudo rm /etc/nebula/{host.crt,host.key,host.signing.key,ca.crt,config.yml}
-   sudo nebula-agent --server <url> --token <new-token>
-   sudo systemctl start nebula nebula-agent
+   sudo rm /etc/nebula/{host.crt,host.key,ca.crt,config.yml} \
+           /etc/nebula-agent/host.signing.key /etc/nebula-agent/agent.yml
+   sudo nebula-agent enroll --server <url> --token <new-token>
    ```
+
+   The running daemon (still in poll loop or already in idle-standby after
+   the deletions) picks up the new artefacts within ~10 s.
 
 2. **Server-driven force-rotate** (no operator action on the host). On the
    server:

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -134,41 +135,110 @@ func TestResolveConfig_DoesNotPersistToken(t *testing.T) {
 	}
 }
 
-func TestRun_FreshHost_NoTokenNoCert_Errors(t *testing.T) {
+// TestRun_StandbyWhenConfigMissing — daemon launched with no flags and no
+// existing config sits in standby instead of failing fast. Context-cancel
+// (the SIGTERM analog under test) must return ctx.Err(), not a wrapped
+// error.
+func TestRun_StandbyWhenConfigMissing(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "agent.yml")
+
+	var stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err := run(ctx, []string{"--config", cfgPath}, &stderr, &stderr)
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.DeadlineExceeded or Canceled", err)
+	}
+	if !strings.Contains(stderr.String(), "standby") {
+		t.Errorf("stderr should mention standby; got %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "nebula-agent enroll") {
+		t.Errorf("stderr should hint at `nebula-agent enroll`; got %q", stderr.String())
+	}
+}
+
+// TestRun_StandbyWhenCertMissing — config exists, but host.crt/signing-key
+// are not on disk yet. Same standby behaviour as TestRun_StandbyWhenConfigMissing.
+func TestRun_StandbyWhenCertMissing(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "agent.yml")
 	dataDir := filepath.Join(dir, "nebula")
 
-	// Seed an enrolled-but-cert-missing state: config exists, host.crt does not.
 	cfg := config.DefaultAgentConfig()
 	cfg.ServerURL = "https://srv.example.com"
 	cfg.DataDir = dataDir
+	cfg.SigningKeyPath = filepath.Join(dir, "agent", "host.signing.key")
 	if err := config.SaveAgentConfig(cfgPath, cfg); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
 	var stderr bytes.Buffer
-	err := run([]string{"--config", cfgPath}, &stderr, &stderr)
-	if err == nil {
-		t.Fatal("expected error: missing cert + no token")
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err := run(ctx, []string{"--config", cfgPath}, &stderr, &stderr)
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.DeadlineExceeded or Canceled", err)
 	}
-	if !strings.Contains(err.Error(), "--token") {
-		t.Errorf("error message should mention --token hint; got %v", err)
+	if !strings.Contains(stderr.String(), "standby") {
+		t.Errorf("stderr should mention standby; got %q", stderr.String())
 	}
 }
 
-func TestRun_DeprecatedSubcommandWarning(t *testing.T) {
-	var stderr bytes.Buffer
-	// Both deprecated commands fail fast (missing flags), but the warning
-	// must hit stderr regardless.
-	_ = run([]string{"enroll"}, &stderr, &stderr)
-	if !strings.Contains(stderr.String(), "deprecated") {
-		t.Errorf("expected deprecation warning for enroll; got %q", stderr.String())
+// TestCheckEnrollment_ReturnsCfgWhenReady — unit-level coverage of the
+// state-machine helper. When config + cert + signing key are all present,
+// it returns the loaded config and an empty reason.
+func TestCheckEnrollment_ReturnsCfgWhenReady(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "agent.yml")
+	dataDir := filepath.Join(dir, "nebula")
+	skPath := filepath.Join(dir, "agent", "host.signing.key")
+
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(skPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "host.crt"), []byte("cert"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skPath, []byte("sk"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 
-	stderr.Reset()
-	_ = run([]string{"run", "--config", "/nonexistent"}, &stderr, &stderr)
+	cfg := config.DefaultAgentConfig()
+	cfg.ServerURL = "https://srv.example.com"
+	cfg.DataDir = dataDir
+	cfg.SigningKeyPath = skPath
+	if err := config.SaveAgentConfig(cfgPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	got, reason := checkEnrollment(cfgPath)
+	if got == nil {
+		t.Fatalf("got nil cfg with reason %q", reason)
+	}
+	if reason != "" {
+		t.Errorf("reason = %q, want empty", reason)
+	}
+	if got.ServerURL != "https://srv.example.com" {
+		t.Errorf("ServerURL = %q", got.ServerURL)
+	}
+}
+
+// TestRun_DeprecatedSubcommand_Run pins the deprecation warning on the
+// remaining legacy subcommand. `enroll` is no longer deprecated after #88,
+// so its branch is exercised separately (see TestEnrollSubcommand_* below).
+func TestRun_DeprecatedSubcommand_Run(t *testing.T) {
+	var stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_ = run(ctx, []string{"run", "--config", "/nonexistent"}, &stderr, &stderr)
 	if !strings.Contains(stderr.String(), "deprecated") {
 		t.Errorf("expected deprecation warning for run; got %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "`nebula-agent enroll` is deprecated") {
+		t.Errorf("enroll subcommand should NOT print deprecation warning; got %q", stderr.String())
 	}
 }

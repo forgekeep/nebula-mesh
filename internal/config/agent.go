@@ -13,6 +13,7 @@ import (
 type AgentConfig struct {
 	ServerURL        string        `yaml:"server_url"`
 	DataDir          string        `yaml:"data_dir"`
+	SigningKeyPath   string        `yaml:"signing_key_path"`
 	PollInterval     time.Duration `yaml:"poll_interval"`
 	NebulaConfigPath string        `yaml:"nebula_config_path"`
 	NebulaPIDFile    string        `yaml:"nebula_pid_file"`
@@ -20,9 +21,14 @@ type AgentConfig struct {
 
 // DefaultAgentConfig returns a config populated with the defaults the agent
 // applies when fields are missing.
+//
+// SigningKeyPath defaults to /etc/nebula-agent/host.signing.key — agent's
+// Ed25519 poll-signature key lives next to agent.yml, deliberately *not* in
+// /etc/nebula where Nebula's own secrets live (ADR 0004 + #88).
 func DefaultAgentConfig() *AgentConfig {
 	return &AgentConfig{
 		DataDir:          "/etc/nebula",
+		SigningKeyPath:   "/etc/nebula-agent/host.signing.key",
 		PollInterval:     30 * time.Second,
 		NebulaConfigPath: "/etc/nebula/config.yml",
 	}

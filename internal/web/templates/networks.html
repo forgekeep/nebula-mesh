@@ -3,9 +3,18 @@
 {{define "content"}}
 <div class="header-actions">
     <h1>Networks</h1>
+    {{if or .HasCAs .IsAdmin}}
     <button class="btn btn-primary" onclick="document.getElementById('new-network').style.display='block'">+ New Network</button>
+    {{end}}
 </div>
 
+{{if and (not .HasCAs) (not .IsAdmin)}}
+<div class="card alert" role="alert" style="border-left: 3px solid var(--danger);">
+    <strong>Create a CA first.</strong>
+    Every network must be tied to a certificate authority you own.
+    <a href="/ui/cas/new">Create a CA →</a>
+</div>
+{{else}}
 <div id="new-network" class="card"{{if not .ShowCreate}} style="display:none"{{end}}>
     <h2>Create Network</h2>
     {{if .Error}}<div class="error" role="alert" style="color: var(--danger); margin-bottom: 16px;">{{.Error}}</div>{{end}}
@@ -18,9 +27,28 @@
             <label>CIDR</label>
             <input type="text" name="cidr" class="form-control" placeholder="192.168.100.0/24" value="{{.Form.CIDR}}" required>
         </div>
+        {{if gt (len .CAs) 1}}
+        <div class="form-group">
+            <label>Signing CA</label>
+            <select name="ca_id" class="form-control" required>
+                <option value="">Select CA...</option>
+                {{$sel := .Form.CAID}}
+                {{range .CAs}}
+                <option value="{{.ID}}"{{if eq .ID $sel}} selected{{end}}>{{.Name}}</option>
+                {{end}}
+            </select>
+        </div>
+        {{else if eq (len .CAs) 1}}
+        {{$only := index .CAs 0}}
+        <input type="hidden" name="ca_id" value="{{$only.ID}}">
+        <div class="form-group" style="font-size: 12px; color: var(--text-muted);">
+            Signed by CA: <strong>{{$only.Name}}</strong>
+        </div>
+        {{end}}
         <button type="submit" class="btn btn-primary">Create</button>
     </form>
 </div>
+{{end}}
 
 {{if .Networks}}
 <div class="card">

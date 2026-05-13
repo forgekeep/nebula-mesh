@@ -1,0 +1,22 @@
+{{define "title"}}New CA — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>New CA</h1>
+    <a href="/ui/cas">← Back to CAs</a>
+</div>
+
+<form method="POST" action="/ui/cas" class="card">
+    {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+    {{if not .MasterReady}}
+    <div class="error">
+        CA creation requires <code>NEBULA_MGMT_MASTER_KEY</code> to be set at startup.
+        See <a href="docs/adr/0002-per-operator-cas.md">ADR&nbsp;0002</a> for the
+        master-key handling.
+    </div>
+    {{end}}
+    <label>Name <input type="text" name="name" required></label>
+    <label>Duration <input type="text" name="duration" value="8760h"></label>
+    <button type="submit" class="btn btn-primary" {{if not .MasterReady}}disabled{{end}}>Create</button>
+</form>
+{{end}}

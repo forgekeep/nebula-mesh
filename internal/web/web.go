@@ -40,6 +40,7 @@ type Web struct {
 	events                *EventBus
 	limiter               *ratelimit.Limiter
 	passwordPolicy        auth.Policy
+	caMaster              CAMaster
 }
 
 // WithPasswordPolicy installs the password policy used by registration
@@ -129,6 +130,9 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		"operators_list.html",
 		"operator_new.html",
 		"operator_detail.html",
+		"cas_list.html",
+		"ca_new.html",
+		"ca_detail.html",
 	}
 	for _, page := range pages {
 		tmpl, err := template.ParseFS(templateFS, "templates/layout.html", "templates/"+page)
@@ -203,6 +207,16 @@ func (w *Web) setupRoutes() {
 			r.Post("/ui/operators/{id}/api-keys", w.handleOperatorCreateAPIKey)
 			r.Post("/ui/operators/{id}/api-keys/{kid}/revoke", w.handleOperatorRevokeAPIKey)
 		})
+
+		// Per-operator CA management (issue #46). Available to every
+		// authenticated operator; non-admins only see / act on the CAs
+		// they own — enforced server-side by loadAccessibleCA.
+		r.Get("/ui/cas", w.handleCAsList)
+		r.Get("/ui/cas/new", w.handleCANewPage)
+		r.Post("/ui/cas", w.handleCACreate)
+		r.Get("/ui/cas/{id}", w.handleCADetail)
+		r.Post("/ui/cas/{id}/retire", w.handleCARetire)
+		r.Post("/ui/cas/{id}/delete", w.handleCADelete)
 		r.Post("/ui/2fa/setup", w.handleTwoFASetup)
 		r.Post("/ui/2fa/enable", w.handleTwoFAEnable)
 		r.Post("/ui/2fa/disable", w.handleTwoFADisable)

@@ -1,0 +1,37 @@
+{{define "title"}}CAs — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>CAs</h1>
+    <a href="/ui/cas/new" class="btn btn-primary">+ New CA</a>
+</div>
+
+{{if .CAs}}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Fingerprint</th>
+                {{if .IsAdmin}}<th>Owner</th>{{end}}
+                <th>Status</th>
+                <th>Expires</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .CAs}}
+        <tr>
+            <td><a href="/ui/cas/{{.ID}}">{{.Name}}</a></td>
+            <td><code>{{.Fingerprint}}</code></td>
+            {{if $.IsAdmin}}<td>{{.OwnerOperatorID}}</td>{{end}}
+            <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+            <td>{{.NotAfter.Format "2006-01-02"}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{else}}
+<div class="card empty">No CAs visible to you yet.</div>
+{{end}}
+{{end}}

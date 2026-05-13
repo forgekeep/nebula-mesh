@@ -253,9 +253,9 @@ sudo nebula-agent
 
 The first invocation writes `/etc/nebula-agent/agent.yml` (mode 0600) from the supplied flags. Subsequent runs need no arguments — the agent reads its config, finds `host.crt`, and starts polling. The enrollment token is single-use and is never persisted. The legacy `nebula-agent enroll` / `nebula-agent run` subcommands still work for one release and emit a deprecation warning.
 
-The agent keeps `host.crt` / `host.key` / `ca.crt` / `config.yml` in sync and signals Nebula on changes.
+The agent keeps `host.crt` / `host.key` / `host.signing.key` / `ca.crt` / `config.yml` in sync and signals Nebula on changes. Every poll request is signed with the per-host Ed25519 key generated at enrollment (ADR 0004); the server replies `403 revoked` / `410 gone` when the operator blocks or deletes the host so the agent exits 0 instead of looping forever.
 
-> Full nebula-agent operations guide: [`docs/agent.md`](docs/agent.md) — installation, configuration, troubleshooting, upgrade, and security notes.
+> Full nebula-agent operations guide: [`docs/agent.md`](docs/agent.md) — installation, configuration, signed-poll headers, force-rotate / re-enroll endpoints, troubleshooting, upgrade, and security notes.
 
 ### Manage hosts from the CLI
 

@@ -1,0 +1,78 @@
+{{define "title"}}Settings — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>Settings</h1>
+</div>
+
+{{if .Settings.Saved}}
+<div class="card success">Settings saved. Changes take effect on the next request — no restart required.</div>
+{{end}}
+
+{{if .Settings.Error}}
+<div class="card error">{{.Settings.Error}}</div>
+{{end}}
+
+<form method="POST" action="/ui/settings" class="card">
+    <h2>Authentication</h2>
+
+    <label class="row">
+        <input type="checkbox" name="enforce_2fa" value="1" {{if .Settings.EnforceTOTP}}checked{{end}}>
+        <span>
+            <strong>Enforce 2FA for local operators.</strong>
+            When on, every local operator without TOTP is routed to <code>/ui/2fa/required</code>
+            after a successful password login. OIDC operators are exempt.
+        </span>
+    </label>
+
+    <label class="row">
+        <input type="checkbox" name="allow_self_registration" value="1" {{if .Settings.AllowSelfRegistration}}checked{{end}}>
+        <span>
+            <strong>Allow self-registration.</strong>
+            Unauthenticated visitors can create their own operator account at <code>/ui/register</code>.
+        </span>
+    </label>
+
+    <p class="muted">
+        OIDC SSO is currently
+        {{if .Settings.OIDCEnabled}}<strong>enabled</strong>{{else}}<strong>not configured</strong>{{end}}.
+        OIDC issuer / client credentials are managed in <code>server.yml</code> and are not editable here.
+    </p>
+
+    <h2>Password policy</h2>
+
+    <label>
+        Minimum length
+        <input type="number" name="password_min_length" min="0" max="256" value="{{.Settings.PasswordMinLength}}">
+    </label>
+
+    <label>
+        Required character classes (0–4: lower, upper, digit, symbol)
+        <input type="number" name="password_require_classes" min="0" max="4" value="{{.Settings.PasswordRequireClasses}}">
+    </label>
+
+    <label class="row">
+        <input type="checkbox" name="password_block_common" value="1" {{if .Settings.PasswordBlockCommon}}checked{{end}}>
+        <span>Reject passwords on the embedded common-passwords list.</span>
+    </label>
+
+    <label class="row">
+        <input type="checkbox" name="password_block_username" value="1" {{if .Settings.PasswordBlockUsername}}checked{{end}}>
+        <span>Reject passwords equal to or containing the username.</span>
+    </label>
+
+    <h2>Logging</h2>
+
+    <label>
+        Log level
+        <select name="log_level">
+            <option value="debug" {{if eq .Settings.LogLevel "debug"}}selected{{end}}>debug</option>
+            <option value="info"  {{if eq .Settings.LogLevel "info"}}selected{{end}}>info</option>
+            <option value="warn"  {{if eq .Settings.LogLevel "warn"}}selected{{end}}>warn</option>
+            <option value="error" {{if eq .Settings.LogLevel "error"}}selected{{end}}>error</option>
+        </select>
+    </label>
+
+    <button type="submit" class="btn btn-primary">Save</button>
+</form>
+{{end}}

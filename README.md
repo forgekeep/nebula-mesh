@@ -337,7 +337,11 @@ The first successful login for an unknown subject creates a local operator recor
 
 ### Configurable self-registration
 
-By default only administrators can create operator accounts. Set `allow_self_registration: true` in `server.yml` to let unauthenticated visitors sign up via `/ui/register`. Server-side checks gate the endpoint independently of the UI, so flipping the flag is enough to block self-registration. Self-registered operators get the `user` role; the operator-management API (`POST /api/v1/operators`, `disable`, etc) requires `role: admin`.
+By default only administrators can create operator accounts. Set `allow_self_registration: true` in `server.yml`, or flip it from **Settings → Allow self-registration** in the Web UI, to let unauthenticated visitors sign up via `/ui/register`. Server-side checks gate the endpoint independently of the UI, so flipping the flag is enough to block self-registration. Self-registered operators get the `user` role; the operator-management API (`POST /api/v1/operators`, `disable`, etc) requires `role: admin`.
+
+### Settings page
+
+`/ui/settings` (admin-only — non-admins are 403'd, and the sidebar entry is hidden) exposes the runtime knobs administrators can flip without restarting the server: admin-enforced 2FA, self-registration, password policy (min length, required character classes, common-password blocklist, username block), and log level. Saved values land in the `server_settings` table; every save writes a `settings.update` audit-log entry. `server.yml` becomes the bootstrap snapshot — `allow_self_registration:` and `enforce_2fa:` are seeded once and then the DB row wins. Secrets (`master_key`, OIDC client secret, TLS file paths) stay in `server.yml` only.
 
 ### Per-operator CAs
 
@@ -408,7 +412,7 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 </details>
 
 <details open>
-<summary><strong>Roadmap</strong> — what's next (3 open issues)</summary>
+<summary><strong>Roadmap</strong> — what's next (2 open issues)</summary>
 <a name="roadmap"></a>
 
 
@@ -416,9 +420,8 @@ Open issues tracked individually so you can subscribe to the ones you care about
 
 - [#45](https://github.com/juev/nebula-mesh/issues/45) — Web UI: admin-only operator and API-key management
 - [#46](https://github.com/juev/nebula-mesh/issues/46) — Web UI: per-operator CA management (create / list / retire / delete)
-- [#47](https://github.com/juev/nebula-mesh/issues/47) — Web UI: admin Settings page (toggle self-reg, log level, policy flags …)
 
-Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA (opt-in **or** admin-enforced via `enforce_2fa`), self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, configurable password policy with embedded common-password block, deb/rpm packages for both server and agent, reverse-proxy snippets for nginx / Caddy / Traefik ([`deploy/reverse-proxy/`](deploy/reverse-proxy/)), and the cross-platform agent build matrix.
+Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA (opt-in **or** admin-enforced via `enforce_2fa`), self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, configurable password policy with embedded common-password block, admin Settings page (toggle self-reg, log level, policy flags, …) at `/ui/settings`, deb/rpm packages for both server and agent, reverse-proxy snippets for nginx / Caddy / Traefik ([`deploy/reverse-proxy/`](deploy/reverse-proxy/)), and the cross-platform agent build matrix.
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 

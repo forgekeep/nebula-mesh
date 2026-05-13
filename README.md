@@ -316,6 +316,8 @@ Audit log entries (`/api/v1/audit-log`) record the actor for every mutating oper
 
 Open `/ui/2fa`, click **Enable 2FA**, scan the displayed `otpauth://` URL with 1Password / Bitwarden / Google Authenticator / Aegis / Authy / any compatible app, and confirm with a 6-digit code. The server then shows ten one-time recovery codes — save them offline. On the next login the UI asks for the 6-digit code (or one recovery code) after the password. Disabling 2FA requires re-confirming the current password. All sensitive operations (`operator.2fa.enabled`, `disabled`, `regen_codes`, `failed`, `verified`) appear in the audit log. API tokens are unaffected.
 
+**Admin enforcement.** Set `enforce_2fa: true` in `server.yml` (or `PATCH /api/v1/settings` with `{"enforce_2fa": true}` at runtime). Every local operator without TOTP is then routed to `/ui/2fa/required` after a successful password login and cannot reach any other UI page until enrolment finishes. `POST /ui/2fa/disable` returns `403` while the toggle is on and writes an `operator.2fa.enforced.disable_blocked` audit entry. OIDC operators are exempt — their second factor lives at the IdP.
+
 ### Single sign-on via OIDC
 
 Configure an `oidc:` block in `server.yml` (see `configs/server.example.yml`) to enable operator login through Keycloak / Authentik / Dex / Google Workspace / Okta / any standard OpenID Connect provider. The login page then shows a **Sign in with SSO** button alongside the local form.
@@ -406,7 +408,7 @@ Full route list in [`internal/api/server.go`](internal/api/server.go).
 </details>
 
 <details open>
-<summary><strong>Roadmap</strong> — what's next (4 open issues)</summary>
+<summary><strong>Roadmap</strong> — what's next (3 open issues)</summary>
 <a name="roadmap"></a>
 
 
@@ -415,9 +417,8 @@ Open issues tracked individually so you can subscribe to the ones you care about
 - [#45](https://github.com/juev/nebula-mesh/issues/45) — Web UI: admin-only operator and API-key management
 - [#46](https://github.com/juev/nebula-mesh/issues/46) — Web UI: per-operator CA management (create / list / retire / delete)
 - [#47](https://github.com/juev/nebula-mesh/issues/47) — Web UI: admin Settings page (toggle self-reg, log level, policy flags …)
-- [#49](https://github.com/juev/nebula-mesh/issues/49) — Admin-enforced 2FA: `enforce_2fa` toggle, forced enrolment gate after login
 
-Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA, self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, configurable password policy with embedded common-password block, deb/rpm packages for both server and agent, reverse-proxy snippets for nginx / Caddy / Traefik ([`deploy/reverse-proxy/`](deploy/reverse-proxy/)), and the cross-platform agent build matrix.
+Already delivered: multi-operator auth, OIDC SSO, TOTP 2FA (opt-in **or** admin-enforced via `enforce_2fa`), self-registration, per-operator CAs, advanced per-host overrides, automatic lighthouse assignment by host role, Prometheus exporter, built-in cert-expiry alerter, Terraform / Ansible / cloud-init bootstrap recipes ([`docs/deployment.md`](docs/deployment.md)), live host status in the Web UI via SSE (`/ui/events`), per-IP rate limiting on auth + enrolment, configurable password policy with embedded common-password block, deb/rpm packages for both server and agent, reverse-proxy snippets for nginx / Caddy / Traefik ([`deploy/reverse-proxy/`](deploy/reverse-proxy/)), and the cross-platform agent build matrix.
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 

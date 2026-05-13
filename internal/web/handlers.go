@@ -15,6 +15,17 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// isEnrolmentPath reports whether a path is one of the routes a
+// gated-into-2FA operator is still allowed to hit. Keeps the enrolment
+// page reachable while everything else 303s back to the gate.
+func isEnrolmentPath(path string) bool {
+	switch path {
+	case "/ui/2fa/required", "/ui/2fa/setup", "/ui/2fa/enable", "/ui/logout":
+		return true
+	}
+	return false
+}
+
 // Login label constants mirror those exported by the API server's metrics
 // layer (api.ResultOK / api.LoginFactorPassword / …). They are duplicated
 // here, not imported, to keep this package free of an api ↔ web edge — the
@@ -29,11 +40,24 @@ const (
 	loginFactorRecovery = "recovery"
 )
 
-// requireAuth middleware redirects to login if not authenticated.
+// requireAuth middleware redirects to login if not authenticated. When
+// admin-enforced 2FA is on (server_settings.enforce_2fa = "true"), any
+// authenticated local operator without TOTP enrolled is redirected to
+// /ui/2fa/required and cannot reach any other /ui/* route until they
+// complete enrolment. OIDC operators are exempt — their second factor
+// is the IdP's job.
 func (w *Web) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		if !w.session.IsAuthenticated(r) {
 			http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+			return
+		}
+		if op := w.session.CurrentOperator(r); op != nil &&
+			!op.TOTPEnabled &&
+			op.AuthProvider != models.OperatorAuthOIDC &&
+			enforceTOTPEnabled(r.Context(), w.store) &&
+			!isEnrolmentPath(r.URL.Path) {
+			http.Redirect(rw, r, "/ui/2fa/required", http.StatusSeeOther)
 			return
 		}
 		next.ServeHTTP(rw, r)
@@ -232,6 +256,35 @@ func (w *Web) handleTwoFAPage(rw http.ResponseWriter, r *http.Request) {
 		"Setup":       nil,
 		"NewCodes":    nil,
 		"Error":       "",
+		"Enforced":    enforceTOTPEnabled(r.Context(), w.store),
+	})
+}
+
+// handleTwoFARequired is the forced-enrolment gate. Identical to the
+// regular /ui/2fa page except (a) it is reachable from requireAuth's
+// redirect path even when admin-enforced 2FA is on, and (b) the
+// template renders without the sidebar so the operator can't navigate
+// away. The actual TOTP setup / verification happens on
+// /ui/2fa/setup and /ui/2fa/enable as usual.
+func (w *Web) handleTwoFARequired(rw http.ResponseWriter, r *http.Request) {
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	if op.TOTPEnabled {
+		http.Redirect(rw, r, "/ui/", http.StatusSeeOther)
+		return
+	}
+	w.renderForRequest(rw, r, "twofa.html", map[string]any{
+		"Active":      "2fa",
+		"Operator":    op,
+		"TOTPEnabled": false,
+		"Setup":       nil,
+		"NewCodes":    nil,
+		"Error":       "",
+		"Enforced":    true,
+		"Required":    true,
 	})
 }
 
@@ -319,6 +372,11 @@ func (w *Web) handleTwoFAEnable(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.enabled", op.ID, "")
+	if enforceTOTPEnabled(r.Context(), w.store) {
+		// Track that this operator completed forced enrolment so an
+		// admin can audit the rollout.
+		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.enforced.enrolled", op.ID, "")
+	}
 	w.renderForRequest(rw, r, "twofa.html", map[string]any{
 		"Active":      "2fa",
 		"Operator":    op,
@@ -332,6 +390,11 @@ func (w *Web) handleTwoFADisable(rw http.ResponseWriter, r *http.Request) {
 	op := w.session.CurrentOperator(r)
 	if op == nil {
 		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	if enforceTOTPEnabled(r.Context(), w.store) {
+		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.enforced.disable_blocked", op.ID, "")
+		http.Error(rw, "Disabling 2FA is not allowed — admin-enforced 2FA is active. Contact your administrator.", http.StatusForbidden)
 		return
 	}
 	password := r.FormValue("password")

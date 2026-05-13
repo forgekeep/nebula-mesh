@@ -242,16 +242,17 @@ nebula-mgmt host create \
   --name web-1 --ip 192.168.100.10
 # → prints an enrollment token
 
-# On the host — single command on first run: enrolls, writes config, starts polling.
+# On the host — first run enrolls + writes config + exits. The token is
+# single-use and is never persisted to disk.
 sudo nebula-agent \
   --server https://mgmt.example.com:8080 \
   --token "$ENROLL_TOKEN"
 
-# Every subsequent run (e.g. under systemd):
-sudo nebula-agent
+# Then hand the agent to systemd for continuous operation:
+sudo systemctl enable --now nebula-agent
 ```
 
-The first invocation writes `/etc/nebula-agent/agent.yml` (mode 0600) from the supplied flags. Subsequent runs need no arguments — the agent reads its config, finds `host.crt`, and starts polling. The enrollment token is single-use and is never persisted. The legacy `nebula-agent enroll` / `nebula-agent run` subcommands still work for one release and emit a deprecation warning.
+The first invocation writes `/etc/nebula-agent/agent.yml` (mode 0600) from the supplied flags. Subsequent starts (under systemd or by hand) need no arguments — the agent reads its config, finds `host.crt`, and starts polling. The legacy `nebula-agent enroll` / `nebula-agent run` subcommands still work for one release and emit a deprecation warning.
 
 The agent keeps `host.crt` / `host.key` / `host.signing.key` / `ca.crt` / `config.yml` in sync and signals Nebula on changes. Every poll request is signed with the per-host Ed25519 key generated at enrollment (ADR 0004); the server replies `403 revoked` / `410 gone` when the operator blocks or deletes the host so the agent exits 0 instead of looping forever.
 
@@ -387,8 +388,8 @@ The router (issue #69) splits the listener three ways: `/api/` for the API surfa
 | UI | `/` | (redirect) | 302 to `/ui/` so first-time visitors land on the dashboard. |
 | UI | `/ui/` | session cookie | web UI (rate-limited, see below). |
 | UI | `/static/*`, `/favicon.ico` | none | UI assets. |
-| API | `/api/v1/enroll` | enrollment token | agent first-contact. |
-| API | `/api/v1/agent/updates` | host cert fingerprint | agent poll. |
+| API | `/api/v1/enroll` | enrollment token + signing public key | agent first-contact. |
+| API | `/api/v1/agent/updates` | signed PoP headers (ADR 0004) | agent poll. |
 | API | `/api/v1/...` | `Bearer <api_key>` | admin REST API. |
 | Ops | `/healthz` | none | liveness. |
 | Ops | `/readyz` | none | readiness (DB reachable). |

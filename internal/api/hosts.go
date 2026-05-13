@@ -290,12 +290,29 @@ func (s *Server) handleRotateCert(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleReenroll is the explicit re-enrollment endpoint (ADR 0004 §7.1).
+// It delegates to mintEnrollmentTokenForHost — identical mechanics to
+// handleRegenerateEnrollmentToken — but exists as a separate route so
+// operator UIs can present "re-enroll" as a discrete action (e.g. when a
+// host has lost its key material), distinct from the "regenerate token"
+// fix-up that handleRegenerateEnrollmentToken serves.
+func (s *Server) handleReenroll(w http.ResponseWriter, r *http.Request) {
+	s.mintEnrollmentTokenForHost(w, r, "reenroll")
+}
+
 // handleRegenerateEnrollmentToken mints a fresh single-use enrollment token
 // bound to an existing host row (ADR 0004 §7.1 — "regenerates the token
 // without churning the row"). Previous active tokens for the same host are
 // invalidated atomically. The host row, its IP allocation, group membership,
 // and audit history are preserved.
 func (s *Server) handleRegenerateEnrollmentToken(w http.ResponseWriter, r *http.Request) {
+	s.mintEnrollmentTokenForHost(w, r, "regenerate-token")
+}
+
+// mintEnrollmentTokenForHost is the shared implementation of the
+// regenerate-token and reenroll endpoints. The reason argument flows into
+// the audit details column so the timeline distinguishes the two.
+func (s *Server) mintEnrollmentTokenForHost(w http.ResponseWriter, r *http.Request, reason string) {
 	id := chi.URLParam(r, "id")
 	host, err := s.store.GetHost(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
@@ -315,7 +332,11 @@ func (s *Server) handleRegenerateEnrollmentToken(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusInternalServerError, "failed to mint token")
 		return
 	}
-	s.recordAuditAction(r.Context(), auditHostReenrollRequested, host.ID, host.Name)
+	details := host.Name
+	if reason != "" {
+		details = reason + ": " + host.Name
+	}
+	s.recordAuditAction(r.Context(), auditHostReenrollRequested, host.ID, details)
 
 	writeJSON(w, http.StatusCreated, regenerateEnrollmentTokenResponse{
 		Token:     tokenStr,

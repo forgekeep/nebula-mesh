@@ -28,6 +28,12 @@ type agentUpdatesResponse struct {
 // (ADR 0004 §7.1).
 const pollClockSkew = 5 * time.Minute
 
+// overlapWindow returns how long the previous cert fingerprint is accepted
+// after auto-renew lands. ADR 0004 §7.1 specifies "2 × poll_interval"; the
+// server does not see the agent's poll cadence directly, so we pick a
+// conservative two minutes — that covers the 30s default plus retries.
+func overlapWindow() time.Duration { return 2 * time.Minute }
+
 func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	fingerprint := r.Header.Get(corepop.HeaderFingerprint)
 	timestamp := r.Header.Get(corepop.HeaderTimestamp)
@@ -94,6 +100,31 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonReplayedNonce)
 		writeError(w, http.StatusUnauthorized, "replayed_nonce")
 		return
+	}
+
+	// Cert-rotation overlap window (ADR 0004 §7.1).
+	//
+	// If the agent polled with the *current* cert fingerprint and the row
+	// still has a parked previous fingerprint, clear it — the rotation
+	// completed successfully and we no longer need the dual-accept window.
+	// If the agent polled with the previous fingerprint and the wall-clock
+	// window has expired (2 × poll interval, lower-bounded at one minute),
+	// clear it too so a forever-stale agent does not keep the slot.
+	if host.PrevCertFingerprint != "" {
+		if fingerprint == host.CertFingerprint {
+			if err := s.store.ClearPrevFingerprint(r.Context(), host.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+				s.logger.Error("clear prev fingerprint", "error", err)
+			}
+		} else if host.CertRotatedAt != nil && now.Sub(*host.CertRotatedAt) > overlapWindow() {
+			if err := s.store.ClearPrevFingerprint(r.Context(), host.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+				s.logger.Error("clear prev fingerprint (timeout)", "error", err)
+			}
+			// Window expired: this old fingerprint should no longer be
+			// accepted. Treat as unknown so the agent re-enrolls.
+			s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonUnknownFingerprint)
+			writeError(w, http.StatusUnauthorized, "unknown_fingerprint")
+			return
+		}
 	}
 
 	// non-critical: log and continue — last_seen is informational

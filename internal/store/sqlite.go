@@ -414,8 +414,19 @@ func (s *SQLiteStore) GetHost(_ context.Context, id string) (*models.Host, error
 	return h, nil
 }
 
+// GetHostByFingerprint resolves the host by either its current or previous
+// cert fingerprint. The previous-fingerprint match window exists so cert
+// auto-rotation does not lock the agent out between server-side cert update
+// and on-disk cert write (ADR 0004 §7.1 cert rotation overlap).
+//
+// The returned host's CertFingerprint always reflects the row's current
+// value; callers that need to know which fingerprint matched can compare
+// against the input.
 func (s *SQLiteStore) GetHostByFingerprint(_ context.Context, fingerprint string) (*models.Host, error) {
-	row := s.db.QueryRow(`SELECT `+hostColumns+` FROM hosts WHERE cert_fingerprint = ?`, fingerprint)
+	row := s.db.QueryRow(
+		`SELECT `+hostColumns+` FROM hosts WHERE cert_fingerprint = ? OR prev_cert_fingerprint = ?`,
+		fingerprint, fingerprint,
+	)
 	h, err := s.scanHost(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -1094,7 +1105,11 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(_ context.Context, hostID str
 	return nil
 }
 
-// SaveCertificateAndUpdateHostCert atomically saves a certificate and updates the host's cert metadata.
+// SaveCertificateAndUpdateHostCert atomically saves a certificate and
+// updates the host's cert metadata. The previous fingerprint (if non-empty)
+// is parked in prev_cert_fingerprint with cert_rotated_at = now() so the
+// poll handler can accept either fingerprint during the rotation overlap
+// window (ADR 0004 §7.1).
 func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(_ context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -1110,10 +1125,26 @@ func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(_ context.Context, hostID
 		return err
 	}
 
-	// Update host cert metadata only
+	now := time.Now()
+	// Park the prior fingerprint (only when it actually differs from the
+	// new one). Same-key rotation handing back the same fingerprint should
+	// not populate prev_cert_fingerprint; the agent's poll continues to
+	// match on cert_fingerprint.
 	result, err := tx.Exec(
-		`UPDATE hosts SET cert_fingerprint=?, cert_expires_at=?, updated_at=? WHERE id=?`,
-		fp, notAfter, time.Now(), hostID,
+		`UPDATE hosts SET
+			prev_cert_fingerprint = CASE
+				WHEN cert_fingerprint IS NULL OR cert_fingerprint = '' OR cert_fingerprint = ? THEN prev_cert_fingerprint
+				ELSE cert_fingerprint
+			END,
+			cert_rotated_at = CASE
+				WHEN cert_fingerprint IS NULL OR cert_fingerprint = '' OR cert_fingerprint = ? THEN cert_rotated_at
+				ELSE ?
+			END,
+			cert_fingerprint = ?,
+			cert_expires_at  = ?,
+			updated_at       = ?
+		 WHERE id = ?`,
+		fp, fp, now, fp, notAfter, now, hostID,
 	)
 	if err != nil {
 		return fmt.Errorf("update host cert: %w", err)

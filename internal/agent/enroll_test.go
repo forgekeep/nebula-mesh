@@ -21,8 +21,9 @@ func TestEnroll_Success(t *testing.T) {
 		}
 
 		var req struct {
-			Token        string `json:"token"`
-			PublicKeyPEM string `json:"public_key_pem"`
+			Token         string `json:"token"`
+			PublicKeyPEM  string `json:"public_key_pem"`
+			SigningPubPEM string `json:"signing_public_key_pem"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("decode enroll request: %v", err)
@@ -35,6 +36,9 @@ func TestEnroll_Success(t *testing.T) {
 		}
 		if req.PublicKeyPEM == "" {
 			t.Error("empty public key in request")
+		}
+		if req.SigningPubPEM == "" {
+			t.Error("empty signing public key in request")
 		}
 
 		resp := EnrollResponse{
@@ -53,7 +57,7 @@ func TestEnroll_Success(t *testing.T) {
 	}
 
 	// Verify files
-	for _, name := range []string{"ca.crt", "host.crt", "host.key", "config.yml"} {
+	for _, name := range []string{"ca.crt", "host.crt", "host.key", "host.signing.key", "config.yml"} {
 		path := filepath.Join(dir, name)
 		info, err := os.Stat(path)
 		if err != nil {
@@ -66,9 +70,11 @@ func TestEnroll_Success(t *testing.T) {
 	}
 
 	// Check key permissions
-	info, _ := os.Stat(filepath.Join(dir, "host.key"))
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("host.key permissions = %o, want 0600", info.Mode().Perm())
+	for _, secret := range []string{"host.key", "host.signing.key"} {
+		info, _ := os.Stat(filepath.Join(dir, secret))
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("%s permissions = %o, want 0600", secret, info.Mode().Perm())
+		}
 	}
 }
 

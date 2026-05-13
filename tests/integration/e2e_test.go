@@ -3,8 +3,11 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,12 +17,57 @@ import (
 	"time"
 
 	"github.com/juev/nebula-mesh/internal/api"
+	agentpop "github.com/juev/nebula-mesh/internal/agent/pop"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
+	corepop "github.com/juev/nebula-mesh/internal/pop"
 	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
 )
+
+// signingKeypair returns a fresh Ed25519 keypair and its PEM-encoded public
+// key — the same shape an agent would send to /api/v1/enroll under ADR 0004.
+func signingKeypair(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey, string) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "NEBULA ED25519 PUBLIC KEY", Bytes: pub})
+	return pub, priv, string(pemBytes)
+}
+
+// signedGetUpdates issues an authenticated GET /api/v1/agent/updates poll on
+// behalf of an enrolled host. The four PoP headers are filled in identically
+// to what internal/agent.Poller produces.
+func signedGetUpdates(t *testing.T, ts *httptest.Server, fingerprint string, signingPriv ed25519.PrivateKey) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest("GET", ts.URL+"/api/v1/agent/updates", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts2 := time.Now().UTC().Format(time.RFC3339)
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		t.Fatal(err)
+	}
+	nonce := base64.StdEncoding.EncodeToString(nonceBytes)
+	canonical := corepop.CanonicalString(req.Method, req.URL.Path, req.URL.Host, ts2, nonce)
+	sig, err := agentpop.Sign(signingPriv, canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(corepop.HeaderFingerprint, fingerprint)
+	req.Header.Set(corepop.HeaderTimestamp, ts2)
+	req.Header.Set(corepop.HeaderNonce, nonce)
+	req.Header.Set(corepop.HeaderSignature, agentpop.EncodeSignature(sig))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
 
 const testAPIKey = "e2e-test-api-key"
 
@@ -138,10 +186,12 @@ func TestE2E_FullCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	pubKeyPEM := cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pubKey)
+	_, signingPriv, signingPubPEM := signingKeypair(t)
 
 	enrollReq := map[string]string{
-		"token":          hostResp.EnrollmentToken,
-		"public_key_pem": string(pubKeyPEM),
+		"token":                  hostResp.EnrollmentToken,
+		"public_key_pem":         string(pubKeyPEM),
+		"signing_public_key_pem": signingPubPEM,
 	}
 	data, _ := json.Marshal(enrollReq)
 	enrollResp, err := http.Post(ts.URL+"/api/v1/enroll", "application/json", bytes.NewReader(data))
@@ -209,10 +259,7 @@ func TestE2E_FullCycle(t *testing.T) {
 
 	// 7. Agent poll — should get updates (at least blocklist)
 	fp, _ := hostCert.Fingerprint()
-	pollResp, err := http.Get(ts.URL + "/api/v1/agent/updates?fingerprint=" + fp)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pollResp := signedGetUpdates(t, ts, fp, signingPriv)
 	var updates struct {
 		HasUpdates bool     `json:"has_updates"`
 		Blocklist  []string `json:"blocklist"`
@@ -252,10 +299,7 @@ func TestE2E_FullCycle(t *testing.T) {
 	t.Log("host blocked, fingerprint in blocklist")
 
 	// 10. Agent poll after block — should have blocklist update
-	pollResp, err = http.Get(ts.URL + "/api/v1/agent/updates?fingerprint=" + fp)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pollResp = signedGetUpdates(t, ts, fp, signingPriv)
 	if err := json.NewDecoder(pollResp.Body).Decode(&updates); err != nil {
 		t.Fatalf("decode post-block updates: %v", err)
 	}
@@ -322,9 +366,11 @@ func TestAgentUpdates_CertSaveFailure(t *testing.T) {
 	pubKey, _ := curve25519.X25519(privKey, curve25519.Basepoint)
 	pubKeyPEM := cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pubKey)
 
+	_, signingPriv, signingPubPEM := signingKeypair(t)
 	enrollReq := map[string]string{
-		"token":          hostResp.EnrollmentToken,
-		"public_key_pem": string(pubKeyPEM),
+		"token":                  hostResp.EnrollmentToken,
+		"public_key_pem":         string(pubKeyPEM),
+		"signing_public_key_pem": signingPubPEM,
 	}
 	data, _ := json.Marshal(enrollReq)
 	enrollResp, _ := http.Post(ts.URL+"/api/v1/enroll", "application/json", bytes.NewReader(data))
@@ -357,10 +403,7 @@ func TestAgentUpdates_CertSaveFailure(t *testing.T) {
 	}
 
 	// 5. Agent poll — renewal triggered, save fails → expect 500
-	pollResp, err := http.Get(ts.URL + "/api/v1/agent/updates?fingerprint=" + fp)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pollResp := signedGetUpdates(t, ts, fp, signingPriv)
 	defer pollResp.Body.Close()
 
 	if pollResp.StatusCode != http.StatusInternalServerError {
@@ -371,8 +414,9 @@ func TestAgentUpdates_CertSaveFailure(t *testing.T) {
 
 // enrollHost is a small helper used by the lighthouse auto-assignment tests
 // below: it creates a host, runs the full enrollment handshake, and returns
-// the host record plus its cert fingerprint (needed for agent polls).
-func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP string, extra map[string]any) (*models.Host, string, string) {
+// the host record, its cert fingerprint, its rendered config, and the
+// Ed25519 signing private key needed to issue signed polls afterwards.
+func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP string, extra map[string]any) (*models.Host, string, string, ed25519.PrivateKey) {
 	t.Helper()
 	payload := map[string]any{
 		"network_id": networkID,
@@ -405,10 +449,12 @@ func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP str
 		t.Fatal(err)
 	}
 	pubKeyPEM := cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pubKey)
+	_, signingPriv, signingPubPEM := signingKeypair(t)
 
 	enrollData, _ := json.Marshal(map[string]string{
-		"token":          created.EnrollmentToken,
-		"public_key_pem": string(pubKeyPEM),
+		"token":                  created.EnrollmentToken,
+		"public_key_pem":         string(pubKeyPEM),
+		"signing_public_key_pem": signingPubPEM,
 	})
 	enrollResp, err := http.Post(ts.URL+"/api/v1/enroll", "application/json", bytes.NewReader(enrollData))
 	if err != nil {
@@ -436,21 +482,18 @@ func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP str
 		t.Fatalf("fingerprint %s: %v", name, err)
 	}
 
-	return created.Host, fp, enrolled.ConfigYAML
+	return created.Host, fp, enrolled.ConfigYAML, signingPriv
 }
 
-// pollAgent runs a single agent updates poll for the given fingerprint and
-// returns the decoded response.
-func pollAgent(t *testing.T, ts *httptest.Server, fingerprint string) struct {
+// pollAgent runs a single signed agent updates poll for the given fingerprint
+// and returns the decoded response.
+func pollAgent(t *testing.T, ts *httptest.Server, fingerprint string, signingPriv ed25519.PrivateKey) struct {
 	HasUpdates bool     `json:"has_updates"`
 	ConfigYAML *string  `json:"config_yaml,omitempty"`
 	Blocklist  []string `json:"blocklist"`
 } {
 	t.Helper()
-	resp, err := http.Get(ts.URL + "/api/v1/agent/updates?fingerprint=" + fingerprint)
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := signedGetUpdates(t, ts, fingerprint, signingPriv)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -485,21 +528,21 @@ func TestE2E_LighthouseAutoAssignment(t *testing.T) {
 
 	// 1. Enroll a peer host first, *before* any lighthouse exists. Its
 	// enrollment-time config must contain zero lighthouses.
-	_, peerFP, peerInitialCfg := enrollHost(t, ts, network.ID, "peer-1", "192.168.50.10", nil)
+	_, peerFP, peerInitialCfg, peerSigning := enrollHost(t, ts, network.ID, "peer-1", "192.168.50.10", nil)
 	if strings.Contains(peerInitialCfg, "203.0.113.") {
 		t.Fatalf("initial peer config unexpectedly references a lighthouse public IP:\n%s", peerInitialCfg)
 	}
 
 	// 2. Initial poll immediately after enrollment — no version drift, no
 	// config redelivery.
-	updates := pollAgent(t, ts, peerFP)
+	updates := pollAgent(t, ts, peerFP, peerSigning)
 	if updates.ConfigYAML != nil {
 		t.Errorf("first poll: ConfigYAML must be nil (no version drift), got non-nil")
 	}
 
 	// 3. Now create and enroll a lighthouse. Enrolling a lighthouse must bump
 	// the network config_version.
-	_, _, _ = enrollHost(t, ts, network.ID, "lh-1", "192.168.50.1", map[string]any{
+	_, _, _, _ = enrollHost(t, ts, network.ID, "lh-1", "192.168.50.1", map[string]any{
 		"role":        "lighthouse",
 		"public_ip":   "203.0.113.10",
 		"listen_port": 4242,
@@ -507,7 +550,7 @@ func TestE2E_LighthouseAutoAssignment(t *testing.T) {
 
 	// 4. Peer poll — the agent must now receive a config_yaml that lists the
 	// newly enrolled lighthouse.
-	updates = pollAgent(t, ts, peerFP)
+	updates = pollAgent(t, ts, peerFP, peerSigning)
 	if updates.ConfigYAML == nil {
 		t.Fatal("peer poll after lighthouse promotion: ConfigYAML is nil, expected fresh config")
 	}
@@ -517,18 +560,18 @@ func TestE2E_LighthouseAutoAssignment(t *testing.T) {
 
 	// 5. Subsequent poll with no further changes — version is back in sync,
 	// no config is pushed.
-	updates = pollAgent(t, ts, peerFP)
+	updates = pollAgent(t, ts, peerFP, peerSigning)
 	if updates.ConfigYAML != nil {
 		t.Errorf("second poll: expected ConfigYAML=nil, got %q", *updates.ConfigYAML)
 	}
 
 	// 6. Add a second lighthouse — peer must pick up both on the next poll.
-	_, _, _ = enrollHost(t, ts, network.ID, "lh-2", "192.168.50.2", map[string]any{
+	_, _, _, _ = enrollHost(t, ts, network.ID, "lh-2", "192.168.50.2", map[string]any{
 		"role":        "lighthouse",
 		"public_ip":   "203.0.113.20",
 		"listen_port": 4242,
 	})
-	updates = pollAgent(t, ts, peerFP)
+	updates = pollAgent(t, ts, peerFP, peerSigning)
 	if updates.ConfigYAML == nil {
 		t.Fatal("peer poll after second lighthouse: ConfigYAML is nil")
 	}
@@ -562,7 +605,7 @@ func TestE2E_LighthouseAutoAssignment(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	updates = pollAgent(t, ts, peerFP)
+	updates = pollAgent(t, ts, peerFP, peerSigning)
 	if updates.ConfigYAML == nil {
 		t.Fatal("peer poll after lighthouse block: ConfigYAML is nil")
 	}

@@ -10,6 +10,8 @@ import (
 
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
+	apipop "github.com/juev/nebula-mesh/internal/api/pop"
+	corepop "github.com/juev/nebula-mesh/internal/pop"
 	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/slackhq/nebula/cert"
 )
@@ -22,16 +24,25 @@ type agentUpdatesResponse struct {
 	Blocklist      []string `json:"blocklist"`
 }
 
+// pollClockSkew is the symmetric tolerance applied to X-Nebula-Timestamp
+// (ADR 0004 §7.1).
+const pollClockSkew = 5 * time.Minute
+
 func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
-	fingerprint := r.URL.Query().Get("fingerprint")
-	if fingerprint == "" {
-		writeError(w, http.StatusBadRequest, "fingerprint query parameter is required")
+	fingerprint := r.Header.Get(corepop.HeaderFingerprint)
+	timestamp := r.Header.Get(corepop.HeaderTimestamp)
+	nonce := r.Header.Get(corepop.HeaderNonce)
+	signatureB64 := r.Header.Get(corepop.HeaderSignature)
+	if fingerprint == "" || timestamp == "" || nonce == "" || signatureB64 == "" {
+		s.recordAuditAction(r.Context(), auditHostAuthFailed, "", authReasonBadSignature)
+		writeError(w, http.StatusBadRequest, "missing_signature")
 		return
 	}
 
 	host, err := s.store.GetHostByFingerprint(r.Context(), fingerprint)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "host not found")
+		s.recordAuditAction(r.Context(), auditHostAuthFailed, "", authReasonUnknownFingerprint)
+		writeError(w, http.StatusUnauthorized, "unknown_fingerprint")
 		return
 	}
 	if err != nil {
@@ -40,8 +51,52 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// non-critical: log and continue — last_seen is informational
+	// Verify the proof-of-possession signature against the stored Ed25519
+	// signing public key. host.SigningPubPEM is empty for legacy host rows
+	// that pre-date the ADR 0004 enrollment, in which case verification is
+	// impossible — answer 401 with reason=bad_signature so the operator can
+	// re-enroll the host via POST /hosts/{id}/reenroll.
+	signingPub, err := decodeSigningPublicKeyPEM(host.SigningPubPEM)
+	if err != nil {
+		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonBadSignature)
+		writeError(w, http.StatusUnauthorized, "bad_signature")
+		return
+	}
+	sigBytes, err := decodeSigBase64(signatureB64)
+	if err != nil {
+		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonBadSignature)
+		writeError(w, http.StatusUnauthorized, "bad_signature")
+		return
+	}
+	canonical := corepop.CanonicalString(r.Method, r.URL.Path, r.Host, timestamp, nonce)
+	if err := apipop.Verify(signingPub, canonical, sigBytes); err != nil {
+		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonBadSignature)
+		writeError(w, http.StatusUnauthorized, "bad_signature")
+		return
+	}
+
+	// Timestamp window.
+	ts, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonTimestampSkew)
+		writeError(w, http.StatusUnauthorized, "timestamp_skew")
+		return
+	}
 	now := time.Now()
+	if diff := now.Sub(ts); diff > pollClockSkew || diff < -pollClockSkew {
+		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonTimestampSkew)
+		writeError(w, http.StatusUnauthorized, "timestamp_skew")
+		return
+	}
+
+	// Replay protection.
+	if !s.nonces().SeenOrAdd(host.ID, nonce) {
+		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonReplayedNonce)
+		writeError(w, http.StatusUnauthorized, "replayed_nonce")
+		return
+	}
+
+	// non-critical: log and continue — last_seen is informational
 	if err := s.store.UpdateHostLastSeen(r.Context(), host.ID, now); err != nil {
 		s.logger.Error("update last seen", "error", err)
 	} else if s.hostSeen != nil {

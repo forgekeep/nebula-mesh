@@ -197,13 +197,16 @@ func startPoller(cfg *config.AgentConfig, logger *slog.Logger) error {
 		return fmt.Errorf("read certificate fingerprint: %w", err)
 	}
 
-	poller := agent.NewPoller(agent.PollerConfig{
+	poller, err := agent.NewPoller(agent.PollerConfig{
 		ServerURL:   cfg.ServerURL,
 		Fingerprint: fingerprint,
 		DataDir:     cfg.DataDir,
 		Interval:    cfg.PollInterval,
 		PIDFile:     cfg.NebulaPIDFile,
 	}, logger)
+	if err != nil {
+		return fmt.Errorf("create poller: %w", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

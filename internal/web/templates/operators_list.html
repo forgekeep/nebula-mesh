@@ -1,0 +1,36 @@
+{{define "title"}}Operators — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>Operators</h1>
+    <a href="/ui/operators/new" class="btn btn-primary">+ New Operator</a>
+</div>
+
+{{if .Operators}}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Username</th><th>Display name</th><th>Role</th>
+                <th>Auth</th><th>Status</th><th>2FA</th><th>Last login</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .Operators}}
+        <tr>
+            <td><a href="/ui/operators/{{.ID}}">{{.Username}}</a></td>
+            <td>{{.DisplayName}}</td>
+            <td>{{.Role}}</td>
+            <td>{{.AuthProvider}}</td>
+            <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+            <td>{{if .TOTPEnabled}}on{{else}}off{{end}}</td>
+            <td>{{if .LastLoginAt}}{{.LastLoginAt.Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{else}}
+<div class="card empty">No operators yet.</div>
+{{end}}
+{{end}}

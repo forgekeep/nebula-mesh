@@ -1,0 +1,78 @@
+{{define "title"}}{{.Operator.Username}} — Operators — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>{{.Operator.Username}}</h1>
+    <a href="/ui/operators">← Back to operators</a>
+</div>
+
+{{if .NewAPIKey}}
+<div class="card success">
+    <strong>New API key</strong> ({{.KeyName}}) — copy it now, it will not be shown again:
+    <pre><code>{{.NewAPIKey}}</code></pre>
+</div>
+{{end}}
+
+<div class="card">
+    <dl>
+        <dt>Display name</dt><dd>{{.Operator.DisplayName}}</dd>
+        <dt>Role</dt>        <dd>{{.Operator.Role}}</dd>
+        <dt>Auth provider</dt><dd>{{.Operator.AuthProvider}}</dd>
+        <dt>Status</dt>      <dd>{{.Operator.Status}}</dd>
+        <dt>2FA</dt>         <dd>{{if .Operator.TOTPEnabled}}on{{else}}off{{end}}</dd>
+        <dt>Created</dt>     <dd>{{.Operator.CreatedAt.Format "2006-01-02 15:04"}}</dd>
+        <dt>Last login</dt>  <dd>{{if .Operator.LastLoginAt}}{{.Operator.LastLoginAt.Format "2006-01-02 15:04"}}{{else}}—{{end}}</dd>
+    </dl>
+
+    <form method="POST" action="/ui/operators/{{.Operator.ID}}/reset-password" class="row" style="margin-top:1em">
+        <input type="password" name="password" placeholder="New password" required>
+        <button type="submit" class="btn btn-warning"
+                onclick="return confirm('Set a new password for {{.Operator.Username}}?')">Reset password</button>
+    </form>
+
+    {{if eq (printf "%s" .Operator.Status) "active"}}
+    <form method="POST" action="/ui/operators/{{.Operator.ID}}/disable" style="display:inline-block">
+        <button type="submit" class="btn btn-danger"
+                onclick="return confirm('Disable {{.Operator.Username}}? Their sessions and API keys are invalidated.')">Disable</button>
+    </form>
+    {{else}}
+    <form method="POST" action="/ui/operators/{{.Operator.ID}}/enable" style="display:inline-block">
+        <button type="submit" class="btn btn-primary">Enable</button>
+    </form>
+    {{end}}
+</div>
+
+<div class="card">
+    <h2>API keys</h2>
+    {{if .APIKeys}}
+    <table>
+        <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th>Revoked</th><th></th></tr></thead>
+        <tbody>
+        {{range .APIKeys}}
+        <tr>
+            <td>{{.Name}}</td>
+            <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+            <td>{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
+            <td>{{if .RevokedAt}}{{.RevokedAt.Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
+            <td>
+                {{if not .RevokedAt}}
+                <form method="POST" action="/ui/operators/{{$.Operator.ID}}/api-keys/{{.ID}}/revoke" style="display:inline">
+                    <button type="submit" class="btn btn-sm btn-danger"
+                            onclick="return confirm('Revoke this key?')">Revoke</button>
+                </form>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p class="muted">No API keys yet.</p>
+    {{end}}
+
+    <form method="POST" action="/ui/operators/{{.Operator.ID}}/api-keys" class="row">
+        <input type="text" name="name" placeholder="Key name" required>
+        <button type="submit" class="btn btn-primary">Create key</button>
+    </form>
+</div>
+{{end}}

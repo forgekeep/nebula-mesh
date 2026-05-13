@@ -100,7 +100,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		ID:        uuid.New().String(),
 		HostID:    host.ID,
 		Token:     uuid.New().String(),
-		ExpiresAt: now.Add(24 * time.Hour),
+		ExpiresAt: now.Add(s.tokenTTLFor(r.Context(), host.NetworkID)),
 		CreatedAt: now,
 	}
 	if err := s.store.CreateHostAndToken(r.Context(), host, token); err != nil {
@@ -211,4 +211,42 @@ func (s *Server) handleGetBlocklist(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, list)
+}
+
+type regenerateEnrollmentTokenResponse struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// handleRegenerateEnrollmentToken mints a fresh single-use enrollment token
+// bound to an existing host row (ADR 0004 §7.1 — "regenerates the token
+// without churning the row"). Previous active tokens for the same host are
+// invalidated atomically. The host row, its IP allocation, group membership,
+// and audit history are preserved.
+func (s *Server) handleRegenerateEnrollmentToken(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	host, err := s.store.GetHost(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "host not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get host", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get host")
+		return
+	}
+
+	tokenStr := uuid.New().String()
+	expiresAt := time.Now().Add(s.tokenTTLFor(r.Context(), host.NetworkID))
+	if err := s.store.CreateTokenForHost(r.Context(), host.ID, tokenStr, expiresAt); err != nil {
+		s.logger.Error("create enrollment token", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to mint token")
+		return
+	}
+	s.recordAuditAction(r.Context(), auditHostReenrollRequested, host.ID, host.Name)
+
+	writeJSON(w, http.StatusCreated, regenerateEnrollmentTokenResponse{
+		Token:     tokenStr,
+		ExpiresAt: expiresAt,
+	})
 }

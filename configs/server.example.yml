@@ -77,6 +77,12 @@ allow_self_registration: false
 # Settings UI (#47) can flip it without a restart.
 # enforce_2fa: false
 
+# Default lifetime applied to freshly minted enrollment tokens (ADR 0004 / #75).
+# A per-network override can be set at runtime via the `network_config` table
+# under the `enrollment_token_ttl` key. Empty / unparseable value falls back
+# to 24h.
+# enrollment_token_ttl: "24h"
+
 # Optional OpenID Connect identity provider for operator login. When enabled,
 # the Web UI offers a "Sign in with SSO" button on top of the local password
 # form. Local logins keep working alongside OIDC.

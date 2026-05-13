@@ -59,6 +59,26 @@ type ServerConfig struct {
 	// the DB value alone — the future Settings UI (#47) will edit the
 	// same row at runtime.
 	EnforceTOTP *bool `yaml:"enforce_2fa,omitempty"`
+
+	// EnrollmentTokenTTL is the default lifetime applied to freshly minted
+	// enrollment tokens (ADR 0004 / #75). Per-network overrides live in
+	// the `network_config` table under the `enrollment_token_ttl` key.
+	// Empty / unparseable value falls back to 24h.
+	EnrollmentTokenTTL string `yaml:"enrollment_token_ttl,omitempty"`
+}
+
+// EnrollmentTokenTTLDuration returns the configured default token TTL parsed
+// as a Go duration. Falls back to 24h when unset or invalid so the server
+// always has a sane default.
+func (c ServerConfig) EnrollmentTokenTTLDuration() time.Duration {
+	if c.EnrollmentTokenTTL == "" {
+		return 24 * time.Hour
+	}
+	d, err := time.ParseDuration(c.EnrollmentTokenTTL)
+	if err != nil || d <= 0 {
+		return 24 * time.Hour
+	}
+	return d
 }
 
 // PasswordConfig overrides the password policy defaults.

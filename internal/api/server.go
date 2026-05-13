@@ -41,25 +41,53 @@ type Server struct {
 	apiKey         string
 	metrics        *metrics
 	metricsEnabled bool
-	hostSeen       HostSeenEmitter
-	limiter        *ratelimit.Limiter
-	passwordPolicy auth.Policy
+	hostSeen           HostSeenEmitter
+	limiter            *ratelimit.Limiter
+	passwordPolicy     auth.Policy
+	enrollmentTokenTTL time.Duration
 }
 
 // NewServer creates a new API server.
 func NewServer(s store.Store, ca *pki.CAManager, apiKey string, logger *slog.Logger, caCfg CAConfig) *Server {
 	srv := &Server{
-		store:          s,
-		ca:             ca,
-		caConfig:       caCfg,
-		logger:         logger,
-		apiKey:         apiKey,
-		metrics:        newMetrics(s),
-		metricsEnabled: true,
-		passwordPolicy: auth.Default(),
+		store:              s,
+		ca:                 ca,
+		caConfig:           caCfg,
+		logger:             logger,
+		apiKey:             apiKey,
+		metrics:            newMetrics(s),
+		metricsEnabled:     true,
+		passwordPolicy:     auth.Default(),
+		enrollmentTokenTTL: 24 * time.Hour,
 	}
 	srv.setupRoutes()
 	return srv
+}
+
+// WithEnrollmentTokenTTL sets the default enrollment-token TTL applied when
+// the per-network override is unset. Default is 24h (ADR 0004 §7.1).
+func (s *Server) WithEnrollmentTokenTTL(ttl time.Duration) {
+	if ttl > 0 {
+		s.enrollmentTokenTTL = ttl
+	}
+}
+
+// tokenTTLFor resolves the enrollment-token TTL for the network. Order of
+// precedence: per-network `enrollment_token_ttl` value in `network_config`,
+// then the server-level default, then 24h.
+func (s *Server) tokenTTLFor(ctx context.Context, networkID string) time.Duration {
+	if networkID != "" {
+		v, err := s.store.GetNetworkConfig(ctx, networkID, "enrollment_token_ttl")
+		if err == nil && v != "" {
+			if d, perr := time.ParseDuration(v); perr == nil && d > 0 {
+				return d
+			}
+		}
+	}
+	if s.enrollmentTokenTTL > 0 {
+		return s.enrollmentTokenTTL
+	}
+	return 24 * time.Hour
 }
 
 // WithCAResolver attaches a CAResolver. Must be called before ServeHTTP.
@@ -158,6 +186,7 @@ func (s *Server) setupRoutes() {
 		r.Delete("/api/v1/hosts/{id}", s.handleDeleteHost)
 		r.Post("/api/v1/hosts/{id}/block", s.handleBlockHost)
 		r.Post("/api/v1/hosts/{id}/unblock", s.handleUnblockHost)
+		r.Post("/api/v1/hosts/{id}/enrollment-token", s.handleRegenerateEnrollmentToken)
 		r.Get("/api/v1/blocklist", s.handleGetBlocklist)
 		r.Get("/api/v1/ca", s.handleGetCA)
 		r.Post("/api/v1/ca/rotate", s.handleRotateCA)

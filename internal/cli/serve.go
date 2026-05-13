@@ -179,6 +179,7 @@ func Serve(configPath string) error {
 		Passphrase: passphrase,
 	})
 	apiSrv.WithMetricsEnabled(cfg.Metrics.PrometheusEnabled())
+	apiSrv.WithEnrollmentTokenTTL(cfg.EnrollmentTokenTTLDuration())
 
 	// Build a single rate limiter shared by API and Web. The Web UI runs
 	// auth/ui groups; the API server runs api/enroll/agent_poll groups.

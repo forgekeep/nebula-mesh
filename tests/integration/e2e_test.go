@@ -298,20 +298,15 @@ func TestE2E_FullCycle(t *testing.T) {
 	}
 	t.Log("host blocked, fingerprint in blocklist")
 
-	// 10. Agent poll after block — should have blocklist update
+	// 10. Agent poll after block — now answered with 403 revoked (ADR
+	// 0004 §7.1 structured revocation), agent must stop polling.
 	pollResp = signedGetUpdates(t, ts, fp, signingPriv)
-	if err := json.NewDecoder(pollResp.Body).Decode(&updates); err != nil {
-		t.Fatalf("decode post-block updates: %v", err)
+	if pollResp.StatusCode != http.StatusForbidden {
+		body, _ := io.ReadAll(pollResp.Body)
+		t.Errorf("post-block poll: HTTP %d, want 403, body: %s", pollResp.StatusCode, string(body))
 	}
 	pollResp.Body.Close()
-
-	if !updates.HasUpdates {
-		t.Error("expected has_updates=true after block")
-	}
-	if len(updates.Blocklist) == 0 {
-		t.Error("expected non-empty blocklist after block")
-	}
-	t.Logf("post-block poll: has_updates=%v, blocklist=%v", updates.HasUpdates, updates.Blocklist)
+	t.Logf("post-block poll: 403 revoked received as expected")
 
 	// 11. Try duplicate enrollment (should fail)
 	enrollResp2, _ := http.Post(ts.URL+"/api/v1/enroll", "application/json", bytes.NewReader(data))

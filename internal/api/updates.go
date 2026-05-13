@@ -47,6 +47,19 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 
 	host, err := s.store.GetHostByFingerprint(r.Context(), fingerprint)
 	if errors.Is(err, store.ErrNotFound) {
+		// The fingerprint is not bound to any live host row. If it shows
+		// up in the blocklist the row was deleted after enrollment — in
+		// that case the agent gets a structured 410 gone so it stops the
+		// poll loop instead of retrying forever.
+		if s.fingerprintInBlocklist(r.Context(), fingerprint) {
+			s.recordAuditAction(r.Context(), auditHostAuthFailed, "", authReasonGone)
+			writeRevocation(w, http.StatusGone, revocationGoneResponse{
+				Reason:  "gone",
+				Message: "host row no longer exists; agent should stop and re-enroll if a fresh --token is provisioned",
+				At:      time.Now().UTC(),
+			})
+			return
+		}
 		s.recordAuditAction(r.Context(), auditHostAuthFailed, "", authReasonUnknownFingerprint)
 		writeError(w, http.StatusUnauthorized, "unknown_fingerprint")
 		return
@@ -99,6 +112,20 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	if !s.nonces().SeenOrAdd(host.ID, nonce) {
 		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonReplayedNonce)
 		writeError(w, http.StatusUnauthorized, "replayed_nonce")
+		return
+	}
+
+	// Revocation signal. Blocked hosts get a structured 403 with a
+	// machine-readable body so the agent can log loudly and exit (ADR 0004
+	// §7.1). The poll loop must not silently drain configuration to a host
+	// we have already revoked.
+	if host.Status == models.HostStatusBlocked {
+		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonRevoked)
+		writeRevocation(w, http.StatusForbidden, revocationRevokedResponse{
+			Reason:    "revoked",
+			Message:   "host is blocked; agent should stop the poll loop and exit 0",
+			BlockedAt: time.Now().UTC(),
+		})
 		return
 	}
 

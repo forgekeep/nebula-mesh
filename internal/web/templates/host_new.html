@@ -4,46 +4,48 @@
 <h1>New Host</h1>
 
 <div class="card">
+    {{if .Error}}<div class="error" role="alert" style="color: var(--danger); margin-bottom: 16px;">{{.Error}}</div>{{end}}
     <form method="POST" action="/ui/hosts">
         <div class="form-group">
             <label>Network</label>
             <select name="network_id" class="form-control" required>
                 <option value="">Select network...</option>
+                {{$selected := .Form.NetworkID}}
                 {{range .Networks}}
-                <option value="{{.ID}}">{{.Name}} ({{.CIDR}})</option>
+                <option value="{{.ID}}"{{if eq .ID $selected}} selected{{end}}>{{.Name}} ({{.CIDR}})</option>
                 {{end}}
             </select>
         </div>
         <div class="form-group">
             <label>Name</label>
-            <input type="text" name="name" class="form-control" placeholder="web-1" required>
+            <input type="text" name="name" class="form-control" placeholder="web-1" value="{{.Form.Name}}" required>
         </div>
         <div class="form-group">
             <label>Nebula IP</label>
-            <input type="text" name="nebula_ip" class="form-control" placeholder="192.168.100.10" required>
+            <input type="text" name="nebula_ip" class="form-control" placeholder="192.168.100.10" value="{{.Form.NebulaIP}}" required>
         </div>
         <div class="form-group">
             <label>Role</label>
             <select name="role" class="form-control">
-                <option value="host">Host</option>
-                <option value="lighthouse">Lighthouse</option>
-                <option value="relay">Relay</option>
+                <option value="host"{{if eq .Form.Role "host"}} selected{{end}}>Host</option>
+                <option value="lighthouse"{{if eq .Form.Role "lighthouse"}} selected{{end}}>Lighthouse</option>
+                <option value="relay"{{if eq .Form.Role "relay"}} selected{{end}}>Relay</option>
             </select>
         </div>
         <div class="form-group">
             <label>Groups (comma-separated)</label>
-            <input type="text" name="groups" class="form-control" placeholder="web, prod">
+            <input type="text" name="groups" class="form-control" placeholder="web, prod" value="{{.Form.Groups}}">
         </div>
         <div class="form-group">
             <label>Public IP (for lighthouse/relay)</label>
-            <input type="text" name="public_ip" class="form-control" placeholder="203.0.113.10">
+            <input type="text" name="public_ip" class="form-control" placeholder="203.0.113.10" value="{{.Form.PublicIP}}">
         </div>
         <div class="form-group">
             <label>Listen Port (for lighthouse/relay)</label>
-            <input type="number" name="listen_port" class="form-control" placeholder="4242">
+            <input type="number" name="listen_port" class="form-control" placeholder="4242" value="{{.Form.ListenPort}}">
         </div>
 
-        <details style="margin: 16px 0;">
+        <details style="margin: 16px 0;"{{if or .Form.AdvListenHost .Form.AdvMTU .Form.AdvTunDevice .Form.AdvPunchy .Form.AdvUnsafeRoutes}} open{{end}}>
             <summary style="cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 14px;">
                 Advanced configuration (optional)
             </summary>
@@ -53,27 +55,27 @@
             </p>
             <div class="form-group">
                 <label>Listen host (advanced.listen_host)</label>
-                <input type="text" name="adv_listen_host" class="form-control" placeholder="0.0.0.0">
+                <input type="text" name="adv_listen_host" class="form-control" placeholder="0.0.0.0" value="{{.Form.AdvListenHost}}">
             </div>
             <div class="form-group">
                 <label>TUN MTU (advanced.mtu)</label>
-                <input type="number" name="adv_mtu" class="form-control" placeholder="1300" min="576" max="9216">
+                <input type="number" name="adv_mtu" class="form-control" placeholder="1300" min="576" max="9216" value="{{.Form.AdvMTU}}">
             </div>
             <div class="form-group">
                 <label>TUN device name (advanced.tun_device)</label>
-                <input type="text" name="adv_tun_device" class="form-control" placeholder="nebula1">
+                <input type="text" name="adv_tun_device" class="form-control" placeholder="nebula1" value="{{.Form.AdvTunDevice}}">
             </div>
             <div class="form-group">
                 <label>Punchy (advanced.punchy)</label>
                 <select name="adv_punchy" class="form-control">
-                    <option value="">inherit (true)</option>
-                    <option value="true">force true</option>
-                    <option value="false">disable</option>
+                    <option value=""{{if eq .Form.AdvPunchy ""}} selected{{end}}>inherit (true)</option>
+                    <option value="true"{{if eq .Form.AdvPunchy "true"}} selected{{end}}>force true</option>
+                    <option value="false"{{if eq .Form.AdvPunchy "false"}} selected{{end}}>disable</option>
                 </select>
             </div>
             <div class="form-group">
                 <label>Unsafe routes (one per line: <code>CIDR via NEBULA_IP</code>)</label>
-                <textarea name="adv_unsafe_routes" class="form-control" rows="3" placeholder="192.168.10.0/24 via 10.0.0.99"></textarea>
+                <textarea name="adv_unsafe_routes" class="form-control" rows="3" placeholder="192.168.10.0/24 via 10.0.0.99">{{.Form.AdvUnsafeRoutes}}</textarea>
             </div>
         </details>
 

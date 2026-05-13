@@ -279,16 +279,23 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // without each handler having to pass it explicitly. Standalone login /
 // register pages take this path too — the field is just unused there.
 func (w *Web) renderForRequest(rw http.ResponseWriter, r *http.Request, name string, data map[string]any) {
+	w.renderForRequestWithStatus(rw, r, 0, name, data)
+}
+
+// renderForRequestWithStatus is renderForRequest with an explicit HTTP
+// status code (e.g. 400 for form validation errors). status=0 means "leave
+// it to net/http" (defaults to 200).
+func (w *Web) renderForRequestWithStatus(rw http.ResponseWriter, r *http.Request, status int, name string, data map[string]any) {
 	if data == nil {
 		data = map[string]any{}
 	}
 	if _, present := data["CurrentUser"]; !present {
 		data["CurrentUser"] = w.session.CurrentOperator(r)
 	}
-	w.render(rw, name, data)
+	w.renderWithStatus(rw, status, name, data)
 }
 
-func (w *Web) render(rw http.ResponseWriter, name string, data any) {
+func (w *Web) renderWithStatus(rw http.ResponseWriter, status int, name string, data map[string]any) {
 	tmpl, ok := w.templates[name]
 	if !ok {
 		w.logger.Error("template not found", "template", name)
@@ -310,6 +317,9 @@ func (w *Web) render(rw http.ResponseWriter, name string, data any) {
 		return
 	}
 	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if status != 0 {
+		rw.WriteHeader(status)
+	}
 	if _, err := buf.WriteTo(rw); err != nil {
 		w.logger.Error("write response", "template", name, "error", err)
 	}

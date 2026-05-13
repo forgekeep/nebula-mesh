@@ -34,6 +34,15 @@ type EnrollResponse struct {
 	ConfigYAML       string `json:"config_yaml"`
 }
 
+// Reenroll runs the enrollment flow against an existing data directory. It
+// is a thin alias of Enroll: the server side decides whether the token is
+// fresh (rekey) or bound to an unenrolled host (initial enroll), so the
+// agent path is identical. Exposed separately so the cmd-side rekey loop
+// reads cleanly.
+func Reenroll(serverURL, token, dataDir string) error {
+	return Enroll(serverURL, token, dataDir)
+}
+
 // Enroll performs the enrollment flow: generates keypair, sends public key
 // to the server with the token, saves received cert and config to dataDir.
 func Enroll(serverURL, token, dataDir string) error {

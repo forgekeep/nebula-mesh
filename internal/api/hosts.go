@@ -218,6 +218,78 @@ type regenerateEnrollmentTokenResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+type rotateCertResponse struct {
+	NewKey         bool   `json:"new_key"`
+	CertificatePEM string `json:"certificate_pem,omitempty"`
+	CACertPEM      string `json:"ca_certificate_pem,omitempty"`
+}
+
+// handleRotateCert implements POST /api/v1/hosts/{id}/rotate-cert?new_key=...
+// (ADR 0004 §7.1 force-rotate).
+//
+//   - new_key=false (default): the server re-signs the existing public key
+//     immediately and returns the new cert. The agent picks it up on the
+//     next poll via SaveCertificateAndUpdateHostCert's overlap window.
+//   - new_key=true: a pending_rekey flag is set on the host row. The next
+//     poll response carries rekey_required + a single-use enrollment token
+//     the agent uses to re-enroll its freshly generated keypair.
+func (s *Server) handleRotateCert(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	newKey := strings.EqualFold(r.URL.Query().Get("new_key"), "true")
+
+	host, err := s.store.GetHost(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "host not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get host for rotate-cert", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get host")
+		return
+	}
+
+	if newKey {
+		if err := s.store.SetPendingRekey(r.Context(), host.ID); err != nil {
+			if errors.Is(err, store.ErrRekeyAlreadyPending) {
+				writeError(w, http.StatusConflict, "rekey already pending")
+				return
+			}
+			s.logger.Error("set pending rekey", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to schedule rekey")
+			return
+		}
+		s.recordAuditAction(r.Context(), auditHostRotateCertRequested, host.ID, "new_key=true")
+		writeJSON(w, http.StatusAccepted, rotateCertResponse{NewKey: true})
+		return
+	}
+
+	certInfo, err := s.store.GetCertificateInfo(r.Context(), host.ID)
+	if err != nil {
+		s.logger.Error("get cert info for rotate-cert", "error", err)
+		writeError(w, http.StatusInternalServerError, "no current cert to re-sign")
+		return
+	}
+	signed, err := s.signHostCert(r.Context(), host, certInfo)
+	if err != nil {
+		s.logger.Error("sign cert for rotate-cert", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to sign new cert")
+		return
+	}
+	if err := s.store.SaveCertificateAndUpdateHostCert(r.Context(), host.ID, signed.certPEM, signed.fp, signed.notBefore, signed.notAfter); err != nil {
+		s.logger.Error("save rotated cert", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to persist new cert")
+		return
+	}
+	s.metrics.recordSignature(host.CAID)
+	s.recordAuditAction(r.Context(), auditHostRotateCertRequested, host.ID, "new_key=false")
+
+	writeJSON(w, http.StatusOK, rotateCertResponse{
+		NewKey:         false,
+		CertificatePEM: string(signed.certPEM),
+		CACertPEM:      string(signed.caCertPEM),
+	})
+}
+
 // handleRegenerateEnrollmentToken mints a fresh single-use enrollment token
 // bound to an existing host row (ADR 0004 §7.1 — "regenerates the token
 // without churning the row"). Previous active tokens for the same host are

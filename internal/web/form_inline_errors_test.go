@@ -5,12 +5,21 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/juev/nebula-mesh/internal/models"
 )
+
+// hasSelectedOption reports whether body contains an <option> element with
+// value="<value>" that also carries the `selected` attribute. Other
+// attributes (data-cidr, name, …) between value and selected are allowed.
+func hasSelectedOption(body, value string) bool {
+	re := regexp.MustCompile(`<option [^>]*value="` + regexp.QuoteMeta(value) + `"[^>]* selected`)
+	return re.MatchString(body)
+}
 
 // TestHostCreate_InlineErrorPreservesForm — issue #91. On a host-create
 // validation failure the server must re-render host_new.html (not a
@@ -64,8 +73,10 @@ func TestHostCreate_InlineErrorPreservesForm(t *testing.T) {
 	if !strings.Contains(body, `value="web, prod"`) {
 		t.Errorf("body should preserve submitted groups field")
 	}
-	// Selected network is sticky.
-	if !strings.Contains(body, `value="net-inline" selected`) {
+	// Selected network is sticky — option for net-inline must carry the
+	// `selected` attribute, with any other attributes (data-cidr, …)
+	// allowed between value and selected.
+	if !hasSelectedOption(body, "net-inline") {
 		t.Errorf("selected network option should be marked selected:\n%s", body)
 	}
 	// Error banner is rendered with the actual reason from validateHostIP.
@@ -102,7 +113,7 @@ func TestHostCreate_InlineErrorPreservesRole(t *testing.T) {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, `value="lighthouse" selected`) {
+	if !hasSelectedOption(body, "lighthouse") {
 		t.Errorf("body should preserve selected role=lighthouse:\n%s", body)
 	}
 	if !strings.Contains(body, "public_ip") {

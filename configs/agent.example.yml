@@ -3,3 +3,4 @@ data_dir: "/etc/nebula"
 poll_interval: "30s"
 nebula_config_path: "/etc/nebula/config.yml"
 nebula_pid_file: "/run/nebula.pid"
+# signing_key_path: "/etc/nebula-agent/host.signing.key"  # default; override for non-root setups (parent dir must be writable by the agent user)

@@ -56,6 +56,14 @@ func Enroll(serverURL, token, dataDir, signingKeyPath string) error {
 	if signingKeyPath == "" {
 		return fmt.Errorf("signingKeyPath is required")
 	}
+	// Pre-flight: verify both directories are writable BEFORE the POST
+	// so a permission error does not burn the single-use enrollment token.
+	if err := preflightWritable(dataDir); err != nil {
+		return fmt.Errorf("data dir: %w", err)
+	}
+	if err := preflightWritable(filepath.Dir(signingKeyPath)); err != nil {
+		return fmt.Errorf("signing key dir: %w", err)
+	}
 	// Generate X25519 keypair (for the Nebula handshake cert).
 	privKey := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, privKey); err != nil {
@@ -145,5 +153,22 @@ func Enroll(serverURL, token, dataDir, signingKeyPath string) error {
 		return fmt.Errorf("write config: %w", err)
 	}
 
+	return nil
+}
+
+// preflightWritable verifies dir exists (creating it if missing) and is
+// writable by the current process. It writes and removes a temp file
+// because Unix permissions alone cannot capture ACL/capability rules.
+func preflightWritable(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", dir, err)
+	}
+	f, err := os.CreateTemp(dir, ".nebula-agent-preflight-")
+	if err != nil {
+		return fmt.Errorf("write test in %s: %w", dir, err)
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
 	return nil
 }

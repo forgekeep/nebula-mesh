@@ -39,6 +39,7 @@ running and continue to update certificates as they approach expiry.
 - Permission to read & write the agent's `data_dir` (`/etc/nebula` by default).
 - If signalling Nebula via PID file, permission to send `SIGHUP` to that PID
   (typically root, or `CAP_KILL`).
+- Write access to the parent directory of `signing_key_path` (`/etc/nebula-agent/` by default). For non-root deployments override this path to a directory the agent user owns.
 - ~10 MB of disk for the binary; runtime memory < 20 MB.
 
 ## Installation
@@ -214,6 +215,7 @@ data_dir: "/etc/nebula"                       # where host.crt/host.key/ca.crt/c
 poll_interval: "30s"                          # how often to ask for updates
 nebula_config_path: "/etc/nebula/config.yml"  # full path to the rendered nebula config
 nebula_pid_file: "/run/nebula.pid"            # optional — if set, SIGHUP'd on changes
+signing_key_path: "/etc/nebula-agent/host.signing.key"  # Ed25519 PoP signing key — parent dir must be writable by the agent user
 ```
 
 | Field | Default | Notes |
@@ -223,6 +225,7 @@ nebula_pid_file: "/run/nebula.pid"            # optional — if set, SIGHUP'd on
 | `poll_interval` | `30s` | Lower values reduce convergence time but increase server load. 5s–5m is the practical range. |
 | `nebula_config_path` | `/etc/nebula/config.yml` | The agent overwrites this file atomically. |
 | `nebula_pid_file` | (empty) | When set and the file holds a numeric PID, the agent sends `SIGHUP` after every successful write. |
+| `signing_key_path` | `/etc/nebula-agent/host.signing.key` | Ed25519 PoP signing key (ADR 0004). Override for non-root setups so the parent directory is writable by the agent user. |
 
 ## Enrollment
 

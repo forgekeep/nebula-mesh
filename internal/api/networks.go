@@ -30,7 +30,7 @@ func (s *Server) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := netip.ParsePrefix(req.CIDR); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid CIDR: "+err.Error())
+		writeError(w, http.StatusBadRequest, models.FriendlyPrefixError("cidr", req.CIDR))
 		return
 	}
 

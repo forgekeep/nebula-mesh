@@ -669,7 +669,14 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		}
 	} else if nebulaIP != "" {
 		if _, err := netip.ParseAddr(nebulaIP); err != nil {
-			w.renderHostNewError(rw, r, form, "invalid nebula_ip: "+err.Error())
+			w.renderHostNewError(rw, r, form, models.FriendlyAddrError("nebula_ip", nebulaIP))
+			return
+		}
+	}
+
+	if strings.TrimSpace(form.PublicIP) != "" {
+		if _, err := netip.ParseAddr(form.PublicIP); err != nil {
+			w.renderHostNewError(rw, r, form, models.FriendlyAddrError("public_ip", form.PublicIP))
 			return
 		}
 	}
@@ -712,6 +719,10 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 
 	advanced, err := parseAdvancedFromForm(r)
 	if err != nil {
+		w.renderHostNewError(rw, r, form, err.Error())
+		return
+	}
+	if err := models.ValidateHostAdvanced(advanced); err != nil {
 		w.renderHostNewError(rw, r, form, err.Error())
 		return
 	}
@@ -881,7 +892,7 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := netip.ParsePrefix(form.CIDR); err != nil {
-		w.renderNetworksError(rw, r, form, cas, "invalid CIDR: "+err.Error())
+		w.renderNetworksError(rw, r, form, cas, models.FriendlyPrefixError("cidr", form.CIDR))
 		return
 	}
 

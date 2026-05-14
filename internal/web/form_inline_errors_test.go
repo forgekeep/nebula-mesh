@@ -153,8 +153,11 @@ func TestNetworkCreate_InlineErrorPreservesForm(t *testing.T) {
 	if !strings.Contains(body, `role="alert"`) {
 		t.Errorf("body should render alert banner")
 	}
-	if !strings.Contains(body, `invalid CIDR`) {
+	if !strings.Contains(body, `not a valid CIDR`) {
 		t.Errorf("body should contain the actual error explanation; got:\n%s", body)
+	}
+	if strings.Contains(body, "ParsePrefix") {
+		t.Errorf("body must not leak the stdlib ParsePrefix text; got:\n%s", body)
 	}
 	// The create form should not be hidden on validation error.
 	if strings.Contains(body, `id="new-network" class="card" style="display:none"`) {

@@ -26,3 +26,6 @@ Thumbs.db
 # Build
 /bin/
 /dist/
+
+/configs/server.local.yml
+/local-data/

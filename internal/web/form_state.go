@@ -3,6 +3,8 @@ package web
 import (
 	"context"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/juev/nebula-mesh/internal/models"
 )
@@ -186,5 +188,65 @@ func (w *Web) renderNetworksError(rw http.ResponseWriter, r *http.Request, form 
 		"Form":       form,
 		"Error":      errMsg,
 		"ShowCreate": true,
+	})
+}
+
+// hostFormStateFromHost serializes a Host record into hostFormState for
+// re-rendering the edit form. String fields (ListenPort, AdvMTU) are
+// converted to their string representations so the template can echo them
+// verbatim without numeric formatting (issue #91).
+func hostFormStateFromHost(h *models.Host) hostFormState {
+	state := hostFormState{
+		NetworkID: h.NetworkID,
+		Name:      h.Name,
+		NebulaIP:  h.NebulaIP,
+		Role:      string(h.Role),
+		PublicIP:  h.PublicIP,
+	}
+
+	if h.ListenPort != 0 {
+		state.ListenPort = strconv.Itoa(h.ListenPort)
+	}
+
+	if len(h.Groups) > 0 {
+		state.Groups = strings.Join(h.Groups, ", ")
+	}
+
+	if h.Advanced != nil {
+		state.AdvListenHost = h.Advanced.ListenHost
+		if h.Advanced.MTU != 0 {
+			state.AdvMTU = strconv.Itoa(h.Advanced.MTU)
+		}
+		state.AdvTunDevice = h.Advanced.TunDevice
+		if h.Advanced.Punchy != nil {
+			if *h.Advanced.Punchy {
+				state.AdvPunchy = "true"
+			} else {
+				state.AdvPunchy = "false"
+			}
+		}
+
+		// UnsafeRoutes: "CIDR via IP" per line
+		for _, ur := range h.Advanced.UnsafeRoutes {
+			if state.AdvUnsafeRoutes != "" {
+				state.AdvUnsafeRoutes += "\n"
+			}
+			state.AdvUnsafeRoutes += ur.Route + " via " + ur.Via
+		}
+	}
+
+	return state
+}
+
+// renderHostEditError re-renders /ui/hosts/{id}/edit with the submitted form
+// values preserved and an inline error banner. Returns 400 because the request
+// payload is the cause. Mirrors renderHostNewError for consistency.
+func (w *Web) renderHostEditError(rw http.ResponseWriter, r *http.Request, host *models.Host, networkCIDR string, form hostFormState, errMsg string) {
+	w.renderForRequestWithStatus(rw, r, http.StatusBadRequest, "host_edit.html", map[string]any{
+		"Active":       "hosts",
+		"Host":         host,
+		"Form":         form,
+		"Error":        errMsg,
+		"NetworkCIDR":  networkCIDR,
 	})
 }

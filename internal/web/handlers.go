@@ -795,6 +795,256 @@ func (w *Web) handleHostDetail(rw http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (w *Web) handleHostEdit(rw http.ResponseWriter, r *http.Request) {
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	host, err := w.store.GetHost(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(rw, r)
+		return
+	}
+	if err != nil {
+		w.logger.Error("get host for edit", "error", err)
+		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Ownership check: non-admin operators must own the CA signing the network
+	if op.Role != "admin" {
+		network, err := w.store.GetNetwork(r.Context(), host.NetworkID)
+		if err != nil {
+			w.logger.Error("get network for ownership check", "error", err)
+			http.Error(rw, "Failed to load network", http.StatusInternalServerError)
+			return
+		}
+		if network.CAID == "" {
+			http.Error(rw, "Unauthorized", http.StatusForbidden)
+			return
+		}
+		ca, err := w.store.GetCA(r.Context(), network.CAID)
+		if err != nil || ca.OwnerOperatorID != op.ID {
+			http.Error(rw, "Unauthorized", http.StatusForbidden)
+			return
+		}
+	}
+
+	// Load network for CIDR display and validation
+	network, err := w.store.GetNetwork(r.Context(), host.NetworkID)
+	if err != nil {
+		w.logger.Error("get network for edit form", "error", err)
+		http.Error(rw, "Failed to load network", http.StatusInternalServerError)
+		return
+	}
+
+	w.renderForRequest(rw, r, "host_edit.html", map[string]any{
+		"Active":       "hosts",
+		"Host":         host,
+		"Form":         hostFormStateFromHost(host),
+		"Error":        "",
+		"NetworkCIDR":  network.CIDR,
+	})
+}
+
+func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(rw, "bad request", http.StatusBadRequest)
+		return
+	}
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	host, err := w.store.GetHost(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(rw, r)
+		return
+	}
+	if err != nil {
+		w.logger.Error("get host for update", "error", err)
+		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Ownership check
+	if op.Role != "admin" {
+		network, err := w.store.GetNetwork(r.Context(), host.NetworkID)
+		if err != nil {
+			w.logger.Error("get network for ownership check", "error", err)
+			http.Error(rw, "Failed to load network", http.StatusInternalServerError)
+			return
+		}
+		if network.CAID == "" {
+			http.Error(rw, "Unauthorized", http.StatusForbidden)
+			return
+		}
+		ca, err := w.store.GetCA(r.Context(), network.CAID)
+		if err != nil || ca.OwnerOperatorID != op.ID {
+			http.Error(rw, "Unauthorized", http.StatusForbidden)
+			return
+		}
+	}
+
+	form := newHostFormState(r)
+	form.NetworkID = host.NetworkID // Force to current network
+
+	// Load network for CIDR and error re-render
+	network, err := w.store.GetNetwork(r.Context(), host.NetworkID)
+	if err != nil {
+		w.logger.Error("get network for update", "error", err)
+		http.Error(rw, "Failed to load network", http.StatusInternalServerError)
+		return
+	}
+
+	// Validation pipeline
+	name := strings.TrimSpace(form.Name)
+	if name == "" {
+		w.renderHostEditError(rw, r, host, network.CIDR, form, "name must not be empty")
+		return
+	}
+
+	nebulaIP := strings.TrimSpace(form.NebulaIP)
+	if nebulaIP == "" {
+		w.renderHostEditError(rw, r, host, network.CIDR, form, "nebula_ip must not be empty")
+		return
+	}
+
+	if err := validateHostIPForNetwork(r.Context(), w.store, host.NetworkID, nebulaIP, host.ID); err != nil {
+		w.renderHostEditError(rw, r, host, network.CIDR, form, err.Error())
+		return
+	}
+
+	if strings.TrimSpace(form.PublicIP) != "" {
+		if _, err := netip.ParseAddr(form.PublicIP); err != nil {
+			w.renderHostEditError(rw, r, host, network.CIDR, form, models.FriendlyAddrError("public_ip", form.PublicIP))
+			return
+		}
+	}
+
+	var listenPort int
+	if form.ListenPort != "" {
+		var err error
+		listenPort, err = strconv.Atoi(form.ListenPort)
+		if err != nil {
+			w.renderHostEditError(rw, r, host, network.CIDR, form, "invalid listen_port: must be a number")
+			return
+		}
+		if listenPort < 0 || listenPort > 65535 {
+			w.renderHostEditError(rw, r, host, network.CIDR, form, "listen_port must be between 0 and 65535")
+			return
+		}
+	}
+
+	role := models.HostRole(form.Role)
+	if !models.ValidRole(role) {
+		w.renderHostEditError(rw, r, host, network.CIDR, form, "invalid role")
+		return
+	}
+	if role == "" {
+		role = models.HostRoleHost
+	}
+
+	if err := models.ValidateRoleReachability(role, form.PublicIP, listenPort); err != nil {
+		w.renderHostEditError(rw, r, host, network.CIDR, form, err.Error())
+		return
+	}
+
+	var groups []string
+	if g := strings.TrimSpace(form.Groups); g != "" {
+		for _, s := range strings.Split(g, ",") {
+			groups = append(groups, strings.TrimSpace(s))
+		}
+	}
+	if groups == nil {
+		groups = []string{}
+	}
+
+	advanced, err := parseAdvancedFromForm(r)
+	if err != nil {
+		w.renderHostEditError(rw, r, host, network.CIDR, form, err.Error())
+		return
+	}
+	if err := models.ValidateHostAdvanced(advanced); err != nil {
+		w.renderHostEditError(rw, r, host, network.CIDR, form, err.Error())
+		return
+	}
+
+	// Snapshot for diff computation
+	before := *host
+	if host.Advanced != nil {
+		beforeAdv := *host.Advanced
+		before.Advanced = &beforeAdv
+	}
+
+	// Merge form into host
+	host.Name = name
+	host.NebulaIP = nebulaIP
+	host.Groups = groups
+	host.Role = role
+	host.IsLighthouse = role == models.HostRoleLighthouse
+	host.IsRelay = role == models.HostRoleRelay
+	host.PublicIP = form.PublicIP
+	host.ListenPort = listenPort
+	host.Advanced = advanced
+
+	// Compute diff
+	jsonDiff, hasChanges, err := models.HostDiff(&before, host)
+	if err != nil {
+		w.logger.Error("compute host diff", "error", err)
+		http.Error(rw, "Failed to compute changes", http.StatusInternalServerError)
+		return
+	}
+
+	// Idempotent: no changes means success redirect (no audit entry)
+	if !hasChanges {
+		http.Redirect(rw, r, "/ui/hosts/"+host.ID, http.StatusSeeOther)
+		return
+	}
+
+	// Update host
+	host.UpdatedAt = time.Now()
+	if err := w.store.UpdateHost(r.Context(), host); err != nil {
+		w.logger.Error("update host", "error", err)
+		http.Error(rw, "Failed to update host", http.StatusInternalServerError)
+		return
+	}
+
+	// Audit entry
+	if err := w.store.AddAuditEntry(r.Context(), op.Username, "host.update", host.ID, string(jsonDiff)); err != nil {
+		w.logger.Error("add audit entry", "error", err)
+	}
+
+	// Config version: update_host_config_version triggers config re-publish
+	if err := w.store.UpdateHostConfigVersion(r.Context(), host.ID, 0); err != nil {
+		w.logger.Error("update host config version", "error", err)
+	}
+
+	// Role change bumps network config version for topology propagation
+	if before.Role != host.Role {
+		if err := w.store.BumpNetworkConfigVersion(r.Context(), host.NetworkID); err != nil {
+			w.logger.Error("bump network config version", "error", err)
+		}
+	}
+
+	// Cert-bound field changes (name, nebula_ip) trigger rekey
+	if before.Name != host.Name || before.NebulaIP != host.NebulaIP {
+		err := w.store.SetPendingRekey(r.Context(), host.ID)
+		if err != nil && !errors.Is(err, store.ErrRekeyAlreadyPending) {
+			w.logger.Error("set pending rekey", "error", err)
+		}
+		// If ErrRekeyAlreadyPending, treat as idempotent success
+	}
+
+	http.Redirect(rw, r, "/ui/hosts/"+host.ID, http.StatusSeeOther)
+}
+
 func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	_, err := w.store.BlockHostAndAddToBlocklist(r.Context(), id, "blocked via UI")

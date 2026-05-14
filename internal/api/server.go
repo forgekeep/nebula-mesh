@@ -189,6 +189,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/v1/hosts", s.handleCreateHost)
 		r.Get("/api/v1/hosts", s.handleListHosts)
 		r.Get("/api/v1/hosts/{id}", s.handleGetHost)
+		r.Patch("/api/v1/hosts/{id}", s.handleUpdateHost)
 		r.Delete("/api/v1/hosts/{id}", s.handleDeleteHost)
 		r.Post("/api/v1/hosts/{id}/block", s.handleBlockHost)
 		r.Post("/api/v1/hosts/{id}/unblock", s.handleUnblockHost)

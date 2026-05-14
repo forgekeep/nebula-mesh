@@ -136,6 +136,7 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		"dashboard.html",
 		"hosts.html",
 		"host_new.html",
+		"host_edit.html",
 		"host_detail.html",
 		"networks.html",
 		"twofa.html",
@@ -148,13 +149,22 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		"ca_new.html",
 		"ca_detail.html",
 	}
+	funcMap := template.FuncMap{
+		"deref": func(p *bool) bool {
+			if p == nil {
+				return false
+			}
+			return *p
+		},
+	}
+
 	for _, page := range pages {
 		files := []string{"templates/layout.html", "templates/" + page}
 		// dashboard.html references the "stats" partial via {{template "stats" .}}
 		if page == "dashboard.html" {
 			files = append(files, "templates/stats_partial.html")
 		}
-		tmpl, err := template.ParseFS(templateFS, files...)
+		tmpl, err := template.New("").Funcs(funcMap).ParseFS(templateFS, files...)
 		if err != nil {
 			return nil, fmt.Errorf("parse template %s: %w", page, err)
 		}
@@ -163,7 +173,7 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 
 	// Login pages are standalone (no layout)
 	for _, page := range []string{"login.html", "login_totp.html", "register.html"} {
-		tmpl, err := template.ParseFS(templateFS, "templates/"+page)
+		tmpl, err := template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/"+page)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", page, err)
 		}
@@ -173,7 +183,7 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 	// Standalone partial for HTMX polling — rendered without layout so the
 	// `every 30s` swap on .stats-grid does not embed a whole new sidebar +
 	// dashboard inside the existing one.
-	partial, err := template.ParseFS(templateFS, "templates/stats_partial.html")
+	partial, err := template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/stats_partial.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse stats_partial.html: %w", err)
 	}
@@ -221,6 +231,8 @@ func (w *Web) setupRoutes() {
 		r.Get("/ui/hosts/new", w.handleHostNew)
 		r.Post("/ui/hosts", w.handleHostCreate)
 		r.Get("/ui/hosts/{id}", w.handleHostDetail)
+		r.Get("/ui/hosts/{id}/edit", w.handleHostEdit)
+		r.Post("/ui/hosts/{id}/edit", w.handleHostUpdate)
 		r.Post("/ui/hosts/{id}/block", w.handleHostBlock)
 		r.Delete("/ui/hosts/{id}", w.handleHostDelete)
 		r.Get("/ui/networks", w.handleNetworks)

@@ -30,6 +30,16 @@ type createHostResponse struct {
 	EnrollmentToken string       `json:"enrollment_token"`
 }
 
+type updateHostRequest struct {
+	Name       *string              `json:"name,omitempty"`
+	NebulaIP   *string              `json:"nebula_ip,omitempty"`
+	Groups     *[]string            `json:"groups,omitempty"`
+	Role       *string              `json:"role,omitempty"`
+	PublicIP   *string              `json:"public_ip,omitempty"`
+	ListenPort *int                 `json:"listen_port,omitempty"`
+	Advanced   *models.HostAdvanced `json:"advanced,omitempty"`
+}
+
 func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	var req createHostRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -353,4 +363,169 @@ func (s *Server) mintEnrollmentTokenForHost(w http.ResponseWriter, r *http.Reque
 		Token:     tokenStr,
 		ExpiresAt: expiresAt,
 	})
+}
+
+func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	// Load host by ID
+	host, err := s.store.GetHost(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "host not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get host", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get host")
+		return
+	}
+
+	// API trusts the bearer token for authorisation; per-CA ownership is enforced only in the Web layer (handleHostUpdate). Matches handleCreateHost/handleDeleteHost behaviour.
+
+	// Decode request body
+	var req updateHostRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Snapshot before state for diff and triggers
+	before := *host
+	if before.Advanced != nil {
+		beforeAdv := *before.Advanced
+		before.Advanced = &beforeAdv
+	}
+
+	// Validate and merge fields
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			writeError(w, http.StatusBadRequest, "name must not be empty")
+			return
+		}
+		host.Name = name
+	}
+
+	if req.NebulaIP != nil {
+		nebulaIP := strings.TrimSpace(*req.NebulaIP)
+		if err := validateHostIP(r.Context(), s.store, host.NetworkID, nebulaIP, host.ID); err != nil {
+			if IsHostIPValidationError(err) {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			s.logger.Error("validate host ip", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to validate nebula_ip")
+			return
+		}
+		host.NebulaIP = nebulaIP
+	}
+
+	if req.Groups != nil {
+		for _, g := range *req.Groups {
+			if strings.TrimSpace(g) == "" {
+				writeError(w, http.StatusBadRequest, "group names must not be empty")
+				return
+			}
+		}
+		host.Groups = *req.Groups
+	}
+
+	if req.Role != nil {
+		role := models.HostRole(*req.Role)
+		if !models.ValidRole(role) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid role: %q", *req.Role))
+			return
+		}
+		host.Role = role
+		host.IsLighthouse = role == models.HostRoleLighthouse
+		host.IsRelay = role == models.HostRoleRelay
+	}
+
+	if req.PublicIP != nil {
+		publicIP := strings.TrimSpace(*req.PublicIP)
+		if publicIP != "" {
+			if _, err := models.ValidateIPAddr("public_ip", publicIP); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+		host.PublicIP = publicIP
+	}
+
+	if req.ListenPort != nil {
+		if *req.ListenPort < 0 || *req.ListenPort > 65535 {
+			writeError(w, http.StatusBadRequest, "listen_port must be between 0 and 65535")
+			return
+		}
+		host.ListenPort = *req.ListenPort
+	}
+
+	if req.Advanced != nil {
+		if err := validateHostAdvanced(req.Advanced); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		host.Advanced = req.Advanced
+	}
+
+	// Validate role reachability
+	if err := models.ValidateRoleReachability(host.Role, host.PublicIP, host.ListenPort); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Compute diff
+	diffJSON, hasChanges, err := models.HostDiff(&before, host)
+	if err != nil {
+		s.logger.Error("compute diff", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to compute diff")
+		return
+	}
+
+	// If no changes, return 200 without updating
+	if !hasChanges {
+		writeJSON(w, http.StatusOK, host)
+		return
+	}
+
+	// Update timestamp and persist
+	host.UpdatedAt = time.Now()
+	if err := s.store.UpdateHost(r.Context(), host); err != nil {
+		s.logger.Error("update host", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to update host")
+		return
+	}
+
+	// Task 1.4: Re-publish triggers
+	// Force re-publish config for this host
+	if err := s.store.UpdateHostConfigVersion(r.Context(), host.ID, 0); err != nil {
+		s.logger.Error("reset host config version", "host", host.ID, "error", err)
+	}
+
+	// If role changed, bump network config version for peer updates
+	if before.Role != host.Role {
+		if err := s.store.BumpNetworkConfigVersion(r.Context(), host.NetworkID); err != nil {
+			s.logger.Error("bump network config version", "network", host.NetworkID, "error", err)
+		}
+	}
+
+	// If name or IP changed, set pending rekey for cert re-enrollment
+	if before.Name != host.Name || before.NebulaIP != host.NebulaIP {
+		if err := s.store.SetPendingRekey(r.Context(), host.ID); err != nil {
+			if !errors.Is(err, store.ErrRekeyAlreadyPending) {
+				s.logger.Error("set pending rekey", "host", host.ID, "error", err)
+			}
+			// Idempotent: ErrRekeyAlreadyPending is success (rekey already scheduled)
+		}
+		// Reload host to get PendingRekey flag in response
+		freshHost, err := s.store.GetHost(r.Context(), host.ID)
+		if err == nil {
+			host = freshHost
+		}
+	}
+
+	// Record audit entry with diff
+	s.recordAuditAction(r.Context(), auditHostUpdate, host.ID, string(diffJSON))
+
+	writeJSON(w, http.StatusOK, host)
 }

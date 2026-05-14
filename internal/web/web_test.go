@@ -529,3 +529,12 @@ func TestStaticFiles(t *testing.T) {
 		t.Error("htmx.min.js should not be empty")
 	}
 }
+
+func TestParseTemplates_IncludesHostEdit(t *testing.T) {
+	w, _ := newTestWeb(t)
+	// If template parsing fails, newTestWeb will have panicked in New().
+	// Verify host_edit.html template was successfully registered.
+	if w.templates["host_edit.html"] == nil {
+		t.Error("host_edit.html template not registered")
+	}
+}

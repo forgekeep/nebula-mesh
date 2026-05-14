@@ -21,7 +21,7 @@ func validateHostIPForNetwork(ctx context.Context, s store.Store, networkID, ip,
 	}
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
-		return fmt.Errorf("invalid nebula_ip: %s", err.Error())
+		return fmt.Errorf("%s", models.FriendlyAddrError("nebula_ip", ip))
 	}
 
 	net, err := s.GetNetwork(ctx, networkID)

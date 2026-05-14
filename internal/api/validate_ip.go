@@ -10,7 +10,12 @@ import (
 	"github.com/juev/nebula-mesh/internal/store"
 )
 
-// hostIPValidationError marks errors that the API layer should surface as 400.
+// hostIPValidationError is the typed error the API layer surfaces as 400
+// for any nebula_ip / public_ip / advanced validation failure. The
+// message is intentionally pre-formatted via models.FriendlyAddrError /
+// models.FriendlyPrefixError so the inline-form Web layer and the JSON
+// API return identical, stable strings.
+
 type hostIPValidationError struct {
 	msg string
 }
@@ -24,6 +29,12 @@ func IsHostIPValidationError(err error) bool {
 	return errors.As(err, &v)
 }
 
+// newHostIPValidationError wraps a friendly message in the typed error
+// that the handler dispatch chain expects.
+func newHostIPValidationError(msg string) error {
+	return &hostIPValidationError{msg: msg}
+}
+
 // validateHostIP checks that ip is syntactically valid, falls inside the
 // network's CIDR, is not the network or broadcast address (IPv4), and is
 // not already used by another host in the same network. The optional
@@ -31,16 +42,16 @@ func IsHostIPValidationError(err error) bool {
 // uniqueness check so re-saving without changing the IP succeeds.
 func validateHostIP(ctx context.Context, s store.Store, networkID, ip, excludeHostID string) error {
 	if ip == "" {
-		return &hostIPValidationError{msg: "nebula_ip is required"}
+		return newHostIPValidationError("nebula_ip is required")
 	}
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
-		return &hostIPValidationError{msg: fmt.Sprintf("invalid nebula_ip: %s", err.Error())}
+		return newHostIPValidationError(models.FriendlyAddrError("nebula_ip", ip))
 	}
 
 	net, err := s.GetNetwork(ctx, networkID)
 	if errors.Is(err, store.ErrNotFound) {
-		return &hostIPValidationError{msg: "network not found"}
+		return newHostIPValidationError("network not found")
 	}
 	if err != nil {
 		return fmt.Errorf("get network: %w", err)
@@ -51,12 +62,12 @@ func validateHostIP(ctx context.Context, s store.Store, networkID, ip, excludeHo
 		return fmt.Errorf("network %q has invalid CIDR %q: %w", net.ID, net.CIDR, err)
 	}
 	if !prefix.Contains(addr) {
-		return &hostIPValidationError{msg: fmt.Sprintf("nebula_ip %s is outside the network CIDR %s", ip, net.CIDR)}
+		return newHostIPValidationError(fmt.Sprintf("nebula_ip %s is outside the network CIDR %s", ip, net.CIDR))
 	}
 
 	if addr.Is4() {
 		if forbiddenIPv4Reserved(prefix, addr) {
-			return &hostIPValidationError{msg: fmt.Sprintf("nebula_ip %s is reserved (network or broadcast address of %s)", ip, net.CIDR)}
+			return newHostIPValidationError(fmt.Sprintf("nebula_ip %s is reserved (network or broadcast address of %s)", ip, net.CIDR))
 		}
 	}
 
@@ -69,7 +80,7 @@ func validateHostIP(ctx context.Context, s store.Store, networkID, ip, excludeHo
 			continue
 		}
 		if h.NebulaIP == ip {
-			return &hostIPValidationError{msg: fmt.Sprintf("nebula_ip %s is already assigned to host %q in this network", ip, h.Name)}
+			return newHostIPValidationError(fmt.Sprintf("nebula_ip %s is already assigned to host %q in this network", ip, h.Name))
 		}
 	}
 	return nil

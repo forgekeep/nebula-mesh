@@ -6,10 +6,127 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/juev/nebula-mesh/internal/models"
 )
+
+func TestCreateHost_FriendlyNebulaIPError(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	body, _ := json.Marshal(createHostRequest{
+		NetworkID: netID, Name: "garbage", NebulaIP: "10.42.0.22.333",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	got := w.Body.String()
+	if strings.Contains(got, "ParseAddr") {
+		t.Errorf("response must not leak the stdlib ParseAddr text; got %s", got)
+	}
+	if !strings.Contains(got, "10.42.0.22.333") || !strings.Contains(got, "not a valid IPv4 or IPv6 address") {
+		t.Errorf("response should identify the bad value and constraint; got %s", got)
+	}
+}
+
+func TestCreateHost_FriendlyPublicIPError(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	body, _ := json.Marshal(createHostRequest{
+		NetworkID: netID, Name: "lh", NebulaIP: "192.168.100.10",
+		Role: "lighthouse", PublicIP: "203.0.113.999", ListenPort: 4242,
+	})
+	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	got := w.Body.String()
+	if strings.Contains(got, "ParseAddr") {
+		t.Errorf("response must not leak the stdlib ParseAddr text; got %s", got)
+	}
+	if !strings.Contains(got, "public_ip") || !strings.Contains(got, "203.0.113.999") {
+		t.Errorf("response should mention the field and bad value; got %s", got)
+	}
+}
+
+func TestCreateNetwork_FriendlyCIDRError(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := []byte(`{"name":"n","cidr":"not-a-cidr"}`)
+	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	got := w.Body.String()
+	if strings.Contains(got, "ParsePrefix") {
+		t.Errorf("response must not leak the stdlib ParsePrefix text; got %s", got)
+	}
+	if !strings.Contains(got, "not a valid CIDR") {
+		t.Errorf("response should explain the constraint; got %s", got)
+	}
+}
+
+func TestCreateHost_FriendlyAdvancedListenHostError(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	body, _ := json.Marshal(createHostRequest{
+		NetworkID: netID, Name: "adv", NebulaIP: "192.168.100.20",
+		Advanced: &models.HostAdvanced{ListenHost: "not-an-ip"},
+	})
+	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	got := w.Body.String()
+	if strings.Contains(got, "ParseAddr") {
+		t.Errorf("response must not leak the stdlib ParseAddr text; got %s", got)
+	}
+	if !strings.Contains(got, "advanced.listen_host") {
+		t.Errorf("response should mention the field; got %s", got)
+	}
+}
+
+func TestCreateHost_FriendlyUnsafeRouteError(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	body, _ := json.Marshal(createHostRequest{
+		NetworkID: netID, Name: "ur", NebulaIP: "192.168.100.21",
+		Advanced: &models.HostAdvanced{
+			UnsafeRoutes: []models.UnsafeRoute{{Route: "bad/cidr", Via: "10.0.0.1"}},
+		},
+	})
+	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	got := w.Body.String()
+	if strings.Contains(got, "ParsePrefix") || strings.Contains(got, "ParseAddr") {
+		t.Errorf("response must not leak stdlib parse text; got %s", got)
+	}
+	if !strings.Contains(got, "unsafe_routes[0].route") {
+		t.Errorf("response should mention the indexed field; got %s", got)
+	}
+}
 
 func TestCreateHost_RejectsIPOutsideCIDR(t *testing.T) {
 	srv, _ := newTestServer(t)

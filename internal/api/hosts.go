@@ -55,6 +55,13 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.TrimSpace(req.PublicIP) != "" {
+		if _, err := models.ValidateIPAddr("public_ip", req.PublicIP); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	role := models.HostRole(req.Role)
 	if !models.ValidRole(role) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid role: %q", req.Role))

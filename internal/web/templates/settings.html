@@ -6,80 +6,92 @@
 </div>
 
 {{if .Settings.Saved}}
-<div class="card success">Settings saved. Changes take effect on the next request — no restart required.</div>
+<div class="flash flash-success">Settings saved. Changes take effect on the next request — no restart required.</div>
 {{end}}
 
 {{if .Settings.Error}}
-<div class="card error">{{.Settings.Error}}</div>
+<div class="flash flash-error">{{.Settings.Error}}</div>
 {{end}}
 
-<form method="POST" action="/ui/settings" class="card">
-    <h2>Authentication</h2>
+<div class="card">
+    <form method="POST" action="/ui/settings">
+        <h2>Authentication</h2>
 
-    <label class="row">
-        <input type="checkbox" name="enforce_2fa" value="1" {{if .Settings.EnforceTOTP}}checked{{end}}>
-        <span>
-            <strong>Enforce 2FA for local operators.</strong>
-            When on, every local operator without TOTP is routed to <code>/ui/2fa/required</code>
-            after a successful password login. OIDC operators are exempt.
-        </span>
-    </label>
+        <div class="form-group">
+            <label class="row">
+                <input type="checkbox" name="enforce_2fa" value="1" {{if .Settings.EnforceTOTP}}checked{{end}}>
+                <span>
+                    <strong>Enforce 2FA for local operators.</strong>
+                    When on, every local operator without TOTP is routed to <code>/ui/2fa/required</code>
+                    after a successful password login. OIDC operators are exempt.
+                </span>
+            </label>
+        </div>
 
-    <label class="row">
-        <input type="checkbox" name="allow_self_registration" value="1" {{if .Settings.AllowSelfRegistration}}checked{{end}}>
-        <span>
-            <strong>Allow self-registration.</strong>
-            Unauthenticated visitors can create their own operator account at <code>/ui/register</code>.
-        </span>
-    </label>
+        <div class="form-group">
+            <label class="row">
+                <input type="checkbox" name="allow_self_registration" value="1" {{if .Settings.AllowSelfRegistration}}checked{{end}}>
+                <span>
+                    <strong>Allow self-registration.</strong>
+                    Unauthenticated visitors can create their own operator account at <code>/ui/register</code>.
+                </span>
+            </label>
+        </div>
 
-    <p class="muted">
-        OIDC SSO is currently
-        {{if .Settings.OIDCEnabled}}<strong>enabled</strong>{{else}}<strong>not configured</strong>{{end}}.
-        OIDC issuer / client credentials are managed in <code>server.yml</code> and are not editable here.
-    </p>
+        <div class="form-group">
+            <p>
+                OIDC SSO is currently
+                {{if .Settings.OIDCEnabled}}<strong>enabled</strong>{{else}}<strong>not configured</strong>{{end}}.
+                OIDC issuer / client credentials are managed in <code>server.yml</code> and are not editable here.
+            </p>
+        </div>
 
-    <h2>Password policy</h2>
+        <h2 style="margin-top:24px">Password policy</h2>
 
-    <label>
-        Minimum length
-        <input type="number" name="password_min_length" min="0" max="256" value="{{.Settings.PasswordMinLength}}">
-    </label>
+        <div class="form-group">
+            <label for="password_min_length">Minimum length</label>
+            <input type="number" id="password_min_length" name="password_min_length" min="0" max="256" value="{{.Settings.PasswordMinLength}}" class="form-control">
+        </div>
 
-    <label>
-        Required character classes (0–4: lower, upper, digit, symbol)
-        <input type="number" name="password_require_classes" min="0" max="4" value="{{.Settings.PasswordRequireClasses}}">
-    </label>
+        <div class="form-group">
+            <label for="password_require_classes">Required character classes (0–4: lower, upper, digit, symbol)</label>
+            <input type="number" id="password_require_classes" name="password_require_classes" min="0" max="4" value="{{.Settings.PasswordRequireClasses}}" class="form-control">
+        </div>
 
-    <label class="row">
-        <input type="checkbox" name="password_block_common" value="1" {{if .Settings.PasswordBlockCommon}}checked{{end}}>
-        <span>Reject passwords on the embedded common-passwords list.</span>
-    </label>
+        <div class="form-group">
+            <label class="row">
+                <input type="checkbox" name="password_block_common" value="1" {{if .Settings.PasswordBlockCommon}}checked{{end}}>
+                <span>Reject passwords on the embedded common-passwords list.</span>
+            </label>
+        </div>
 
-    <label class="row">
-        <input type="checkbox" name="password_block_username" value="1" {{if .Settings.PasswordBlockUsername}}checked{{end}}>
-        <span>Reject passwords equal to or containing the username.</span>
-    </label>
+        <div class="form-group">
+            <label class="row">
+                <input type="checkbox" name="password_block_username" value="1" {{if .Settings.PasswordBlockUsername}}checked{{end}}>
+                <span>Reject passwords equal to or containing the username.</span>
+            </label>
+        </div>
 
-    <h2>Logging</h2>
+        <h2 style="margin-top:24px">Logging</h2>
 
-    <label>
-        Log level
-        <select name="log_level">
-            <option value="debug" {{if eq .Settings.LogLevel "debug"}}selected{{end}}>debug</option>
-            <option value="info"  {{if eq .Settings.LogLevel "info"}}selected{{end}}>info</option>
-            <option value="warn"  {{if eq .Settings.LogLevel "warn"}}selected{{end}}>warn</option>
-            <option value="error" {{if eq .Settings.LogLevel "error"}}selected{{end}}>error</option>
-        </select>
-    </label>
+        <div class="form-group">
+            <label for="log_level">Log level</label>
+            <select id="log_level" name="log_level" class="form-control">
+                <option value="debug" {{if eq .Settings.LogLevel "debug"}}selected{{end}}>debug</option>
+                <option value="info"  {{if eq .Settings.LogLevel "info"}}selected{{end}}>info</option>
+                <option value="warn"  {{if eq .Settings.LogLevel "warn"}}selected{{end}}>warn</option>
+                <option value="error" {{if eq .Settings.LogLevel "error"}}selected{{end}}>error</option>
+            </select>
+        </div>
 
-    <button type="submit" class="btn btn-primary">Save</button>
-</form>
+        <button type="submit" class="btn btn-primary">Save</button>
+    </form>
+</div>
 
 {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
 <div class="card">
     <h2>Certificate Authorities</h2>
-    <p class="muted">Manage all CAs across the deployment. Operator-owned CAs are accessible to their owners through their profile.</p>
+    <p style="color: var(--text-muted)">Manage all CAs across the deployment. Operator-owned CAs are accessible to their owners through their profile.</p>
     <a href="/ui/cas" class="btn">Manage CAs →</a>
 </div>
 {{end}}

@@ -163,3 +163,89 @@ func TestSettings_NonAdmin_PostForbidden(t *testing.T) {
 		t.Error("non-admin POST should not change enforce_2fa")
 	}
 }
+
+func TestSettings_PageUsesFormGroupPattern(t *testing.T) {
+	w, s := newSettingsWeb(t)
+	cookie := authedSession(t, s, "root", "admin")
+
+	req := httptest.NewRequest(http.MethodGet, "/ui/settings", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// Verify presence of form-group wrapper (at least 5 form fields).
+	formGroupCount := strings.Count(body, `class="form-group"`)
+	if formGroupCount < 5 {
+		t.Errorf("form-group count = %d, want >= 5; body=%s", formGroupCount, body)
+	}
+
+	// Verify presence of form-control class (at least 3: 2 number inputs + 1 select).
+	formControlCount := strings.Count(body, `class="form-control"`)
+	if formControlCount < 3 {
+		t.Errorf("form-control count = %d, want >= 3", formControlCount)
+	}
+}
+
+func TestSettings_SaveShowsFlashSuccess(t *testing.T) {
+	w, s := newSettingsWeb(t)
+	cookie := authedSession(t, s, "root", "admin")
+
+	form := url.Values{
+		"enforce_2fa":              {"1"},
+		"allow_self_registration":  {"1"},
+		"password_block_common":    {"1"},
+		"password_block_username":  {"1"},
+		"password_min_length":      {"16"},
+		"password_require_classes": {"4"},
+		"log_level":                {"warn"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/ui/settings", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// Verify presence of flash-success class.
+	if !strings.Contains(body, `class="flash flash-success"`) {
+		t.Errorf("expected 'class=\"flash flash-success\"' in response body; body=%s", body)
+	}
+
+	// Verify success text is present.
+	if !strings.Contains(body, "Settings saved") {
+		t.Errorf("expected 'Settings saved' text in response body; body=%s", body)
+	}
+}
+
+func TestSettings_NoOrphanMutedParagraph(t *testing.T) {
+	w, s := newSettingsWeb(t)
+	cookie := authedSession(t, s, "root", "admin")
+
+	req := httptest.NewRequest(http.MethodGet, "/ui/settings", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// Verify no orphan <p class="muted"> outside card wrapper.
+	// For simplicity, check that if the muted paragraph exists, it should be wrapped.
+	if strings.Contains(body, `<p class="muted">`) {
+		t.Errorf("found orphan <p class=\"muted\"> — should be wrapped inside card or removed")
+	}
+}

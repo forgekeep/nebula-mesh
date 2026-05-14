@@ -20,9 +20,9 @@ func TestHostNewForm_NetworkOptionsHaveDataCIDR(t *testing.T) {
 
 	ctx := context.Background()
 	nets := []*models.Network{
-		{ID: "n-24", Name: "small", CIDR: "10.42.0.0/24", CreatedAt: time.Now()},
-		{ID: "n-16", Name: "medium", CIDR: "172.20.0.0/16", CreatedAt: time.Now()},
-		{ID: "n-12", Name: "odd", CIDR: "10.0.0.0/12", CreatedAt: time.Now()},
+		{ID: "n-24", Name: "small", CIDRs: []string{"10.42.0.0/24"}, CreatedAt: time.Now()},
+		{ID: "n-16", Name: "medium", CIDRs: []string{"172.20.0.0/16"}, CreatedAt: time.Now()},
+		{ID: "n-12", Name: "odd", CIDRs: []string{"10.0.0.0/12"}, CreatedAt: time.Now()},
 	}
 	for _, n := range nets {
 		if err := s.CreateNetwork(ctx, n); err != nil {
@@ -43,24 +43,25 @@ func TestHostNewForm_NetworkOptionsHaveDataCIDR(t *testing.T) {
 	body := rec.Body.String()
 
 	for _, n := range nets {
-		if !strings.Contains(body, `data-cidr="`+n.CIDR+`"`) {
-			t.Errorf("missing data-cidr=%q on option for network %s", n.CIDR, n.Name)
+		// data-cidrs now contains semicolon-separated list of CIDRs
+		expectedCIDRs := strings.Join(n.CIDRs, ";")
+		if !strings.Contains(body, `data-cidrs="`+expectedCIDRs+`"`) {
+			t.Errorf("missing data-cidrs=%q on option for network %s", expectedCIDRs, n.Name)
 		}
 	}
 
-	// The hint element + the prefill JS hook must be present.
-	if !strings.Contains(body, `id="nebula-ip-hint"`) {
-		t.Errorf(`body should contain id="nebula-ip-hint"`)
+	// The rows container and row add/remove handlers must be present (new repeatable rows design).
+	if !strings.Contains(body, `id="nebula-ip-rows"`) {
+		t.Errorf(`body should contain id="nebula-ip-rows" for repeatable IP rows`)
+	}
+	if !strings.Contains(body, `data-action="add-ip"`) {
+		t.Errorf(`body should contain add-ip button`)
 	}
 	if !strings.Contains(body, `id="network-select"`) {
 		t.Errorf(`body should contain id="network-select"`)
 	}
-	if !strings.Contains(body, `id="nebula-ip-input"`) {
-		t.Errorf(`body should contain id="nebula-ip-input"`)
-	}
-	// The JS must include the byte-aligned-prefix routine so refactors
-	// don't silently drop it.
-	if !strings.Contains(body, "computeByteAlignedPrefix") {
-		t.Errorf("body should contain the computeByteAlignedPrefix JS helper")
+	// The row remove buttons.
+	if !strings.Contains(body, `data-action="remove"`) {
+		t.Errorf(`body should contain remove button for rows`)
 	}
 }

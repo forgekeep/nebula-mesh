@@ -37,7 +37,7 @@ func TestHostEdit_GET_AsAdmin(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -48,7 +48,7 @@ func TestHostEdit_GET_AsAdmin(t *testing.T) {
 		ID:         "h-1",
 		NetworkID:  "n-1",
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Groups:     []string{"web", "prod"},
 		Role:       models.HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -109,7 +109,7 @@ func TestHostUpdate_POST_HappyPath_Advanced(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -120,7 +120,7 @@ func TestHostUpdate_POST_HappyPath_Advanced(t *testing.T) {
 		ID:         "h-1",
 		NetworkID:  "n-1",
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Groups:     []string{},
 		Role:       models.HostRoleHost,
 		Status:     models.HostStatusEnrolled,
@@ -138,7 +138,7 @@ func TestHostUpdate_POST_HappyPath_Advanced(t *testing.T) {
 	form := url.Values{
 		"network_id": {"n-1"},
 		"name":       {"web-1"},
-		"nebula_ip":  {"192.168.100.10"},
+		"nebula_ips": {"192.168.100.10"},
 		"role":       {"host"},
 		"adv_mtu":    {"1280"},
 	}
@@ -197,7 +197,7 @@ func TestHostUpdate_POST_HappyPath_Rename(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -208,7 +208,7 @@ func TestHostUpdate_POST_HappyPath_Rename(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Groups:    []string{},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
@@ -223,7 +223,7 @@ func TestHostUpdate_POST_HappyPath_Rename(t *testing.T) {
 	form := url.Values{
 		"network_id": {"n-1"},
 		"name":       {"web-2"},
-		"nebula_ip":  {"192.168.100.10"},
+		"nebula_ips":  {"192.168.100.10"},
 		"role":       {"host"},
 	}
 	req := httptest.NewRequest("POST", "/ui/hosts/h-1/edit", strings.NewReader(form.Encode()))
@@ -261,7 +261,7 @@ func TestHostUpdate_POST_InvalidMTU(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -272,7 +272,7 @@ func TestHostUpdate_POST_InvalidMTU(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Groups:    []string{},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
@@ -287,7 +287,7 @@ func TestHostUpdate_POST_InvalidMTU(t *testing.T) {
 	form := url.Values{
 		"network_id": {"n-1"},
 		"name":       {"web-1"},
-		"nebula_ip":  {"192.168.100.10"},
+		"nebula_ips":  {"192.168.100.10"},
 		"role":       {"host"},
 		"adv_mtu":    {"99999"},
 	}
@@ -316,7 +316,7 @@ func TestHostUpdate_POST_RoleFlipToLighthouse_BumpsNetwork(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -327,7 +327,7 @@ func TestHostUpdate_POST_RoleFlipToLighthouse_BumpsNetwork(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Groups:    []string{},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
@@ -347,7 +347,7 @@ func TestHostUpdate_POST_RoleFlipToLighthouse_BumpsNetwork(t *testing.T) {
 	form := url.Values{
 		"network_id": {"n-1"},
 		"name":       {"web-1"},
-		"nebula_ip":  {"192.168.100.10"},
+		"nebula_ips":  {"192.168.100.10"},
 		"role":       {"lighthouse"},
 		"public_ip":  {"203.0.113.1"},
 		"listen_port": {"4242"},
@@ -382,7 +382,7 @@ func TestHostUpdate_POST_NoChanges_NoAudit(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -393,7 +393,7 @@ func TestHostUpdate_POST_NoChanges_NoAudit(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Groups:    []string{},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
@@ -408,7 +408,7 @@ func TestHostUpdate_POST_NoChanges_NoAudit(t *testing.T) {
 	form := url.Values{
 		"network_id": {"n-1"},
 		"name":       {"web-1"},
-		"nebula_ip":  {"192.168.100.10"},
+		"nebula_ips":  {"192.168.100.10"},
 		"role":       {"host"},
 	}
 	req := httptest.NewRequest("POST", "/ui/hosts/h-1/edit", strings.NewReader(form.Encode()))
@@ -447,7 +447,7 @@ func TestHostUpdate_POST_DuplicateIP(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -458,7 +458,7 @@ func TestHostUpdate_POST_DuplicateIP(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Groups:    []string{},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
@@ -473,7 +473,7 @@ func TestHostUpdate_POST_DuplicateIP(t *testing.T) {
 		ID:        "h-2",
 		NetworkID: "n-1",
 		Name:      "web-2",
-		NebulaIP:  "192.168.100.11",
+		NebulaIPs:  []string{"192.168.100.11"},
 		Groups:    []string{},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
@@ -488,7 +488,7 @@ func TestHostUpdate_POST_DuplicateIP(t *testing.T) {
 	form := url.Values{
 		"network_id": {"n-1"},
 		"name":       {"web-2"},
-		"nebula_ip":  {"192.168.100.10"},
+		"nebula_ips":  {"192.168.100.10"},
 		"role":       {"host"},
 	}
 	req := httptest.NewRequest("POST", "/ui/hosts/h-2/edit", strings.NewReader(form.Encode()))

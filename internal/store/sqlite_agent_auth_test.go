@@ -16,7 +16,7 @@ func newHostFixture(t *testing.T, s *SQLiteStore, id string) *models.Host {
 		ID:        id,
 		NetworkID: net.ID,
 		Name:      "host-" + id,
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs: []string{"192.168.100.10"},
 		Groups:    []string{"g"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,

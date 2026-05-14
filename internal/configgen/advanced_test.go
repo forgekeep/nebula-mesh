@@ -8,7 +8,7 @@ import (
 func TestGenerate_DefaultsWhenNoAdvanced(t *testing.T) {
 	out, err := Generate(GeneratorInput{
 		HostName:   "h",
-		NebulaIP:   "10.0.0.1",
+		NebulaIPs:  []string{"10.0.0.1"},
 		CACertPath: "/etc/nebula/ca.crt",
 		CertPath:   "/etc/nebula/host.crt",
 		KeyPath:    "/etc/nebula/host.key",
@@ -34,7 +34,7 @@ func TestGenerate_DefaultsWhenNoAdvanced(t *testing.T) {
 func TestGenerate_AdvancedListenHostAndMTU(t *testing.T) {
 	out, err := Generate(GeneratorInput{
 		HostName:   "h",
-		NebulaIP:   "10.0.0.1",
+		NebulaIPs:  []string{"10.0.0.1"},
 		CACertPath: "/etc/nebula/ca.crt",
 		CertPath:   "/etc/nebula/host.crt",
 		KeyPath:    "/etc/nebula/host.key",
@@ -60,7 +60,7 @@ func TestGenerate_AdvancedListenHostAndMTU(t *testing.T) {
 func TestGenerate_AdvancedUnsafeRoutes(t *testing.T) {
 	out, err := Generate(GeneratorInput{
 		HostName:   "h",
-		NebulaIP:   "10.0.0.1",
+		NebulaIPs:  []string{"10.0.0.1"},
 		CACertPath: "/etc/nebula/ca.crt",
 		CertPath:   "/etc/nebula/host.crt",
 		KeyPath:    "/etc/nebula/host.key",
@@ -87,7 +87,7 @@ func TestGenerate_PunchyOverride(t *testing.T) {
 	f := false
 	out, err := Generate(GeneratorInput{
 		HostName:       "h",
-		NebulaIP:       "10.0.0.1",
+		NebulaIPs:      []string{"10.0.0.1"},
 		CACertPath:     "/etc/nebula/ca.crt",
 		CertPath:       "/etc/nebula/host.crt",
 		KeyPath:        "/etc/nebula/host.key",

@@ -54,7 +54,7 @@ func TestHandleGenerateMobileBundle_Success(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-bundle",
 		Name:      "bundle-test",
-		CIDR:      "10.0.0.0/24",
+		CIDRs:     []string{"10.0.0.0/24"},
 		CAID:      "ca-test",
 		CreatedAt: time.Now(),
 	}
@@ -66,7 +66,7 @@ func TestHandleGenerateMobileBundle_Success(t *testing.T) {
 		ID:        "h-mobile",
 		Name:      "phone-test",
 		NetworkID: "n-bundle",
-		NebulaIP:  "10.0.0.5",
+		NebulaIPs:  []string{"10.0.0.5"},
 		Kind:      models.HostKindMobile,
 		Variant:   models.HostVariantIOS,
 		Role:      models.HostRoleHost,
@@ -137,7 +137,7 @@ func TestHandleGenerateMobileBundle_AgentHostRejected(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-agent",
 		Name:      "agent-test",
-		CIDR:      "10.0.0.0/24",
+		CIDRs:     []string{"10.0.0.0/24"},
 		CAID:      "ca-test",
 		CreatedAt: time.Now(),
 	}
@@ -149,7 +149,7 @@ func TestHandleGenerateMobileBundle_AgentHostRejected(t *testing.T) {
 		ID:        "h-agent",
 		Name:      "agent-host",
 		NetworkID: "n-agent",
-		NebulaIP:  "10.0.0.5",
+		NebulaIPs:  []string{"10.0.0.5"},
 		Kind:      models.HostKindAgent,
 		Variant:   "",
 		Role:      models.HostRoleHost,
@@ -204,7 +204,7 @@ func TestHandleGenerateMobileBundle_RequiresAuth(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-auth",
 		Name:      "auth-test",
-		CIDR:      "10.0.0.0/24",
+		CIDRs:     []string{"10.0.0.0/24"},
 		CAID:      "ca-test",
 		CreatedAt: time.Now(),
 	}
@@ -216,7 +216,7 @@ func TestHandleGenerateMobileBundle_RequiresAuth(t *testing.T) {
 		ID:        "h-mobile-2",
 		Name:      "phone-noauth",
 		NetworkID: "n-auth",
-		NebulaIP:  "10.0.0.6",
+		NebulaIPs:  []string{"10.0.0.6"},
 		Kind:      models.HostKindMobile,
 		Variant:   models.HostVariantAndroid,
 		Role:      models.HostRoleHost,

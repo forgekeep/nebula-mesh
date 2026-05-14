@@ -16,11 +16,11 @@
     <form id="host-form" method="POST" action="/ui/hosts">
         <div class="form-group">
             <label>Network</label>
-            <select id="network-select" name="network_id" class="form-control" required>
+            <select id="network-select" name="network_id" class="form-control" required onchange="onNetworkChange()">
                 <option value="">Select network...</option>
                 {{$selected := .Form.NetworkID}}
                 {{range .Networks}}
-                <option value="{{.ID}}" data-cidr="{{.CIDR}}"{{if eq .ID $selected}} selected{{end}}>{{.Name}} ({{.CIDR}})</option>
+                <option value="{{.ID}}" data-cidrs="{{range $i, $cidr := .CIDRs}}{{if $i}};{{end}}{{$cidr}}{{end}}"{{if eq .ID $selected}} selected{{end}}>{{.Name}}</option>
                 {{end}}
             </select>
         </div>
@@ -29,10 +29,32 @@
             <input type="text" name="name" class="form-control" placeholder="web-1" value="{{.Form.Name}}" required>
         </div>
         <div class="form-group">
-            <label>Nebula IP</label>
-            <input id="nebula-ip-input" type="text" name="nebula_ip" class="form-control" placeholder="192.168.100.10" value="{{.Form.NebulaIP}}" required>
-            <div id="nebula-ip-segments" style="display: none; margin-top: 4px;"></div>
-            <div id="nebula-ip-hint" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;"></div>
+            <label>Overlay Addresses</label>
+            <div id="nebula-ip-rows" data-rows>
+                {{- range $i, $ip := .Form.NebulaIPs }}
+                <div class="ip-row" data-row-id="{{ $i }}" style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
+                    {{- if and $.Network (gt (len $.Network.CIDRs) 1) }}
+                    <select name="parent_cidr_{{ $i }}" class="form-control" style="flex: 0 0 auto;">
+                        {{- range $.Network.CIDRs }}<option value="{{ . }}">{{ . }}</option>{{- end }}
+                    </select>
+                    {{- end }}
+                    <input type="text" name="nebula_ips" value="{{ $ip }}" required class="form-control" placeholder="overlay address" />
+                    {{- with index $.Form.NebulaIPErrors $i }}<div class="error-inline" style="color: var(--danger); font-size: 13px;">{{ . }}</div>{{- end }}
+                    <button type="button" data-action="remove" aria-label="Remove IP" style="background: transparent; border: 1px solid var(--border); padding: 4px 10px; cursor: pointer;">×</button>
+                </div>
+                {{- else }}
+                <div class="ip-row" data-row-id="0" style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
+                    {{- if and $.Network (gt (len $.Network.CIDRs) 1) }}
+                    <select name="parent_cidr_0" class="form-control" style="flex: 0 0 auto;">
+                        {{- range $.Network.CIDRs }}<option value="{{ . }}">{{ . }}</option>{{- end }}
+                    </select>
+                    {{- end }}
+                    <input type="text" name="nebula_ips" required class="form-control" placeholder="overlay address" />
+                    <button type="button" data-action="remove" aria-label="Remove IP" style="background: transparent; border: 1px solid var(--border); padding: 4px 10px; cursor: pointer;">×</button>
+                </div>
+                {{- end }}
+            </div>
+            <button type="button" data-action="add-ip" style="margin-top: 8px;" class="btn btn-secondary">+ Add IP</button>
         </div>
         <div class="form-group">
             <label for="kind">Host Type</label>
@@ -111,345 +133,68 @@
 
 <script>
 (function() {
-    var sel = document.getElementById("network-select");
-    var ipInput = document.getElementById("nebula-ip-input");
-    var segments = document.getElementById("nebula-ip-segments");
-    var hint = document.getElementById("nebula-ip-hint");
-    var form = document.getElementById("host-form");
-    if (!sel || !ipInput || !segments || !hint || !form) {
-        return;
-    }
+    // Handle network selection change to update parent CIDR dropdown visibility
+    window.onNetworkChange = function() {
+        var sel = document.getElementById("network-select");
+        var selectedOpt = sel.options[sel.selectedIndex];
+        var cidrsStr = selectedOpt.getAttribute("data-cidrs") || "";
+        var cidrs = cidrsStr ? cidrsStr.split(";") : [];
 
-    // parseCIDR splits "a.b.c.d/n" or "ipv6/n" into {family, addr, bits, raw}.
-    // Returns null if the string does not match either shape. Used to decide
-    // which widget variant to render and to derive segment boundaries.
-    function parseCIDR(cidr) {
-        if (!cidr) { return null; }
-        var slash = cidr.indexOf("/");
-        if (slash < 0) { return null; }
-        var addr = cidr.slice(0, slash);
-        var bits = parseInt(cidr.slice(slash + 1), 10);
-        if (isNaN(bits)) { return null; }
-        if (/^\d+\.\d+\.\d+\.\d+$/.test(addr)) {
-            return { family: 4, addr: addr, bits: bits, raw: cidr };
-        }
-        if (addr.indexOf(":") >= 0) {
-            return { family: 6, addr: addr, bits: bits, raw: cidr };
-        }
-        return null;
-    }
-
-    // ipv4ToInt / intToIPv4 convert between dotted-quad and uint32. Used to
-    // derive first/last usable host ints for non-byte-aligned IPv4 prefixes
-    // (the /23, /28 fallback path: one bounded number input).
-    function ipv4ToInt(addr) {
-        var p = addr.split(".");
-        if (p.length !== 4) { return null; }
-        var n = 0;
-        for (var i = 0; i < 4; i++) {
-            var o = parseInt(p[i], 10);
-            if (isNaN(o) || o < 0 || o > 255) { return null; }
-            n = (n * 256) + o;
-        }
-        return n;
-    }
-
-    function intToIPv4(n) {
-        return [
-            (n >>> 24) & 0xff,
-            (n >>> 16) & 0xff,
-            (n >>> 8) & 0xff,
-            n & 0xff
-        ].join(".");
-    }
-
-    // expandIPv6 normalizes an IPv6 address to eight uppercase 4-digit hex
-    // groups (no `::` shorthand). Used to seed the segment inputs from the
-    // network's prefix and from any pre-filled error-rerender value.
-    function expandIPv6(addr) {
-        if (!addr) { return null; }
-        var halves = addr.split("::");
-        if (halves.length > 2) { return null; }
-        var left = halves[0] ? halves[0].split(":") : [];
-        var right = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
-        var missing = 8 - left.length - right.length;
-        if (missing < 0) { return null; }
-        var fill = [];
-        for (var i = 0; i < missing; i++) { fill.push("0"); }
-        var parts = left.concat(fill).concat(right);
-        if (parts.length !== 8) { return null; }
-        for (var j = 0; j < 8; j++) {
-            if (parts[j] === "") { return null; }
-            if (!/^[0-9a-fA-F]{1,4}$/.test(parts[j])) { return null; }
-            parts[j] = ("0000" + parts[j].toUpperCase()).slice(-4);
-        }
-        return parts;
-    }
-
-    function clearSegments() {
-        while (segments.firstChild) { segments.removeChild(segments.firstChild); }
-        segments.style.display = "none";
-        ipInput.style.display = "";
-    }
-
-    // mountIPv4Octets renders the byte-aligned IPv4 widget: the prefix
-    // octets locked in a read-only label, the host octets as `<input
-    // type="number" min="0" max="255">`. Submitting an out-of-range value
-    // is blocked by the browser before the form ever POSTs.
-    function mountIPv4Octets(prefixOctets, hostCount, initialOctets) {
-        clearSegments();
-        segments.style.display = "flex";
-        segments.style.flexWrap = "wrap";
-        segments.style.alignItems = "center";
-        segments.style.gap = "4px";
-
-        var lockLabel = document.createElement("span");
-        lockLabel.textContent = prefixOctets.join(".") + ".";
-        lockLabel.style.fontFamily = "var(--font-mono, monospace)";
-        lockLabel.style.color = "var(--text-muted)";
-        lockLabel.setAttribute("data-role", "nebula-ip-prefix");
-        segments.appendChild(lockLabel);
-
-        var inputs = [];
-        for (var i = 0; i < hostCount; i++) {
-            if (i > 0) {
-                var dot = document.createElement("span");
-                dot.textContent = ".";
-                segments.appendChild(dot);
-            }
-            var input = document.createElement("input");
-            input.type = "number";
-            input.min = "0";
-            input.max = "255";
-            input.className = "form-control nebula-ip-octet";
-            input.style.width = "70px";
-            input.setAttribute("data-role", "nebula-ip-octet");
-            input.setAttribute("data-index", String(i));
-            if (initialOctets && initialOctets[i] !== undefined) {
-                input.value = String(initialOctets[i]);
-            }
-            input.addEventListener("input", syncIPv4Octets);
-            segments.appendChild(input);
-            inputs.push(input);
-        }
-
-        ipInput.style.display = "none";
-        syncIPv4Octets();
-
-        function syncIPv4Octets() {
-            var parts = prefixOctets.slice();
-            for (var k = 0; k < inputs.length; k++) {
-                var v = inputs[k].value;
-                if (v === "") { ipInput.value = ""; return; }
-                var n = parseInt(v, 10);
-                if (isNaN(n) || n < 0 || n > 255) { ipInput.value = ""; return; }
-                parts.push(n);
-            }
-            ipInput.value = parts.join(".");
-        }
-    }
-
-    // mountIPv4Bounded renders the non-byte-aligned IPv4 fallback: a
-    // single numeric input bounded to the prefix's first/last usable
-    // host int. The label shows the network address so the operator
-    // understands what their number maps to.
-    function mountIPv4Bounded(cidr, baseInt, minOffset, maxOffset, initialOffset) {
-        clearSegments();
-        segments.style.display = "flex";
-        segments.style.alignItems = "center";
-        segments.style.gap = "4px";
-
-        var lockLabel = document.createElement("span");
-        lockLabel.textContent = "host offset in " + cidr + ":";
-        lockLabel.style.color = "var(--text-muted)";
-        lockLabel.setAttribute("data-role", "nebula-ip-bounded-label");
-        segments.appendChild(lockLabel);
-
-        var input = document.createElement("input");
-        input.type = "number";
-        input.min = String(minOffset);
-        input.max = String(maxOffset);
-        input.className = "form-control nebula-ip-bounded";
-        input.style.width = "120px";
-        input.setAttribute("data-role", "nebula-ip-bounded");
-        if (initialOffset !== null && initialOffset !== undefined) {
-            input.value = String(initialOffset);
-        }
-        input.addEventListener("input", function() {
-            var v = input.value;
-            if (v === "") { ipInput.value = ""; return; }
-            var n = parseInt(v, 10);
-            if (isNaN(n) || n < minOffset || n > maxOffset) { ipInput.value = ""; return; }
-            ipInput.value = intToIPv4(baseInt + n);
+        // Update parent_cidr_* selects visibility for all IP rows
+        var rows = document.querySelectorAll(".ip-row");
+        rows.forEach(function(row) {
+            var selects = row.querySelectorAll("select[name^='parent_cidr_']");
+            selects.forEach(function(sel) {
+                sel.style.display = cidrs.length > 1 ? "block" : "none";
+            });
         });
-        segments.appendChild(input);
+    };
 
-        var resolved = document.createElement("span");
-        resolved.style.color = "var(--text-muted)";
-        resolved.setAttribute("data-role", "nebula-ip-bounded-resolved");
-        segments.appendChild(resolved);
+    // Setup add/remove row handlers
+    document.addEventListener("click", function(e) {
+        var addBtn = e.target.closest('[data-action^="add-"]');
+        if (addBtn) {
+            var action = addBtn.dataset.action;  // "add-cidr" or "add-ip"
+            var containerID = action === "add-cidr" ? "cidr-rows" : "nebula-ip-rows";
+            var container = document.getElementById(containerID);
+            if (!container) return;
 
-        function updateResolved() {
-            resolved.textContent = ipInput.value ? "→ " + ipInput.value : "";
-        }
-        input.addEventListener("input", updateResolved);
+            var lastRow = container.lastElementChild;
+            var newRow = lastRow.cloneNode(true);
 
-        ipInput.style.display = "none";
-        if (input.value !== "") {
-            input.dispatchEvent(new Event("input"));
-        }
-    }
+            // Clear input values and error messages
+            newRow.querySelectorAll("input[type='text']").forEach(function(i) { i.value = ""; });
+            var err = newRow.querySelector(".error-inline");
+            if (err) err.remove();
 
-    // mountIPv6Segments renders the IPv6 byte-aligned widget: the
-    // prefix groups locked as a read-only label, the host groups as
-    // `<input pattern="[0-9a-fA-F]{1,4}">` slots. Non-byte-aligned IPv6
-    // (e.g. /60) falls through to the text-input fallback because a
-    // numeric range on partial-group bits isn't a usable shape.
-    function mountIPv6Segments(prefixGroups, hostCount, initialGroups) {
-        clearSegments();
-        segments.style.display = "flex";
-        segments.style.flexWrap = "wrap";
-        segments.style.alignItems = "center";
-        segments.style.gap = "4px";
+            // Update row ID for new row
+            var rowId = parseInt(lastRow.getAttribute("data-row-id")) + 1;
+            newRow.setAttribute("data-row-id", rowId);
 
-        var lockLabel = document.createElement("span");
-        lockLabel.textContent = prefixGroups.join(":") + ":";
-        lockLabel.style.fontFamily = "var(--font-mono, monospace)";
-        lockLabel.style.color = "var(--text-muted)";
-        lockLabel.setAttribute("data-role", "nebula-ip-prefix");
-        segments.appendChild(lockLabel);
+            // Update input names to match new row index
+            newRow.querySelectorAll("input, select").forEach(function(el) {
+                var name = el.getAttribute("name");
+                if (name && name.includes("_")) {
+                    var prefix = name.split("_").slice(0, -1).join("_");
+                    el.setAttribute("name", prefix + "_" + rowId);
+                }
+            });
 
-        var inputs = [];
-        for (var i = 0; i < hostCount; i++) {
-            if (i > 0) {
-                var sep = document.createElement("span");
-                sep.textContent = ":";
-                segments.appendChild(sep);
-            }
-            var input = document.createElement("input");
-            input.type = "text";
-            input.pattern = "[0-9a-fA-F]{1,4}";
-            input.maxLength = 4;
-            input.className = "form-control nebula-ip-hex";
-            input.style.width = "70px";
-            input.style.fontFamily = "var(--font-mono, monospace)";
-            input.setAttribute("data-role", "nebula-ip-hex");
-            input.setAttribute("data-index", String(i));
-            if (initialGroups && initialGroups[i] !== undefined) {
-                input.value = initialGroups[i];
-            }
-            input.addEventListener("input", syncIPv6Hex);
-            segments.appendChild(input);
-            inputs.push(input);
-        }
-
-        ipInput.style.display = "none";
-        syncIPv6Hex();
-
-        function syncIPv6Hex() {
-            var parts = prefixGroups.slice();
-            for (var k = 0; k < inputs.length; k++) {
-                var v = inputs[k].value.trim();
-                if (v === "") { ipInput.value = ""; return; }
-                if (!/^[0-9a-fA-F]{1,4}$/.test(v)) { ipInput.value = ""; return; }
-                parts.push(v);
-            }
-            ipInput.value = parts.join(":");
-        }
-    }
-
-    function fallbackTextInput(cidr) {
-        clearSegments();
-        if (cidr) {
-            hint.textContent = "Network " + cidr + " — enter any IP within the range.";
-        } else {
-            hint.textContent = "";
-        }
-    }
-
-    // chooseWidget decides which widget to render for the selected CIDR.
-    // Order matches the issue acceptance criteria: (1) byte-aligned IPv4,
-    // (2) non-byte-aligned IPv4 with bounded numeric input, (3) IPv6
-    // byte-aligned hex segments, (4) anything else → text fallback.
-    function chooseWidget() {
-        var opt = sel.options[sel.selectedIndex];
-        var cidr = opt ? opt.getAttribute("data-cidr") : "";
-        var parsed = parseCIDR(cidr);
-        if (!parsed) {
-            fallbackTextInput("");
+            container.appendChild(newRow);
             return;
         }
 
-        if (parsed.family === 4) {
-            var addrInt = ipv4ToInt(parsed.addr);
-            if (addrInt === null) { fallbackTextInput(cidr); return; }
-            if (parsed.bits === 8 || parsed.bits === 16 || parsed.bits === 24) {
-                var octets = parsed.addr.split(".").map(function(s){ return parseInt(s, 10); });
-                var prefixOctetCount = parsed.bits / 8;
-                var prefixOctets = octets.slice(0, prefixOctetCount);
-                var hostCount = 4 - prefixOctetCount;
-                var existing = ipInput.value;
-                var initial = null;
-                if (existing) {
-                    var m = existing.split(".").map(function(s){ return parseInt(s, 10); });
-                    if (m.length === 4 && m.every(function(n){ return !isNaN(n); })) {
-                        initial = m.slice(prefixOctetCount);
-                    }
-                }
-                hint.textContent = "Network " + cidr + " — fill in the host portion only.";
-                mountIPv4Octets(prefixOctets, hostCount, initial);
-                return;
-            }
-            if (parsed.bits >= 1 && parsed.bits <= 31) {
-                var maskBits = parsed.bits === 0 ? 0 : (0xFFFFFFFF << (32 - parsed.bits)) >>> 0;
-                var baseInt = (addrInt & maskBits) >>> 0;
-                var blockSize = Math.pow(2, 32 - parsed.bits);
-                var minOffset = parsed.bits <= 30 ? 1 : 0;
-                var maxOffset = parsed.bits <= 30 ? blockSize - 2 : blockSize - 1;
-                var initial = null;
-                var existingInt = ipv4ToInt(ipInput.value);
-                if (existingInt !== null && existingInt >= baseInt + minOffset && existingInt <= baseInt + maxOffset) {
-                    initial = existingInt - baseInt;
-                }
-                hint.textContent = "Network " + cidr + " — usable host offset " + minOffset + "–" + maxOffset + ".";
-                mountIPv4Bounded(cidr, baseInt, minOffset, maxOffset, initial);
-                return;
-            }
-            fallbackTextInput(cidr);
-            return;
+        var removeBtn = e.target.closest("[data-action='remove']");
+        if (removeBtn) {
+            var row = removeBtn.closest(".cidr-row, .ip-row");
+            if (!row) return;
+            var container = row.parentElement;
+            if (container.children.length > 1) row.remove();
         }
+    });
 
-        if (parsed.family === 6) {
-            if (parsed.bits % 16 === 0 && parsed.bits >= 16 && parsed.bits <= 112) {
-                var groups = expandIPv6(parsed.addr);
-                if (!groups) { fallbackTextInput(cidr); return; }
-                var prefixGroupCount = parsed.bits / 16;
-                var prefixGroups = groups.slice(0, prefixGroupCount);
-                var hostGroupCount = 8 - prefixGroupCount;
-                var existingGroups = expandIPv6(ipInput.value);
-                var initial = null;
-                if (existingGroups) {
-                    initial = existingGroups.slice(prefixGroupCount);
-                }
-                hint.textContent = "Network " + cidr + " — enter the host groups (4 hex chars each).";
-                mountIPv6Segments(prefixGroups, hostGroupCount, initial);
-                return;
-            }
-            fallbackTextInput(cidr);
-            return;
-        }
-
-        fallbackTextInput(cidr);
-    }
-
-    // computeByteAlignedPrefix is kept as a named export so existing
-    // template tests (and any future ones) can still grep for it. The
-    // implementation now defers to chooseWidget's branches above.
-    function computeByteAlignedPrefix() { return ""; }
-    void computeByteAlignedPrefix;
-
-    sel.addEventListener("change", chooseWidget);
-    chooseWidget();
+    // Initialize on load
+    onNetworkChange();
 })();
 </script>
 {{end}}

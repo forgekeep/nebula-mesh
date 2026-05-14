@@ -147,3 +147,67 @@ func TestSign_CertPEM(t *testing.T) {
 		t.Errorf("parsed name = %q, want %q", parsed.Name(), "pem-host")
 	}
 }
+
+func TestSign_MultiPrefix_V2_RoundTrip(t *testing.T) {
+	ca := newTestCA(t)
+	pub, _ := generateHostKeypair(t)
+
+	// Create request with multiple prefixes (dual-family)
+	req := SignRequest{
+		Name:      "host1",
+		PublicKey: pub,
+		Networks: []netip.Prefix{
+			netip.MustParsePrefix("10.0.0.5/24"),
+			netip.MustParsePrefix("fd00::5/64"),
+		},
+		Groups:   nil,
+		Duration: 1 * time.Hour,
+	}
+
+	hostCert, err := ca.Sign(req)
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+
+	// Verify certificate version is V2
+	if hostCert.Version() != cert.Version2 {
+		t.Errorf("version = %d, want %d", hostCert.Version(), cert.Version2)
+	}
+
+	// Verify networks count and order
+	networks := hostCert.Networks()
+	if len(networks) != 2 {
+		t.Fatalf("len(networks) = %d, want 2", len(networks))
+	}
+
+	// Check exact order and values
+	if networks[0].String() != "10.0.0.5/24" {
+		t.Errorf("networks[0] = %s, want 10.0.0.5/24", networks[0].String())
+	}
+	if networks[1].String() != "fd00::5/64" {
+		t.Errorf("networks[1] = %s, want fd00::5/64", networks[1].String())
+	}
+
+	// Round-trip: marshal to PEM and unmarshal
+	pem, err := hostCert.MarshalPEM()
+	if err != nil {
+		t.Fatalf("MarshalPEM: %v", err)
+	}
+
+	parsed, _, err := cert.UnmarshalCertificateFromPEM(pem)
+	if err != nil {
+		t.Fatalf("UnmarshalCertificateFromPEM: %v", err)
+	}
+
+	// Verify parsed cert preserves multi-prefix and order
+	parsedNetworks := parsed.Networks()
+	if len(parsedNetworks) != 2 {
+		t.Fatalf("parsed networks len = %d, want 2", len(parsedNetworks))
+	}
+	if parsedNetworks[0].String() != "10.0.0.5/24" {
+		t.Errorf("parsed networks[0] = %s, want 10.0.0.5/24", parsedNetworks[0].String())
+	}
+	if parsedNetworks[1].String() != "fd00::5/64" {
+		t.Errorf("parsed networks[1] = %s, want fd00::5/64", parsedNetworks[1].String())
+	}
+}

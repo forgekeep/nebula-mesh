@@ -151,11 +151,11 @@ func TestDashboard_Authenticated(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	ctx := context.Background()
-	if err := s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "demo", CIDR: "10.0.0.0/24", CreatedAt: time.Now()}); err != nil {
+	if err := s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "demo", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CreateHost(ctx, &models.Host{
-		ID: "h1", NetworkID: "net1", Name: "web-1", NebulaIP: "10.0.0.1",
+		ID: "h1", NetworkID: "net1", Name: "web-1", NebulaIPs:  []string{"10.0.0.1"},
 		Groups: []string{"web"}, Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}); err != nil {
@@ -190,9 +190,9 @@ func TestHostsPage(t *testing.T) {
 
 	// Create test data
 	ctx := context.Background()
-	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "test", CIDR: "10.0.0.0/24", CreatedAt: time.Now()})
+	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "test", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now()})
 	s.CreateHost(ctx, &models.Host{
-		ID: "h1", NetworkID: "net1", Name: "web-1", NebulaIP: "10.0.0.1",
+		ID: "h1", NetworkID: "net1", Name: "web-1", NebulaIPs:  []string{"10.0.0.1"},
 		Groups: []string{"web"}, Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	})
@@ -227,7 +227,7 @@ func TestNetworksPage(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	ctx := context.Background()
-	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "prod", CIDR: "10.0.0.0/24", CreatedAt: time.Now()})
+	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "prod", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now()})
 
 	req := httptest.NewRequest("GET", "/ui/networks", nil)
 	for _, c := range cookies {
@@ -249,12 +249,12 @@ func TestCreateHostViaUI(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	ctx := context.Background()
-	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "test", CIDR: "10.0.0.0/24", CreatedAt: time.Now()})
+	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "test", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now()})
 
 	form := url.Values{
 		"network_id": {"net1"},
 		"name":       {"new-host"},
-		"nebula_ip":  {"10.0.0.5"},
+		"nebula_ips":  {"10.0.0.5"},
 		"role":       {"host"},
 	}
 	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
@@ -283,12 +283,12 @@ func TestCreateHostViaUI_InvalidPort(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	ctx := context.Background()
-	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "test", CIDR: "10.0.0.0/24", CreatedAt: time.Now()})
+	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "test", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now()})
 
 	form := url.Values{
 		"network_id":  {"net1"},
 		"name":        {"bad-port-host"},
-		"nebula_ip":   {"10.0.0.5"},
+		"nebula_ips":   {"10.0.0.5"},
 		"listen_port": {"70000"},
 	}
 	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))

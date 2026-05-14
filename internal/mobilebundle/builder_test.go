@@ -34,9 +34,9 @@ func TestBuild_RoundTrip(t *testing.T) {
 
 	// Create network.
 	network := &models.Network{
-		ID:   "net-1",
-		Name: "test-network",
-		CIDR: "10.0.0.0/8",
+		ID:    "net-1",
+		Name:  "test-network",
+		CIDRs: []string{"10.0.0.0/8"},
 	}
 	err = s.CreateNetwork(ctx, network)
 	require.NoError(t, err)
@@ -46,7 +46,7 @@ func TestBuild_RoundTrip(t *testing.T) {
 		ID:        "mobile-1",
 		Name:      "phone-a",
 		NetworkID: network.ID,
-		NebulaIP:  "10.0.0.5",
+		NebulaIPs: []string{"10.0.0.5"},
 		Kind:      models.HostKindMobile,
 		Variant:   models.HostVariantIOS,
 		Role:      models.HostRoleHost,
@@ -144,9 +144,9 @@ func TestBuild_Rotate(t *testing.T) {
 	resolver := &StubCAResolver{ca: ca}
 
 	network := &models.Network{
-		ID:   "net-1",
-		Name: "test-network",
-		CIDR: "10.0.0.0/8",
+		ID:    "net-1",
+		Name:  "test-network",
+		CIDRs: []string{"10.0.0.0/8"},
 	}
 	err = s.CreateNetwork(ctx, network)
 	require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestBuild_Rotate(t *testing.T) {
 		ID:        "mobile-1",
 		Name:      "phone-a",
 		NetworkID: network.ID,
-		NebulaIP:  "10.0.0.5",
+		NebulaIPs: []string{"10.0.0.5"},
 		Kind:      models.HostKindMobile,
 		Variant:   models.HostVariantAndroid,
 		Role:      models.HostRoleHost,
@@ -211,9 +211,9 @@ func TestBuild_RejectsNonMobile(t *testing.T) {
 	resolver := &StubCAResolver{ca: ca}
 
 	network := &models.Network{
-		ID:   "net-1",
-		Name: "test-network",
-		CIDR: "10.0.0.0/8",
+		ID:    "net-1",
+		Name:  "test-network",
+		CIDRs: []string{"10.0.0.0/8"},
 	}
 	err = s.CreateNetwork(ctx, network)
 	require.NoError(t, err)
@@ -223,7 +223,7 @@ func TestBuild_RejectsNonMobile(t *testing.T) {
 		ID:        "agent-1",
 		Name:      "server-a",
 		NetworkID: network.ID,
-		NebulaIP:  "10.0.0.1",
+		NebulaIPs: []string{"10.0.0.1"},
 		Kind:      models.HostKindAgent,
 		Variant:   models.HostVariantNone,
 		Role:      models.HostRoleHost,

@@ -132,7 +132,7 @@ type Host struct {
 	NetworkID           string        `json:"network_id"`
 	CAID                string        `json:"ca_id,omitempty"`
 	Name                string        `json:"name"`
-	NebulaIP            string        `json:"nebula_ip"`
+	NebulaIPs           []string      `json:"nebula_ips"`
 	Groups              []string      `json:"groups"`
 	Role                HostRole      `json:"role"`
 	IsLighthouse        bool          `json:"is_lighthouse"`
@@ -153,6 +153,11 @@ type Host struct {
 	CreatedAt           time.Time     `json:"created_at"`
 	UpdatedAt           time.Time     `json:"updated_at"`
 }
+
+// MaxAddressesPerHost is the maximum number of overlay addresses a host can have.
+// This is a soft limit to prevent cert bloat; Nebula v2 certs have no hard limit
+// but practical deployments should not exceed this without good reason.
+const MaxAddressesPerHost = 16
 
 // UnsafeRoute is a single "unsafe route" entry: traffic for `Route` is sent
 // through the host with Nebula IP `Via`. See Nebula's tun.unsafe_routes.

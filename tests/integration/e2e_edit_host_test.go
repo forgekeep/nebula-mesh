@@ -34,7 +34,7 @@ func enrollHostForPoll(t *testing.T, ts *httptest.Server, s *store.SQLiteStore, 
 	resp := apiCall(t, ts, "POST", "/api/v1/hosts", map[string]any{
 		"network_id": networkID,
 		"name":       hostName,
-		"nebula_ip":  nebulaIP,
+		"nebula_ips": []string{nebulaIP},
 	})
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
@@ -98,9 +98,9 @@ func TestE2E_EditHostAdvanced_TriggersConfigUpdate(t *testing.T) {
 	ts, s, _ := setupE2E(t)
 
 	// 1. Create network
-	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]string{
-		"name": "e2e-edit-net",
-		"cidr": "192.168.100.0/24",
+	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]any{
+		"name":  "e2e-edit-net",
+		"cidrs": []string{"192.168.100.0/24"},
 	})
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
@@ -204,9 +204,9 @@ func TestE2E_RenameHost_TriggersRekey(t *testing.T) {
 	ts, s, _ := setupE2E(t)
 
 	// 1. Create network
-	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]string{
-		"name": "e2e-rename-net",
-		"cidr": "192.168.100.0/24",
+	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]any{
+		"name":  "e2e-rename-net",
+		"cidrs": []string{"192.168.100.0/24"},
 	})
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)

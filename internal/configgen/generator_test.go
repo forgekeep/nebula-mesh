@@ -14,7 +14,7 @@ import (
 func TestGenerate_RegularHost(t *testing.T) {
 	input := GeneratorInput{
 		HostName:    "web-1",
-		NebulaIP:    "192.168.100.10",
+		NebulaIPs:   []string{"192.168.100.10"},
 		IsLighthouse: false,
 		IsRelay:     false,
 		CACertPath:  "/etc/nebula/ca.crt",
@@ -22,7 +22,7 @@ func TestGenerate_RegularHost(t *testing.T) {
 		KeyPath:     "/etc/nebula/host.key",
 		ListenPort:  0,
 		Lighthouses: []LighthouseInfo{
-			{NebulaIP: "192.168.100.1", PublicAddr: "203.0.113.10:4242"},
+			{NebulaIPs: []string{"192.168.100.1"}, PublicAddr: "203.0.113.10:4242"},
 		},
 		FirewallInbound: []FirewallRule{
 			{Port: "any", Proto: "icmp", Group: "any"},
@@ -63,7 +63,7 @@ func TestGenerate_RegularHost(t *testing.T) {
 func TestGenerate_Lighthouse(t *testing.T) {
 	input := GeneratorInput{
 		HostName:     "lighthouse-1",
-		NebulaIP:     "192.168.100.1",
+		NebulaIPs:    []string{"192.168.100.1"},
 		IsLighthouse: true,
 		CACertPath:   "/etc/nebula/ca.crt",
 		CertPath:     "/etc/nebula/host.crt",
@@ -100,14 +100,14 @@ func TestGenerate_Lighthouse(t *testing.T) {
 func TestGenerate_Relay(t *testing.T) {
 	input := GeneratorInput{
 		HostName:    "relay-1",
-		NebulaIP:    "192.168.100.2",
+		NebulaIPs:   []string{"192.168.100.2"},
 		IsRelay:     true,
 		CACertPath:  "/etc/nebula/ca.crt",
 		CertPath:    "/etc/nebula/host.crt",
 		KeyPath:     "/etc/nebula/host.key",
 		ListenPort:  4242,
 		Lighthouses: []LighthouseInfo{
-			{NebulaIP: "192.168.100.1", PublicAddr: "203.0.113.10:4242"},
+			{NebulaIPs: []string{"192.168.100.1"}, PublicAddr: "203.0.113.10:4242"},
 		},
 		Relays: []string{"192.168.100.2"},
 		FirewallInbound: []FirewallRule{
@@ -137,7 +137,7 @@ func TestGenerate_Relay(t *testing.T) {
 func TestGenerate_FallbackToPaths(t *testing.T) {
 	input := GeneratorInput{
 		HostName:     "web-1",
-		NebulaIP:     "192.168.100.10",
+		NebulaIPs:    []string{"192.168.100.10"},
 		IsLighthouse: false,
 		IsRelay:      false,
 		CACertPath:   "/etc/nebula/ca.crt",
@@ -145,7 +145,7 @@ func TestGenerate_FallbackToPaths(t *testing.T) {
 		KeyPath:      "/etc/nebula/host.key",
 		ListenPort:   0,
 		Lighthouses: []LighthouseInfo{
-			{NebulaIP: "192.168.100.1", PublicAddr: "203.0.113.10:4242"},
+			{NebulaIPs: []string{"192.168.100.1"}, PublicAddr: "203.0.113.10:4242"},
 		},
 		FirewallInbound: []FirewallRule{
 			{Port: "any", Proto: "icmp", Group: "any"},
@@ -199,12 +199,12 @@ KEY...KEY...KEY
 
 	input := GeneratorInput{
 		HostName:     "mobile-1",
-		NebulaIP:     "192.168.100.50",
+		NebulaIPs:    []string{"192.168.100.50"},
 		IsLighthouse: false,
 		IsRelay:      false,
 		ListenPort:   0,
 		Lighthouses: []LighthouseInfo{
-			{NebulaIP: "192.168.100.1", PublicAddr: "203.0.113.10:4242"},
+			{NebulaIPs: []string{"192.168.100.1"}, PublicAddr: "203.0.113.10:4242"},
 		},
 		FirewallInbound: []FirewallRule{
 			{Port: "any", Proto: "icmp", Group: "any"},
@@ -252,6 +252,129 @@ KEY...KEY...KEY
 	}
 }
 
+// Task 2.3 tests: multi-address lighthouses
+
+func TestGenerate_StaticHostMap_PerAddress(t *testing.T) {
+	input := GeneratorInput{
+		HostName:    "web-1",
+		NebulaIPs:   []string{"10.0.0.5", "fd00::5"},
+		IsLighthouse: false,
+		IsRelay:     false,
+		CACertPath:  "/etc/nebula/ca.crt",
+		CertPath:    "/etc/nebula/host.crt",
+		KeyPath:     "/etc/nebula/host.key",
+		ListenPort:  0,
+		Lighthouses: []LighthouseInfo{
+			{NebulaIPs: []string{"10.0.0.1", "fd00::1"}, PublicAddr: "1.2.3.4:4242"},
+		},
+		FirewallInbound: []FirewallRule{
+			{Port: "any", Proto: "icmp", Group: "any"},
+		},
+		FirewallOutbound: []FirewallRule{
+			{Port: "any", Proto: "any", Group: "any"},
+		},
+	}
+
+	data, err := Generate(input)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	s := string(data)
+	// Should have one static_host_map entry per lighthouse IP
+	if !strings.Contains(s, `"10.0.0.1": ["1.2.3.4:4242"]`) {
+		t.Error("missing IPv4 lighthouse in static_host_map")
+	}
+	if !strings.Contains(s, `"fd00::1": ["1.2.3.4:4242"]`) {
+		t.Error("missing IPv6 lighthouse in static_host_map")
+	}
+}
+
+func TestGenerate_LighthouseHosts_AllAddresses(t *testing.T) {
+	input := GeneratorInput{
+		HostName:    "web-1",
+		NebulaIPs:   []string{"10.0.0.5"},
+		IsLighthouse: false,
+		IsRelay:     false,
+		CACertPath:  "/etc/nebula/ca.crt",
+		CertPath:    "/etc/nebula/host.crt",
+		KeyPath:     "/etc/nebula/host.key",
+		ListenPort:  0,
+		Lighthouses: []LighthouseInfo{
+			{NebulaIPs: []string{"10.0.0.1", "fd00::1"}, PublicAddr: "1.2.3.4:4242"},
+		},
+		FirewallInbound: []FirewallRule{
+			{Port: "any", Proto: "icmp", Group: "any"},
+		},
+		FirewallOutbound: []FirewallRule{
+			{Port: "any", Proto: "any", Group: "any"},
+		},
+	}
+
+	data, err := Generate(input)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	s := string(data)
+	// lighthouse.hosts should contain both addresses
+	if !strings.Contains(s, `- "10.0.0.1"`) {
+		t.Error("missing IPv4 lighthouse in lighthouse.hosts")
+	}
+	if !strings.Contains(s, `- "fd00::1"`) {
+		t.Error("missing IPv6 lighthouse in lighthouse.hosts")
+	}
+}
+
+func TestGenerate_MultipleLighthousesEachMulti(t *testing.T) {
+	input := GeneratorInput{
+		HostName:    "web-1",
+		NebulaIPs:   []string{"10.0.0.5"},
+		IsLighthouse: false,
+		IsRelay:     false,
+		CACertPath:  "/etc/nebula/ca.crt",
+		CertPath:    "/etc/nebula/host.crt",
+		KeyPath:     "/etc/nebula/host.key",
+		ListenPort:  0,
+		Lighthouses: []LighthouseInfo{
+			{NebulaIPs: []string{"10.0.0.1", "fd00::1"}, PublicAddr: "1.2.3.4:4242"},
+			{NebulaIPs: []string{"10.0.0.2", "fd00::2"}, PublicAddr: "5.6.7.8:4242"},
+		},
+		FirewallInbound: []FirewallRule{
+			{Port: "any", Proto: "icmp", Group: "any"},
+		},
+		FirewallOutbound: []FirewallRule{
+			{Port: "any", Proto: "any", Group: "any"},
+		},
+	}
+
+	data, err := Generate(input)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	s := string(data)
+	// Should have 4 entries in static_host_map (2 lighthouses × 2 IPs each)
+	if !strings.Contains(s, `"10.0.0.1": ["1.2.3.4:4242"]`) {
+		t.Error("missing first lighthouse IPv4")
+	}
+	if !strings.Contains(s, `"fd00::1": ["1.2.3.4:4242"]`) {
+		t.Error("missing first lighthouse IPv6")
+	}
+	if !strings.Contains(s, `"10.0.0.2": ["5.6.7.8:4242"]`) {
+		t.Error("missing second lighthouse IPv4")
+	}
+	if !strings.Contains(s, `"fd00::2": ["5.6.7.8:4242"]`) {
+		t.Error("missing second lighthouse IPv6")
+	}
+
+	// Parse to ensure valid YAML
+	var parsed map[string]any
+	if err := yaml.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("invalid YAML: %v\n%s", err, string(data))
+	}
+}
+
 func TestGenerate_InlinePEM_RoundTrip(t *testing.T) {
 	// Generate real CA and host certificates
 	caMgr, _, err := pki.NewCA("test-ca", 365*24*time.Hour)
@@ -291,12 +414,12 @@ func TestGenerate_InlinePEM_RoundTrip(t *testing.T) {
 
 	input := GeneratorInput{
 		HostName:     "mobile-test",
-		NebulaIP:     "192.168.100.50",
+		NebulaIPs:    []string{"192.168.100.50"},
 		IsLighthouse: false,
 		IsRelay:      false,
 		ListenPort:   0,
 		Lighthouses: []LighthouseInfo{
-			{NebulaIP: "192.168.100.1", PublicAddr: "203.0.113.10:4242"},
+			{NebulaIPs: []string{"192.168.100.1"}, PublicAddr: "203.0.113.10:4242"},
 		},
 		FirewallInbound: []FirewallRule{
 			{Port: "any", Proto: "icmp", Group: "any"},

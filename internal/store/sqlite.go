@@ -89,6 +89,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"011_server_settings.up.sql",
 		"012_agent_auth.up.sql",
 		"013_host_mobile.up.sql",
+		"014_multi_address.up.sql",
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.
@@ -258,35 +259,32 @@ func (s *SQLiteStore) Ping(ctx context.Context) error {
 
 // --- Networks ---
 
-func (s *SQLiteStore) CreateNetwork(_ context.Context, n *models.Network) error {
-	_, err := s.db.Exec(
-		`INSERT INTO networks (id, name, cidr, created_at, ca_id) VALUES (?, ?, ?, ?, ?)`,
-		n.ID, n.Name, n.CIDR, n.CreatedAt, n.CAID,
-	)
-	if err != nil {
-		return fmt.Errorf("insert network: %w", err)
+// setNetworkCIDRs replaces all CIDRs for a network in a transaction.
+// Deletes existing rows and inserts new ones with position-based ordering.
+func (s *SQLiteStore) setNetworkCIDRs(ctx context.Context, tx *sql.Tx, networkID string, cidrs []string) error {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM network_cidrs WHERE network_id = ?", networkID); err != nil {
+		return fmt.Errorf("delete network cidrs: %w", err)
+	}
+
+	for position, cidr := range cidrs {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO network_cidrs (network_id, position, cidr) VALUES (?, ?, ?)`,
+			networkID, position, cidr,
+		); err != nil {
+			return fmt.Errorf("insert network cidr at position %d: %w", position, err)
+		}
 	}
 	return nil
 }
 
-func (s *SQLiteStore) GetNetwork(_ context.Context, id string) (*models.Network, error) {
-	n := &models.Network{}
-	err := s.db.QueryRow(
-		`SELECT id, name, cidr, created_at, ca_id FROM networks WHERE id = ?`, id,
-	).Scan(&n.ID, &n.Name, &n.CIDR, &n.CreatedAt, &n.CAID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
+// loadNetworkCIDRs retrieves all CIDRs for a network in order.
+func (s *SQLiteStore) loadNetworkCIDRs(ctx context.Context, networkID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT cidr FROM network_cidrs WHERE network_id = ? ORDER BY position`,
+		networkID,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("get network: %w", err)
-	}
-	return n, nil
-}
-
-func (s *SQLiteStore) ListNetworks(_ context.Context) ([]*models.Network, error) {
-	rows, err := s.db.Query(`SELECT id, name, cidr, created_at, ca_id FROM networks ORDER BY name`)
-	if err != nil {
-		return nil, fmt.Errorf("list networks: %w", err)
+		return nil, fmt.Errorf("query network cidrs: %w", err)
 	}
 	defer func() {
 		if err := rows.Close(); err != nil {
@@ -294,20 +292,211 @@ func (s *SQLiteStore) ListNetworks(_ context.Context) ([]*models.Network, error)
 		}
 	}()
 
+	var cidrs []string
+	for rows.Next() {
+		var cidr string
+		if err := rows.Scan(&cidr); err != nil {
+			return nil, fmt.Errorf("scan cidr: %w", err)
+		}
+		cidrs = append(cidrs, cidr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate cidrs: %w", err)
+	}
+
+	// Return empty slice instead of nil for consistency
+	if cidrs == nil {
+		cidrs = make([]string, 0)
+	}
+	return cidrs, nil
+}
+
+func (s *SQLiteStore) CreateNetwork(ctx context.Context, n *models.Network) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO networks (id, name, created_at, ca_id) VALUES (?, ?, ?, ?)`,
+		n.ID, n.Name, n.CreatedAt, n.CAID,
+	); err != nil {
+		return fmt.Errorf("insert network: %w", err)
+	}
+
+	if err := s.setNetworkCIDRs(ctx, tx, n.ID, n.CIDRs); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) UpdateNetwork(ctx context.Context, n *models.Network) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	result, err := tx.ExecContext(ctx,
+		`UPDATE networks SET name = ?, ca_id = ? WHERE id = ?`,
+		n.Name, n.CAID, n.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update network: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+
+	if err := s.setNetworkCIDRs(ctx, tx, n.ID, n.CIDRs); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) GetNetwork(ctx context.Context, id string) (*models.Network, error) {
+	n := &models.Network{}
+	err := s.db.QueryRow(
+		`SELECT id, name, created_at, ca_id FROM networks WHERE id = ?`, id,
+	).Scan(&n.ID, &n.Name, &n.CreatedAt, &n.CAID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get network: %w", err)
+	}
+
+	cidrs, err := s.loadNetworkCIDRs(ctx, n.ID)
+	if err != nil {
+		return nil, err
+	}
+	n.CIDRs = cidrs
+
+	return n, nil
+}
+
+func (s *SQLiteStore) ListNetworks(ctx context.Context) ([]*models.Network, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, ca_id FROM networks ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list networks: %w", err)
+	}
+
+	// Scan all networks first before querying for CIDRs.
+	// This avoids nested queries on SQLite which can cause deadlocks.
 	result := make([]*models.Network, 0)
 	for rows.Next() {
 		n := &models.Network{}
-		if err := rows.Scan(&n.ID, &n.Name, &n.CIDR, &n.CreatedAt, &n.CAID); err != nil {
+		if err := rows.Scan(&n.ID, &n.Name, &n.CreatedAt, &n.CAID); err != nil {
+			_ = rows.Close()
 			return nil, fmt.Errorf("scan network: %w", err)
 		}
 		result = append(result, n)
 	}
-	return result, rows.Err()
+	_ = rows.Close()
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Load CIDRs for each network after closing the rows.
+	for _, n := range result {
+		cidrs, err := s.loadNetworkCIDRs(ctx, n.ID)
+		if err != nil {
+			return nil, err
+		}
+		n.CIDRs = cidrs
+	}
+
+	return result, nil
 }
 
 // --- Hosts ---
 
-func (s *SQLiteStore) CreateHost(_ context.Context, h *models.Host) error {
+// setHostAddresses replaces all addresses for a host in a transaction.
+// Deletes existing rows and inserts new ones with position-based ordering.
+func (s *SQLiteStore) setHostAddresses(ctx context.Context, tx *sql.Tx, hostID string, addrs []string) error {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM host_addresses WHERE host_id = ?", hostID); err != nil {
+		return fmt.Errorf("delete host addresses: %w", err)
+	}
+
+	for position, addr := range addrs {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO host_addresses (host_id, position, address) VALUES (?, ?, ?)`,
+			hostID, position, addr,
+		); err != nil {
+			return fmt.Errorf("insert host address at position %d: %w", position, err)
+		}
+	}
+	return nil
+}
+
+// loadHostAddresses retrieves all addresses for a host in order.
+func (s *SQLiteStore) loadHostAddresses(ctx context.Context, hostID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT address FROM host_addresses WHERE host_id = ? ORDER BY position`,
+		hostID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query host addresses: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("close rows", "error", err)
+		}
+	}()
+
+	var addrs []string
+	for rows.Next() {
+		var addr string
+		if err := rows.Scan(&addr); err != nil {
+			return nil, fmt.Errorf("scan address: %w", err)
+		}
+		addrs = append(addrs, addr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate addresses: %w", err)
+	}
+
+	// Return empty slice instead of nil for consistency
+	if addrs == nil {
+		addrs = make([]string, 0)
+	}
+	return addrs, nil
+}
+
+func (s *SQLiteStore) CreateHost(ctx context.Context, h *models.Host) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
 	groupsJSON, err := json.Marshal(h.Groups)
 	if err != nil {
 		return fmt.Errorf("marshal groups: %w", err)
@@ -317,16 +506,23 @@ func (s *SQLiteStore) CreateHost(_ context.Context, h *models.Host) error {
 		return err
 	}
 
-	_, err = s.db.Exec(
-		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		h.ID, h.NetworkID, h.Name, h.NebulaIP, string(groupsJSON),
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO hosts (id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		h.ID, h.NetworkID, h.Name, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
 		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON, h.CAID,
 		string(h.Kind), string(h.Variant),
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("insert host: %w", err)
+	}
+
+	if err := s.setHostAddresses(ctx, tx, h.ID, h.NebulaIPs); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -359,7 +555,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	var variant string
 
 	err := scanner.Scan(
-		&h.ID, &h.NetworkID, &h.Name, &h.NebulaIP, &groupsJSON,
+		&h.ID, &h.NetworkID, &h.Name, &groupsJSON,
 		&h.Role, &h.IsLighthouse, &h.IsRelay, &publicIP, &h.ListenPort,
 		&h.Status, &certFP, &certExpires, &lastSeen,
 		&h.CreatedAt, &h.UpdatedAt, &advancedJSON, &h.CAID,
@@ -406,9 +602,9 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	return h, nil
 }
 
-const hostColumns = `id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem, kind, variant`
+const hostColumns = `id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem, kind, variant`
 
-func (s *SQLiteStore) GetHost(_ context.Context, id string) (*models.Host, error) {
+func (s *SQLiteStore) GetHost(ctx context.Context, id string) (*models.Host, error) {
 	row := s.db.QueryRow(`SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
 	h, err := s.scanHost(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -417,6 +613,13 @@ func (s *SQLiteStore) GetHost(_ context.Context, id string) (*models.Host, error
 	if err != nil {
 		return nil, fmt.Errorf("get host: %w", err)
 	}
+
+	addrs, err := s.loadHostAddresses(ctx, h.ID)
+	if err != nil {
+		return nil, err
+	}
+	h.NebulaIPs = addrs
+
 	return h, nil
 }
 
@@ -428,7 +631,7 @@ func (s *SQLiteStore) GetHost(_ context.Context, id string) (*models.Host, error
 // The returned host's CertFingerprint always reflects the row's current
 // value; callers that need to know which fingerprint matched can compare
 // against the input.
-func (s *SQLiteStore) GetHostByFingerprint(_ context.Context, fingerprint string) (*models.Host, error) {
+func (s *SQLiteStore) GetHostByFingerprint(ctx context.Context, fingerprint string) (*models.Host, error) {
 	row := s.db.QueryRow(
 		`SELECT `+hostColumns+` FROM hosts WHERE cert_fingerprint = ? OR prev_cert_fingerprint = ?`,
 		fingerprint, fingerprint,
@@ -440,10 +643,17 @@ func (s *SQLiteStore) GetHostByFingerprint(_ context.Context, fingerprint string
 	if err != nil {
 		return nil, fmt.Errorf("get host by fingerprint: %w", err)
 	}
+
+	addrs, err := s.loadHostAddresses(ctx, h.ID)
+	if err != nil {
+		return nil, err
+	}
+	h.NebulaIPs = addrs
+
 	return h, nil
 }
 
-func (s *SQLiteStore) ListHosts(_ context.Context, filter HostFilter) ([]*models.Host, error) {
+func (s *SQLiteStore) ListHosts(ctx context.Context, filter HostFilter) ([]*models.Host, error) {
 	query := `SELECT ` + hostColumns + ` FROM hosts WHERE 1=1`
 	var args []any
 
@@ -468,30 +678,53 @@ func (s *SQLiteStore) ListHosts(_ context.Context, filter HostFilter) ([]*models
 		args = append(args, filter.Limit)
 	}
 
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list hosts: %w", err)
 	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			slog.Error("close rows", "error", err)
-		}
-	}()
 
+	// Scan all hosts first before querying for addresses.
+	// This avoids nested queries on SQLite which can cause deadlocks.
 	result := make([]*models.Host, 0)
 	for rows.Next() {
 		h, err := s.scanHost(rows)
 		if err != nil {
+			_ = rows.Close()
 			return nil, fmt.Errorf("scan host: %w", err)
 		}
 		result = append(result, h)
 	}
-	return result, rows.Err()
+	_ = rows.Close()
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Load addresses for each host after closing the rows.
+	for _, h := range result {
+		addrs, err := s.loadHostAddresses(ctx, h.ID)
+		if err != nil {
+			return nil, err
+		}
+		h.NebulaIPs = addrs
+	}
+
+	return result, nil
 }
 
 // UpdateHost persists all host fields.
 // NOTE: mutates h.UpdatedAt to current time.
-func (s *SQLiteStore) UpdateHost(_ context.Context, h *models.Host) error {
+func (s *SQLiteStore) UpdateHost(ctx context.Context, h *models.Host) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
 	groupsJSON, err := json.Marshal(h.Groups)
 	if err != nil {
 		return fmt.Errorf("marshal groups: %w", err)
@@ -502,13 +735,13 @@ func (s *SQLiteStore) UpdateHost(_ context.Context, h *models.Host) error {
 		return err
 	}
 	h.UpdatedAt = time.Now()
-	result, err := s.db.Exec(
-		`UPDATE hosts SET name=?, nebula_ip=?, groups_json=?, role=?, is_lighthouse=?, is_relay=?,
+	result, err := tx.ExecContext(ctx,
+		`UPDATE hosts SET name=?, groups_json=?, role=?, is_lighthouse=?, is_relay=?,
 		 public_ip=?, listen_port=?, status=?, cert_fingerprint=?, cert_expires_at=?,
-		 last_seen_at=?, updated_at=?, advanced_json=?, kind=?, variant=? WHERE id=?`,
-		h.Name, h.NebulaIP, string(groupsJSON), h.Role, h.IsLighthouse, h.IsRelay,
+		 last_seen_at=?, updated_at=?, advanced_json=?, kind=?, variant=?, pending_rekey=? WHERE id=?`,
+		h.Name, string(groupsJSON), h.Role, h.IsLighthouse, h.IsRelay,
 		h.PublicIP, h.ListenPort, h.Status, h.CertFingerprint, h.CertExpiresAt,
-		h.LastSeenAt, h.UpdatedAt, advancedJSON, string(h.Kind), string(h.Variant), h.ID,
+		h.LastSeenAt, h.UpdatedAt, advancedJSON, string(h.Kind), string(h.Variant), h.PendingRekey, h.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update host: %w", err)
@@ -520,6 +753,14 @@ func (s *SQLiteStore) UpdateHost(_ context.Context, h *models.Host) error {
 	}
 	if rows == 0 {
 		return ErrNotFound
+	}
+
+	if err := s.setHostAddresses(ctx, tx, h.ID, h.NebulaIPs); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -895,8 +1136,8 @@ func (s *SQLiteStore) UpdateHostSigningPub(_ context.Context, hostID, signingPub
 // --- Enrollment Tokens ---
 
 // CreateHostAndToken atomically creates a host and its enrollment token.
-func (s *SQLiteStore) CreateHostAndToken(_ context.Context, h *models.Host, t *models.EnrollmentToken) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t *models.EnrollmentToken) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -915,10 +1156,10 @@ func (s *SQLiteStore) CreateHostAndToken(_ context.Context, h *models.Host, t *m
 		return err
 	}
 
-	_, err = tx.Exec(
-		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		h.ID, h.NetworkID, h.Name, h.NebulaIP, string(groupsJSON),
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO hosts (id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		h.ID, h.NetworkID, h.Name, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
 		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON, h.CAID,
 		string(h.Kind), string(h.Variant),
@@ -927,7 +1168,11 @@ func (s *SQLiteStore) CreateHostAndToken(_ context.Context, h *models.Host, t *m
 		return fmt.Errorf("insert host: %w", err)
 	}
 
-	_, err = tx.Exec(
+	if err := s.setHostAddresses(ctx, tx, h.ID, h.NebulaIPs); err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx,
 		`INSERT INTO enrollment_tokens (id, host_id, token, used, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		t.ID, t.HostID, t.Token, false, t.ExpiresAt, t.CreatedAt,
 	)

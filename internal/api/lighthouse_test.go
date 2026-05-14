@@ -18,7 +18,7 @@ func enrollLighthouse(t *testing.T, srv *Server, networkID, hostID, name, nebula
 	now := time.Now()
 	h := &models.Host{
 		ID: hostID, NetworkID: networkID, Name: name,
-		NebulaIP: nebulaIP, Groups: []string{},
+		NebulaIPs: []string{nebulaIP}, Groups: []string{},
 		Role: models.HostRoleLighthouse, IsLighthouse: true,
 		PublicIP: publicIP, ListenPort: 4242,
 		Status:    models.HostStatusEnrolled,
@@ -44,7 +44,7 @@ func TestGetLighthouses_ExcludesPending(t *testing.T) {
 	// Lighthouse 2 — pending (not yet enrolled)
 	pending := &models.Host{
 		ID: "lh2", NetworkID: netID, Name: "lh-pending",
-		NebulaIP: "192.168.100.6", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.6"}, Groups: []string{},
 		Role: models.HostRoleLighthouse, IsLighthouse: true,
 		PublicIP: "5.6.7.8", ListenPort: 4242,
 		Status:    models.HostStatusPending,
@@ -61,8 +61,8 @@ func TestGetLighthouses_ExcludesPending(t *testing.T) {
 	if len(lhs) != 1 {
 		t.Fatalf("got %d lighthouses, want 1 (pending must be excluded): %+v", len(lhs), lhs)
 	}
-	if lhs[0].NebulaIP != "192.168.100.5" {
-		t.Errorf("nebula_ip = %q, want 192.168.100.5", lhs[0].NebulaIP)
+	if len(lhs[0].NebulaIPs) == 0 || lhs[0].NebulaIPs[0] != "192.168.100.5" {
+		t.Errorf("nebula_ips = %v, want [192.168.100.5]", lhs[0].NebulaIPs)
 	}
 	if lhs[0].PublicAddr != "1.2.3.4:4242" {
 		t.Errorf("public_addr = %q, want 1.2.3.4:4242", lhs[0].PublicAddr)
@@ -88,8 +88,8 @@ func TestGetLighthouses_ExcludesBlocked(t *testing.T) {
 	if len(lhs) != 1 {
 		t.Fatalf("got %d lighthouses, want 1 (blocked must be excluded): %+v", len(lhs), lhs)
 	}
-	if lhs[0].NebulaIP != "192.168.100.5" {
-		t.Errorf("kept = %q, want 192.168.100.5", lhs[0].NebulaIP)
+	if len(lhs[0].NebulaIPs) == 0 || lhs[0].NebulaIPs[0] != "192.168.100.5" {
+		t.Errorf("kept = %v, want [192.168.100.5]", lhs[0].NebulaIPs)
 	}
 }
 
@@ -137,7 +137,7 @@ func TestRenderHostConfig_EmitsAllEnrolledLighthouses(t *testing.T) {
 
 	host := &models.Host{
 		ID: "host_peer", NetworkID: netID, Name: "peer",
-		NebulaIP: "192.168.100.10", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.10"}, Groups: []string{},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
@@ -158,5 +158,115 @@ func TestRenderHostConfig_EmitsAllEnrolledLighthouses(t *testing.T) {
 	}
 	if !strings.Contains(out, "am_lighthouse: false") {
 		t.Errorf("peer config should have am_lighthouse: false\n%s", out)
+	}
+}
+
+// Task 2.4 tests: renderHostConfig with multi-address + family-match validation
+
+func TestRenderHostConfig_PassesAllAddresses(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+	ctx := context.Background()
+
+	enrollLighthouse(t, srv, netID, "lh1", "lighthouse", "192.168.100.1", "1.2.3.4", "fp-lh")
+
+	host := &models.Host{
+		ID: "host_multi", NetworkID: netID, Name: "multi-ip",
+		NebulaIPs: []string{"192.168.100.10", "fd00::10"}, Groups: []string{},
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusEnrolled,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := srv.store.CreateHost(ctx, host); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := srv.renderHostConfig(ctx, host)
+	if err != nil {
+		t.Fatalf("renderHostConfig: %v", err)
+	}
+
+	// Config should be valid YAML and contain lighthouse information
+	if len(cfg) == 0 {
+		t.Error("rendered config should not be empty")
+	}
+
+	out := string(cfg)
+	if !strings.Contains(out, "static_host_map") {
+		t.Error("rendered config should contain static_host_map for lighthouse addresses")
+	}
+	if !strings.Contains(out, "192.168.100.1") {
+		t.Error("rendered config should contain lighthouse address")
+	}
+}
+
+func TestRenderHostConfig_UnsafeRouteFamilyMatch_Pass(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+	ctx := context.Background()
+
+	enrollLighthouse(t, srv, netID, "lh1", "lighthouse", "192.168.100.1", "1.2.3.4", "fp-lh")
+
+	host := &models.Host{
+		ID: "host_dual", NetworkID: netID, Name: "dual-stack",
+		NebulaIPs: []string{"192.168.100.10", "fd00::10"}, Groups: []string{},
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusEnrolled,
+		Advanced: &models.HostAdvanced{
+			UnsafeRoutes: []models.UnsafeRoute{
+				{Route: "10.99.0.0/24", Via: "192.168.100.2"},     // IPv4 to IPv4
+				{Route: "fd00:99::/64", Via: "fd00::2"},           // IPv6 to IPv6
+			},
+		},
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := srv.store.CreateHost(ctx, host); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := srv.renderHostConfig(ctx, host)
+	if err != nil {
+		t.Fatalf("renderHostConfig with matching families should succeed: %v", err)
+	}
+
+	// Should render without error
+	if len(cfg) == 0 {
+		t.Error("config should not be empty")
+	}
+}
+
+func TestRenderHostConfig_UnsafeRouteFamilyMismatch(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+	ctx := context.Background()
+
+	enrollLighthouse(t, srv, netID, "lh1", "lighthouse", "192.168.100.1", "1.2.3.4", "fp-lh")
+
+	// Host has only IPv4, but unsafe_route tries IPv6 via
+	host := &models.Host{
+		ID: "host_ipv4_only", NetworkID: netID, Name: "ipv4-only",
+		NebulaIPs: []string{"192.168.100.10"}, Groups: []string{},
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusEnrolled,
+		Advanced: &models.HostAdvanced{
+			UnsafeRoutes: []models.UnsafeRoute{
+				{Route: "fd00:99::/64", Via: "fd00::1"}, // IPv6 route but no IPv6 host address
+			},
+		},
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := srv.store.CreateHost(ctx, host); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := srv.renderHostConfig(ctx, host)
+	if err == nil {
+		t.Fatal("renderHostConfig should fail when route family doesn't match host addresses")
+	}
+	if cfg != nil {
+		t.Error("config should be nil on error")
+	}
+	if !strings.Contains(err.Error(), "family") && !strings.Contains(err.Error(), "mismatch") {
+		t.Errorf("error should mention family mismatch, got: %v", err)
 	}
 }

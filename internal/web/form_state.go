@@ -9,6 +9,21 @@ import (
 	"github.com/juev/nebula-mesh/internal/models"
 )
 
+// trimEmpty returns a new slice with empty strings removed from src.
+// Used to clean up form POST values for array fields (cidrs, nebula_ips).
+func trimEmpty(src []string) []string {
+	if len(src) == 0 {
+		return []string{}
+	}
+	var out []string
+	for _, s := range src {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // hostFormState captures the values submitted to /ui/hosts so a validation
 // failure can re-render host_new.html with the operator's inputs preserved
 // instead of dropping them on a bare 400 error page (issue #91).
@@ -16,39 +31,43 @@ import (
 // String types throughout — including ListenPort and AdvMTU — so that the
 // template can echo the operator's literal input back verbatim ("70000")
 // even when it failed numeric validation.
+// NebulaIPs is a slice to support multiple overlay addresses per host (issue #108).
+// NebulaIPErrors maps row index to per-row error messages for inline rendering.
 type hostFormState struct {
-	NetworkID       string
-	Name            string
-	NebulaIP        string
-	Role            string
-	Groups          string
-	PublicIP        string
-	ListenPort      string
-	AdvListenHost   string
-	AdvMTU          string
-	AdvTunDevice    string
-	AdvPunchy       string
-	AdvUnsafeRoutes string
-	Kind            string
-	Variant         string
+	NetworkID        string
+	Name             string
+	NebulaIPs        []string
+	NebulaIPErrors   map[int]string
+	Role             string
+	Groups           string
+	PublicIP         string
+	ListenPort       string
+	AdvListenHost    string
+	AdvMTU           string
+	AdvTunDevice     string
+	AdvPunchy        string
+	AdvUnsafeRoutes  string
+	Kind             string
+	Variant          string
 }
 
 func newHostFormState(r *http.Request) hostFormState {
 	return hostFormState{
-		NetworkID:       r.FormValue("network_id"),
-		Name:            r.FormValue("name"),
-		NebulaIP:        r.FormValue("nebula_ip"),
-		Role:            r.FormValue("role"),
-		Groups:          r.FormValue("groups"),
-		PublicIP:        r.FormValue("public_ip"),
-		ListenPort:      r.FormValue("listen_port"),
-		AdvListenHost:   r.FormValue("adv_listen_host"),
-		AdvMTU:          r.FormValue("adv_mtu"),
-		AdvTunDevice:    r.FormValue("adv_tun_device"),
-		AdvPunchy:       r.FormValue("adv_punchy"),
-		AdvUnsafeRoutes: r.FormValue("adv_unsafe_routes"),
-		Kind:            r.FormValue("kind"),
-		Variant:         r.FormValue("variant"),
+		NetworkID:        r.FormValue("network_id"),
+		Name:             r.FormValue("name"),
+		NebulaIPs:        trimEmpty(r.Form["nebula_ips"]),
+		NebulaIPErrors:   make(map[int]string),
+		Role:             r.FormValue("role"),
+		Groups:           r.FormValue("groups"),
+		PublicIP:         r.FormValue("public_ip"),
+		ListenPort:       r.FormValue("listen_port"),
+		AdvListenHost:    r.FormValue("adv_listen_host"),
+		AdvMTU:           r.FormValue("adv_mtu"),
+		AdvTunDevice:     r.FormValue("adv_tun_device"),
+		AdvPunchy:        r.FormValue("adv_punchy"),
+		AdvUnsafeRoutes:  r.FormValue("adv_unsafe_routes"),
+		Kind:             r.FormValue("kind"),
+		Variant:          r.FormValue("variant"),
 	}
 }
 
@@ -56,17 +75,21 @@ func newHostFormState(r *http.Request) hostFormState {
 // CAID captures the operator's CA selection so the form can re-render
 // without losing it (issue #93 enforces that every network is tied to a
 // CA the operator owns).
+// CIDRs is a slice to support multiple CIDR blocks per network (issue #108).
+// CIDRErrors maps row index to per-row error messages for inline rendering.
 type networkFormState struct {
-	Name string
-	CIDR string
-	CAID string
+	Name      string
+	CIDRs     []string
+	CIDRErrors map[int]string
+	CAID      string
 }
 
 func newNetworkFormState(r *http.Request) networkFormState {
 	return networkFormState{
-		Name: r.FormValue("name"),
-		CIDR: r.FormValue("cidr"),
-		CAID: r.FormValue("ca_id"),
+		Name:       r.FormValue("name"),
+		CIDRs:      trimEmpty(r.Form["cidrs"]),
+		CIDRErrors: make(map[int]string),
+		CAID:       r.FormValue("ca_id"),
 	}
 }
 
@@ -147,7 +170,8 @@ func containsCAID(cas []*models.CA, id string) bool {
 // request payload is the cause; the body is a full HTML page so the
 // browser does not show a bare error. Networks are filtered through
 // accessibleNetworks so the operator only sees networks they own
-// (issue #93).
+// (issue #93). If the form has a NetworkID, the selected network is
+// also loaded to support parent CIDR dropdown for multi-address hosts.
 func (w *Web) renderHostNewError(rw http.ResponseWriter, r *http.Request, form hostFormState, errMsg string) {
 	op := w.session.CurrentOperator(r)
 	if op == nil {
@@ -160,13 +184,20 @@ func (w *Web) renderHostNewError(rw http.ResponseWriter, r *http.Request, form h
 		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
 		return
 	}
-	w.renderForRequestWithStatus(rw, r, http.StatusBadRequest, "host_new.html", map[string]any{
+	data := map[string]any{
 		"Active":      "hosts",
 		"Networks":    networks,
 		"HasNetworks": len(networks) > 0,
 		"Form":        form,
 		"Error":       errMsg,
-	})
+	}
+	// Load the selected network if present, so template can show parent CIDR dropdowns
+	if form.NetworkID != "" {
+		if network, err := w.store.GetNetwork(r.Context(), form.NetworkID); err == nil {
+			data["Network"] = network
+		}
+	}
+	w.renderForRequestWithStatus(rw, r, http.StatusBadRequest, "host_new.html", data)
 }
 
 // renderNetworksError re-renders /ui/networks with the create form
@@ -201,11 +232,12 @@ func (w *Web) renderNetworksError(rw http.ResponseWriter, r *http.Request, form 
 // verbatim without numeric formatting (issue #91).
 func hostFormStateFromHost(h *models.Host) hostFormState {
 	state := hostFormState{
-		NetworkID: h.NetworkID,
-		Name:      h.Name,
-		NebulaIP:  h.NebulaIP,
-		Role:      string(h.Role),
-		PublicIP:  h.PublicIP,
+		NetworkID:      h.NetworkID,
+		Name:           h.Name,
+		NebulaIPs:      h.NebulaIPs,
+		NebulaIPErrors: make(map[int]string),
+		Role:           string(h.Role),
+		PublicIP:       h.PublicIP,
 	}
 
 	if h.ListenPort != 0 {
@@ -245,12 +277,12 @@ func hostFormStateFromHost(h *models.Host) hostFormState {
 // renderHostEditError re-renders /ui/hosts/{id}/edit with the submitted form
 // values preserved and an inline error banner. Returns 400 because the request
 // payload is the cause. Mirrors renderHostNewError for consistency.
-func (w *Web) renderHostEditError(rw http.ResponseWriter, r *http.Request, host *models.Host, networkCIDR string, form hostFormState, errMsg string) {
+func (w *Web) renderHostEditError(rw http.ResponseWriter, r *http.Request, host *models.Host, network *models.Network, form hostFormState, errMsg string) {
 	w.renderForRequestWithStatus(rw, r, http.StatusBadRequest, "host_edit.html", map[string]any{
-		"Active":       "hosts",
-		"Host":         host,
-		"Form":         form,
-		"Error":        errMsg,
-		"NetworkCIDR":  networkCIDR,
+		"Active":   "hosts",
+		"Host":     host,
+		"Network":  network,
+		"Form":     form,
+		"Error":    errMsg,
 	})
 }

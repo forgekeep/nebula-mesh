@@ -9,7 +9,7 @@ import (
 func TestHostDiff_NoChanges(t *testing.T) {
 	before := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{"web"},
 		Role:       HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -18,7 +18,7 @@ func TestHostDiff_NoChanges(t *testing.T) {
 	}
 	after := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{"web"},
 		Role:       HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -42,7 +42,7 @@ func TestHostDiff_NoChanges(t *testing.T) {
 func TestHostDiff_NameChanged(t *testing.T) {
 	before := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{"web"},
 		Role:       HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -51,7 +51,7 @@ func TestHostDiff_NameChanged(t *testing.T) {
 	}
 	after := &Host{
 		Name:       "web-2",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{"web"},
 		Role:       HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -93,7 +93,7 @@ func TestHostDiff_NameChanged(t *testing.T) {
 func TestHostDiff_AdvancedMTUChanged(t *testing.T) {
 	before := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{"web"},
 		Role:       HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -104,7 +104,7 @@ func TestHostDiff_AdvancedMTUChanged(t *testing.T) {
 	}
 	after := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{"web"},
 		Role:       HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -150,7 +150,7 @@ func TestHostDiff_AdvancedMTUChanged(t *testing.T) {
 func TestHostDiff_AdvancedNilToNonNil(t *testing.T) {
 	before := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{"web"},
 		Role:       HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -159,7 +159,7 @@ func TestHostDiff_AdvancedNilToNonNil(t *testing.T) {
 	}
 	after := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{"web"},
 		Role:       HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -205,7 +205,7 @@ func TestHostDiff_AdvancedNilToNonNil(t *testing.T) {
 func TestHostDiff_GroupsSliceChanged(t *testing.T) {
 	before := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{"web", "prod"},
 		Role:       HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -214,7 +214,7 @@ func TestHostDiff_GroupsSliceChanged(t *testing.T) {
 	}
 	after := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{"web", "staging"},
 		Role:       HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -248,7 +248,7 @@ func TestHostDiff_GroupsSliceChanged(t *testing.T) {
 func TestHostDiff_DeterministicKeyOrder(t *testing.T) {
 	before := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{"web"},
 		Role:       HostRoleHost,
 		PublicIP:   "203.0.113.1",
@@ -259,7 +259,7 @@ func TestHostDiff_DeterministicKeyOrder(t *testing.T) {
 	}
 	after := &Host{
 		Name:       "web-2",
-		NebulaIP:   "192.168.100.99",
+		NebulaIPs:  []string{"192.168.100.99"},
 		Groups:     []string{"web"},
 		Role:       HostRoleLighthouse,
 		PublicIP:   "203.0.113.2",
@@ -291,7 +291,7 @@ func TestHostDiff_PunchyTriState(t *testing.T) {
 	falseVal := false
 	before := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{},
 		Role:       HostRoleHost,
 		Advanced: &HostAdvanced{
@@ -300,7 +300,7 @@ func TestHostDiff_PunchyTriState(t *testing.T) {
 	}
 	after := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{},
 		Role:       HostRoleHost,
 		Advanced: &HostAdvanced{
@@ -336,7 +336,7 @@ func TestHostDiff_MultipleAdvancedChanges(t *testing.T) {
 	trueVal := true
 	before := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{},
 		Role:       HostRoleHost,
 		Advanced: &HostAdvanced{
@@ -346,7 +346,7 @@ func TestHostDiff_MultipleAdvancedChanges(t *testing.T) {
 	}
 	after := &Host{
 		Name:       "web-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{},
 		Role:       HostRoleHost,
 		Advanced: &HostAdvanced{
@@ -380,17 +380,17 @@ func TestHostDiff_MultipleAdvancedChanges(t *testing.T) {
 // TestHostDiff_RoleAndLighthouseFlags verifies role and lighthouse flag changes.
 func TestHostDiff_RoleAndLighthouseFlags(t *testing.T) {
 	before := &Host{
-		Name:        "web-1",
-		NebulaIP:    "192.168.100.1",
-		Groups:      []string{},
-		Role:        HostRoleHost,
+		Name:         "web-1",
+		NebulaIPs:    []string{"192.168.100.1"},
+		Groups:       []string{},
+		Role:         HostRoleHost,
 		IsLighthouse: false,
-		PublicIP:    "203.0.113.1",
-		ListenPort:  4242,
+		PublicIP:     "203.0.113.1",
+		ListenPort:   4242,
 	}
 	after := &Host{
 		Name:         "web-1",
-		NebulaIP:     "192.168.100.1",
+		NebulaIPs:    []string{"192.168.100.1"},
 		Groups:       []string{},
 		Role:         HostRoleLighthouse,
 		IsLighthouse: true,

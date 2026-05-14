@@ -8,7 +8,7 @@ import (
 // HostDiff computes the difference between two hosts and returns a JSON-encoded
 // map of changed fields. Returns (nil, false, nil) if no fields differ.
 //
-// For basic fields (Name, NebulaIP, Groups, Role, PublicIP, ListenPort),
+// For basic fields (Name, NebulaIPs, Groups, Role, PublicIP, ListenPort),
 // the diff key is the field name in snake_case.
 //
 // For Advanced sub-fields (ListenHost, MTU, TunDevice, Punchy, UnsafeRoutes),
@@ -38,10 +38,10 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 		}
 	}
 
-	if before.NebulaIP != after.NebulaIP {
-		changes["nebula_ip"] = map[string]any{
-			"before": before.NebulaIP,
-			"after":  after.NebulaIP,
+	if !nebulIPsEqual(before.NebulaIPs, after.NebulaIPs) {
+		changes["nebula_ips"] = map[string]any{
+			"before": before.NebulaIPs,
+			"after":  after.NebulaIPs,
 		}
 	}
 
@@ -147,6 +147,19 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 	}
 
 	return jsonBytes, true, nil
+}
+
+// nebulIPsEqual compares two IP slices for equality (order matters).
+func nebulIPsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // groupsEqual compares two string slices for equality (order matters).

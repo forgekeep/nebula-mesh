@@ -21,7 +21,7 @@ func TestUpdateHost_RouteRegistered(t *testing.T) {
 	hostBody, _ := json.Marshal(createHostRequest{
 		NetworkID: netID,
 		Name:      "test-host",
-		NebulaIP:  "192.168.100.1",
+		NebulaIPs: []string{"192.168.100.1"},
 		Groups:    []string{"test"},
 		Role:      "host",
 	})
@@ -67,7 +67,7 @@ func createHostHelper(t *testing.T, srv *Server, netID string, name, nebulaIP st
 	hostBody, _ := json.Marshal(createHostRequest{
 		NetworkID: netID,
 		Name:      name,
-		NebulaIP:  nebulaIP,
+		NebulaIPs: []string{nebulaIP},
 		Groups:    []string{},
 		Role:      "host",
 		Advanced:  adv,
@@ -214,8 +214,9 @@ func TestUpdateHost_SameIPNotDuplicate(t *testing.T) {
 	host := createHostHelper(t, srv, netID, "web-1", "192.168.100.1", nil)
 
 	// PATCH with same IP
+	sameIPList := []string{host.NebulaIPs[0]}
 	reqBody, _ := json.Marshal(updateHostRequest{
-		NebulaIP: &host.NebulaIP,
+		NebulaIPs: &sameIPList,
 	})
 
 	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
@@ -235,9 +236,9 @@ func TestUpdateHost_DuplicateIPRejected(t *testing.T) {
 	host2 := createHostHelper(t, srv, netID, "web-2", "192.168.100.2", nil)
 
 	// Try to change host2's IP to host1's IP
-	dupIP := host1.NebulaIP
+	dupIPList := []string{host1.NebulaIPs[0]}
 	reqBody, _ := json.Marshal(updateHostRequest{
-		NebulaIP: &dupIP,
+		NebulaIPs: &dupIPList,
 	})
 
 	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host2.ID, bytes.NewBuffer(reqBody))
@@ -256,9 +257,9 @@ func TestUpdateHost_NebulaIPOutsideCIDR(t *testing.T) {
 	host := createHostHelper(t, srv, netID, "web-1", "192.168.100.1", nil)
 
 	// Try to change to IP outside network CIDR (192.169.* instead of 192.168.*)
-	outsideIP := "192.169.100.1"
+	outsideIPList := []string{"192.169.100.1"}
 	reqBody, _ := json.Marshal(updateHostRequest{
-		NebulaIP: &outsideIP,
+		NebulaIPs: &outsideIPList,
 	})
 
 	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
@@ -488,7 +489,7 @@ func TestUpdateHost_RoleFlipFromLighthouse_BumpsNetwork(t *testing.T) {
 	hostBody, _ := json.Marshal(createHostRequest{
 		NetworkID:  netID,
 		Name:       "lighthouse-1",
-		NebulaIP:   "192.168.100.1",
+		NebulaIPs: []string{"192.168.100.1"},
 		Groups:     []string{},
 		Role:       "lighthouse",
 		PublicIP:   publicIP,
@@ -611,9 +612,9 @@ func TestUpdateHost_ChangeIPSetsPendingRekey(t *testing.T) {
 	require.False(t, freshHost.PendingRekey, "setup: PendingRekey should initially be false")
 
 	// PATCH to change NebulaIP
-	newIP := "192.168.100.99"
+	newIPList := []string{"192.168.100.99"}
 	reqBody, _ := json.Marshal(updateHostRequest{
-		NebulaIP: &newIP,
+		NebulaIPs: &newIPList,
 	})
 
 	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
@@ -758,12 +759,12 @@ func TestUpdateHost_HappyPath_ChangeIP(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	host := createHostHelper(t, srv, netID, "web-1", "192.168.100.1", nil)
-	require.Equal(t, "192.168.100.1", host.NebulaIP, "setup: initial IP")
+	require.Equal(t, "192.168.100.1", host.NebulaIPs[0], "setup: initial IP")
 
 	// PATCH to change NebulaIP
-	newIP := "192.168.100.50"
+	newIPList := []string{"192.168.100.50"}
 	reqBody, _ := json.Marshal(updateHostRequest{
-		NebulaIP: &newIP,
+		NebulaIPs: &newIPList,
 	})
 
 	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
@@ -775,6 +776,149 @@ func TestUpdateHost_HappyPath_ChangeIP(t *testing.T) {
 
 	var updatedHost models.Host
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&updatedHost))
-	require.Equal(t, newIP, updatedHost.NebulaIP)
+	require.Len(t, updatedHost.NebulaIPs, 1)
+	require.Equal(t, newIPList[0], updatedHost.NebulaIPs[0])
 	require.True(t, updatedHost.PendingRekey, "IP change should set PendingRekey")
+}
+
+// TestCreateHost_AcceptsNebulaIPs tests POST with multiple addresses
+func TestCreateHost_AcceptsNebulaIPs(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// Create a dual-stack network
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":  "dual-net",
+		"cidrs": []string{"10.0.0.0/24", "fd00::/64"},
+	})
+	netReq := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(body))
+	authRequest(netReq)
+	netRec := httptest.NewRecorder()
+	srv.ServeHTTP(netRec, netReq)
+
+	var net models.Network
+	require.NoError(t, json.NewDecoder(netRec.Body).Decode(&net))
+
+	// Create host with multiple addresses
+	hostBody, _ := json.Marshal(map[string]interface{}{
+		"network_id": net.ID,
+		"name":       "dual-addr-host",
+		"nebula_ips": []string{"10.0.0.5", "fd00::5"},
+		"role":       "host",
+	})
+	hostReq := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(hostBody))
+	authRequest(hostReq)
+	hostRec := httptest.NewRecorder()
+	srv.ServeHTTP(hostRec, hostReq)
+
+	require.Equal(t, http.StatusCreated, hostRec.Code, "body: %s", hostRec.Body.String())
+
+	var hostResp createHostResponse
+	require.NoError(t, json.NewDecoder(hostRec.Body).Decode(&hostResp))
+
+	require.Len(t, hostResp.Host.NebulaIPs, 2)
+	require.Equal(t, "10.0.0.5", hostResp.Host.NebulaIPs[0])
+	require.Equal(t, "fd00::5", hostResp.Host.NebulaIPs[1])
+}
+
+// TestCreateHost_RejectsSingularNebulaIP tests that old singular field is rejected
+func TestCreateHost_RejectsSingularNebulaIP(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	// Try to create with old singular field
+	body := `{"network_id":"` + netID + `","name":"bad-host","nebula_ip":"192.168.100.5","role":"host"}`
+	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBufferString(body))
+	authRequest(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code, "should reject singular nebula_ip field")
+
+	var errResp map[string]string
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&errResp))
+
+	errMsg := errResp["error"]
+	require.NotEmpty(t, errMsg, "error message should not be empty")
+	require.Contains(t, errMsg, "nebula_ip", "error should mention old field")
+	require.Contains(t, errMsg, "nebula_ips", "error should suggest new field")
+}
+
+// TestUpdateHost_NebulaIPs_ReplacesList tests that PATCH with nebula_ips replaces list
+func TestUpdateHost_NebulaIPs_ReplacesList(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// Create dual-stack network
+	netBody, _ := json.Marshal(map[string]interface{}{
+		"name":  "dual-net",
+		"cidrs": []string{"10.0.0.0/24", "fd00::/64"},
+	})
+	netReq := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(netBody))
+	authRequest(netReq)
+	netRec := httptest.NewRecorder()
+	srv.ServeHTTP(netRec, netReq)
+
+	var net models.Network
+	require.NoError(t, json.NewDecoder(netRec.Body).Decode(&net))
+
+	// Create host with 2 addresses
+	hostBody, _ := json.Marshal(map[string]interface{}{
+		"network_id": net.ID,
+		"name":       "test-host",
+		"nebula_ips": []string{"10.0.0.5", "fd00::5"},
+		"role":       "host",
+	})
+	hostReq := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(hostBody))
+	authRequest(hostReq)
+	hostRec := httptest.NewRecorder()
+	srv.ServeHTTP(hostRec, hostReq)
+
+	var hostResp createHostResponse
+	require.NoError(t, json.NewDecoder(hostRec.Body).Decode(&hostResp))
+	hostID := hostResp.Host.ID
+
+	// PATCH to replace addresses
+	newIPs := []string{"10.0.0.6"}
+	patchBody, _ := json.Marshal(map[string]interface{}{
+		"nebula_ips": newIPs,
+	})
+	patchReq := httptest.NewRequest("PATCH", "/api/v1/hosts/"+hostID, bytes.NewBuffer(patchBody))
+	authRequest(patchReq)
+	patchRec := httptest.NewRecorder()
+	srv.ServeHTTP(patchRec, patchReq)
+
+	require.Equal(t, http.StatusOK, patchRec.Code, "body: %s", patchRec.Body.String())
+
+	var updatedHost models.Host
+	require.NoError(t, json.NewDecoder(patchRec.Body).Decode(&updatedHost))
+
+	require.Len(t, updatedHost.NebulaIPs, 1)
+	require.Equal(t, "10.0.0.6", updatedHost.NebulaIPs[0])
+	require.True(t, updatedHost.PendingRekey, "address change should set PendingRekey")
+}
+
+// TestUpdateHost_OmittedNebulaIPs_Untouched tests that PATCH without nebula_ips leaves them unchanged
+func TestUpdateHost_OmittedNebulaIPs_Untouched(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	host := createHostHelper(t, srv, netID, "test-host", "192.168.100.5", nil)
+	originalIPs := host.NebulaIPs
+
+	// PATCH with groups only (no nebula_ips field, no name change)
+	newGroups := []string{"new-group"}
+	patchBody, _ := json.Marshal(map[string]interface{}{
+		"groups": newGroups,
+	})
+	patchReq := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(patchBody))
+	authRequest(patchReq)
+	patchRec := httptest.NewRecorder()
+	srv.ServeHTTP(patchRec, patchReq)
+
+	require.Equal(t, http.StatusOK, patchRec.Code)
+
+	var updatedHost models.Host
+	require.NoError(t, json.NewDecoder(patchRec.Body).Decode(&updatedHost))
+
+	require.Equal(t, originalIPs, updatedHost.NebulaIPs, "addresses should be unchanged")
+	require.False(t, updatedHost.PendingRekey, "groups-only change should not set PendingRekey")
 }

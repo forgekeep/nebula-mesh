@@ -182,7 +182,7 @@ object in the API:
 
 ```jsonc
 {
-  "network_id": "…", "name": "edge-1", "nebula_ip": "10.0.0.1",
+  "network_id": "…", "name": "edge-1", "nebula_ips": ["10.0.0.1"],
   "advanced": {
     "listen_host": "10.0.0.1",   // override default 0.0.0.0
     "mtu": 1300,                  // tun.mtu
@@ -203,6 +203,35 @@ advanced block. Server-side validation rejects:
 - non-IP `listen_host`;
 - whitespace or slashes in `tun_device`;
 - malformed CIDR or non-IP `via` in `unsafe_routes`.
+
+### Multiple overlay addresses per host
+
+As of version 0.3.0, hosts can be assigned multiple overlay addresses from a network's
+CIDR prefixes. This enables:
+
+- **Dual-stack networks** — assign both IPv4 and IPv6 addresses to the same host.
+- **Segmented address plans** — assign hosts from multiple subnets within the same Nebula network.
+
+The `nebula_ips` field contains the ordered list of addresses:
+
+```jsonc
+{
+  "name": "dual-stack-host",
+  "nebula_ips": ["10.42.0.10", "fd00:42::10"],
+  "network_id": "…"
+}
+```
+
+When a host is created with multiple addresses, the issued certificate contains all prefixes
+in the declared order. The configuration generated for the host includes all addresses in
+`static_host_map` (one entry per address for each lighthouse) and `lighthouse.hosts` (all
+addresses of all lighthouses). Reordering the `nebula_ips` list will trigger a new certificate
+issuance on the next agent poll.
+
+**API Note:** The legacy singular fields (`nebula_ip`, `cidr`) were removed in v0.3.0. If you
+are migrating from an earlier version, replace:
+- `"nebula_ip": "10.42.0.10"` → `"nebula_ips": ["10.42.0.10"]`
+- `"cidr": "10.42.0.0/24"` → `"cidrs": ["10.42.0.0/24"]`
 
 ## Configuration
 

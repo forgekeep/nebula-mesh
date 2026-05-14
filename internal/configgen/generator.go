@@ -9,7 +9,7 @@ import (
 
 // LighthouseInfo describes a lighthouse node for config generation.
 type LighthouseInfo struct {
-	NebulaIP   string
+	NebulaIPs  []string
 	PublicAddr string // "1.2.3.4:4242"
 }
 
@@ -29,7 +29,7 @@ type AdvancedUnsafeRoute struct {
 // GeneratorInput contains all parameters needed to generate a Nebula config.
 type GeneratorInput struct {
 	HostName         string
-	NebulaIP         string
+	NebulaIPs        []string
 	IsLighthouse     bool
 	IsRelay          bool
 	CACertPath       string
@@ -89,15 +89,19 @@ listen:
 {{- else }}
 
 static_host_map:
-  {{- range .Lighthouses }}
-  "{{ .NebulaIP }}": ["{{ .PublicAddr }}"]
+  {{- range $lh := .Lighthouses }}
+  {{- range $lh.NebulaIPs }}
+  "{{ . }}": ["{{ $lh.PublicAddr }}"]
+  {{- end }}
   {{- end }}
 
 lighthouse:
   am_lighthouse: false
   hosts:
-    {{- range .Lighthouses }}
-    - "{{ .NebulaIP }}"
+    {{- range $lh := .Lighthouses }}
+    {{- range $lh.NebulaIPs }}
+    - "{{ . }}"
+    {{- end }}
     {{- end }}
 
 listen:

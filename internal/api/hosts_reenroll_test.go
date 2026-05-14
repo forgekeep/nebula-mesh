@@ -18,7 +18,7 @@ func TestReenroll_MintsTokenAndPreservesHost(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID,
 		Name:      "reenroll-host",
-		NebulaIP:  "192.168.100.42",
+		NebulaIPs: []string{"192.168.100.42"},
 		Groups:    []string{"g1"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
@@ -57,8 +57,14 @@ func TestReenroll_MintsTokenAndPreservesHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != initial.Host.ID || got.NebulaIP != initial.Host.NebulaIP {
+	if got.ID != initial.Host.ID || len(got.NebulaIPs) != len(initial.Host.NebulaIPs) {
 		t.Errorf("host row mutated; got %+v", got)
+	}
+	for i := range got.NebulaIPs {
+		if got.NebulaIPs[i] != initial.Host.NebulaIPs[i] {
+			t.Errorf("nebula IPs changed; got %+v", got.NebulaIPs)
+			break
+		}
 	}
 	if len(got.Groups) != 1 || got.Groups[0] != "g1" {
 		t.Errorf("groups changed; got %v", got.Groups)

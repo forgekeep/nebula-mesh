@@ -27,7 +27,7 @@ func createTestNetwork(t *testing.T, s *SQLiteStore) *models.Network {
 	n := &models.Network{
 		ID:        "net_test1",
 		Name:      "test-network",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(context.Background(), n); err != nil {
@@ -98,7 +98,7 @@ func TestCreateAndGetNetwork(t *testing.T) {
 	n := &models.Network{
 		ID:        "net_1",
 		Name:      "prod",
-		CIDR:      "10.0.0.0/16",
+		CIDRs:     []string{"10.0.0.0/16"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, n); err != nil {
@@ -112,8 +112,8 @@ func TestCreateAndGetNetwork(t *testing.T) {
 	if got.Name != "prod" {
 		t.Errorf("name = %q, want %q", got.Name, "prod")
 	}
-	if got.CIDR != "10.0.0.0/16" {
-		t.Errorf("cidr = %q, want %q", got.CIDR, "10.0.0.0/16")
+	if len(got.CIDRs) != 1 || got.CIDRs[0] != "10.0.0.0/16" {
+		t.Errorf("cidrs = %v, want [10.0.0.0/16]", got.CIDRs)
 	}
 }
 
@@ -130,7 +130,7 @@ func TestListNetworks(t *testing.T) {
 	ctx := context.Background()
 
 	for _, name := range []string{"beta", "alpha"} {
-		n := &models.Network{ID: "net_" + name, Name: name, CIDR: "10.0.0.0/24", CreatedAt: time.Now()}
+		n := &models.Network{ID: "net_" + name, Name: name, CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now()}
 		if err := s.CreateNetwork(ctx, n); err != nil {
 			t.Fatal(err)
 		}
@@ -160,7 +160,7 @@ func TestCreateAndGetHost(t *testing.T) {
 		ID:        "host_1",
 		NetworkID: net.ID,
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs: []string{"192.168.100.10"},
 		Groups:    []string{"web", "prod"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusPending,
@@ -191,7 +191,7 @@ func TestListHosts_FilterByNetwork(t *testing.T) {
 	for i, name := range []string{"host-a", "host-b"} {
 		h := &models.Host{
 			ID: fmt.Sprintf("host_%d", i), NetworkID: net.ID, Name: name,
-			NebulaIP: fmt.Sprintf("192.168.100.%d", 10+i),
+			NebulaIPs: []string{fmt.Sprintf("192.168.100.%d", 10+i)},
 			Groups: []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 			CreatedAt: time.Now(), UpdatedAt: time.Now(),
 		}
@@ -218,7 +218,7 @@ func TestListHosts_WithLimit(t *testing.T) {
 		h := &models.Host{
 			ID: fmt.Sprintf("host_%d", i), NetworkID: net.ID,
 			Name:     fmt.Sprintf("host-%d", i),
-			NebulaIP: fmt.Sprintf("192.168.100.%d", 10+i),
+			NebulaIPs: []string{fmt.Sprintf("192.168.100.%d", 10+i)},
 			Groups:   []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 			CreatedAt: time.Now(), UpdatedAt: time.Now(),
 		}
@@ -252,12 +252,12 @@ func TestListHosts_FilterByGroup(t *testing.T) {
 	net := createTestNetwork(t, s)
 
 	h1 := &models.Host{
-		ID: "host_1", NetworkID: net.ID, Name: "web", NebulaIP: "192.168.100.10",
+		ID: "host_1", NetworkID: net.ID, Name: "web", NebulaIPs: []string{"192.168.100.10"},
 		Groups: []string{"web"}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
 	h2 := &models.Host{
-		ID: "host_2", NetworkID: net.ID, Name: "db", NebulaIP: "192.168.100.11",
+		ID: "host_2", NetworkID: net.ID, Name: "db", NebulaIPs: []string{"192.168.100.11"},
 		Groups: []string{"database"}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -283,7 +283,7 @@ func TestUpdateHost(t *testing.T) {
 	net := createTestNetwork(t, s)
 
 	h := &models.Host{
-		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIP: "192.168.100.10",
+		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIPs: []string{"192.168.100.10"},
 		Groups: []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -312,7 +312,7 @@ func TestDeleteHost(t *testing.T) {
 	net := createTestNetwork(t, s)
 
 	h := &models.Host{
-		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIP: "192.168.100.10",
+		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIPs: []string{"192.168.100.10"},
 		Groups: []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -338,7 +338,7 @@ func TestConsumeToken_Success(t *testing.T) {
 	net := createTestNetwork(t, s)
 
 	h := &models.Host{
-		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIP: "192.168.100.10",
+		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIPs: []string{"192.168.100.10"},
 		Groups: []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -372,7 +372,7 @@ func TestConsumeToken_AlreadyUsed(t *testing.T) {
 	net := createTestNetwork(t, s)
 
 	h := &models.Host{
-		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIP: "192.168.100.10",
+		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIPs: []string{"192.168.100.10"},
 		Groups: []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -397,7 +397,7 @@ func TestConsumeToken_Expired(t *testing.T) {
 	net := createTestNetwork(t, s)
 
 	h := &models.Host{
-		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIP: "192.168.100.10",
+		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIPs: []string{"192.168.100.10"},
 		Groups: []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -431,7 +431,7 @@ func TestSaveAndGetCertificate(t *testing.T) {
 	net := createTestNetwork(t, s)
 
 	h := &models.Host{
-		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIP: "192.168.100.10",
+		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIPs: []string{"192.168.100.10"},
 		Groups: []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -458,7 +458,7 @@ func TestSaveCertificate_ReplacesOld(t *testing.T) {
 	net := createTestNetwork(t, s)
 
 	h := &models.Host{
-		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIP: "192.168.100.10",
+		ID: "host_1", NetworkID: net.ID, Name: "test", NebulaIPs: []string{"192.168.100.10"},
 		Groups: []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -522,7 +522,7 @@ func TestUpdateHost_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	h := &models.Host{
-		ID: "nonexistent", Name: "ghost", NebulaIP: "10.0.0.1",
+		ID: "nonexistent", Name: "ghost", NebulaIPs: []string{"10.0.0.1"},
 		Groups: []string{}, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -547,12 +547,12 @@ func TestListHosts_GroupFilterSpecialChars(t *testing.T) {
 
 	// Host with group containing percent sign
 	h1 := &models.Host{
-		ID: "host_1", NetworkID: net.ID, Name: "special", NebulaIP: "192.168.100.10",
+		ID: "host_1", NetworkID: net.ID, Name: "special", NebulaIPs: []string{"192.168.100.10"},
 		Groups: []string{"50%off"}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
 	h2 := &models.Host{
-		ID: "host_2", NetworkID: net.ID, Name: "normal", NebulaIP: "192.168.100.11",
+		ID: "host_2", NetworkID: net.ID, Name: "normal", NebulaIPs: []string{"192.168.100.11"},
 		Groups: []string{"web"}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -684,7 +684,7 @@ func createTestHost(t *testing.T, s *SQLiteStore, net *models.Network) *models.H
 	t.Helper()
 	h := &models.Host{
 		ID: "host_partial", NetworkID: net.ID, Name: "partial-test",
-		NebulaIP: "192.168.100.50", Groups: []string{"web"},
+		NebulaIPs: []string{"192.168.100.50"}, Groups: []string{"web"},
 		Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -924,7 +924,7 @@ func TestBlockHostAndAddToBlocklist(t *testing.T) {
 
 	h := &models.Host{
 		ID: "host_block", NetworkID: net.ID, Name: "block-me",
-		NebulaIP: "192.168.100.20", Groups: []string{"web"},
+		NebulaIPs: []string{"192.168.100.20"}, Groups: []string{"web"},
 		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -970,7 +970,7 @@ func TestBlockHostAndAddToBlocklist_NoCert(t *testing.T) {
 
 	h := &models.Host{
 		ID: "host_nocert", NetworkID: net.ID, Name: "no-cert",
-		NebulaIP: "192.168.100.21", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.21"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -1010,7 +1010,7 @@ func TestUnblockHostAndRemoveFromBlocklist(t *testing.T) {
 
 	h := &models.Host{
 		ID: "host_unblock", NetworkID: net.ID, Name: "unblock-me",
-		NebulaIP: "192.168.100.40", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.40"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -1050,7 +1050,7 @@ func TestUnblockHostAndRemoveFromBlocklist_NoCert(t *testing.T) {
 
 	h := &models.Host{
 		ID: "host_unblock_nocert", NetworkID: net.ID, Name: "no-cert-unblock",
-		NebulaIP: "192.168.100.41", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.41"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusBlocked,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -1084,7 +1084,7 @@ func TestDeleteHostAndBlockCert(t *testing.T) {
 
 	h := &models.Host{
 		ID: "host_del", NetworkID: net.ID, Name: "delete-me",
-		NebulaIP: "192.168.100.30", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.30"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -1126,7 +1126,7 @@ func TestDeleteHostAndBlockCert_NoCert(t *testing.T) {
 
 	h := &models.Host{
 		ID: "host_nocert_del", NetworkID: net.ID, Name: "no-cert-del",
-		NebulaIP: "192.168.100.31", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.31"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -1202,7 +1202,7 @@ func TestCreateHostAndToken(t *testing.T) {
 	now := time.Now()
 	host := &models.Host{
 		ID: "host_atomic", NetworkID: net.ID, Name: "atomic-host",
-		NebulaIP: "192.168.100.60", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.60"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -1241,7 +1241,7 @@ func TestCreateHostAndToken_DuplicateHost(t *testing.T) {
 	now := time.Now()
 	host := &models.Host{
 		ID: "host_dup", NetworkID: net.ID, Name: "dup-host",
-		NebulaIP: "192.168.100.70", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.70"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -1281,7 +1281,7 @@ func TestHostConfigVersion_DefaultZero(t *testing.T) {
 
 	h := &models.Host{
 		ID: "host_cv", NetworkID: net.ID, Name: "cv-default",
-		NebulaIP: "192.168.100.10", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.10"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -1305,7 +1305,7 @@ func TestUpdateHostConfigVersion(t *testing.T) {
 
 	h := &models.Host{
 		ID: "host_cv_update", NetworkID: net.ID, Name: "cv-update",
-		NebulaIP: "192.168.100.11", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.11"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -1350,7 +1350,7 @@ func TestSaveCertificateAndEnrollHost_BumpsLighthouseVersion(t *testing.T) {
 
 	lh := &models.Host{
 		ID: "host_lh", NetworkID: net.ID, Name: "lighthouse-a",
-		NebulaIP: "192.168.100.5", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.5"}, Groups: []string{},
 		Role: models.HostRoleLighthouse, IsLighthouse: true,
 		PublicIP: "10.0.0.5", ListenPort: 4242,
 		Status:    models.HostStatusPending,
@@ -1386,7 +1386,7 @@ func TestSaveCertificateAndEnrollHost_NoBumpForRegularHost(t *testing.T) {
 
 	h := &models.Host{
 		ID: "host_regular", NetworkID: net.ID, Name: "plain",
-		NebulaIP: "192.168.100.6", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.6"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -1420,7 +1420,7 @@ func TestBlockHostAndAddToBlocklist_BumpsForEnrolledLighthouse(t *testing.T) {
 
 	lh := &models.Host{
 		ID: "host_lh_block", NetworkID: net.ID, Name: "lh-block",
-		NebulaIP: "192.168.100.7", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.7"}, Groups: []string{},
 		Role: models.HostRoleLighthouse, IsLighthouse: true,
 		PublicIP: "10.0.0.7", ListenPort: 4242,
 		Status:    models.HostStatusEnrolled,
@@ -1460,7 +1460,7 @@ func TestBlockHostAndAddToBlocklist_NoBumpForPendingLighthouse(t *testing.T) {
 
 	lh := &models.Host{
 		ID: "host_lh_pending", NetworkID: net.ID, Name: "lh-pending",
-		NebulaIP: "192.168.100.8", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.8"}, Groups: []string{},
 		Role: models.HostRoleLighthouse, IsLighthouse: true,
 		Status:    models.HostStatusPending,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
@@ -1486,7 +1486,7 @@ func TestDeleteHostAndBlockCert_BumpsForEnrolledLighthouse(t *testing.T) {
 
 	lh := &models.Host{
 		ID: "host_lh_del", NetworkID: net.ID, Name: "lh-del",
-		NebulaIP: "192.168.100.9", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.9"}, Groups: []string{},
 		Role: models.HostRoleLighthouse, IsLighthouse: true,
 		PublicIP: "10.0.0.9", ListenPort: 4242,
 		Status:    models.HostStatusEnrolled,
@@ -1519,7 +1519,7 @@ func TestCertAlerts_RecordAndGet(t *testing.T) {
 
 	h := &models.Host{
 		ID: "host_alert", NetworkID: net.ID, Name: "alertable",
-		NebulaIP: "192.168.100.50", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.50"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -1566,7 +1566,7 @@ func TestDeleteHostAndBlockCert_NoBumpForRegularHost(t *testing.T) {
 
 	h := &models.Host{
 		ID: "host_plain_del", NetworkID: net.ID, Name: "plain-del",
-		NebulaIP: "192.168.100.13", Groups: []string{},
+		NebulaIPs: []string{"192.168.100.13"}, Groups: []string{},
 		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
@@ -1672,7 +1672,7 @@ func TestSQLiteStore_CreateMobileHost(t *testing.T) {
 		ID:        "mobile_ios_001",
 		NetworkID: net.ID,
 		Name:      "user-iphone",
-		NebulaIP:  "192.168.100.50",
+		NebulaIPs: []string{"192.168.100.50"},
 		Groups:    []string{},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusPending,
@@ -1712,7 +1712,7 @@ func TestSQLiteStore_CreateHostAndToken_KindDefault(t *testing.T) {
 		ID:        "agent_default_001",
 		NetworkID: net.ID,
 		Name:      "standard-host",
-		NebulaIP:  "192.168.100.60",
+		NebulaIPs: []string{"192.168.100.60"},
 		Groups:    []string{},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusPending,
@@ -1743,5 +1743,273 @@ func TestSQLiteStore_CreateHostAndToken_KindDefault(t *testing.T) {
 	}
 	if retrieved.Variant != models.HostVariantNone {
 		t.Errorf("Variant = %q, want %q", retrieved.Variant, models.HostVariantNone)
+	}
+}
+
+// TestCreateNetwork_StoresMultipleCIDRsInOrder verifies that CreateNetwork
+// persists multiple CIDRs in the correct order.
+func TestCreateNetwork_StoresMultipleCIDRsInOrder(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	n := &models.Network{
+		ID:        "net_multi_cidr",
+		Name:      "multi-cidr-network",
+		CIDRs:     []string{"10.0.0.0/8", "fd00::/64", "192.168.0.0/16"},
+		CreatedAt: time.Now(),
+	}
+
+	if err := s.CreateNetwork(ctx, n); err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+
+	retrieved, err := s.GetNetwork(ctx, n.ID)
+	if err != nil {
+		t.Fatalf("GetNetwork: %v", err)
+	}
+
+	if len(retrieved.CIDRs) != len(n.CIDRs) {
+		t.Errorf("CIDRs length = %d, want %d", len(retrieved.CIDRs), len(n.CIDRs))
+	}
+
+	for i, cidr := range n.CIDRs {
+		if retrieved.CIDRs[i] != cidr {
+			t.Errorf("CIDRs[%d] = %q, want %q", i, retrieved.CIDRs[i], cidr)
+		}
+	}
+}
+
+// TestUpdateNetwork_ReplacesCIDRs verifies that UpdateNetwork replaces the CIDR list.
+func TestUpdateNetwork_ReplacesCIDRs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	n := &models.Network{
+		ID:        "net_update_cidr",
+		Name:      "update-test",
+		CIDRs:     []string{"10.0.0.0/24"},
+		CreatedAt: time.Now(),
+	}
+
+	if err := s.CreateNetwork(ctx, n); err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+
+	n.CIDRs = []string{"192.168.0.0/16", "fd00:1::/64"}
+	n.Name = "updated-name"
+
+	if err := s.UpdateNetwork(ctx, n); err != nil {
+		t.Fatalf("UpdateNetwork: %v", err)
+	}
+
+	retrieved, err := s.GetNetwork(ctx, n.ID)
+	if err != nil {
+		t.Fatalf("GetNetwork: %v", err)
+	}
+
+	if len(retrieved.CIDRs) != 2 {
+		t.Errorf("CIDRs length = %d, want 2", len(retrieved.CIDRs))
+	}
+
+	if retrieved.CIDRs[0] != "192.168.0.0/16" {
+		t.Errorf("CIDRs[0] = %q, want '192.168.0.0/16'", retrieved.CIDRs[0])
+	}
+	if retrieved.CIDRs[1] != "fd00:1::/64" {
+		t.Errorf("CIDRs[1] = %q, want 'fd00:1::/64'", retrieved.CIDRs[1])
+	}
+
+	if retrieved.Name != "updated-name" {
+		t.Errorf("Name = %q, want 'updated-name'", retrieved.Name)
+	}
+}
+
+// TestCreateHost_StoresMultipleAddresses verifies that CreateHost persists
+// multiple overlay addresses in the correct order.
+func TestCreateHost_StoresMultipleAddresses(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID:        "host_multi_addr",
+		NetworkID: net.ID,
+		Name:      "multi-address-host",
+		NebulaIPs: []string{"10.0.0.5", "fd00::5", "192.168.1.10"},
+		Groups:    []string{},
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+
+	retrieved, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+
+	if len(retrieved.NebulaIPs) != len(h.NebulaIPs) {
+		t.Errorf("NebulaIPs length = %d, want %d", len(retrieved.NebulaIPs), len(h.NebulaIPs))
+	}
+
+	for i, addr := range h.NebulaIPs {
+		if retrieved.NebulaIPs[i] != addr {
+			t.Errorf("NebulaIPs[%d] = %q, want %q", i, retrieved.NebulaIPs[i], addr)
+		}
+	}
+}
+
+// TestUpdateHost_ReplacesAddresses verifies that UpdateHost atomically
+// replaces the address list.
+func TestUpdateHost_ReplacesAddresses(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID:        "host_update_addr",
+		NetworkID: net.ID,
+		Name:      "update-addr-test",
+		NebulaIPs: []string{"10.0.0.10"},
+		Groups:    []string{},
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+
+	h.NebulaIPs = []string{"10.0.0.20", "fd00::20"}
+	if err := s.UpdateHost(ctx, h); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	retrieved, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+
+	if len(retrieved.NebulaIPs) != 2 {
+		t.Errorf("NebulaIPs length = %d, want 2", len(retrieved.NebulaIPs))
+	}
+
+	if retrieved.NebulaIPs[0] != "10.0.0.20" || retrieved.NebulaIPs[1] != "fd00::20" {
+		t.Errorf("NebulaIPs = %v, want [10.0.0.20 fd00::20]", retrieved.NebulaIPs)
+	}
+}
+
+// TestDeleteHost_CASCADEsAddresses verifies that deleting a host removes
+// all associated address rows.
+func TestDeleteHost_CASCADEsAddresses(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID:        "host_cascade_test",
+		NetworkID: net.ID,
+		Name:      "cascade-test",
+		NebulaIPs: []string{"10.0.0.30", "fd00::30"},
+		Groups:    []string{},
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+
+	if err := s.DeleteHost(ctx, h.ID); err != nil {
+		t.Fatalf("DeleteHost: %v", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, "SELECT COUNT(*) FROM host_addresses WHERE host_id = ?", h.ID)
+	if err != nil {
+		t.Fatalf("query host_addresses: %v", err)
+	}
+	defer rows.Close()
+
+	var count int
+	if rows.Next() {
+		if err := rows.Scan(&count); err != nil {
+			t.Fatalf("scan count: %v", err)
+		}
+	}
+
+	if count != 0 {
+		t.Errorf("host_addresses count = %d, want 0", count)
+	}
+}
+
+// TestListHosts_PreservesAddressOrder verifies that ListHosts preserves
+// address order for each host.
+func TestListHosts_PreservesAddressOrder(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	net := createTestNetwork(t, s)
+
+	h1 := &models.Host{
+		ID:        "host1_order",
+		NetworkID: net.ID,
+		Name:      "host1",
+		NebulaIPs: []string{"10.0.0.5", "fd00::5"},
+		Groups:    []string{},
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	h2 := &models.Host{
+		ID:        "host2_order",
+		NetworkID: net.ID,
+		Name:      "host2",
+		NebulaIPs: []string{"fd00::10", "10.0.0.10"},
+		Groups:    []string{},
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := s.CreateHost(ctx, h1); err != nil {
+		t.Fatalf("CreateHost h1: %v", err)
+	}
+	if err := s.CreateHost(ctx, h2); err != nil {
+		t.Fatalf("CreateHost h2: %v", err)
+	}
+
+	hosts, err := s.ListHosts(ctx, HostFilter{NetworkID: net.ID})
+	if err != nil {
+		t.Fatalf("ListHosts: %v", err)
+	}
+
+	if len(hosts) != 2 {
+		t.Fatalf("ListHosts returned %d hosts, want 2", len(hosts))
+	}
+
+	for _, h := range hosts {
+		switch h.ID {
+		case h1.ID:
+			if len(h.NebulaIPs) != 2 || h.NebulaIPs[0] != "10.0.0.5" || h.NebulaIPs[1] != "fd00::5" {
+				t.Errorf("h1 NebulaIPs = %v, want [10.0.0.5 fd00::5]", h.NebulaIPs)
+			}
+		case h2.ID:
+			if len(h.NebulaIPs) != 2 || h.NebulaIPs[0] != "fd00::10" || h.NebulaIPs[1] != "10.0.0.10" {
+				t.Errorf("h2 NebulaIPs = %v, want [fd00::10 10.0.0.10]", h.NebulaIPs)
+			}
+		}
 	}
 }

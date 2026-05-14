@@ -480,7 +480,7 @@ func (w *Web) handleFavicon(rw http.ResponseWriter, _ *http.Request) {
 
 // hostView is a view-model that augments models.Host with the resolved
 // human-readable network name and the computed "online" flag. Embedding
-// keeps every existing template field access (.ID, .Name, .NebulaIP, …)
+// keeps every existing template field access (.ID, .Name, .NebulaIPs, …)
 // working unchanged.
 type hostView struct {
 	*models.Host
@@ -675,16 +675,31 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		network = n
 	}
 
-	nebulaIP := form.NebulaIP
+	// Validate NebulaIPs against the network if selected
 	networkID := form.NetworkID
-	if nebulaIP != "" && networkID != "" {
-		if err := validateHostIPForNetwork(r.Context(), w.store, networkID, nebulaIP, ""); err != nil {
-			w.renderHostNewError(rw, r, form, err.Error())
+	if len(form.NebulaIPs) > 0 && networkID != "" {
+		perRowErrors := make(map[int]string)
+		for i, ip := range form.NebulaIPs {
+			if err := validateHostIPForNetwork(r.Context(), w.store, networkID, ip, ""); err != nil {
+				perRowErrors[i] = err.Error()
+			}
+		}
+		if len(perRowErrors) > 0 {
+			form.NebulaIPErrors = perRowErrors
+			w.renderHostNewError(rw, r, form, "one or more IP addresses are invalid")
 			return
 		}
-	} else if nebulaIP != "" {
-		if _, err := netip.ParseAddr(nebulaIP); err != nil {
-			w.renderHostNewError(rw, r, form, models.FriendlyAddrError("nebula_ip", nebulaIP))
+	} else if len(form.NebulaIPs) > 0 {
+		// Network not selected; just parse-check each IP
+		perRowErrors := make(map[int]string)
+		for i, ip := range form.NebulaIPs {
+			if _, err := netip.ParseAddr(ip); err != nil {
+				perRowErrors[i] = models.FriendlyAddrError("nebula_ip", ip)
+			}
+		}
+		if len(perRowErrors) > 0 {
+			form.NebulaIPErrors = perRowErrors
+			w.renderHostNewError(rw, r, form, "one or more IP addresses are invalid")
 			return
 		}
 	}
@@ -748,7 +763,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		NetworkID:    networkID,
 		CAID:         networkCAID(network),
 		Name:         form.Name,
-		NebulaIP:     nebulaIP,
+		NebulaIPs:    form.NebulaIPs,
 		Groups:       groups,
 		Role:         role,
 		IsLighthouse: role == models.HostRoleLighthouse,
@@ -847,11 +862,11 @@ func (w *Web) handleHostEdit(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	w.renderForRequest(rw, r, "host_edit.html", map[string]any{
-		"Active":       "hosts",
-		"Host":         host,
-		"Form":         hostFormStateFromHost(host),
-		"Error":        "",
-		"NetworkCIDR":  network.CIDR,
+		"Active":  "hosts",
+		"Host":    host,
+		"Network": network,
+		"Form":    hostFormStateFromHost(host),
+		"Error":   "",
 	})
 }
 
@@ -911,24 +926,30 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 	// Validation pipeline
 	name := strings.TrimSpace(form.Name)
 	if name == "" {
-		w.renderHostEditError(rw, r, host, network.CIDR, form, "name must not be empty")
+		w.renderHostEditError(rw, r, host, network, form, "name must not be empty")
 		return
 	}
 
-	nebulaIP := strings.TrimSpace(form.NebulaIP)
-	if nebulaIP == "" {
-		w.renderHostEditError(rw, r, host, network.CIDR, form, "nebula_ip must not be empty")
+	// Validate NebulaIPs
+	if len(form.NebulaIPs) == 0 {
+		w.renderHostEditError(rw, r, host, network, form, "at least one IP address is required")
 		return
 	}
-
-	if err := validateHostIPForNetwork(r.Context(), w.store, host.NetworkID, nebulaIP, host.ID); err != nil {
-		w.renderHostEditError(rw, r, host, network.CIDR, form, err.Error())
+	perRowErrors := make(map[int]string)
+	for i, ip := range form.NebulaIPs {
+		if err := validateHostIPForNetwork(r.Context(), w.store, host.NetworkID, ip, host.ID); err != nil {
+			perRowErrors[i] = err.Error()
+		}
+	}
+	if len(perRowErrors) > 0 {
+		form.NebulaIPErrors = perRowErrors
+		w.renderHostEditError(rw, r, host, network, form, "one or more IP addresses are invalid")
 		return
 	}
 
 	if strings.TrimSpace(form.PublicIP) != "" {
 		if _, err := netip.ParseAddr(form.PublicIP); err != nil {
-			w.renderHostEditError(rw, r, host, network.CIDR, form, models.FriendlyAddrError("public_ip", form.PublicIP))
+			w.renderHostEditError(rw, r, host, network, form, models.FriendlyAddrError("public_ip", form.PublicIP))
 			return
 		}
 	}
@@ -938,18 +959,18 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		var err error
 		listenPort, err = strconv.Atoi(form.ListenPort)
 		if err != nil {
-			w.renderHostEditError(rw, r, host, network.CIDR, form, "invalid listen_port: must be a number")
+			w.renderHostEditError(rw, r, host, network, form, "invalid listen_port: must be a number")
 			return
 		}
 		if listenPort < 0 || listenPort > 65535 {
-			w.renderHostEditError(rw, r, host, network.CIDR, form, "listen_port must be between 0 and 65535")
+			w.renderHostEditError(rw, r, host, network, form, "listen_port must be between 0 and 65535")
 			return
 		}
 	}
 
 	role := models.HostRole(form.Role)
 	if !models.ValidRole(role) {
-		w.renderHostEditError(rw, r, host, network.CIDR, form, "invalid role")
+		w.renderHostEditError(rw, r, host, network, form, "invalid role")
 		return
 	}
 	if role == "" {
@@ -957,7 +978,7 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := models.ValidateRoleReachability(role, form.PublicIP, listenPort); err != nil {
-		w.renderHostEditError(rw, r, host, network.CIDR, form, err.Error())
+		w.renderHostEditError(rw, r, host, network, form, err.Error())
 		return
 	}
 
@@ -973,11 +994,11 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 
 	advanced, err := parseAdvancedFromForm(r)
 	if err != nil {
-		w.renderHostEditError(rw, r, host, network.CIDR, form, err.Error())
+		w.renderHostEditError(rw, r, host, network, form, err.Error())
 		return
 	}
 	if err := models.ValidateHostAdvanced(advanced); err != nil {
-		w.renderHostEditError(rw, r, host, network.CIDR, form, err.Error())
+		w.renderHostEditError(rw, r, host, network, form, err.Error())
 		return
 	}
 
@@ -990,7 +1011,7 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 
 	// Merge form into host
 	host.Name = name
-	host.NebulaIP = nebulaIP
+	host.NebulaIPs = form.NebulaIPs
 	host.Groups = groups
 	host.Role = role
 	host.IsLighthouse = role == models.HostRoleLighthouse
@@ -1013,8 +1034,11 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update host
+	// Update host; set PendingRekey if cert-bound fields (NebulaIPs, Name) changed
 	host.UpdatedAt = time.Now()
+	if !slicesEqual(before.NebulaIPs, host.NebulaIPs) || before.Name != host.Name {
+		host.PendingRekey = true
+	}
 	if err := w.store.UpdateHost(r.Context(), host); err != nil {
 		w.logger.Error("update host", "error", err)
 		http.Error(rw, "Failed to update host", http.StatusInternalServerError)
@@ -1036,15 +1060,6 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		if err := w.store.BumpNetworkConfigVersion(r.Context(), host.NetworkID); err != nil {
 			w.logger.Error("bump network config version", "error", err)
 		}
-	}
-
-	// Cert-bound field changes (name, nebula_ip) trigger rekey
-	if before.Name != host.Name || before.NebulaIP != host.NebulaIP {
-		err := w.store.SetPendingRekey(r.Context(), host.ID)
-		if err != nil && !errors.Is(err, store.ErrRekeyAlreadyPending) {
-			w.logger.Error("set pending rekey", "error", err)
-		}
-		// If ErrRekeyAlreadyPending, treat as idempotent success
 	}
 
 	http.Redirect(rw, r, "/ui/hosts/"+host.ID, http.StatusSeeOther)
@@ -1152,12 +1167,20 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if form.Name == "" || form.CIDR == "" {
-		w.renderNetworksError(rw, r, form, cas, "name and cidr are required")
+	if form.Name == "" || len(form.CIDRs) == 0 {
+		w.renderNetworksError(rw, r, form, cas, "name and at least one CIDR are required")
 		return
 	}
-	if _, err := netip.ParsePrefix(form.CIDR); err != nil {
-		w.renderNetworksError(rw, r, form, cas, models.FriendlyPrefixError("cidr", form.CIDR))
+	// Validate each CIDR
+	perRowErrors := make(map[int]string)
+	for i, cidr := range form.CIDRs {
+		if _, err := netip.ParsePrefix(cidr); err != nil {
+			perRowErrors[i] = models.FriendlyPrefixError("cidrs", cidr)
+		}
+	}
+	if len(perRowErrors) > 0 {
+		form.CIDRErrors = perRowErrors
+		w.renderNetworksError(rw, r, form, cas, "one or more CIDRs are invalid")
 		return
 	}
 
@@ -1178,7 +1201,7 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 	network := &models.Network{
 		ID:        uuid.New().String(),
 		Name:      form.Name,
-		CIDR:      form.CIDR,
+		CIDRs:     form.CIDRs,
 		CAID:      caID,
 		CreatedAt: time.Now(),
 	}
@@ -1257,4 +1280,17 @@ func (w *Web) handleGenerateMobileBundle(rw http.ResponseWriter, r *http.Request
 		"DownloadHref":  template.URL(downloadHref),
 		"Active":        "hosts",
 	})
+}
+
+// slicesEqual reports whether two string slices are equal (same length and same elements in same order).
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

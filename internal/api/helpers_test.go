@@ -3,6 +3,10 @@ package api
 import (
 	"net/netip"
 	"testing"
+
+	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildHostPrefix(t *testing.T) {
@@ -56,4 +60,70 @@ func TestBuildHostPrefix(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildHostPrefixes_SingleFamily(t *testing.T) {
+	network := &models.Network{
+		ID:    "net1",
+		Name:  "test",
+		CIDRs: []string{"192.168.100.0/24"},
+	}
+
+	prefixes, err := buildHostPrefixes(network, []string{"192.168.100.10"})
+	require.NoError(t, err)
+	require.Len(t, prefixes, 1)
+	assert.Equal(t, netip.MustParsePrefix("192.168.100.10/24"), prefixes[0])
+}
+
+func TestBuildHostPrefixes_DualFamily(t *testing.T) {
+	network := &models.Network{
+		ID:    "net1",
+		Name:  "test",
+		CIDRs: []string{"10.0.0.0/8", "fd00::/64"},
+	}
+
+	prefixes, err := buildHostPrefixes(network, []string{"fd00::5", "10.0.0.5"})
+	require.NoError(t, err)
+	require.Len(t, prefixes, 2)
+	assert.Equal(t, netip.MustParsePrefix("fd00::5/64"), prefixes[0])
+	assert.Equal(t, netip.MustParsePrefix("10.0.0.5/8"), prefixes[1])
+}
+
+func TestBuildHostPrefixes_ChoosesCorrectParent(t *testing.T) {
+	network := &models.Network{
+		ID:    "net1",
+		Name:  "test",
+		CIDRs: []string{"10.0.0.0/8", "192.168.0.0/16"},
+	}
+
+	prefixes, err := buildHostPrefixes(network, []string{"192.168.1.5"})
+	require.NoError(t, err)
+	require.Len(t, prefixes, 1)
+	assert.Equal(t, netip.MustParsePrefix("192.168.1.5/16"), prefixes[0])
+}
+
+func TestBuildHostPrefixes_NoMatchingParent(t *testing.T) {
+	network := &models.Network{
+		ID:    "net1",
+		Name:  "test",
+		CIDRs: []string{"192.168.0.0/16"},
+	}
+
+	_, err := buildHostPrefixes(network, []string{"10.0.0.5"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not within any network CIDR")
+}
+
+func TestBuildHostPrefixes_OrderPreserved(t *testing.T) {
+	network := &models.Network{
+		ID:    "net1",
+		Name:  "test",
+		CIDRs: []string{"10.0.0.0/8", "fd00::/64"},
+	}
+
+	prefixes, err := buildHostPrefixes(network, []string{"fd00::5", "10.0.0.5"})
+	require.NoError(t, err)
+	require.Len(t, prefixes, 2)
+	assert.Equal(t, netip.MustParsePrefix("fd00::5/64"), prefixes[0])
+	assert.Equal(t, netip.MustParsePrefix("10.0.0.5/8"), prefixes[1])
 }

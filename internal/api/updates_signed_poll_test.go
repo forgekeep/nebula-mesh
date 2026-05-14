@@ -39,7 +39,7 @@ func enrolledFixture(t *testing.T, srv *Server) enrolledAgent {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID,
 		Name:      "signed-host",
-		NebulaIP:  "192.168.100.30",
+		NebulaIPs: []string{"192.168.100.30"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)

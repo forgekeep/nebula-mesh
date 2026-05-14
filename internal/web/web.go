@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/juev/nebula-mesh/internal/auth"
+	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/store"
 )
@@ -41,6 +42,7 @@ type Web struct {
 	limiter               *ratelimit.Limiter
 	passwordPolicy        auth.Policy
 	caMaster              CAMaster
+	caResolver            *pki.CAResolver
 }
 
 // WithPasswordPolicy installs the password policy used by registration
@@ -53,6 +55,11 @@ func (w *Web) WithPasswordPolicy(p auth.Policy) { w.passwordPolicy = p }
 func (w *Web) WithRateLimiter(l *ratelimit.Limiter) {
 	w.limiter = l
 	w.setupRoutes()
+}
+
+// WithCAResolver wires a CA resolver for mobile bundle generation.
+func (w *Web) WithCAResolver(r *pki.CAResolver) {
+	w.caResolver = r
 }
 
 // noStore tells the browser not to cache UI responses. Without this Chrome
@@ -138,6 +145,7 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		"host_new.html",
 		"host_edit.html",
 		"host_detail.html",
+		"host_mobile_bundle.html",
 		"networks.html",
 		"twofa.html",
 		"profile.html",
@@ -233,6 +241,7 @@ func (w *Web) setupRoutes() {
 		r.Get("/ui/hosts/{id}", w.handleHostDetail)
 		r.Get("/ui/hosts/{id}/edit", w.handleHostEdit)
 		r.Post("/ui/hosts/{id}/edit", w.handleHostUpdate)
+		r.Post("/ui/hosts/{id}/mobile-bundle/generate", w.handleGenerateMobileBundle)
 		r.Post("/ui/hosts/{id}/block", w.handleHostBlock)
 		r.Delete("/ui/hosts/{id}", w.handleHostDelete)
 		r.Get("/ui/networks", w.handleNetworks)

@@ -3,6 +3,7 @@ package configgen
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"text/template"
 )
 
@@ -46,12 +47,30 @@ type GeneratorInput struct {
 	MTU              int
 	TunDevice        string
 	UnsafeRoutes     []AdvancedUnsafeRoute
+
+	// Optional: if set, override the path-based pki section with inline PEM blocks.
+	// Used for Mobile Nebula clients which import a self-contained YAML config.
+	// When CACertPEM is non-empty, CertPEM and KeyPEM must also be non-empty;
+	// the template uses literal-block scalars for all three. When empty, the
+	// template falls back to CACertPath/CertPath/KeyPath (default behavior).
+	CACertPEM string
+	CertPEM   string
+	KeyPEM    string
 }
 
 const configTemplate = `pki:
+{{- if .CACertPEM }}
+  ca: |
+{{ .CACertPEM | indent4 }}
+  cert: |
+{{ .CertPEM | indent4 }}
+  key: |
+{{ .KeyPEM | indent4 }}
+{{- else }}
   ca: {{ .CACertPath }}
   cert: {{ .CertPath }}
   key: {{ .KeyPath }}
+{{- end }}
 
 {{- if .IsLighthouse }}
 
@@ -148,9 +167,27 @@ firewall:
     {{- end }}
 `
 
+// indentLines indents each line of the given string by n spaces.
+// Strips trailing newline to avoid empty indented lines at the end.
+func indentLines(s string, n int) string {
+	pad := strings.Repeat(" ", n)
+	s = strings.TrimRight(s, "\n")
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = pad + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // Generate produces a Nebula config.yml from the given input.
 func Generate(input GeneratorInput) ([]byte, error) {
-	tmpl, err := template.New("nebula-config").Parse(configTemplate)
+	funcs := template.FuncMap{
+		"indent4": func(s string) string { return indentLines(s, 4) },
+	}
+
+	tmpl, err := template.New("nebula-config").Funcs(funcs).Parse(configTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)
 	}

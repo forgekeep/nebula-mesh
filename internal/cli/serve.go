@@ -240,6 +240,9 @@ func Serve(configPath string) error {
 	if master != nil {
 		webUI.WithMaster(master)
 	}
+	if caResolver != nil {
+		webUI.WithCAResolver(caResolver)
+	}
 
 	// Live host-status SSE: API server fires HostSeenEmitter on each agent
 	// poll, EventBus fans out to subscribed browser tabs.

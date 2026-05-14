@@ -196,6 +196,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/v1/hosts/{id}/enrollment-token", s.handleRegenerateEnrollmentToken)
 		r.Post("/api/v1/hosts/{id}/rotate-cert", s.handleRotateCert)
 		r.Post("/api/v1/hosts/{id}/reenroll", s.handleReenroll)
+		r.Post("/api/v1/hosts/{id}/mobile-bundle", s.handleMobileBundle)
 		r.Get("/api/v1/blocklist", s.handleGetBlocklist)
 		r.Get("/api/v1/ca", s.handleGetCA)
 		r.Post("/api/v1/ca/rotate", s.handleRotateCA)

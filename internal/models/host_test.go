@@ -3,6 +3,8 @@ package models
 import (
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestValidRole(t *testing.T) {
@@ -61,6 +63,121 @@ func TestValidateRoleReachability(t *testing.T) {
 			}
 			if !errors.Is(got, tt.wantErr) {
 				t.Errorf("got error %v, want %v", got, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidKind(t *testing.T) {
+	tests := []struct {
+		name     string
+		kind     HostKind
+		expected bool
+	}{
+		{name: "agent", kind: HostKindAgent, expected: true},
+		{name: "mobile", kind: HostKindMobile, expected: true},
+		{name: "empty string", kind: "", expected: false},
+		{name: "unknown", kind: "unknown", expected: false},
+		{name: "lighthouse", kind: "lighthouse", expected: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, ValidKind(tt.kind))
+		})
+	}
+}
+
+func TestValidVariant(t *testing.T) {
+	tests := []struct {
+		name    string
+		variant HostVariant
+		expected bool
+	}{
+		{name: "none (empty)", variant: HostVariantNone, expected: true},
+		{name: "ios", variant: HostVariantIOS, expected: true},
+		{name: "android", variant: HostVariantAndroid, expected: true},
+		{name: "windows", variant: "windows", expected: false},
+		{name: "macos", variant: "macos", expected: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, ValidVariant(tt.variant))
+		})
+	}
+}
+
+func TestValidateMobileConstraints(t *testing.T) {
+	tests := []struct {
+		name    string
+		kind    HostKind
+		variant HostVariant
+		role    HostRole
+		wantErr bool
+		errIs   error
+	}{
+		{
+			name:    "mobile with lighthouse role",
+			kind:    HostKindMobile,
+			variant: HostVariantIOS,
+			role:    HostRoleLighthouse,
+			wantErr: true,
+			errIs:   ErrMobileRoleRestricted,
+		},
+		{
+			name:    "mobile with relay role",
+			kind:    HostKindMobile,
+			variant: HostVariantAndroid,
+			role:    HostRoleRelay,
+			wantErr: true,
+			errIs:   ErrMobileRoleRestricted,
+		},
+		{
+			name:    "mobile with variant empty and role host",
+			kind:    HostKindMobile,
+			variant: HostVariantNone,
+			role:    HostRoleHost,
+			wantErr: true,
+			errIs:   ErrMobileVariantRequired,
+		},
+		{
+			name:    "mobile ios with host role",
+			kind:    HostKindMobile,
+			variant: HostVariantIOS,
+			role:    HostRoleHost,
+			wantErr: false,
+		},
+		{
+			name:    "mobile android with host role",
+			kind:    HostKindMobile,
+			variant: HostVariantAndroid,
+			role:    HostRoleHost,
+			wantErr: false,
+		},
+		{
+			name:    "agent with any role and any variant",
+			kind:    HostKindAgent,
+			variant: HostVariantIOS,
+			role:    HostRoleLighthouse,
+			wantErr: false,
+		},
+		{
+			name:    "agent kind ignores mobile constraints",
+			kind:    HostKindAgent,
+			variant: HostVariantNone,
+			role:    HostRoleRelay,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMobileConstraints(tt.kind, tt.variant, tt.role)
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errIs != nil {
+					assert.ErrorIs(t, err, tt.errIs)
+				}
+			} else {
+				assert.NoError(t, err)
 			}
 		})
 	}

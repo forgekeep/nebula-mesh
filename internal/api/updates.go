@@ -295,7 +295,7 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 			PublicKey: currentCert.PublicKey(),
 			Networks:  []netip.Prefix{hostPrefix},
 			Groups:    host.Groups,
-			Duration:  30 * 24 * time.Hour,
+			Duration:  pki.DefaultAgentCertDuration,
 		})
 		if signErr != nil {
 			return nil, nil, fmt.Errorf("sign renewed cert: %w", signErr)

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
-	"time"
 
 	"github.com/juev/nebula-mesh/internal/configgen"
 	"github.com/juev/nebula-mesh/internal/models"
@@ -130,7 +129,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 			PublicKey: pubKey,
 			Networks:  []netip.Prefix{hostPrefix},
 			Groups:    host.Groups,
-			Duration:  30 * 24 * time.Hour, // 30 days
+			Duration:  pki.DefaultAgentCertDuration,
 		})
 		if signErr != nil {
 			return nil, nil, signErr

@@ -3,6 +3,7 @@ module github.com/juev/nebula-mesh
 go 1.26.1
 
 require (
+	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc
 	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/google/uuid v1.6.0
@@ -21,7 +22,6 @@ require (
 require (
 	filippo.io/bigmod v0.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect

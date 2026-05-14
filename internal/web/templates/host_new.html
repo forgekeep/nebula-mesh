@@ -35,6 +35,21 @@
             <div id="nebula-ip-hint" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;"></div>
         </div>
         <div class="form-group">
+            <label for="kind">Host Type</label>
+            <select id="kind" name="kind" class="form-control" onchange="document.getElementById('variant-group').style.display = this.value === 'mobile' ? 'block' : 'none';">
+                <option value="agent" {{if eq .Form.Kind "agent"}}selected{{end}}>Standard (Agent)</option>
+                <option value="mobile" {{if eq .Form.Kind "mobile"}}selected{{end}}>Mobile (iOS / Android)</option>
+            </select>
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Standard hosts run nebula-agent. Mobile hosts get a self-contained YAML bundle.</p>
+        </div>
+        <div class="form-group" id="variant-group" style="display: {{if eq .Form.Kind "mobile"}}block{{else}}none{{end}};">
+            <label for="variant">Mobile Platform</label>
+            <select id="variant" name="variant" class="form-control">
+                <option value="ios" {{if eq .Form.Variant "ios"}}selected{{end}}>iOS</option>
+                <option value="android" {{if eq .Form.Variant "android"}}selected{{end}}>Android</option>
+            </select>
+        </div>
+        <div class="form-group">
             <label>Role</label>
             <select name="role" class="form-control">
                 <option value="host"{{if eq .Form.Role "host"}} selected{{end}}>Host</option>

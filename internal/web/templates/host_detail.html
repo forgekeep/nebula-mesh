@@ -16,10 +16,23 @@
     </div>
 </div>
 
-{{if .Token}}
+{{if and .Token (ne (printf "%s" .Host.Kind) "mobile")}}
 <div class="flash flash-success">
     Enrollment token (shown once):
     <div class="token-display">{{.Token}}</div>
+</div>
+{{end}}
+
+{{if eq (printf "%s" .Host.Kind) "mobile"}}
+<div class="card">
+    <h3>Mobile Bundle ({{if eq (printf "%s" .Host.Variant) "ios"}}iOS{{else}}Android{{end}})</h3>
+    <p class="help-text">Generate a self-contained Nebula YAML config + QR code for this device.
+    Each generation creates a new certificate. The private key is shown only once — save the bundle immediately.</p>
+    <form method="post" action="/ui/hosts/{{.Host.ID}}/mobile-bundle/generate">
+        <button type="submit" class="btn btn-primary">
+            {{if eq (printf "%s" .Host.Status) "pending"}}Generate Mobile Bundle{{else}}Regenerate Bundle (Rotate Cert){{end}}
+        </button>
+    </form>
 </div>
 {{end}}
 

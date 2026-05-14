@@ -11,10 +11,10 @@ import (
 )
 
 // validateHostIPForNetwork mirrors the API-layer validation used by
-// handleCreateHost: it checks that ip parses, that it falls inside the
-// network's CIDR, that it is not the IPv4 network/broadcast address, and
-// that it is not already used by another non-blocked host in the same
-// network. excludeHostID lets callers exclude the host being edited.
+// handleCreateHost: it checks that ip parses, that it falls inside at least one
+// network CIDR block, that it is not the IPv4 network/broadcast address, and
+// that it is not already used by another non-blocked host in the same network.
+// excludeHostID lets callers exclude the host being edited.
 func validateHostIPForNetwork(ctx context.Context, s store.Store, networkID, ip, excludeHostID string) error {
 	if ip == "" {
 		return fmt.Errorf("nebula_ip is required")
@@ -32,18 +32,30 @@ func validateHostIPForNetwork(ctx context.Context, s store.Store, networkID, ip,
 		return fmt.Errorf("get network: %w", err)
 	}
 
-	prefix, err := netip.ParsePrefix(net.CIDR)
-	if err != nil {
-		return fmt.Errorf("network %q has invalid CIDR %q: %w", net.ID, net.CIDR, err)
+	// Check that IP falls into at least one CIDR block
+	var foundCIDR netip.Prefix
+	for _, cidrStr := range net.CIDRs {
+		prefix, err := netip.ParsePrefix(cidrStr)
+		if err != nil {
+			return fmt.Errorf("network %q has invalid CIDR %q: %w", net.ID, cidrStr, err)
+		}
+		if prefix.Contains(addr) {
+			foundCIDR = prefix
+			break
+		}
 	}
-	if !prefix.Contains(addr) {
-		return fmt.Errorf("nebula_ip %s is outside the network CIDR %s", ip, net.CIDR)
+	if foundCIDR == (netip.Prefix{}) {
+		// IP doesn't fall into any CIDR
+		cidrsStr := fmt.Sprintf("%v", net.CIDRs)
+		return fmt.Errorf("nebula_ip %s is outside all network CIDRs %s", ip, cidrsStr)
 	}
 
-	if addr.Is4() && isIPv4Boundary(prefix, addr) {
-		return fmt.Errorf("nebula_ip %s is reserved (network or broadcast address of %s)", ip, net.CIDR)
+	// Check IPv4 boundary (network/broadcast) within the matched CIDR
+	if addr.Is4() && isIPv4Boundary(foundCIDR, addr) {
+		return fmt.Errorf("nebula_ip %s is reserved (network or broadcast address of %s)", ip, foundCIDR.String())
 	}
 
+	// Check uniqueness within network
 	hosts, err := s.ListHosts(ctx, store.HostFilter{NetworkID: networkID, Limit: 0})
 	if err != nil {
 		return fmt.Errorf("list hosts: %w", err)
@@ -52,8 +64,10 @@ func validateHostIPForNetwork(ctx context.Context, s store.Store, networkID, ip,
 		if h.ID == excludeHostID {
 			continue
 		}
-		if h.NebulaIP == ip {
-			return fmt.Errorf("nebula_ip %s is already assigned to host %q in this network", ip, h.Name)
+		for _, hostIP := range h.NebulaIPs {
+			if hostIP == ip {
+				return fmt.Errorf("nebula_ip %s is already assigned to host %q in this network", ip, h.Name)
+			}
 		}
 	}
 	return nil

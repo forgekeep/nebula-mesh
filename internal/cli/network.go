@@ -11,9 +11,15 @@ import (
 
 // NetworkCreate creates a network via the API.
 func NetworkCreate(serverURL, apiKey, name, cidr string) error {
-	body := map[string]string{
-		"name": name,
-		"cidr": cidr,
+	// Convert single CIDR to the new cidrs array format
+	cidrs := []string{cidr}
+	if cidr == "" {
+		cidrs = []string{}
+	}
+
+	body := map[string]any{
+		"name":  name,
+		"cidrs": cidrs,
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -46,15 +52,15 @@ func NetworkCreate(serverURL, apiKey, name, cidr string) error {
 	}
 
 	var result struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		CIDR string `json:"cidr"`
+		ID    string   `json:"id"`
+		Name  string   `json:"name"`
+		CIDRs []string `json:"cidrs"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return fmt.Errorf("unmarshal response: %w", err)
 	}
 
-	fmt.Printf("Network created: %s (ID: %s, CIDR: %s)\n", result.Name, result.ID, result.CIDR)
+	fmt.Printf("Network created: %s (ID: %s, CIDRs: %s)\n", result.Name, result.ID, fmt.Sprint(result.CIDRs))
 	return nil
 }
 
@@ -77,9 +83,9 @@ func NetworkList(serverURL, apiKey string) error {
 	}()
 
 	var networks []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		CIDR string `json:"cidr"`
+		ID    string   `json:"id"`
+		Name  string   `json:"name"`
+		CIDRs []string `json:"cidrs"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&networks); err != nil {
 		return fmt.Errorf("decode response: %w", err)
@@ -90,9 +96,10 @@ func NetworkList(serverURL, apiKey string) error {
 		return nil
 	}
 
-	fmt.Printf("%-36s  %-20s  %s\n", "ID", "NAME", "CIDR")
+	fmt.Printf("%-36s  %-20s  %s\n", "ID", "NAME", "CIDRS")
 	for _, n := range networks {
-		fmt.Printf("%-36s  %-20s  %s\n", n.ID, n.Name, n.CIDR)
+		cidrsStr := fmt.Sprint(n.CIDRs)
+		fmt.Printf("%-36s  %-20s  %s\n", n.ID, n.Name, cidrsStr)
 	}
 	return nil
 }

@@ -156,6 +156,88 @@ sudo -u nebula-mgmt sqlite3 /var/lib/nebula-mgmt/nebula.db \
 The `NEBULA_MGMT_MASTER_KEY` is **load-bearing**: the DB on its own
 is useless without the matching key. Keep both in your secret manager.
 
+## Networks and Hosts
+
+### Creating a network
+
+Networks can contain one or more CIDR prefixes, enabling dual-stack (IPv4 + IPv6)
+and segmented address schemes. Create via the Web UI or REST API:
+
+```bash
+curl -X POST "https://mgmt.example.com:8080/api/v1/networks" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "production",
+    "cidrs": ["10.42.0.0/24", "fd00:42::/64"]
+  }'
+```
+
+Response (201):
+```json
+{
+  "id": "net_abc123",
+  "name": "production",
+  "cidrs": ["10.42.0.0/24", "fd00:42::/64"],
+  "ca_id": "ca_xyz789",
+  "created_at": "2026-05-14T10:30:00Z"
+}
+```
+
+### Creating a host
+
+Hosts are assigned one or more overlay addresses from the parent network's CIDR
+prefixes. When multiple addresses are provided, the host's certificate includes
+all of them; the configuration generated for the host references all addresses
+in `static_host_map` and `lighthouse.hosts`.
+
+```bash
+curl -X POST "https://mgmt.example.com:8080/api/v1/hosts" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "network_id": "net_abc123",
+    "name": "edge-1",
+    "nebula_ips": ["10.42.0.10", "fd00:42::10"],
+    "role": "host"
+  }'
+```
+
+Response (201):
+```json
+{
+  "id": "host_def456",
+  "network_id": "net_abc123",
+  "name": "edge-1",
+  "nebula_ips": ["10.42.0.10", "fd00:42::10"],
+  "role": "host",
+  "status": "pending",
+  "groups": [],
+  "created_at": "2026-05-14T10:31:00Z"
+}
+```
+
+**Field notes:**
+
+- `cidrs` (networks): array of CIDR strings. Each CIDR must be unique and non-overlapping within the network. At least one is required.
+- `nebula_ips` (hosts): array of IP address strings. Each address must fall within one of the parent network's CIDRs. At least one is required. Order is preserved in the issued certificate.
+- Legacy singular fields (`cidr` and `nebula_ip`) were removed in v0.3.0. Requests using the old field names receive a 400 Bad Request error.
+
+### Updating host addresses
+
+To change a host's addresses (trigger a new certificate issuance), use PATCH:
+
+```bash
+curl -X PATCH "https://mgmt.example.com:8080/api/v1/hosts/host_def456" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nebula_ips": ["fd00:42::10", "10.42.0.10"]
+  }'
+```
+
+The new certificate will reflect the reordered addresses on the agent's next poll.
+
 ## Hosts
 
 ### Mobile hosts (iOS / Android)

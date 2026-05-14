@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"strconv"
 
 	"github.com/juev/nebula-mesh/internal/configgen"
 	"github.com/juev/nebula-mesh/internal/models"
@@ -49,17 +50,17 @@ func Build(ctx context.Context, s store.Store, resolver interface{ LoadByID(cont
 		return nil, fmt.Errorf("get network: %w", err)
 	}
 
-	// Build host prefix.
-	hostPrefix, err := buildHostPrefix(host.NebulaIP, network.CIDR)
+	// Build host prefixes.
+	prefixes, err := buildHostPrefixes(network, host.NebulaIPs)
 	if err != nil {
-		return nil, fmt.Errorf("build host prefix: %w", err)
+		return nil, fmt.Errorf("build host prefixes: %w", err)
 	}
 
 	// Sign certificate.
 	hostCert, err := caMgr.Sign(pki.SignRequest{
 		Name:      host.Name,
 		PublicKey: pub,
-		Networks:  []netip.Prefix{hostPrefix},
+		Networks:  prefixes,
 		Groups:    host.Groups,
 		Duration:  pki.DefaultMobileCertDuration,
 	})
@@ -105,14 +106,16 @@ func Build(ctx context.Context, s store.Store, resolver interface{ LoadByID(cont
 		return nil, fmt.Errorf("list lighthouses: %w", err)
 	}
 
-	// Compose GeneratorInput with inline PEM.
+	// Generate config.
 	input := configgen.GeneratorInput{
-		HostName:    host.Name,
-		NebulaIP:    host.NebulaIP,
-		CACertPEM:   string(caPEM),
-		CertPEM:     string(certPEM),
-		KeyPEM:      string(privPEM),
-		Lighthouses: lighthouses,
+		HostName:     host.Name,
+		NebulaIPs:    host.NebulaIPs,
+		IsLighthouse: host.IsLighthouse,
+		IsRelay:      host.IsRelay,
+		Lighthouses:  lighthouses,
+		CACertPEM:    string(caPEM),
+		CertPEM:      string(certPEM),
+		KeyPEM:       string(privPEM),
 		FirewallInbound: []configgen.FirewallRule{
 			{Port: "any", Proto: "icmp", Group: "any"},
 		},
@@ -120,8 +123,6 @@ func Build(ctx context.Context, s store.Store, resolver interface{ LoadByID(cont
 			{Port: "any", Proto: "any", Group: "any"},
 		},
 	}
-
-	// Apply advanced overrides if present.
 	if adv := host.Advanced; adv != nil {
 		input.PunchyOverride = adv.Punchy
 		input.ListenHost = adv.ListenHost
@@ -132,28 +133,56 @@ func Build(ctx context.Context, s store.Store, resolver interface{ LoadByID(cont
 		}
 	}
 
-	return configgen.Generate(input)
+	configYAML, err := configgen.Generate(input)
+	if err != nil {
+		return nil, fmt.Errorf("generate config: %w", err)
+	}
+
+	// TODO: Bundle into QR code or download format
+	// For now, return the YAML
+	return configYAML, nil
 }
 
-// buildHostPrefix mirrors the logic from internal/api/helpers.go.
-// Parses hostIP and networkCIDR, validates they belong to the same IP family,
-// and returns a prefix combining the host address with the network mask.
-func buildHostPrefix(hostIP, networkCIDR string) (netip.Prefix, error) {
-	prefix, err := netip.ParsePrefix(networkCIDR)
-	if err != nil {
-		return netip.Prefix{}, fmt.Errorf("parse CIDR: %w", err)
+// buildHostPrefixes mirrors the logic from internal/api/helpers.go.
+// Parses each hostAddr and finds a matching parent prefix from network.CIDRs.
+// For each hostAddr[i]:
+// - Parses the address
+// - Finds the first CIDR that contains it
+// - Returns a prefix using the host address with the parent's mask bits
+// If no parent contains the address, returns an error with the address index.
+func buildHostPrefixes(network *models.Network, hostAddrs []string) ([]netip.Prefix, error) {
+	result := make([]netip.Prefix, len(hostAddrs))
+
+	for i, hostAddr := range hostAddrs {
+		addr, err := netip.ParseAddr(hostAddr)
+		if err != nil {
+			msg := models.FriendlyAddrError("nebula_ips["+strconv.Itoa(i)+"]", hostAddr)
+			return nil, fmt.Errorf("%s", msg)
+		}
+
+		var found netip.Prefix
+		var foundParent bool
+		for _, cidr := range network.CIDRs {
+			parent, err := netip.ParsePrefix(cidr)
+			if err != nil {
+				return nil, fmt.Errorf("network has invalid CIDR %q: %w", cidr, err)
+			}
+
+			if parent.Contains(addr) {
+				found = parent
+				foundParent = true
+				break
+			}
+		}
+
+		if !foundParent {
+			return nil, fmt.Errorf("nebula_ips[%d]: %q is not within any network CIDR", i, hostAddr)
+		}
+
+		result[i] = netip.PrefixFrom(addr, found.Bits())
 	}
 
-	hostAddr, err := netip.ParseAddr(hostIP)
-	if err != nil {
-		return netip.Prefix{}, fmt.Errorf("parse host IP: %w", err)
-	}
-
-	if hostAddr.Is4() != prefix.Addr().Is4() {
-		return netip.Prefix{}, fmt.Errorf("IP family mismatch: host %s vs network %s", hostIP, networkCIDR)
-	}
-
-	return netip.PrefixFrom(hostAddr, prefix.Bits()), nil
+	return result, nil
 }
 
 // listLighthouses mirrors the logic from internal/api/enroll.go.
@@ -172,12 +201,15 @@ func listLighthouses(ctx context.Context, s store.Store, networkID string) ([]co
 		if !h.IsLighthouse || h.PublicIP == "" {
 			continue
 		}
+		if len(h.NebulaIPs) == 0 {
+			continue
+		}
 		port := h.ListenPort
 		if port == 0 {
 			port = 4242
 		}
 		result = append(result, configgen.LighthouseInfo{
-			NebulaIP:   h.NebulaIP,
+			NebulaIPs:  h.NebulaIPs,
 			PublicAddr: fmt.Sprintf("%s:%d", h.PublicIP, port),
 		})
 	}

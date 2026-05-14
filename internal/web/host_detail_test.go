@@ -19,7 +19,7 @@ func TestHostDetail_HasEditButton(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -30,7 +30,7 @@ func TestHostDetail_HasEditButton(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		CreatedAt: time.Now(),
@@ -66,7 +66,7 @@ func TestHostDetail_RendersAdvanced(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -77,7 +77,7 @@ func TestHostDetail_RendersAdvanced(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Advanced: &models.HostAdvanced{
@@ -143,7 +143,7 @@ func TestHostDetail_AdvancedAbsent_NoSection(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -154,7 +154,7 @@ func TestHostDetail_AdvancedAbsent_NoSection(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Advanced:  nil,
@@ -190,7 +190,7 @@ func TestHostDetail_PunchyRendering_True(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -202,7 +202,7 @@ func TestHostDetail_PunchyRendering_True(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Advanced: &models.HostAdvanced{
@@ -245,7 +245,7 @@ func TestHostDetail_PunchyRendering_False(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -257,7 +257,7 @@ func TestHostDetail_PunchyRendering_False(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Advanced: &models.HostAdvanced{
@@ -300,7 +300,7 @@ func TestHostDetail_UnsafeRoutesRendering(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -311,7 +311,7 @@ func TestHostDetail_UnsafeRoutesRendering(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Advanced: &models.HostAdvanced{
@@ -360,7 +360,7 @@ func TestHandleHostDetail_MobileSection(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -371,7 +371,7 @@ func TestHandleHostDetail_MobileSection(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "iphone-test",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs:  []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusPending,
 		Kind:      models.HostKindMobile,
@@ -420,7 +420,7 @@ func TestHandleHostDetail_MobileSection_Android(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -431,7 +431,7 @@ func TestHandleHostDetail_MobileSection_Android(t *testing.T) {
 		ID:        "h-2",
 		NetworkID: "n-1",
 		Name:      "android-test",
-		NebulaIP:  "192.168.100.20",
+		NebulaIPs:  []string{"192.168.100.20"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusPending,
 		Kind:      models.HostKindMobile,
@@ -470,7 +470,7 @@ func TestHandleHostDetail_AgentNoMobileSection(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -481,7 +481,7 @@ func TestHandleHostDetail_AgentNoMobileSection(t *testing.T) {
 		ID:        "h-3",
 		NetworkID: "n-1",
 		Name:      "agent-test",
-		NebulaIP:  "192.168.100.30",
+		NebulaIPs:  []string{"192.168.100.30"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Kind:      models.HostKindAgent,
@@ -522,7 +522,7 @@ func TestHandleHostDetail_MobileEnrolled_ShowsRegenerate(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -533,7 +533,7 @@ func TestHandleHostDetail_MobileEnrolled_ShowsRegenerate(t *testing.T) {
 		ID:        "h-4",
 		NetworkID: "n-1",
 		Name:      "iphone-enrolled",
-		NebulaIP:  "192.168.100.40",
+		NebulaIPs:  []string{"192.168.100.40"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Kind:      models.HostKindMobile,
@@ -574,7 +574,7 @@ func TestHandleHostDetail_AgentToken_DisplaysWhenPassing(t *testing.T) {
 	network := &models.Network{
 		ID:        "n-1",
 		Name:      "test-net",
-		CIDR:      "192.168.100.0/24",
+		CIDRs:     []string{"192.168.100.0/24"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -585,7 +585,7 @@ func TestHandleHostDetail_AgentToken_DisplaysWhenPassing(t *testing.T) {
 		ID:        "h-5",
 		NetworkID: "n-1",
 		Name:      "agent-with-token",
-		NebulaIP:  "192.168.100.50",
+		NebulaIPs:  []string{"192.168.100.50"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusPending,
 		Kind:      models.HostKindAgent,

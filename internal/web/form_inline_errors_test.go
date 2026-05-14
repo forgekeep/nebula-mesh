@@ -30,18 +30,18 @@ func TestHostCreate_InlineErrorPreservesForm(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	if err := s.CreateNetwork(context.Background(), &models.Network{
-		ID: "net-inline", Name: "test", CIDR: "10.0.0.0/24", CreatedAt: time.Now(),
+		ID: "net-inline", Name: "test", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Submit a duplicate-IP / out-of-CIDR error to exercise the
-	// nebula_ip branch. 10.0.0.300 is not a valid IPv4 address, which
-	// trips netip.ParseAddr inside validateHostIPForNetwork.
+	// nebula_ips branch. 10.99.99.99 is outside 10.0.0.0/24,
+	// which trips validateHostIPForNetwork.
 	form := url.Values{
 		"network_id":      {"net-inline"},
 		"name":            {"preserved-name"},
-		"nebula_ip":       {"10.99.99.99"}, // outside 10.0.0.0/24
+		"nebula_ips":      {"10.99.99.99"}, // outside 10.0.0.0/24
 		"role":            {"host"},
 		"groups":          {"web, prod"},
 		"adv_listen_host": {"0.0.0.0"},
@@ -60,7 +60,7 @@ func TestHostCreate_InlineErrorPreservesForm(t *testing.T) {
 	body := rec.Body.String()
 
 	// Re-rendered the form, not a bare error page.
-	if !strings.Contains(body, `name="name"`) || !strings.Contains(body, `name="nebula_ip"`) {
+	if !strings.Contains(body, `name="name"`) || !strings.Contains(body, `name="nebula_ips"`) {
 		t.Fatalf("body is not the host_new form:\n%s", body)
 	}
 	// Submitted values preserved.
@@ -68,7 +68,7 @@ func TestHostCreate_InlineErrorPreservesForm(t *testing.T) {
 		t.Errorf("body should preserve submitted Name field: missing value=\"preserved-name\"")
 	}
 	if !strings.Contains(body, `value="10.99.99.99"`) {
-		t.Errorf("body should preserve submitted nebula_ip field")
+		t.Errorf("body should preserve submitted nebula_ips field")
 	}
 	if !strings.Contains(body, `value="web, prod"`) {
 		t.Errorf("body should preserve submitted groups field")
@@ -90,7 +90,7 @@ func TestHostCreate_InlineErrorPreservesRole(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	if err := s.CreateNetwork(context.Background(), &models.Network{
-		ID: "net-role", Name: "n", CIDR: "10.0.0.0/24", CreatedAt: time.Now(),
+		ID: "net-role", Name: "n", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestHostCreate_InlineErrorPreservesRole(t *testing.T) {
 	form := url.Values{
 		"network_id": {"net-role"},
 		"name":       {"lh-1"},
-		"nebula_ip":  {"10.0.0.5"},
+		"nebula_ips": {"10.0.0.5"},
 		"role":       {"lighthouse"}, // requires public_ip + listen_port → fails
 	}
 	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
@@ -128,8 +128,8 @@ func TestNetworkCreate_InlineErrorPreservesForm(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	form := url.Values{
-		"name": {"prod-net"},
-		"cidr": {"not-a-cidr"},
+		"name":  {"prod-net"},
+		"cidrs": {"not-a-cidr"},
 	}
 	req := httptest.NewRequest("POST", "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -148,7 +148,7 @@ func TestNetworkCreate_InlineErrorPreservesForm(t *testing.T) {
 		t.Errorf("body should preserve submitted Name")
 	}
 	if !strings.Contains(body, `value="not-a-cidr"`) {
-		t.Errorf("body should preserve submitted CIDR")
+		t.Errorf("body should preserve submitted CIDRs")
 	}
 	if !strings.Contains(body, `role="alert"`) {
 		t.Errorf("body should render alert banner")
@@ -171,7 +171,7 @@ func TestNetworkCreate_InlineErrorRequiredFields(t *testing.T) {
 
 	form := url.Values{
 		"name": {""},
-		"cidr": {""},
+		// cidrs is empty array, which is required error
 	}
 	req := httptest.NewRequest("POST", "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -184,7 +184,7 @@ func TestNetworkCreate_InlineErrorRequiredFields(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), `name and cidr are required`) {
+	if !strings.Contains(rec.Body.String(), `name and at least one CIDR are required`) {
 		t.Errorf("body should explain missing fields; got:\n%s", rec.Body.String())
 	}
 }

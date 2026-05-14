@@ -104,10 +104,10 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hostPrefix, err := buildHostPrefix(host.NebulaIP, network.CIDR)
+	prefixes, err := buildHostPrefixes(network, host.NebulaIPs)
 	if err != nil {
 		s.metrics.recordEnrollment(resultError)
-		s.logger.Error("build host prefix", "error", err, "host_ip", host.NebulaIP, "cidr", network.CIDR)
+		s.logger.Error("build host prefixes", "error", err, "host_id", host.ID)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}
@@ -127,7 +127,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		c, signErr := caMgr.Sign(pki.SignRequest{
 			Name:      host.Name,
 			PublicKey: pubKey,
-			Networks:  []netip.Prefix{hostPrefix},
+			Networks:  prefixes,
 			Groups:    host.Groups,
 			Duration:  pki.DefaultAgentCertDuration,
 		})
@@ -223,9 +223,49 @@ func (s *Server) renderHostConfig(ctx context.Context, host *models.Host) ([]byt
 		return nil, fmt.Errorf("get lighthouses: %w", err)
 	}
 
+	// Validate family-match for unsafe_routes
+	if adv := host.Advanced; adv != nil {
+		for _, u := range adv.UnsafeRoutes {
+			routePrefix, err := netip.ParsePrefix(u.Route)
+			if err != nil {
+				return nil, fmt.Errorf("parse route %q: %w", u.Route, err)
+			}
+			viaAddr, err := netip.ParseAddr(u.Via)
+			if err != nil {
+				return nil, fmt.Errorf("parse via %q: %w", u.Via, err)
+			}
+
+			// Check family match between route and via
+			if routePrefix.Addr().Is4() != viaAddr.Is4() {
+				family := "IPv6"
+				if routePrefix.Addr().Is4() {
+					family = "IPv4"
+				}
+				return nil, fmt.Errorf("unsafe_route family mismatch: route %s (requires %s via address) but via %s uses different family", u.Route, family, u.Via)
+			}
+
+			// Check that host has at least one address in the same family as via
+			hasFamily := false
+			for _, addr := range host.NebulaIPs {
+				hostAddr, _ := netip.ParseAddr(addr)
+				if hostAddr.Is4() == viaAddr.Is4() {
+					hasFamily = true
+					break
+				}
+			}
+			if !hasFamily {
+				family := "IPv6"
+				if viaAddr.Is4() {
+					family = "IPv4"
+				}
+				return nil, fmt.Errorf("unsafe_route family mismatch: route %s needs %s host address but host %q has no %s addresses", u.Route, family, host.Name, family)
+			}
+		}
+	}
+
 	input := configgen.GeneratorInput{
 		HostName:     host.Name,
-		NebulaIP:     host.NebulaIP,
+		NebulaIPs:    host.NebulaIPs,
 		IsLighthouse: host.IsLighthouse,
 		IsRelay:      host.IsRelay,
 		CACertPath:   "/etc/nebula/ca.crt",
@@ -269,12 +309,15 @@ func (s *Server) getLighthouses(ctx context.Context, networkID string) ([]config
 		if !h.IsLighthouse || h.PublicIP == "" {
 			continue
 		}
+		if len(h.NebulaIPs) == 0 {
+			continue
+		}
 		port := h.ListenPort
 		if port == 0 {
 			port = 4242
 		}
 		result = append(result, configgen.LighthouseInfo{
-			NebulaIP:   h.NebulaIP,
+			NebulaIPs:  h.NebulaIPs,
 			PublicAddr: fmt.Sprintf("%s:%d", h.PublicIP, port),
 		})
 	}

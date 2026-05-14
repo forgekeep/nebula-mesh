@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidRole(t *testing.T) {
@@ -179,6 +180,92 @@ func TestValidateMobileConstraints(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestHost_NebulaIPs_Valid(t *testing.T) {
+	tests := []struct {
+		name string
+		ips  []string
+	}{
+		{
+			name: "single ipv4",
+			ips:  []string{"10.42.0.5"},
+		},
+		{
+			name: "single ipv6",
+			ips:  []string{"fd00:42::5"},
+		},
+		{
+			name: "mixed ipv4 and ipv6",
+			ips:  []string{"10.42.0.5", "fd00:42::5"},
+		},
+		{
+			name: "multiple ipv4",
+			ips:  []string{"10.42.0.5", "192.168.1.5"},
+		},
+		{
+			name: "multiple ipv6",
+			ips:  []string{"fd00:42::5", "fd01:42::5"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateHostAddresses(tt.ips)
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestHost_NebulaIPs_Empty(t *testing.T) {
+	err := ValidateHostAddresses([]string{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one address required")
+}
+
+func TestHost_NebulaIPs_Duplicate(t *testing.T) {
+	addrs := []string{"10.42.0.5", "10.42.0.5"}
+	err := ValidateHostAddresses(addrs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate")
+}
+
+func TestHost_NebulaIPs_TooMany(t *testing.T) {
+	addrs := make([]string, MaxAddressesPerHost+1)
+	for i := 0; i < len(addrs); i++ {
+		addrs[i] = "10.42.0." + string(rune(5+i))
+	}
+	err := ValidateHostAddresses(addrs)
+	require.Error(t, err)
+	errMsg := err.Error()
+	assert.True(t, (assert.Contains(t, errMsg, "maximum") || assert.Contains(t, errMsg, "too many")))
+}
+
+func TestHost_NebulaIPs_Invalid(t *testing.T) {
+	tests := []struct {
+		name string
+		ips  []string
+	}{
+		{
+			name: "invalid ipv4",
+			ips:  []string{"10.42.0.500"},
+		},
+		{
+			name: "not an ip",
+			ips:  []string{"not-an-ip"},
+		},
+		{
+			name: "invalid in second element",
+			ips:  []string{"10.42.0.5", "invalid"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateHostAddresses(tt.ips)
+			require.Error(t, err)
 		})
 	}
 }

@@ -87,7 +87,7 @@ func TestCreateHost_RoleReachability(t *testing.T) {
 			body, _ := json.Marshal(createHostRequest{
 				NetworkID:  netID,
 				Name:       "h-" + strings.ReplaceAll(tc.name, " ", "-"),
-				NebulaIP:   tc.nebulaIP,
+				NebulaIPs: []string{tc.nebulaIP},
 				Role:       tc.role,
 				PublicIP:   tc.publicIP,
 				ListenPort: tc.listenPort,

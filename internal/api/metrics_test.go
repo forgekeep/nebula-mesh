@@ -94,7 +94,7 @@ func TestMetricsEndpoint_EnrollmentIncrementsCounter(t *testing.T) {
 
 	// 1. Create host record.
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "metrics-host", NebulaIP: "192.168.100.10",
+		NetworkID: netID, Name: "metrics-host", NebulaIPs: []string{"192.168.100.10"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -157,7 +157,7 @@ func TestMetricsEndpoint_HostsGauge(t *testing.T) {
 	for _, s := range []models.HostStatus{models.HostStatusPending, models.HostStatusEnrolled} {
 		h := &models.Host{
 			ID: "h_" + string(s), NetworkID: netID, Name: "h-" + string(s),
-			NebulaIP: "192.168.100." + string(s[0:1]) + "0",
+			NebulaIPs: []string{"192.168.100." + string(s[0:1]) + "0"},
 			Groups:   []string{}, Role: models.HostRoleHost, Status: s,
 		}
 		if err := st.CreateHost(req(t).Context(), h); err != nil {

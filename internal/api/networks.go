@@ -1,10 +1,8 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
-	"net/netip"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -14,30 +12,30 @@ import (
 )
 
 type createNetworkRequest struct {
-	Name string `json:"name"`
-	CIDR string `json:"cidr"`
+	Name  string   `json:"name"`
+	CIDRs []string `json:"cidrs"`
 }
 
 func (s *Server) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
 	var req createNetworkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeJSONStrict(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	if req.Name == "" || req.CIDR == "" {
-		writeError(w, http.StatusBadRequest, "name and cidr are required")
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if _, err := netip.ParsePrefix(req.CIDR); err != nil {
-		writeError(w, http.StatusBadRequest, models.FriendlyPrefixError("cidr", req.CIDR))
+	if err := models.ValidateNetworkCIDRs(req.CIDRs); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	network := &models.Network{
 		ID:        uuid.New().String(),
 		Name:      req.Name,
-		CIDR:      req.CIDR,
+		CIDRs:     req.CIDRs,
 		CreatedAt: time.Now(),
 	}
 

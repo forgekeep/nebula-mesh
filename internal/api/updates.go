@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/netip"
 	"time"
 
 	"github.com/juev/nebula-mesh/internal/models"
@@ -276,7 +275,7 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 		return nil, fmt.Errorf("get network: %w", err)
 	}
 
-	hostPrefix, err := buildHostPrefix(host.NebulaIP, network.CIDR)
+	prefixes, err := buildHostPrefixes(network, host.NebulaIPs)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +292,7 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 		c, signErr := caMgr.Sign(pki.SignRequest{
 			Name:      host.Name,
 			PublicKey: currentCert.PublicKey(),
-			Networks:  []netip.Prefix{hostPrefix},
+			Networks:  prefixes,
 			Groups:    host.Groups,
 			Duration:  pki.DefaultAgentCertDuration,
 		})

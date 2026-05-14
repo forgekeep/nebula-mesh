@@ -17,7 +17,7 @@ func TestCreateHost_FriendlyNebulaIPError(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "garbage", NebulaIP: "10.42.0.22.333",
+		NetworkID: netID, Name: "garbage", NebulaIPs: []string{"10.42.0.22.333"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -40,7 +40,7 @@ func TestCreateHost_FriendlyPublicIPError(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "lh", NebulaIP: "192.168.100.10",
+		NetworkID: netID, Name: "lh", NebulaIPs: []string{"192.168.100.10"},
 		Role: "lighthouse", PublicIP: "203.0.113.999", ListenPort: 4242,
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
@@ -61,7 +61,7 @@ func TestCreateHost_FriendlyPublicIPError(t *testing.T) {
 
 func TestCreateNetwork_FriendlyCIDRError(t *testing.T) {
 	srv, _ := newTestServer(t)
-	body := []byte(`{"name":"n","cidr":"not-a-cidr"}`)
+	body := []byte(`{"name":"n","cidrs":["not-a-cidr"]}`)
 	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
@@ -83,7 +83,7 @@ func TestCreateHost_FriendlyAdvancedListenHostError(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "adv", NebulaIP: "192.168.100.20",
+		NetworkID: netID, Name: "adv", NebulaIPs: []string{"192.168.100.20"},
 		Advanced: &models.HostAdvanced{ListenHost: "not-an-ip"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
@@ -107,7 +107,7 @@ func TestCreateHost_FriendlyUnsafeRouteError(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "ur", NebulaIP: "192.168.100.21",
+		NetworkID: netID, Name: "ur", NebulaIPs: []string{"192.168.100.21"},
 		Advanced: &models.HostAdvanced{
 			UnsafeRoutes: []models.UnsafeRoute{{Route: "bad/cidr", Via: "10.0.0.1"}},
 		},
@@ -133,7 +133,7 @@ func TestCreateHost_RejectsIPOutsideCIDR(t *testing.T) {
 	netID := createNetwork(t, srv) // helper creates 192.168.100.0/24
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "wrong-net", NebulaIP: "10.0.0.1",
+		NetworkID: netID, Name: "wrong-net", NebulaIPs: []string{"10.0.0.1"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -149,7 +149,7 @@ func TestCreateHost_RejectsDuplicateIPInSameNetwork(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "h1", NebulaIP: "192.168.100.10",
+		NetworkID: netID, Name: "h1", NebulaIPs: []string{"192.168.100.10"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -160,7 +160,7 @@ func TestCreateHost_RejectsDuplicateIPInSameNetwork(t *testing.T) {
 	}
 
 	body, _ = json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "h2", NebulaIP: "192.168.100.10",
+		NetworkID: netID, Name: "h2", NebulaIPs: []string{"192.168.100.10"},
 	})
 	req = httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -176,7 +176,7 @@ func TestCreateHost_RejectsIPv4NetworkAddress(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "net-addr", NebulaIP: "192.168.100.0",
+		NetworkID: netID, Name: "net-addr", NebulaIPs: []string{"192.168.100.0"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -192,7 +192,7 @@ func TestCreateHost_RejectsIPv4BroadcastAddress(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "broadcast", NebulaIP: "192.168.100.255",
+		NetworkID: netID, Name: "broadcast", NebulaIPs: []string{"192.168.100.255"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -209,13 +209,13 @@ func TestCreateHost_AllowsDuplicateIPAcrossDifferentNetworks(t *testing.T) {
 
 	// Second network with a different name/CIDR
 	if err := st.CreateNetwork(context.Background(), &models.Network{
-		ID: "net-other", Name: "other", CIDR: "10.20.0.0/24",
+		ID: "net-other", Name: "other", CIDRs: []string{"10.20.0.0/24"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: net1, Name: "h1", NebulaIP: "192.168.100.10",
+		NetworkID: net1, Name: "h1", NebulaIPs: []string{"192.168.100.10"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -226,7 +226,7 @@ func TestCreateHost_AllowsDuplicateIPAcrossDifferentNetworks(t *testing.T) {
 	}
 
 	body, _ = json.Marshal(createHostRequest{
-		NetworkID: "net-other", Name: "h2", NebulaIP: "10.20.0.10",
+		NetworkID: "net-other", Name: "h2", NebulaIPs: []string{"10.20.0.10"},
 	})
 	req = httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -242,7 +242,7 @@ func TestValidateHostIP_BlockedHostStillHoldsItsAddress(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "h1", NebulaIP: "192.168.100.10",
+		NetworkID: netID, Name: "h1", NebulaIPs: []string{"192.168.100.10"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -264,7 +264,7 @@ func TestValidateHostIP_BlockedHostStillHoldsItsAddress(t *testing.T) {
 	// slot to preserve audit history. Operators delete the host explicitly
 	// to free the address.
 	body, _ = json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "h2", NebulaIP: "192.168.100.10",
+		NetworkID: netID, Name: "h2", NebulaIPs: []string{"192.168.100.10"},
 	})
 	req = httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)

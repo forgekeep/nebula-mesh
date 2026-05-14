@@ -37,6 +37,7 @@ type Store interface {
 	CreateNetwork(ctx context.Context, n *models.Network) error
 	GetNetwork(ctx context.Context, id string) (*models.Network, error)
 	ListNetworks(ctx context.Context) ([]*models.Network, error)
+	UpdateNetwork(ctx context.Context, n *models.Network) error
 
 	// Hosts
 	CreateHost(ctx context.Context, h *models.Host) error

@@ -49,6 +49,86 @@ func ValidateCIDR(field, value string) (netip.Prefix, error) {
 	return prefix, nil
 }
 
+// ValidateNetworkCIDRs validates a list of CIDRs for a network. It checks that:
+// - The list is non-empty
+// - Each CIDR is parseable
+// - There are no duplicate CIDRs
+// - There are no overlapping CIDRs
+func ValidateNetworkCIDRs(cidrs []string) error {
+	if len(cidrs) == 0 {
+		return fmt.Errorf("at least one CIDR required")
+	}
+
+	prefixes := make([]netip.Prefix, len(cidrs))
+	normalizedStrs := make(map[string]int)
+
+	for i, cidrStr := range cidrs {
+		prefix, err := netip.ParsePrefix(cidrStr)
+		if err != nil {
+			fieldName := fmt.Sprintf("cidrs[%d]", i)
+			msg := FriendlyPrefixError(fieldName, cidrStr)
+			return fmt.Errorf("%s", msg)
+		}
+		prefixes[i] = prefix
+
+		normalized := prefix.String()
+		if idx, exists := normalizedStrs[normalized]; exists {
+			return fmt.Errorf("cidrs: duplicate CIDR at index %d and %d: %q", idx, i, normalized)
+		}
+		normalizedStrs[normalized] = i
+	}
+
+	for i := 0; i < len(prefixes); i++ {
+		for j := i + 1; j < len(prefixes); j++ {
+			if prefixes[i].Overlaps(prefixes[j]) {
+				return fmt.Errorf("cidrs: CIDR at index %d (%q) overlaps with CIDR at index %d (%q)", i, prefixes[i], j, prefixes[j])
+			}
+		}
+	}
+
+	return nil
+}
+
+// ValidateHostAddresses validates a list of overlay addresses for a host. It checks that:
+// - The list is non-empty
+// - Each address is parseable
+// - There are no duplicate addresses
+// - The list does not exceed MaxAddressesPerHost
+//
+// Note: This function does not check containment in parent network CIDRs.
+// That validation is the responsibility of the caller (API or web handler)
+// which has the parent network context and can provide better error messages.
+func ValidateHostAddresses(addrs []string) error {
+	if len(addrs) == 0 {
+		return fmt.Errorf("at least one address required")
+	}
+
+	if len(addrs) > MaxAddressesPerHost {
+		return fmt.Errorf("maximum %d addresses per host; got %d", MaxAddressesPerHost, len(addrs))
+	}
+
+	parsedAddrs := make([]netip.Addr, len(addrs))
+	normalizedStrs := make(map[string]int)
+
+	for i, addrStr := range addrs {
+		addr, err := netip.ParseAddr(addrStr)
+		if err != nil {
+			fieldName := fmt.Sprintf("nebula_ips[%d]", i)
+			msg := FriendlyAddrError(fieldName, addrStr)
+			return fmt.Errorf("%s", msg)
+		}
+		parsedAddrs[i] = addr
+
+		normalized := addr.String()
+		if idx, exists := normalizedStrs[normalized]; exists {
+			return fmt.Errorf("nebula_ips: duplicate address at index %d and %d: %q", idx, i, normalized)
+		}
+		normalizedStrs[normalized] = i
+	}
+
+	return nil
+}
+
 // ValidateHostAdvanced rejects obviously broken advanced overrides before
 // they reach the database. Empty / zero-value fields mean "inherit
 // network default" and pass validation. All error messages use the

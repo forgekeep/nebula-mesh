@@ -22,7 +22,7 @@ func TestCreateHost_UsesServerDefaultTTL(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID,
 		Name:      "h1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs: []string{"192.168.100.10"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -80,7 +80,7 @@ func TestCreateHost_UsesNetworkOverride(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID,
 		Name:      "h2",
-		NebulaIP:  "192.168.100.11",
+		NebulaIPs: []string{"192.168.100.11"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -119,7 +119,7 @@ func TestRegenerateEnrollmentToken_InvalidatesPrevious(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID,
 		Name:      "h3",
-		NebulaIP:  "192.168.100.12",
+		NebulaIPs: []string{"192.168.100.12"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)

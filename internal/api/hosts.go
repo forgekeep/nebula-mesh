@@ -17,7 +17,7 @@ import (
 type createHostRequest struct {
 	NetworkID  string               `json:"network_id"`
 	Name       string               `json:"name"`
-	NebulaIP   string               `json:"nebula_ip"`
+	NebulaIPs  []string             `json:"nebula_ips"`
 	Groups     []string             `json:"groups"`
 	Role       string               `json:"role"`
 	PublicIP   string               `json:"public_ip,omitempty"`
@@ -32,7 +32,7 @@ type createHostResponse struct {
 
 type updateHostRequest struct {
 	Name       *string              `json:"name,omitempty"`
-	NebulaIP   *string              `json:"nebula_ip,omitempty"`
+	NebulaIPs  *[]string            `json:"nebula_ips,omitempty"`
 	Groups     *[]string            `json:"groups,omitempty"`
 	Role       *string              `json:"role,omitempty"`
 	PublicIP   *string              `json:"public_ip,omitempty"`
@@ -42,22 +42,22 @@ type updateHostRequest struct {
 
 func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	var req createHostRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeJSONStrict(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	if req.Name == "" || req.NebulaIP == "" || req.NetworkID == "" {
-		writeError(w, http.StatusBadRequest, "name, nebula_ip, and network_id are required")
+	if req.Name == "" || len(req.NebulaIPs) == 0 || req.NetworkID == "" {
+		writeError(w, http.StatusBadRequest, "name, nebula_ips, and network_id are required")
 		return
 	}
-	if err := validateHostIP(r.Context(), s.store, req.NetworkID, req.NebulaIP, ""); err != nil {
+	if err := validateHostIPs(r.Context(), s.store, req.NetworkID, req.NebulaIPs, ""); err != nil {
 		if IsHostIPValidationError(err) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		s.logger.Error("validate host ip", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to validate nebula_ip")
+		s.logger.Error("validate host ips", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to validate nebula_ips")
 		return
 	}
 	if req.ListenPort < 0 || req.ListenPort > 65535 {
@@ -95,7 +95,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		ID:           uuid.New().String(),
 		NetworkID:    req.NetworkID,
 		Name:         req.Name,
-		NebulaIP:     req.NebulaIP,
+		NebulaIPs:    req.NebulaIPs,
 		Groups:       req.Groups,
 		Role:         role,
 		IsLighthouse: role == models.HostRoleLighthouse,
@@ -382,7 +382,7 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 
 	// API trusts the bearer token for authorisation; per-CA ownership is enforced only in the Web layer (handleHostUpdate). Matches handleCreateHost/handleDeleteHost behaviour.
 
-	// Decode request body
+	// Decode request body (lenient for PATCH, forward-compatible)
 	var req updateHostRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -406,18 +406,17 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		host.Name = name
 	}
 
-	if req.NebulaIP != nil {
-		nebulaIP := strings.TrimSpace(*req.NebulaIP)
-		if err := validateHostIP(r.Context(), s.store, host.NetworkID, nebulaIP, host.ID); err != nil {
+	if req.NebulaIPs != nil {
+		if err := validateHostIPs(r.Context(), s.store, host.NetworkID, *req.NebulaIPs, host.ID); err != nil {
 			if IsHostIPValidationError(err) {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			s.logger.Error("validate host ip", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to validate nebula_ip")
+			s.logger.Error("validate host ips", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to validate nebula_ips")
 			return
 		}
-		host.NebulaIP = nebulaIP
+		host.NebulaIPs = *req.NebulaIPs
 	}
 
 	if req.Groups != nil {
@@ -509,8 +508,17 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If name or IP changed, set pending rekey for cert re-enrollment
-	if before.Name != host.Name || before.NebulaIP != host.NebulaIP {
+	// If name or any IP changed, set pending rekey for cert re-enrollment
+	ipsEqual := len(before.NebulaIPs) == len(host.NebulaIPs)
+	if ipsEqual {
+		for i := range before.NebulaIPs {
+			if before.NebulaIPs[i] != host.NebulaIPs[i] {
+				ipsEqual = false
+				break
+			}
+		}
+	}
+	if before.Name != host.Name || !ipsEqual {
 		if err := s.store.SetPendingRekey(r.Context(), host.ID); err != nil {
 			if !errors.Is(err, store.ErrRekeyAlreadyPending) {
 				s.logger.Error("set pending rekey", "host", host.ID, "error", err)

@@ -13,12 +13,18 @@ import (
 
 // HostCreate creates a host via the API.
 func HostCreate(serverURL, apiKey, networkID, name, nebulaIP, role string, groups []string, publicIP string, listenPort int) error {
+	// Convert single nebulaIP to the new nebula_ips array format
+	nebullaIPs := []string{nebulaIP}
+	if nebulaIP == "" {
+		nebullaIPs = []string{}
+	}
+
 	body := map[string]any{
-		"network_id": networkID,
-		"name":       name,
-		"nebula_ip":  nebulaIP,
-		"role":       role,
-		"groups":     groups,
+		"network_id":  networkID,
+		"name":        name,
+		"nebula_ips":  nebullaIPs,
+		"role":        role,
+		"groups":      groups,
 	}
 	if publicIP != "" {
 		body["public_ip"] = publicIP
@@ -145,11 +151,11 @@ func HostList(serverURL, apiKey, networkID string) error {
 	}()
 
 	var hosts []struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		NebulaIP string `json:"nebula_ip"`
-		Role     string `json:"role"`
-		Status   string `json:"status"`
+		ID        string   `json:"id"`
+		Name      string   `json:"name"`
+		NebulaIPs []string `json:"nebula_ips"`
+		Role      string   `json:"role"`
+		Status    string   `json:"status"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&hosts); err != nil {
 		return fmt.Errorf("decode response: %w", err)
@@ -160,9 +166,10 @@ func HostList(serverURL, apiKey, networkID string) error {
 		return nil
 	}
 
-	fmt.Printf("%-36s  %-20s  %-16s  %-12s  %s\n", "ID", "NAME", "NEBULA IP", "ROLE", "STATUS")
+	fmt.Printf("%-36s  %-20s  %-40s  %-12s  %s\n", "ID", "NAME", "NEBULA IPS", "ROLE", "STATUS")
 	for _, h := range hosts {
-		fmt.Printf("%-36s  %-20s  %-16s  %-12s  %s\n", h.ID, h.Name, h.NebulaIP, h.Role, h.Status)
+		ipsStr := strings.Join(h.NebulaIPs, ", ")
+		fmt.Printf("%-36s  %-20s  %-40s  %-12s  %s\n", h.ID, h.Name, ipsStr, h.Role, h.Status)
 	}
 	return nil
 }

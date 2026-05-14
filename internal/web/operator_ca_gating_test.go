@@ -47,7 +47,7 @@ func TestNetworkCreate_RejectsUserWithoutCA(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "alice", "user")
 
-	form := url.Values{"name": {"alice-net"}, "cidr": {"10.0.0.0/24"}}
+	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}}
 	req := httptest.NewRequest("POST", "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(cookie)
@@ -83,7 +83,7 @@ func TestNetworkCreate_UserWithSingleCA(t *testing.T) {
 	cookie := mintSession(t, s, "alice", "user")
 	ca := seedActiveCA(t, s, "ca-alice", "op-alice", "alice-ca")
 
-	form := url.Values{"name": {"alice-net"}, "cidr": {"10.0.0.0/24"}}
+	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}}
 	req := httptest.NewRequest("POST", "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(cookie)
@@ -114,7 +114,7 @@ func TestNetworkCreate_UserMustPickWhenMultipleCAs(t *testing.T) {
 	seedActiveCA(t, s, "ca-1", "op-alice", "ca-one")
 	seedActiveCA(t, s, "ca-2", "op-alice", "ca-two")
 
-	form := url.Values{"name": {"alice-net"}, "cidr": {"10.0.0.0/24"}}
+	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}}
 	req := httptest.NewRequest("POST", "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(cookie)
@@ -138,7 +138,7 @@ func TestNetworkCreate_UserCannotPickForeignCA(t *testing.T) {
 	seedActiveCA(t, s, "ca-alice", "op-alice", "alice-ca")
 	seedActiveCA(t, s, "ca-bob", "op-bob", "bob-ca")
 
-	form := url.Values{"name": {"alice-net"}, "cidr": {"10.0.0.0/24"}, "ca_id": {"ca-bob"}}
+	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}, "ca_id": {"ca-bob"}}
 	req := httptest.NewRequest("POST", "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(cookie)
@@ -162,7 +162,7 @@ func TestHostCreate_UserCannotCreateInForeignNetwork(t *testing.T) {
 	cookie := mintSession(t, s, "alice", "user")
 	mintSession(t, s, "bob", "user")
 	bobCA := seedActiveCA(t, s, "ca-bob", "op-bob", "bob-ca")
-	bobNet := &models.Network{ID: "n-bob", Name: "bob-net", CIDR: "10.10.0.0/24", CAID: bobCA.ID, CreatedAt: time.Now()}
+	bobNet := &models.Network{ID: "n-bob", Name: "bob-net", CIDRs: []string{"10.10.0.0/24"}, CAID: bobCA.ID, CreatedAt: time.Now()}
 	if err := s.CreateNetwork(context.Background(), bobNet); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestHostCreate_UserCannotCreateInForeignNetwork(t *testing.T) {
 	form := url.Values{
 		"network_id": {bobNet.ID},
 		"name":       {"sneaky-host"},
-		"nebula_ip":  {"10.10.0.10"},
+		"nebula_ips":  {"10.10.0.10"},
 		"role":       {"host"},
 	}
 	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
@@ -203,7 +203,7 @@ func TestHostCreate_UserOwnedNetworkInheritsCAID(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "alice", "user")
 	ca := seedActiveCA(t, s, "ca-alice", "op-alice", "alice-ca")
-	net := &models.Network{ID: "n-alice", Name: "alice-net", CIDR: "10.20.0.0/24", CAID: ca.ID, CreatedAt: time.Now()}
+	net := &models.Network{ID: "n-alice", Name: "alice-net", CIDRs: []string{"10.20.0.0/24"}, CAID: ca.ID, CreatedAt: time.Now()}
 	if err := s.CreateNetwork(context.Background(), net); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestHostCreate_UserOwnedNetworkInheritsCAID(t *testing.T) {
 	form := url.Values{
 		"network_id": {net.ID},
 		"name":       {"alice-host"},
-		"nebula_ip":  {"10.20.0.5"},
+		"nebula_ips":  {"10.20.0.5"},
 		"role":       {"host"},
 	}
 	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
@@ -255,7 +255,7 @@ func TestHostNew_UserWithoutAccessibleNetworks(t *testing.T) {
 		t.Errorf("body should alert about missing networks; got:\n%s", body)
 	}
 	// And the form must not be there.
-	if strings.Contains(body, `name="nebula_ip"`) {
+	if strings.Contains(body, `name="nebula_ips"`) {
 		t.Errorf("form must be hidden when no networks are accessible")
 	}
 }

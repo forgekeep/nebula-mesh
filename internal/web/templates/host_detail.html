@@ -39,7 +39,7 @@
 <div class="card">
     <table>
         <tr><th style="width:180px">ID</th><td>{{.Host.ID}}</td></tr>
-        <tr><th>Nebula IP</th><td>{{.Host.NebulaIP}}</td></tr>
+        <tr><th>Overlay Addresses</th><td>{{range $i, $ip := .Host.NebulaIPs}}{{if $i}}<br>{{end}}{{$ip}}{{end}}</td></tr>
         <tr><th>Role</th><td>{{.Host.Role}}</td></tr>
         <tr><th>Status</th><td><span class="badge badge-{{.Host.Status}}">{{.Host.Status}}</span></td></tr>
         <tr><th>Groups</th><td>{{range .Host.Groups}}<span class="badge" style="background:var(--bg);margin-right:4px">{{.}}</span>{{else}}—{{end}}</td></tr>

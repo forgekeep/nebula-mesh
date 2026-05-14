@@ -22,7 +22,7 @@ func TestCreateHostViaUI_RoleReachability(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	if err := s.CreateNetwork(context.Background(), &models.Network{
-		ID: "net-rr", Name: "test", CIDR: "10.0.0.0/24", CreatedAt: time.Now(),
+		ID: "net-rr", Name: "test", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestCreateHostViaUI_RoleReachability(t *testing.T) {
 			form := url.Values{
 				"network_id":  {"net-rr"},
 				"name":        {"h-" + strings.ReplaceAll(tc.name, " ", "-")},
-				"nebula_ip":   {tc.nebulaIP},
+				"nebula_ips":   {tc.nebulaIP},
 				"role":        {tc.role},
 				"public_ip":   {tc.publicIP},
 				"listen_port": {tc.listenPort},

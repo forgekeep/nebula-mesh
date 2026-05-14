@@ -159,7 +159,7 @@ func TestAuthMiddleware_ValidKey(t *testing.T) {
 func TestCreateAndListNetworks(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	body := `{"name":"test-net","cidr":"192.168.100.0/24"}`
+	body := `{"name":"test-net","cidrs":["192.168.100.0/24"]}`
 	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBufferString(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
@@ -200,7 +200,7 @@ func TestCreateAndListNetworks(t *testing.T) {
 
 func createNetwork(t *testing.T, srv *Server) string {
 	t.Helper()
-	body := `{"name":"test-net","cidr":"192.168.100.0/24"}`
+	body := `{"name":"test-net","cidrs":["192.168.100.0/24"]}`
 	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBufferString(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
@@ -219,7 +219,7 @@ func TestCreateHost_InvalidRole(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID,
 		Name:      "bad-role-host",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs: []string{"192.168.100.10"},
 		Role:      "invalid",
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
@@ -239,7 +239,7 @@ func TestCreateAndGetHost(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID,
 		Name:      "web-1",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs: []string{"192.168.100.10"},
 		Groups:    []string{"web"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
@@ -278,7 +278,7 @@ func TestDeleteHost(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "to-delete", NebulaIP: "192.168.100.20",
+		NetworkID: netID, Name: "to-delete", NebulaIPs: []string{"192.168.100.20"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -315,7 +315,7 @@ func TestBlockAndUnblockHost(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "block-cycle", NebulaIP: "192.168.100.50",
+		NetworkID: netID, Name: "block-cycle", NebulaIPs: []string{"192.168.100.50"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -379,7 +379,7 @@ func TestDeleteHost_WithCertBlocklisted(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "enrolled-host", NebulaIP: "192.168.100.30",
+		NetworkID: netID, Name: "enrolled-host", NebulaIPs: []string{"192.168.100.30"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -445,7 +445,7 @@ func TestCreateHost_InvalidIP(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "bad-host", NebulaIP: "not-an-ip",
+		NetworkID: netID, Name: "bad-host", NebulaIPs: []string{"not-an-ip"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
@@ -465,7 +465,7 @@ func TestCreateHost_InvalidPort(t *testing.T) {
 		body, _ := json.Marshal(createHostRequest{
 			NetworkID:  netID,
 			Name:       "bad-port",
-			NebulaIP:   "192.168.100.10",
+			NebulaIPs: []string{"192.168.100.10"},
 			ListenPort: port,
 		})
 		req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
@@ -487,7 +487,7 @@ func TestCreateHost_ValidPort(t *testing.T) {
 		body, _ := json.Marshal(createHostRequest{
 			NetworkID:  netID,
 			Name:       fmt.Sprintf("host-port-%d", port),
-			NebulaIP:   fmt.Sprintf("192.168.100.%d", 10+port%200),
+			NebulaIPs:  []string{fmt.Sprintf("192.168.100.%d", 10+port%200)},
 			ListenPort: port,
 		})
 		req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
@@ -513,7 +513,7 @@ func TestCreateHost_EmptyGroup(t *testing.T) {
 		body, _ := json.Marshal(createHostRequest{
 			NetworkID: netID,
 			Name:      "bad-groups",
-			NebulaIP:  "192.168.100.10",
+			NebulaIPs: []string{"192.168.100.10"},
 			Groups:    groups,
 		})
 		req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
@@ -534,7 +534,7 @@ func TestCreateHost_ValidGroups(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID,
 		Name:      "good-groups",
-		NebulaIP:  "192.168.100.10",
+		NebulaIPs: []string{"192.168.100.10"},
 		Groups:    []string{"web", "prod"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
@@ -822,7 +822,7 @@ func TestEnroll_HostDeletedAfterTokenCreated(t *testing.T) {
 
 	// Create host and get enrollment token
 	body, _ := json.Marshal(createHostRequest{
-		NetworkID: netID, Name: "doomed", NebulaIP: "192.168.100.50",
+		NetworkID: netID, Name: "doomed", NebulaIPs: []string{"192.168.100.50"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)

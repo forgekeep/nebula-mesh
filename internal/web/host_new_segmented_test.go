@@ -23,9 +23,9 @@ func TestHostNewForm_SegmentedWidgetHooks(t *testing.T) {
 
 	ctx := context.Background()
 	for _, n := range []*models.Network{
-		{ID: "n-24", Name: "v4-24", CIDR: "10.42.0.0/24", CreatedAt: time.Now()},
-		{ID: "n-22", Name: "v4-22", CIDR: "10.44.0.0/22", CreatedAt: time.Now()},
-		{ID: "n-64", Name: "v6-64", CIDR: "fd00:42::/64", CreatedAt: time.Now()},
+		{ID: "n-24", Name: "v4-24", CIDRs: []string{"10.42.0.0/24"}, CreatedAt: time.Now()},
+		{ID: "n-22", Name: "v4-22", CIDRs: []string{"10.44.0.0/22"}, CreatedAt: time.Now()},
+		{ID: "n-64", Name: "v6-64", CIDRs: []string{"fd00:42::/64"}, CreatedAt: time.Now()},
 	} {
 		if err := s.CreateNetwork(ctx, n); err != nil {
 			t.Fatal(err)
@@ -43,13 +43,10 @@ func TestHostNewForm_SegmentedWidgetHooks(t *testing.T) {
 	}
 	body := rec.Body.String()
 
-	// Required DOM hooks. The widget mounts into #nebula-ip-segments, the
-	// text input stays as the canonical form field, and the hint stays for
-	// the fallback path.
+	// Required DOM hooks for repeatable IP rows (new design).
+	// The rows container, network selector, and row add/remove handlers must be present.
 	for _, hook := range []string{
-		`id="nebula-ip-segments"`,
-		`id="nebula-ip-input"`,
-		`id="nebula-ip-hint"`,
+		`id="nebula-ip-rows"`,
 		`id="network-select"`,
 		`id="host-form"`,
 	} {
@@ -58,17 +55,13 @@ func TestHostNewForm_SegmentedWidgetHooks(t *testing.T) {
 		}
 	}
 
-	// JS branch names — guard against silent refactor regressions that
-	// would drop one of the issue-100 variants.
+	// JS row add/remove handlers for repeatable IP addresses.
 	for _, marker := range []string{
-		"mountIPv4Octets",
-		"mountIPv4Bounded",
-		"mountIPv6Segments",
-		"chooseWidget",
-		"computeByteAlignedPrefix", // legacy hook kept for issue #97 test
+		`data-action="add-ip"`,
+		`data-action="remove"`,
 	} {
 		if !strings.Contains(body, marker) {
-			t.Errorf("template should contain JS helper %s; not found", marker)
+			t.Errorf("template should contain %s; not found", marker)
 		}
 	}
 }
@@ -80,7 +73,7 @@ func TestHostCreate_FriendlyNebulaIPInline(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	if err := s.CreateNetwork(context.Background(), &models.Network{
-		ID: "n-friendly", Name: "n", CIDR: "10.0.0.0/24", CreatedAt: time.Now(),
+		ID: "n-friendly", Name: "n", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +81,7 @@ func TestHostCreate_FriendlyNebulaIPInline(t *testing.T) {
 	form := url.Values{
 		"network_id": {"n-friendly"},
 		"name":       {"bad-ip"},
-		"nebula_ip":  {"10.42.0.22.333"},
+		"nebula_ips":  {"10.42.0.22.333"},
 		"role":       {"host"},
 	}
 	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
@@ -116,7 +109,7 @@ func TestHostCreate_FriendlyPublicIPInline(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	if err := s.CreateNetwork(context.Background(), &models.Network{
-		ID: "n-pub", Name: "n", CIDR: "10.0.0.0/24", CreatedAt: time.Now(),
+		ID: "n-pub", Name: "n", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +117,7 @@ func TestHostCreate_FriendlyPublicIPInline(t *testing.T) {
 	form := url.Values{
 		"network_id":  {"n-pub"},
 		"name":        {"lh"},
-		"nebula_ip":   {"10.0.0.5"},
+		"nebula_ips":   {"10.0.0.5"},
 		"role":        {"lighthouse"},
 		"public_ip":   {"203.0.113.999"},
 		"listen_port": {"4242"},
@@ -155,7 +148,7 @@ func TestHostCreate_FriendlyAdvancedListenHostInline(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	if err := s.CreateNetwork(context.Background(), &models.Network{
-		ID: "n-adv", Name: "n", CIDR: "10.0.0.0/24", CreatedAt: time.Now(),
+		ID: "n-adv", Name: "n", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +156,7 @@ func TestHostCreate_FriendlyAdvancedListenHostInline(t *testing.T) {
 	form := url.Values{
 		"network_id":      {"n-adv"},
 		"name":            {"adv"},
-		"nebula_ip":       {"10.0.0.5"},
+		"nebula_ips":       {"10.0.0.5"},
 		"role":            {"host"},
 		"adv_listen_host": {"not-an-ip"},
 	}
@@ -196,7 +189,7 @@ func TestHandleHostNew_FormHasKindFields(t *testing.T) {
 	network := &models.Network{
 		ID:    "n-form-test",
 		Name:  "form-test",
-		CIDR:  "10.0.0.0/24",
+		CIDRs: []string{"10.0.0.0/24"},
 		CAID:  "ca-test",
 		CreatedAt: time.Now(),
 	}
@@ -248,7 +241,7 @@ func TestHandleHostNew_PreservesKindOnError(t *testing.T) {
 	network := &models.Network{
 		ID:    "n-test",
 		Name:  "test-net",
-		CIDR:  "10.0.0.0/24",
+		CIDRs: []string{"10.0.0.0/24"},
 		CAID:  "ca-test",
 		CreatedAt: time.Now(),
 	}
@@ -259,7 +252,7 @@ func TestHandleHostNew_PreservesKindOnError(t *testing.T) {
 	form := url.Values{
 		"network_id": {"n-test"},
 		"name":       {"invalid-host"},
-		"nebula_ip":  {"10.0.0.5"},
+		"nebula_ips":  {"10.0.0.5"},
 		"kind":       {"mobile"},
 		"variant":    {"ios"},
 		"role":       {"lighthouse"},

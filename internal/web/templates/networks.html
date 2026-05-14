@@ -24,8 +24,22 @@
             <input type="text" name="name" class="form-control" placeholder="production" value="{{.Form.Name}}" required>
         </div>
         <div class="form-group">
-            <label>CIDR</label>
-            <input type="text" name="cidr" class="form-control" placeholder="192.168.100.0/24" value="{{.Form.CIDR}}" required>
+            <label>CIDRs</label>
+            <div id="cidr-rows" data-rows>
+                {{- range $i, $cidr := .Form.CIDRs }}
+                <div class="cidr-row" data-row-id="{{ $i }}" style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
+                    <input type="text" name="cidrs" value="{{ $cidr }}" required class="form-control" placeholder="10.0.0.0/24 or fd00::/64" />
+                    {{- with index $.Form.CIDRErrors $i }}<div class="error-inline" style="color: var(--danger); font-size: 13px;">{{ . }}</div>{{- end }}
+                    <button type="button" data-action="remove" aria-label="Remove CIDR" style="background: transparent; border: 1px solid var(--border); padding: 4px 10px; cursor: pointer;">×</button>
+                </div>
+                {{- else }}
+                <div class="cidr-row" data-row-id="0" style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
+                    <input type="text" name="cidrs" required class="form-control" placeholder="10.0.0.0/24 or fd00::/64" />
+                    <button type="button" data-action="remove" aria-label="Remove CIDR" style="background: transparent; border: 1px solid var(--border); padding: 4px 10px; cursor: pointer;">×</button>
+                </div>
+                {{- end }}
+            </div>
+            <button type="button" data-action="add-cidr" style="margin-top: 8px;" class="btn btn-secondary">+ Add CIDR</button>
         </div>
         {{if gt (len .CAs) 1}}
         <div class="form-group">
@@ -53,12 +67,12 @@
 {{if .Networks}}
 <div class="card">
     <table>
-        <thead><tr><th>Name</th><th>CIDR</th><th>Hosts</th><th>Created</th></tr></thead>
+        <thead><tr><th>Name</th><th>CIDRs</th><th>Hosts</th><th>Created</th></tr></thead>
         <tbody>
         {{range .Networks}}
         <tr>
             <td>{{.Name}}</td>
-            <td>{{.CIDR}}</td>
+            <td>{{range $i, $cidr := .CIDRs}}{{if $i}}, {{end}}{{$cidr}}{{end}}</td>
             <td>—</td>
             <td>{{.CreatedAt.Format "2006-01-02"}}</td>
         </tr>

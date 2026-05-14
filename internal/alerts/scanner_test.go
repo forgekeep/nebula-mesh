@@ -53,7 +53,7 @@ func seedNetwork(t *testing.T, s store.Store) string {
 	n := &models.Network{
 		ID:        "net_test",
 		Name:      "test",
-		CIDR:      "192.168.0.0/16",
+		CIDRs:     []string{"192.168.0.0/16"},
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(context.Background(), n); err != nil {
@@ -68,7 +68,7 @@ func seedEnrolledHost(t *testing.T, s store.Store, id, netID string, fp string, 
 		ID:        id,
 		NetworkID: netID,
 		Name:      id,
-		NebulaIP:  "192.168.1." + id,
+		NebulaIPs: []string{"192.168.1." + id},
 		Groups:    []string{},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,

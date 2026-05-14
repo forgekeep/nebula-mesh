@@ -117,9 +117,9 @@ func TestE2E_FullCycle(t *testing.T) {
 	ts, _, ca := setupE2E(t)
 
 	// 1. Create network
-	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]string{
-		"name": "e2e-network",
-		"cidr": "192.168.100.0/24",
+	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]any{
+		"name":  "e2e-network",
+		"cidrs": []string{"192.168.100.0/24"},
 	})
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
@@ -136,7 +136,7 @@ func TestE2E_FullCycle(t *testing.T) {
 	resp = apiCall(t, ts, "POST", "/api/v1/hosts", map[string]any{
 		"network_id":  network.ID,
 		"name":        "lighthouse-1",
-		"nebula_ip":   "192.168.100.1",
+		"nebula_ips":  []string{"192.168.100.1"},
 		"role":        "lighthouse",
 		"public_ip":   "203.0.113.10",
 		"listen_port": 4242,
@@ -159,7 +159,7 @@ func TestE2E_FullCycle(t *testing.T) {
 	resp = apiCall(t, ts, "POST", "/api/v1/hosts", map[string]any{
 		"network_id": network.ID,
 		"name":       "host-1",
-		"nebula_ip":  "192.168.100.10",
+		"nebula_ips": []string{"192.168.100.10"},
 		"groups":     []string{"web", "prod"},
 	})
 	if resp.StatusCode != http.StatusCreated {
@@ -335,9 +335,9 @@ func TestAgentUpdates_CertSaveFailure(t *testing.T) {
 	ts, s, _ := setupE2E(t)
 
 	// 1. Create network + host
-	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]string{
-		"name": "save-fail-net",
-		"cidr": "10.0.0.0/24",
+	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]any{
+		"name":  "save-fail-net",
+		"cidrs": []string{"10.0.0.0/24"},
 	})
 	var network models.Network
 	json.NewDecoder(resp.Body).Decode(&network)
@@ -346,7 +346,7 @@ func TestAgentUpdates_CertSaveFailure(t *testing.T) {
 	resp = apiCall(t, ts, "POST", "/api/v1/hosts", map[string]any{
 		"network_id": network.ID,
 		"name":       "save-fail-host",
-		"nebula_ip":  "10.0.0.10",
+		"nebula_ips": []string{"10.0.0.10"},
 	})
 	var hostResp struct {
 		Host            *models.Host `json:"host"`
@@ -416,7 +416,7 @@ func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP str
 	payload := map[string]any{
 		"network_id": networkID,
 		"name":       name,
-		"nebula_ip":  nebulaIP,
+		"nebula_ips": []string{nebulaIP},
 	}
 	for k, v := range extra {
 		payload[k] = v
@@ -511,9 +511,9 @@ func pollAgent(t *testing.T, ts *httptest.Server, fingerprint string, signingPri
 func TestE2E_LighthouseAutoAssignment(t *testing.T) {
 	ts, _, _ := setupE2E(t)
 
-	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]string{
-		"name": "auto-lh-network",
-		"cidr": "192.168.50.0/24",
+	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]any{
+		"name":  "auto-lh-network",
+		"cidrs": []string{"192.168.50.0/24"},
 	})
 	var network models.Network
 	if err := json.NewDecoder(resp.Body).Decode(&network); err != nil {

@@ -224,6 +224,9 @@ func (w *Web) handleRegister(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = w.store.AddAuditEntry(r.Context(), username, "operator.self_register", op.ID, "")
+	if err := w.provisionDefaultCA(r.Context(), op); err != nil {
+		w.logger.Warn("auto-provision default CA on register failed", "operator", op.Username, "error", err)
+	}
 	http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 }
 
@@ -235,9 +238,16 @@ func (w *Web) handleProfilePage(rw http.ResponseWriter, r *http.Request) {
 		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 		return
 	}
+	cas, err := w.store.ListCAsByOwner(r.Context(), op.ID)
+	if err != nil {
+		w.logger.Error("list cas for profile", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
 	w.renderForRequest(rw, r, "profile.html", map[string]any{
 		"Active":   "profile",
 		"Operator": op,
+		"CAs":      cas,
 	})
 }
 

@@ -38,6 +38,12 @@ type OIDC struct {
 
 	stateMu sync.Mutex
 	states  map[string]time.Time // state token → expiry
+
+	// provisionCA is invoked after a new operator is successfully created
+	// during OIDC first-time login. Enables auto-provisioning of default CA
+	// for user-role operators without coupling OIDC to Web struct.
+	// If nil, auto-provision is skipped.
+	provisionCA func(ctx context.Context, op *models.Operator) error
 }
 
 // NewOIDC builds an OIDC integration from the given config. It contacts the
@@ -220,6 +226,17 @@ func (o *OIDC) upsertOperator(ctx context.Context, issuer, subject, username, di
 	if err := o.store.CreateOperator(ctx, op); err != nil {
 		return nil, err
 	}
+
+	// Attempt auto-provisioning of a default CA if wired (via WithOIDC).
+	// This enables user-role operators to work with networks immediately
+	// after first login, without explicit CA creation.
+	// Errors are logged but do not block operator creation.
+	if o.provisionCA != nil {
+		if err := o.provisionCA(ctx, op); err != nil {
+			o.logger.Warn("auto-provision default CA on OIDC login failed", "operator", op.Username, "error", err)
+		}
+	}
+
 	return op, nil
 }
 

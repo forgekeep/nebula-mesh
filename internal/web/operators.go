@@ -118,6 +118,10 @@ func (w *Web) handleOperatorCreate(rw http.ResponseWriter, r *http.Request) {
 	actor := actorUsername(r, w.session)
 	_ = w.store.AddAuditEntry(r.Context(), actor, "operator.create", op.ID, op.Username)
 
+	if err := w.provisionDefaultCA(r.Context(), op); err != nil {
+		w.logger.Warn("auto-provision default CA on operator create failed", "operator", op.Username, "error", err)
+	}
+
 	http.Redirect(rw, r, "/ui/operators/"+op.ID, http.StatusSeeOther)
 }
 

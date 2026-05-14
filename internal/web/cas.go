@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -13,6 +14,10 @@ import (
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
 )
+
+// ErrCAMasterNotConfigured is returned by mintCAForOperator when the
+// master keystore is not wired. Auto-provision skips silently on this error.
+var ErrCAMasterNotConfigured = errors.New("ca master key not configured")
 
 // CAMaster is the slim interface the Web UI needs from the keystore to
 // wrap a freshly-generated CA key for storage. Mirrors the methods the
@@ -61,6 +66,113 @@ func (w *Web) handleCANewPage(rw http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// mintCAForOperator generates a fresh per-operator CA with the given name
+// and duration, wraps the private key under the configured master keystore,
+// persists to the store, and writes a "ca.created" audit entry. Returns
+// ErrCAMasterNotConfigured if w.caMaster is nil. Caller is responsible for
+// any HTTP-level error mapping or redirect. The returned CA has Status set
+// to models.CAStatusActive.
+func (w *Web) mintCAForOperator(ctx context.Context, op *models.Operator, name string, duration time.Duration) (*models.CA, error) {
+	if w.caMaster == nil {
+		return nil, ErrCAMasterNotConfigured
+	}
+
+	mgr, _, err := pki.NewCA(name, duration)
+	if err != nil {
+		w.logger.Error("generate ca", "error", err)
+		return nil, err
+	}
+	rawKey := mgr.RawKey()
+	defer keystore.Zeroize(rawKey)
+
+	dek, wrappedDEK, err := w.caMaster.GenerateDEK()
+	if err != nil {
+		w.logger.Error("generate dek", "error", err)
+		return nil, err
+	}
+	defer keystore.Zeroize(dek)
+
+	wrappedKey, err := keystore.SealWithDEK(dek, rawKey)
+	if err != nil {
+		w.logger.Error("seal ca key", "error", err)
+		return nil, err
+	}
+
+	certPEM, err := mgr.CACertPEM()
+	if err != nil {
+		w.logger.Error("marshal ca cert", "error", err)
+		return nil, err
+	}
+
+	fp, err := mgr.CACertFingerprint()
+	if err != nil {
+		w.logger.Error("fingerprint ca cert", "error", err)
+		return nil, err
+	}
+
+	now := time.Now()
+	ca := &models.CA{
+		ID:                   uuid.New().String(),
+		Name:                 name,
+		OwnerOperatorID:      op.ID,
+		CertPEM:              string(certPEM),
+		Fingerprint:          fp,
+		NotBefore:            mgr.CACert().NotBefore(),
+		NotAfter:             mgr.CACert().NotAfter(),
+		Status:               models.CAStatusActive,
+		EncryptedKeyDEK:      wrappedDEK.Ciphertext,
+		NonceDEK:             wrappedDEK.Nonce,
+		EncryptedKeyMaterial: wrappedKey.Ciphertext,
+		NonceKey:             wrappedKey.Nonce,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+
+	if err := w.store.CreateCA(ctx, ca); err != nil {
+		w.logger.Error("create ca", "error", err)
+		return nil, err
+	}
+
+	_ = w.store.AddAuditEntry(ctx, op.Username, "ca.created", ca.ID, ca.Name)
+
+	return ca, nil
+}
+
+// provisionDefaultCA is the idempotent onboarding-time hook for auto-provisioning
+// a default CA. If op is a non-admin operator with zero active CAs, mints
+// <op.Username>-default with a 10-year lifetime. Silently skips (returns nil) when
+// the master key is not configured, when op is an admin, or when op already has
+// an active CA. Returns any error from mintCAForOperator if minting is attempted.
+func (w *Web) provisionDefaultCA(ctx context.Context, op *models.Operator) error {
+	// Skip if no master key configured.
+	if w.caMaster == nil {
+		w.logger.Warn("auto-provision skipped: master key not configured")
+		return nil
+	}
+
+	// Skip if operator is admin.
+	if op.Role != "user" {
+		return nil
+	}
+
+	// Skip if operator already has an active CA (idempotence).
+	cas, err := w.store.ListCAsByOwner(ctx, op.ID)
+	if err != nil {
+		w.logger.Error("list cas for provision check", "error", err)
+		return err
+	}
+	for _, ca := range cas {
+		if ca.Status == models.CAStatusActive {
+			return nil
+		}
+	}
+
+	// Mint the default CA with a 10-year lifetime.
+	const tenYears = 10 * 365 * 24 * time.Hour
+	_, err = w.mintCAForOperator(ctx, op, op.Username+"-default", tenYears)
+	return err
+}
+
 func (w *Web) handleCACreate(rw http.ResponseWriter, r *http.Request) {
 	op := w.session.CurrentOperator(r)
 	if op == nil {
@@ -98,64 +210,22 @@ func (w *Web) handleCACreate(rw http.ResponseWriter, r *http.Request) {
 		dur = parsed
 	}
 
-	mgr, _, err := pki.NewCA(name, dur)
+	ca, err := w.mintCAForOperator(r.Context(), op, name, dur)
 	if err != nil {
-		w.logger.Error("generate ca", "error", err)
+		if errors.Is(err, ErrCAMasterNotConfigured) {
+			w.renderForRequest(rw, r, "ca_new.html", map[string]any{
+				"Active":      "cas",
+				"Error":       "CA creation requires NEBULA_MGMT_MASTER_KEY to be configured. See docs/adr/0002-per-operator-cas.md.",
+				"MasterReady": false,
+			})
+			return
+		}
+		w.logger.Error("mint ca for operator", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	rawKey := mgr.RawKey()
-	defer keystore.Zeroize(rawKey)
 
-	dek, wrappedDEK, err := w.caMaster.GenerateDEK()
-	if err != nil {
-		w.logger.Error("generate dek", "error", err)
-		http.Error(rw, "internal error", http.StatusInternalServerError)
-		return
-	}
-	defer keystore.Zeroize(dek)
-	wrappedKey, err := keystore.SealWithDEK(dek, rawKey)
-	if err != nil {
-		w.logger.Error("seal ca key", "error", err)
-		http.Error(rw, "internal error", http.StatusInternalServerError)
-		return
-	}
-	certPEM, err := mgr.CACertPEM()
-	if err != nil {
-		w.logger.Error("marshal ca cert", "error", err)
-		http.Error(rw, "internal error", http.StatusInternalServerError)
-		return
-	}
-	fp, err := mgr.CACertFingerprint()
-	if err != nil {
-		w.logger.Error("fingerprint ca cert", "error", err)
-		http.Error(rw, "internal error", http.StatusInternalServerError)
-		return
-	}
-	now := time.Now()
-	c := &models.CA{
-		ID:                   uuid.New().String(),
-		Name:                 name,
-		OwnerOperatorID:      op.ID,
-		CertPEM:              string(certPEM),
-		Fingerprint:          fp,
-		NotBefore:            mgr.CACert().NotBefore(),
-		NotAfter:             mgr.CACert().NotAfter(),
-		Status:               models.CAStatusActive,
-		EncryptedKeyDEK:      wrappedDEK.Ciphertext,
-		NonceDEK:             wrappedDEK.Nonce,
-		EncryptedKeyMaterial: wrappedKey.Ciphertext,
-		NonceKey:             wrappedKey.Nonce,
-		CreatedAt:            now,
-		UpdatedAt:            now,
-	}
-	if err := w.store.CreateCA(r.Context(), c); err != nil {
-		w.logger.Error("create ca", "error", err)
-		http.Error(rw, "internal error", http.StatusInternalServerError)
-		return
-	}
-	_ = w.store.AddAuditEntry(r.Context(), op.Username, "ca.created", c.ID, c.Name)
-	http.Redirect(rw, r, "/ui/cas/"+c.ID, http.StatusSeeOther)
+	http.Redirect(rw, r, "/ui/cas/"+ca.ID, http.StatusSeeOther)
 }
 
 func (w *Web) handleCADetail(rw http.ResponseWriter, r *http.Request) {

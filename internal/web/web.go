@@ -114,6 +114,9 @@ func (w *Web) WithOIDC(o *OIDC) {
 	if o == nil {
 		return
 	}
+	// Wire the auto-provision callback so OIDC can create default CA
+	// for new user-role operators on their first login.
+	o.provisionCA = w.provisionDefaultCA
 	w.router.Get("/ui/oidc/login", o.HandleLogin)
 	w.router.With(w.rateLimitMiddleware("auth")).Get("/ui/oidc/callback", o.HandleCallback)
 }

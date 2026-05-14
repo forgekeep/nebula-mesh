@@ -351,3 +351,274 @@ func TestHostDetail_UnsafeRoutesRendering(t *testing.T) {
 		t.Error("body should contain second unsafe route")
 	}
 }
+
+func TestHandleHostDetail_MobileSection(t *testing.T) {
+	w, s := newTestWeb(t)
+	cookies := loginSession(t, w)
+
+	ctx := context.Background()
+	network := &models.Network{
+		ID:        "n-1",
+		Name:      "test-net",
+		CIDR:      "192.168.100.0/24",
+		CreatedAt: time.Now(),
+	}
+	if err := s.CreateNetwork(ctx, network); err != nil {
+		t.Fatal(err)
+	}
+
+	host := &models.Host{
+		ID:        "h-1",
+		NetworkID: "n-1",
+		Name:      "iphone-test",
+		NebulaIP:  "192.168.100.10",
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusPending,
+		Kind:      models.HostKindMobile,
+		Variant:   models.HostVariantIOS,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, host); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/ui/hosts/h-1", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// Verify mobile bundle section exists
+	if !strings.Contains(body, "Mobile Bundle (iOS)") {
+		t.Error("body should contain 'Mobile Bundle (iOS)' heading")
+	}
+
+	// Verify form action
+	if !strings.Contains(body, `action="/ui/hosts/h-1/mobile-bundle/generate"`) {
+		t.Error("body should contain form with action=/ui/hosts/h-1/mobile-bundle/generate")
+	}
+
+	// Verify button text for pending status
+	if !strings.Contains(body, "Generate Mobile Bundle") {
+		t.Error("body should contain 'Generate Mobile Bundle' button text for pending status")
+	}
+}
+
+func TestHandleHostDetail_MobileSection_Android(t *testing.T) {
+	w, s := newTestWeb(t)
+	cookies := loginSession(t, w)
+
+	ctx := context.Background()
+	network := &models.Network{
+		ID:        "n-1",
+		Name:      "test-net",
+		CIDR:      "192.168.100.0/24",
+		CreatedAt: time.Now(),
+	}
+	if err := s.CreateNetwork(ctx, network); err != nil {
+		t.Fatal(err)
+	}
+
+	host := &models.Host{
+		ID:        "h-2",
+		NetworkID: "n-1",
+		Name:      "android-test",
+		NebulaIP:  "192.168.100.20",
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusPending,
+		Kind:      models.HostKindMobile,
+		Variant:   models.HostVariantAndroid,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, host); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/ui/hosts/h-2", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// Verify mobile bundle section with Android variant
+	if !strings.Contains(body, "Mobile Bundle (Android)") {
+		t.Error("body should contain 'Mobile Bundle (Android)' heading")
+	}
+}
+
+func TestHandleHostDetail_AgentNoMobileSection(t *testing.T) {
+	w, s := newTestWeb(t)
+	cookies := loginSession(t, w)
+
+	ctx := context.Background()
+	network := &models.Network{
+		ID:        "n-1",
+		Name:      "test-net",
+		CIDR:      "192.168.100.0/24",
+		CreatedAt: time.Now(),
+	}
+	if err := s.CreateNetwork(ctx, network); err != nil {
+		t.Fatal(err)
+	}
+
+	host := &models.Host{
+		ID:        "h-3",
+		NetworkID: "n-1",
+		Name:      "agent-test",
+		NebulaIP:  "192.168.100.30",
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusEnrolled,
+		Kind:      models.HostKindAgent,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, host); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/ui/hosts/h-3", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// Verify mobile bundle section is NOT present for agent
+	if strings.Contains(body, "mobile-bundle/generate") {
+		t.Error("body should NOT contain mobile-bundle/generate action for agent host")
+	}
+	if strings.Contains(body, "Mobile Bundle") {
+		t.Error("body should NOT contain Mobile Bundle section for agent host")
+	}
+}
+
+func TestHandleHostDetail_MobileEnrolled_ShowsRegenerate(t *testing.T) {
+	w, s := newTestWeb(t)
+	cookies := loginSession(t, w)
+
+	ctx := context.Background()
+	network := &models.Network{
+		ID:        "n-1",
+		Name:      "test-net",
+		CIDR:      "192.168.100.0/24",
+		CreatedAt: time.Now(),
+	}
+	if err := s.CreateNetwork(ctx, network); err != nil {
+		t.Fatal(err)
+	}
+
+	host := &models.Host{
+		ID:        "h-4",
+		NetworkID: "n-1",
+		Name:      "iphone-enrolled",
+		NebulaIP:  "192.168.100.40",
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusEnrolled,
+		Kind:      models.HostKindMobile,
+		Variant:   models.HostVariantIOS,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, host); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/ui/hosts/h-4", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// Verify button text changes for enrolled status
+	if !strings.Contains(body, "Regenerate Bundle (Rotate Cert)") {
+		t.Error("body should contain 'Regenerate Bundle (Rotate Cert)' button text for enrolled status")
+	}
+}
+
+func TestHandleHostDetail_AgentToken_DisplaysWhenPassing(t *testing.T) {
+	// This test verifies that the token condition still works for agent hosts
+	// (i.e., when Token is explicitly passed in context).
+	w, s := newTestWeb(t)
+	cookies := loginSession(t, w)
+
+	ctx := context.Background()
+	network := &models.Network{
+		ID:        "n-1",
+		Name:      "test-net",
+		CIDR:      "192.168.100.0/24",
+		CreatedAt: time.Now(),
+	}
+	if err := s.CreateNetwork(ctx, network); err != nil {
+		t.Fatal(err)
+	}
+
+	host := &models.Host{
+		ID:        "h-5",
+		NetworkID: "n-1",
+		Name:      "agent-with-token",
+		NebulaIP:  "192.168.100.50",
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusPending,
+		Kind:      models.HostKindAgent,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	token := &models.EnrollmentToken{
+		ID:        "t-1",
+		HostID:    host.ID,
+		Token:     "secret-token-value",
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+		CreatedAt: time.Now(),
+	}
+	if err := s.CreateHostAndToken(ctx, host, token); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/ui/hosts/h-5", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// Verify that token flash is NOT shown on subsequent detail page view
+	// (handleHostDetail doesn't pass Token in context)
+	if strings.Contains(body, "secret-token-value") {
+		t.Error("body should NOT contain token on subsequent detail page view (only on creation)")
+	}
+}

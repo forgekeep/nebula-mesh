@@ -1,7 +1,10 @@
 package web
 
 import (
+	"encoding/base64"
 	"errors"
+	"fmt"
+	"html/template"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/juev/nebula-mesh/internal/mobilebundle"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
 	"golang.org/x/crypto/bcrypt"
@@ -619,11 +623,12 @@ func (w *Web) handleHostNew(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
 		return
 	}
+	form := hostFormState{Kind: "agent"}
 	w.renderForRequest(rw, r, "host_new.html", map[string]any{
 		"Active":      "hosts",
 		"Networks":    networks,
 		"HasNetworks": len(networks) > 0,
-		"Form":        hostFormState{},
+		"Form":        form,
 		"Error":       "",
 	})
 }
@@ -1185,4 +1190,71 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(rw, r, "/ui/networks", http.StatusSeeOther)
+}
+
+func (w *Web) handleGenerateMobileBundle(rw http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	host, err := w.store.GetHost(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(rw, r)
+		return
+	}
+	if err != nil {
+		w.logger.Error("get host for mobile bundle", "error", err)
+		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Verify host is mobile
+	if host.Kind != models.HostKindMobile {
+		http.Error(rw, "Host is not a mobile host", http.StatusBadRequest)
+		return
+	}
+
+	// Operator ownership check: non-admin operators must own the CA
+	op := w.session.CurrentOperator(r)
+	if op != nil && op.Role != "admin" {
+		network, err := w.store.GetNetwork(r.Context(), host.NetworkID)
+		if err != nil {
+			w.logger.Error("get network for ownership check", "error", err)
+			http.Error(rw, "Failed to load network", http.StatusInternalServerError)
+			return
+		}
+		if network.CAID == "" {
+			http.Error(rw, "Unauthorized", http.StatusForbidden)
+			return
+		}
+		ca, err := w.store.GetCA(r.Context(), network.CAID)
+		if err != nil || ca.OwnerOperatorID != op.ID {
+			http.Error(rw, "Unauthorized", http.StatusForbidden)
+			return
+		}
+	}
+
+	// Build mobile bundle
+	bundle, err := mobilebundle.Build(r.Context(), w.store, w.caResolver, host)
+	if err != nil {
+		w.logger.Error("build mobile bundle", "error", err)
+		http.Error(rw, fmt.Sprintf("Failed to generate bundle: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Generate QR code
+	qrSVG, qrErr := renderQRSVG(string(bundle))
+
+	// Generate download link via data: URI
+	downloadHref := "data:application/yaml;base64," + base64.StdEncoding.EncodeToString(bundle)
+
+	// Set Cache-Control to prevent caching (private key in response)
+	rw.Header().Set("Cache-Control", "no-store")
+
+	// Render template with bundle details
+	w.renderForRequest(rw, r, "host_mobile_bundle.html", map[string]any{
+		"Host":          host,
+		"YAML":          string(bundle),
+		"QRSVG":         template.HTML(qrSVG),
+		"QRError":       qrErr,
+		"DownloadHref":  template.URL(downloadHref),
+		"Active":        "hosts",
+	})
 }

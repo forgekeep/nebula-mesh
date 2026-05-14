@@ -185,3 +185,104 @@ func TestHostCreate_FriendlyAdvancedListenHostInline(t *testing.T) {
 		t.Errorf("body should mention the offending field; got:\n%s", body)
 	}
 }
+
+// TestHandleHostNew_FormHasKindFields verifies that the host creation form
+// renders Kind and Variant select elements with correct options.
+func TestHandleHostNew_FormHasKindFields(t *testing.T) {
+	w, s := newTestWeb(t)
+	cookies := loginSession(t, w)
+
+	ctx := context.Background()
+	network := &models.Network{
+		ID:    "n-form-test",
+		Name:  "form-test",
+		CIDR:  "10.0.0.0/24",
+		CAID:  "ca-test",
+		CreatedAt: time.Now(),
+	}
+	if err := s.CreateNetwork(ctx, network); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/ui/hosts/new", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+
+	if !strings.Contains(body, `name="kind"`) {
+		t.Error("response should contain Kind select")
+	}
+	if !strings.Contains(body, `value="agent"`) {
+		t.Error("response should contain agent kind option")
+	}
+	if !strings.Contains(body, `value="mobile"`) {
+		t.Error("response should contain mobile kind option")
+	}
+
+	if !strings.Contains(body, `name="variant"`) {
+		t.Error("response should contain Variant select")
+	}
+	if !strings.Contains(body, `value="ios"`) {
+		t.Error("response should contain ios variant option")
+	}
+	if !strings.Contains(body, `value="android"`) {
+		t.Error("response should contain android variant option")
+	}
+}
+
+// TestHandleHostNew_PreservesKindOnError verifies that when form submission
+// fails validation, the Kind and Variant fields are preserved in the re-rendered form.
+func TestHandleHostNew_PreservesKindOnError(t *testing.T) {
+	w, s := newTestWeb(t)
+	cookies := loginSession(t, w)
+
+	ctx := context.Background()
+	network := &models.Network{
+		ID:    "n-test",
+		Name:  "test-net",
+		CIDR:  "10.0.0.0/24",
+		CAID:  "ca-test",
+		CreatedAt: time.Now(),
+	}
+	if err := s.CreateNetwork(ctx, network); err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{
+		"network_id": {"n-test"},
+		"name":       {"invalid-host"},
+		"nebula_ip":  {"10.0.0.5"},
+		"kind":       {"mobile"},
+		"variant":    {"ios"},
+		"role":       {"lighthouse"},
+	}
+
+	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	if !strings.Contains(body, `<option value="mobile" selected`) {
+		t.Error("response should have mobile option selected when form rerendered with mobile kind")
+	}
+	if !strings.Contains(body, `<option value="ios" selected`) {
+		t.Error("response should have ios option selected when form rerendered with ios variant")
+	}
+}

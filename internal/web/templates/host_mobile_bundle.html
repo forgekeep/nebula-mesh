@@ -1,0 +1,40 @@
+{{define "title"}}Mobile Bundle — {{.Host.Name}} — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="card">
+    <h2>Mobile Bundle: {{.Host.Name}}</h2>
+    <div class="flash flash-warning">
+        ⚠️ <strong>This bundle contains the private key.</strong> It is shown only once — save it now.
+        Reloading this page or navigating away will discard the key. You will need to regenerate the bundle
+        to get a new one (which will mint a new certificate).
+    </div>
+
+    <div class="bundle-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
+        <div class="bundle-qr">
+            <h3>QR Code</h3>
+            {{if .QRError}}
+                <p class="help-text" style="color: var(--color-warning);">
+                    ⚠️ Bundle is too large for QR code ({{len .YAML}} bytes > 2953 limit).
+                    Please use the download link below instead.
+                </p>
+            {{else}}
+                {{.QRSVG}}
+            {{end}}
+        </div>
+
+        <div class="bundle-yaml">
+            <h3>YAML Configuration</h3>
+            <div style="margin-bottom: 1rem;">
+                <a href="{{.DownloadHref}}" download="{{.Host.Name}}.yaml" class="btn btn-primary">
+                    Download {{.Host.Name}}.yaml
+                </a>
+            </div>
+            <textarea readonly rows="20" style="width: 100%; font-family: monospace; padding: 0.75rem; border: 1px solid var(--border); background: var(--bg-muted);">{{.YAML}}</textarea>
+        </div>
+    </div>
+
+    <div style="margin-top: 2rem;">
+        <a href="/ui/hosts/{{.Host.ID}}" class="btn">Back to {{.Host.Name}}</a>
+    </div>
+</div>
+{{end}}

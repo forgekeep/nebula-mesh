@@ -1,0 +1,2 @@
+ALTER TABLE hosts DROP COLUMN variant;
+ALTER TABLE hosts DROP COLUMN kind;

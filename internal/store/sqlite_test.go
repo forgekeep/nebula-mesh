@@ -1583,3 +1583,165 @@ func TestDeleteHostAndBlockCert_NoBumpForRegularHost(t *testing.T) {
 		t.Errorf("version = %d, want %d (regular host — no bump)", after, before)
 	}
 }
+
+func TestMigration013_AppliesAndRevertsHostMobileColumns(t *testing.T) {
+	// Create store and apply migrations.
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+
+	// Check that migration 013 was applied: kind and variant columns exist
+	// with proper types and defaults.
+	rows, err := s.db.Query("PRAGMA table_info(hosts)")
+	if err != nil {
+		t.Fatalf("PRAGMA table_info: %v", err)
+	}
+	defer rows.Close()
+
+	type ColInfo struct {
+		name      string
+		typ       string
+		notnull   int
+		dfltValue interface{}
+	}
+	columns := make(map[string]ColInfo)
+	for rows.Next() {
+		var cid int
+		var name string
+		var typ string
+		var notnull int
+		var dfltValue interface{}
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dfltValue, &pk); err != nil {
+			t.Fatalf("scan PRAGMA result: %v", err)
+		}
+		columns[name] = ColInfo{name: name, typ: typ, notnull: notnull, dfltValue: dfltValue}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify 'kind' column.
+	kindCol, ok := columns["kind"]
+	if !ok {
+		t.Error("migration 013: column 'kind' not found in hosts table")
+	} else {
+		if kindCol.typ != "TEXT" {
+			t.Errorf("kind column type = %s, want TEXT", kindCol.typ)
+		}
+		if kindCol.notnull == 0 {
+			t.Error("kind column should be NOT NULL")
+		}
+		if kindCol.dfltValue != "'agent'" {
+			t.Errorf("kind column default = %v, want 'agent'", kindCol.dfltValue)
+		}
+	}
+
+	// Verify 'variant' column.
+	variantCol, ok := columns["variant"]
+	if !ok {
+		t.Error("migration 013: column 'variant' not found in hosts table")
+	} else {
+		if variantCol.typ != "TEXT" {
+			t.Errorf("variant column type = %s, want TEXT", variantCol.typ)
+		}
+		if variantCol.notnull == 0 {
+			t.Error("variant column should be NOT NULL")
+		}
+		if variantCol.dfltValue != "''" {
+			t.Errorf("variant column default = %v, want ''", variantCol.dfltValue)
+		}
+	}
+}
+
+// TestSQLiteStore_CreateMobileHost creates a mobile host and verifies that
+// Kind and Variant fields are persisted correctly through the store CRUD.
+func TestSQLiteStore_CreateMobileHost(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	mobileHost := &models.Host{
+		ID:        "mobile_ios_001",
+		NetworkID: net.ID,
+		Name:      "user-iphone",
+		NebulaIP:  "192.168.100.50",
+		Groups:    []string{},
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusPending,
+		Kind:      models.HostKindMobile,
+		Variant:   models.HostVariantIOS,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := s.CreateHost(ctx, mobileHost); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+
+	retrieved, err := s.GetHost(ctx, mobileHost.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+
+	if retrieved.Kind != models.HostKindMobile {
+		t.Errorf("Kind = %q, want %q", retrieved.Kind, models.HostKindMobile)
+	}
+	if retrieved.Variant != models.HostVariantIOS {
+		t.Errorf("Variant = %q, want %q", retrieved.Variant, models.HostVariantIOS)
+	}
+}
+
+// TestSQLiteStore_CreateHostAndToken_KindDefault creates a host via
+// CreateHostAndToken (the old API path) with Kind set to HostKindAgent and
+// Variant set to HostVariantNone, verifying they are persisted correctly
+// through the store CRUD.
+func TestSQLiteStore_CreateHostAndToken_KindDefault(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	agentHost := &models.Host{
+		ID:        "agent_default_001",
+		NetworkID: net.ID,
+		Name:      "standard-host",
+		NebulaIP:  "192.168.100.60",
+		Groups:    []string{},
+		Role:      models.HostRoleHost,
+		Status:    models.HostStatusPending,
+		Kind:      models.HostKindAgent,
+		Variant:   models.HostVariantNone,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	enrollToken := &models.EnrollmentToken{
+		Token:     "test-token-xyz",
+		HostID:    agentHost.ID,
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+		CreatedAt: time.Now(),
+	}
+
+	if err := s.CreateHostAndToken(ctx, agentHost, enrollToken); err != nil {
+		t.Fatalf("CreateHostAndToken: %v", err)
+	}
+
+	retrieved, err := s.GetHost(ctx, agentHost.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+
+	if retrieved.Kind != models.HostKindAgent {
+		t.Errorf("Kind = %q, want %q", retrieved.Kind, models.HostKindAgent)
+	}
+	if retrieved.Variant != models.HostVariantNone {
+		t.Errorf("Variant = %q, want %q", retrieved.Variant, models.HostVariantNone)
+	}
+}

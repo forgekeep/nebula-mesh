@@ -29,6 +29,8 @@ type hostFormState struct {
 	AdvTunDevice    string
 	AdvPunchy       string
 	AdvUnsafeRoutes string
+	Kind            string
+	Variant         string
 }
 
 func newHostFormState(r *http.Request) hostFormState {
@@ -45,6 +47,8 @@ func newHostFormState(r *http.Request) hostFormState {
 		AdvTunDevice:    r.FormValue("adv_tun_device"),
 		AdvPunchy:       r.FormValue("adv_punchy"),
 		AdvUnsafeRoutes: r.FormValue("adv_unsafe_routes"),
+		Kind:            r.FormValue("kind"),
+		Variant:         r.FormValue("variant"),
 	}
 }
 

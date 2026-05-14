@@ -88,6 +88,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"010_cert_alerts.up.sql",
 		"011_server_settings.up.sql",
 		"012_agent_auth.up.sql",
+		"013_host_mobile.up.sql",
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.
@@ -317,11 +318,12 @@ func (s *SQLiteStore) CreateHost(_ context.Context, h *models.Host) error {
 	}
 
 	_, err = s.db.Exec(
-		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		h.ID, h.NetworkID, h.Name, h.NebulaIP, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
 		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON, h.CAID,
+		string(h.Kind), string(h.Variant),
 	)
 	if err != nil {
 		return fmt.Errorf("insert host: %w", err)
@@ -353,13 +355,15 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	var certRotatedAt sql.NullTime
 	var lastSeen sql.NullTime
 	var signingPub sql.NullString
+	var kind string
+	var variant string
 
 	err := scanner.Scan(
 		&h.ID, &h.NetworkID, &h.Name, &h.NebulaIP, &groupsJSON,
 		&h.Role, &h.IsLighthouse, &h.IsRelay, &publicIP, &h.ListenPort,
 		&h.Status, &certFP, &certExpires, &lastSeen,
 		&h.CreatedAt, &h.UpdatedAt, &advancedJSON, &h.CAID,
-		&prevCertFP, &certRotatedAt, &h.PendingRekey, &signingPub,
+		&prevCertFP, &certRotatedAt, &h.PendingRekey, &signingPub, &kind, &variant,
 	)
 	if err != nil {
 		return nil, err
@@ -396,11 +400,13 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	if signingPub.Valid {
 		h.SigningPubPEM = signingPub.String
 	}
+	h.Kind = models.HostKind(kind)
+	h.Variant = models.HostVariant(variant)
 
 	return h, nil
 }
 
-const hostColumns = `id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem`
+const hostColumns = `id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem, kind, variant`
 
 func (s *SQLiteStore) GetHost(_ context.Context, id string) (*models.Host, error) {
 	row := s.db.QueryRow(`SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
@@ -499,10 +505,10 @@ func (s *SQLiteStore) UpdateHost(_ context.Context, h *models.Host) error {
 	result, err := s.db.Exec(
 		`UPDATE hosts SET name=?, nebula_ip=?, groups_json=?, role=?, is_lighthouse=?, is_relay=?,
 		 public_ip=?, listen_port=?, status=?, cert_fingerprint=?, cert_expires_at=?,
-		 last_seen_at=?, updated_at=?, advanced_json=? WHERE id=?`,
+		 last_seen_at=?, updated_at=?, advanced_json=?, kind=?, variant=? WHERE id=?`,
 		h.Name, h.NebulaIP, string(groupsJSON), h.Role, h.IsLighthouse, h.IsRelay,
 		h.PublicIP, h.ListenPort, h.Status, h.CertFingerprint, h.CertExpiresAt,
-		h.LastSeenAt, h.UpdatedAt, advancedJSON, h.ID,
+		h.LastSeenAt, h.UpdatedAt, advancedJSON, string(h.Kind), string(h.Variant), h.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update host: %w", err)
@@ -910,11 +916,12 @@ func (s *SQLiteStore) CreateHostAndToken(_ context.Context, h *models.Host, t *m
 	}
 
 	_, err = tx.Exec(
-		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO hosts (id, network_id, name, nebula_ip, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		h.ID, h.NetworkID, h.Name, h.NebulaIP, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
 		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON, h.CAID,
+		string(h.Kind), string(h.Variant),
 	)
 	if err != nil {
 		return fmt.Errorf("insert host: %w", err)

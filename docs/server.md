@@ -156,6 +156,113 @@ sudo -u nebula-mgmt sqlite3 /var/lib/nebula-mgmt/nebula.db \
 The `NEBULA_MGMT_MASTER_KEY` is **load-bearing**: the DB on its own
 is useless without the matching key. Keep both in your secret manager.
 
+## Hosts
+
+### Mobile hosts (iOS / Android)
+
+The [Mobile Nebula](https://apps.apple.com/app/mobile-nebula/id1509587936)
+app (iOS) and
+[Mobile Nebula](https://play.google.com/store/apps/details?id=net.defined.mobile_nebula)
+app (Android) allow iOS and Android devices to join a Nebula mesh. Unlike
+regular hosts that run the `nebula-agent` daemon, mobile devices import a
+self-contained Nebula configuration file (in YAML format) bundled with
+inline certificates and keys.
+
+#### Creating a mobile host
+
+1. In the Web UI, navigate to **Hosts** → **New Host**.
+2. Select **Kind: Mobile** and choose the device type (**Variant: iOS** or
+   **Variant: Android**). The host's role is automatically set to `host`
+   (mobile devices cannot be lighthouses or relays).
+3. Fill in the remaining fields (Name, IP address, Groups) as you would for a
+   standard host.
+4. Submit. The mobile host is created but is **not yet enrolled** — no
+   enrollment token is issued.
+
+#### Generating the mobile bundle
+
+1. Navigate to the mobile host's detail page.
+2. Click **Generate Mobile Bundle**. The server will:
+   - Generate a fresh X25519 keypair
+   - Mint a certificate signed by your CA
+   - Create a self-contained Nebula YAML configuration with inline PEM blocks
+     for `pki.ca`, `pki.cert`, and `pki.key`
+3. The result page displays:
+   - The YAML configuration as a code block
+   - A QR code encoding the same YAML (for quick import into Mobile Nebula)
+   - A download link for the YAML file
+4. **Save the YAML immediately.** The private key is shown only once; it is
+   **not stored on the server**. Once you close the page, you cannot recover
+   the key.
+
+#### Importing the bundle into Mobile Nebula
+
+1. On your iOS or Android device, install **Mobile Nebula** from the App Store
+   or Play Store.
+2. Open the app and create a new profile.
+3. Import the configuration file via one of:
+   - Scan the QR code shown in the Web UI
+   - Copy-paste the YAML configuration
+   - Download the YAML file and share it to the Mobile Nebula app
+
+#### Rotating the certificate
+
+To rotate a mobile host's certificate (when approaching expiry or after a
+security incident):
+
+1. On the mobile host's detail page, click **Regenerate Bundle (Rotate Cert)**.
+   This generates a new keypair and certificate.
+2. Follow the steps under *Generating the mobile bundle* to download and import
+   the new configuration into Mobile Nebula.
+
+Each regeneration creates a fresh certificate. The old certificate remains
+valid for a short overlap window (to avoid disrupting active connections) and
+is automatically revoked after 30 days.
+
+#### Certificate lifetime
+
+Mobile certificates have a **365-day default lifetime**, compared to 30 days for
+agent-managed hosts. This longer lifetime reduces the operational burden of
+manual bundle regeneration and import on mobile devices.
+
+However, the certificate lifetime is **clamped to the remaining validity of your
+CA**. If your CA certificate is close to expiry, the generated mobile
+certificate will expire sooner. For example, if your CA expires in 180 days, a
+mobile certificate issued today will expire in 180 days (not 365).
+
+**Operational implication:** Before your CA certificate expires, rotate it and
+regenerate all mobile bundles. Failing to do so will leave mobile devices with
+expired certificates, unable to connect to the mesh.
+
+#### Revocation
+
+To revoke (block) a mobile host:
+
+1. On the mobile host's detail page, click **Block**. The host's certificate
+   fingerprint is added to the blocklist.
+2. Other mesh nodes will receive the updated blocklist via their regular poll
+   interval and **refuse handshakes** with the blocked fingerprint.
+
+Mobile devices themselves do not poll the management server, so they will not
+receive the revocation notice. However, the host is effectively isolated because
+peer nodes reject incoming and outgoing connections. To fully remove the device
+from the mesh, delete the configuration from the Mobile Nebula app.
+
+#### Updating after network changes
+
+Mobile bundles encode the network's current configuration (lighthouse IP
+addresses, port mappings, etc.). If you change your network topology (for
+example, promoting a new lighthouse or changing its public IP), previously-generated
+bundles become stale.
+
+**To update mobile devices after a network change:**
+
+1. Regenerate the bundle (click **Regenerate Bundle** on the host's detail page).
+2. Re-import the new YAML into Mobile Nebula.
+
+There is no automatic update mechanism for mobile clients; manual re-import is
+required each time the underlying network configuration changes.
+
 ## Troubleshooting
 
 ### `database is locked` errors at startup

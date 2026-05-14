@@ -32,6 +32,71 @@ func ValidRole(r HostRole) bool {
 	}
 }
 
+type HostKind string
+
+const (
+	HostKindAgent  HostKind = "agent"
+	HostKindMobile HostKind = "mobile"
+)
+
+// ValidKind reports whether k is a known host kind.
+func ValidKind(k HostKind) bool {
+	switch k {
+	case HostKindAgent, HostKindMobile:
+		return true
+	default:
+		return false
+	}
+}
+
+type HostVariant string
+
+const (
+	HostVariantNone    HostVariant = ""
+	HostVariantIOS     HostVariant = "ios"
+	HostVariantAndroid HostVariant = "android"
+)
+
+// ValidVariant reports whether v is a known host variant (including empty).
+func ValidVariant(v HostVariant) bool {
+	switch v {
+	case HostVariantNone, HostVariantIOS, HostVariantAndroid:
+		return true
+	default:
+		return false
+	}
+}
+
+// ErrMobileRoleRestricted is returned when a mobile host is assigned a role
+// other than host (e.g., lighthouse or relay). Mobile Nebula clients cannot
+// reliably listen on a public socket in the background, so these roles are
+// not supported for mobile hosts.
+var ErrMobileRoleRestricted = errors.New("mobile hosts must have role=host (lighthouse/relay not supported)")
+
+// ErrMobileVariantRequired is returned when a mobile host is created without
+// specifying a variant (ios or android). The variant field is required to
+// distinguish mobile client types.
+var ErrMobileVariantRequired = errors.New("mobile hosts must have variant set to ios or android")
+
+// ValidateMobileConstraints enforces role and variant constraints for mobile hosts.
+// For kind=mobile, role must be host (or empty) and variant must be ios or android.
+// For kind=agent, no constraints are applied (returns nil).
+func ValidateMobileConstraints(kind HostKind, variant HostVariant, role HostRole) error {
+	if kind != HostKindMobile {
+		return nil
+	}
+
+	if role != "" && role != HostRoleHost {
+		return ErrMobileRoleRestricted
+	}
+
+	if variant == HostVariantNone {
+		return ErrMobileVariantRequired
+	}
+
+	return nil
+}
+
 // ErrRoleRequiresPublicIP is returned when a host with role=lighthouse or
 // role=relay is created without a non-empty public_ip. Such a host would
 // never be advertised to peers (see internal/api/enroll.go where
@@ -83,6 +148,8 @@ type Host struct {
 	SigningPubPEM       string        `json:"signing_pub_pem,omitempty"`
 	LastSeenAt          *time.Time    `json:"last_seen_at,omitempty"`
 	Advanced            *HostAdvanced `json:"advanced,omitempty"`
+	Kind                HostKind      `json:"kind"`
+	Variant             HostVariant   `json:"variant,omitempty"`
 	CreatedAt           time.Time     `json:"created_at"`
 	UpdatedAt           time.Time     `json:"updated_at"`
 }

@@ -1,6 +1,6 @@
 # ADR 0002 — Per-operator CAs with encrypted in-DB key storage
 
-- **Status**: Accepted (2026-05-12)
+- **Status**: Implemented (extended by [ADR 0007](0007-remove-legacy-ca-stack.md), 2026-05-15)
 - **Supersedes**: [ADR 0001](0001-ca-key-storage.md) (CA key storage: file-system vs database)
 - **Tracking issue**: [#31](https://github.com/juev/nebula-mesh/issues/31)
 

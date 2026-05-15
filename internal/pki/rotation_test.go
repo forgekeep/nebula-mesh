@@ -6,7 +6,7 @@ import (
 )
 
 func TestCARotation_CreateNew(t *testing.T) {
-	oldCA, _, err := NewCA("old-ca", 365*24*time.Hour)
+	oldCA, err := NewCA("old-ca", 365*24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestCARotation_CreateNew(t *testing.T) {
 }
 
 func TestCARotation_TrustBundle(t *testing.T) {
-	oldCA, _, err := NewCA("old-ca", 365*24*time.Hour)
+	oldCA, err := NewCA("old-ca", 365*24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

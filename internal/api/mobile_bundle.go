@@ -44,11 +44,9 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build the mobile bundle under CA read lock (signing requires CA private key access)
-	simpleResolver := &singleCAResolver{ca: caMgr}
-	s.caMu.RLock()
-	bundle, err := mobilebundle.Build(r.Context(), s.store, simpleResolver, host)
-	s.caMu.RUnlock()
+	// Build the mobile bundle; wrap resolved CA in a simple resolver for builder
+	resolver := &caManagerResolver{ca: caMgr}
+	bundle, err := mobilebundle.Build(r.Context(), s.store, resolver, host)
 
 	if errors.Is(err, mobilebundle.ErrNotMobile) {
 		writeError(w, http.StatusBadRequest, "host is not a mobile host")
@@ -68,11 +66,11 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// singleCAResolver wraps a resolved CAManager to match the resolver interface.
-type singleCAResolver struct {
+// caManagerResolver wraps a resolved CAManager to match the resolver interface.
+type caManagerResolver struct {
 	ca *pki.CAManager
 }
 
-func (r *singleCAResolver) LoadByID(ctx context.Context, caID string) (*pki.CAManager, error) {
+func (r *caManagerResolver) LoadByID(ctx context.Context, caID string) (*pki.CAManager, error) {
 	return r.ca, nil
 }

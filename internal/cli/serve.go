@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -20,11 +19,7 @@ import (
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/juev/nebula-mesh/internal/web"
-	"golang.org/x/term"
 )
-
-// caPassphraseEnv is read by readCAPassphrase before falling back to TTY prompt.
-const caPassphraseEnv = "NEBULA_MGMT_CA_PASSPHRASE"
 
 // buildMux assembles the top-level routing per issue #69.
 //
@@ -49,29 +44,6 @@ func buildMux(webUI, apiSrv http.Handler) *http.ServeMux {
 	return mux
 }
 
-// readCAPassphrase reads the CA passphrase from $NEBULA_MGMT_CA_PASSPHRASE if set,
-// otherwise prompts on the controlling terminal. Returns an error when stdin
-// is not a TTY and the env var is not set (typical of systemd / Docker without -i).
-func readCAPassphrase() (string, error) {
-	if v, ok := os.LookupEnv(caPassphraseEnv); ok {
-		if v == "" {
-			return "", fmt.Errorf("%s is set but empty", caPassphraseEnv)
-		}
-		return v, nil
-	}
-	fd := int(os.Stdin.Fd())
-	if !term.IsTerminal(fd) {
-		return "", fmt.Errorf("stdin is not a TTY and %s is unset — cannot read CA passphrase", caPassphraseEnv)
-	}
-	fmt.Print("Enter CA passphrase: ")
-	passBytes, err := term.ReadPassword(fd)
-	fmt.Println()
-	if err != nil {
-		return "", err
-	}
-	return string(passBytes), nil
-}
-
 // Serve starts the management server.
 func Serve(configPath string) error {
 	cfg, err := config.LoadServerConfig(configPath)
@@ -92,26 +64,6 @@ func Serve(configPath string) error {
 		level = slog.LevelInfo
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
-
-	// Load CA
-	certPath := filepath.Join(cfg.DataDir, "ca.crt")
-	keyPath := filepath.Join(cfg.DataDir, "ca.key")
-
-	passphrase, err := readCAPassphrase()
-	if err != nil {
-		return fmt.Errorf("read passphrase: %w", err)
-	}
-
-	ca, err := pki.LoadCA(certPath, keyPath, passphrase)
-	if err != nil {
-		return fmt.Errorf("load CA: %w", err)
-	}
-
-	fp, err := ca.CACertFingerprint()
-	if err != nil {
-		return fmt.Errorf("CA fingerprint: %w", err)
-	}
-	logger.Info("CA loaded", "fingerprint", fp)
 
 	// Open database
 	s, err := store.NewSQLiteStore(cfg.DBPath)
@@ -141,43 +93,31 @@ func Serve(configPath string) error {
 		logger.Info("seeded initial admin operator", "username", DefaultAdminUsername)
 	}
 
-	// Master keystore (optional but required for per-operator CAs)
+	// Master keystore is REQUIRED
 	masterB64 := cfg.MasterKey
 	if env := os.Getenv("NEBULA_MGMT_MASTER_KEY"); env != "" {
 		masterB64 = env
 	}
-	var (
-		master      *keystore.Master
-		caResolver  *pki.CAResolver
-		defaultCAID string
-	)
-	if masterB64 != "" {
-		master, err = keystore.NewMasterFromBase64(masterB64)
-		if err != nil {
-			return fmt.Errorf("master key: %w", err)
-		}
-		caResolver = pki.NewCAResolver(s, master)
+	if masterB64 == "" {
+		return fmt.Errorf("master key required: set NEBULA_MGMT_MASTER_KEY env or master_key in %s", configPath)
+	}
+	master, err := keystore.NewMasterFromBase64(masterB64)
+	if err != nil {
+		return fmt.Errorf("master key: %w", err)
+	}
+	caResolver := pki.NewCAResolver(s, master)
 
-		// Import legacy on-disk CA into the cas table on first start.
-		adminOp, lookupErr := s.GetOperatorByUsername(migrateCtx, DefaultAdminUsername)
-		if lookupErr == nil {
-			defaultCAID, _, err = ImportLegacyCAIfNeeded(
-				migrateCtx, s, master, certPath, keyPath, passphrase, adminOp.ID,
-			)
-			if err != nil {
-				return fmt.Errorf("import legacy CA: %w", err)
-			}
-		}
-	} else {
-		logger.Warn("NEBULA_MGMT_MASTER_KEY is unset; per-operator CAs are disabled and existing single-CA flows continue to work")
+	// Validate: no rows should have empty ca_id from migration era.
+	empty, err := s.CountEmptyCAIDRows(migrateCtx)
+	if err != nil {
+		return fmt.Errorf("validate ca_id backfill: %w", err)
+	}
+	if empty > 0 {
+		return fmt.Errorf("found %d rows with empty ca_id; legacy migration required (see ADR-0007)", empty)
 	}
 
 	// Create API server
-	apiSrv := api.NewServer(s, ca, cfg.APIKey, logger, api.CAConfig{
-		CertPath:   certPath,
-		KeyPath:    keyPath,
-		Passphrase: passphrase,
-	})
+	apiSrv := api.NewServer(s, cfg.APIKey, logger)
 	apiSrv.WithMetricsEnabled(cfg.Metrics.PrometheusEnabled())
 	apiSrv.WithEnrollmentTokenTTL(cfg.EnrollmentTokenTTLDuration())
 
@@ -222,10 +162,28 @@ func Serve(configPath string) error {
 			logger.Error("persist enforce_2fa setting", "error", err)
 		}
 	}
-	if caResolver != nil {
-		apiSrv.WithCAResolver(caResolver)
-		apiSrv.WithMaster(master)
-		apiSrv.WithDefaultCAID(defaultCAID)
+	apiSrv.WithCAResolver(caResolver)
+	apiSrv.WithMaster(master)
+
+	// Safety net: ensure admin operator has a default CA (idempotent).
+	adminOp, err := s.GetOperatorByUsername(migrateCtx, DefaultAdminUsername)
+	if err == nil {
+		ca, minted, err := pki.MintAndStoreCA(migrateCtx, s, master, logger,
+			pki.MintRequest{
+				Operator:     adminOp,
+				Name:         DefaultAdminUsername + "-default",
+				Duration:     10 * 365 * 24 * time.Hour,
+				SkipIfActive: true,
+			})
+		if err != nil {
+			logger.Error("provision admin CA", "error", err)
+		} else if minted {
+			logger.Info("provisioned admin default CA",
+				"name", ca.Name, "fingerprint", ca.Fingerprint)
+		}
+		if ca != nil {
+			apiSrv.WithDefaultCAID(ca.ID)
+		}
 	}
 
 	// Create Web UI
@@ -237,12 +195,8 @@ func Serve(configPath string) error {
 	webUI.WithLoginRecorder(apiSrv.RecordLogin)
 	webUI.WithRateLimiter(limiter)
 	webUI.WithPasswordPolicy(pwPolicy)
-	if master != nil {
-		webUI.WithMaster(master)
-	}
-	if caResolver != nil {
-		webUI.WithCAResolver(caResolver)
-	}
+	webUI.WithMaster(master)
+	webUI.WithCAResolver(caResolver)
 
 	// Live host-status SSE: API server fires HostSeenEmitter on each agent
 	// poll, EventBus fans out to subscribed browser tabs.

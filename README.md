@@ -40,8 +40,9 @@ VERSION=0.2.0
 curl -fsSLO "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_amd64.deb"
 sudo apt install -y "./nebula-mgmt_${VERSION}_linux_amd64.deb"
 
-# 2. Initialise and start.
-sudo nebula-mgmt init --config /etc/nebula-mgmt/server.yml
+# 2. Set the master key (required for CA encryption) and initialise.
+export NEBULA_MGMT_MASTER_KEY=$(openssl rand -base64 32)
+sudo -E nebula-mgmt init --config /etc/nebula-mgmt/server.yml
 sudo systemctl enable --now nebula-mgmt
 ```
 
@@ -176,7 +177,6 @@ docker run -d --name nebula-mgmt \
   -v nebula-mgmt-data:/var/lib/nebula-mgmt \
   -v nebula-mgmt-etc:/etc/nebula-mgmt \
   -e NEBULA_MGMT_MASTER_KEY \
-  -e NEBULA_MGMT_CA_PASSPHRASE \
   ghcr.io/juev/nebula-mgmt:latest
 
 # Agent (typically sidecar to nebula, sharing the same PID namespace):
@@ -215,21 +215,19 @@ Lifecycle references: [`docs/server.md`](docs/server.md) (server), [`docs/agent.
 sudo mkdir -p /var/lib/nebula-mgmt /etc/nebula-mgmt
 sudo cp configs/server.example.yml /etc/nebula-mgmt/server.yml
 
-# Generate a master key for the per-operator CA store and put it in your
-# secret manager. Provide it to the server via NEBULA_MGMT_MASTER_KEY (or
-# the master_key field in server.yml).
-openssl rand -base64 32
+# Generate a master key for CA encryption (required) and export it.
+export NEBULA_MGMT_MASTER_KEY=$(openssl rand -base64 32)
 
-# One-time: creates CA, generates API key, persists both into the config.
-sudo bin/nebula-mgmt init --config /etc/nebula-mgmt/server.yml
+# One-time: initializes the database and provisions an admin-default CA.
+sudo -E bin/nebula-mgmt init --config /etc/nebula-mgmt/server.yml
 
 # Serve.
-sudo bin/nebula-mgmt serve --config /etc/nebula-mgmt/server.yml
+sudo -E bin/nebula-mgmt serve --config /etc/nebula-mgmt/server.yml
 ```
 
 Open `http://localhost:8080/ui/` — log in as `admin` with the password configured in `ui_password` (falls back to the API key shown by `init`).
 
-Non-interactive deployments (systemd, Docker): set `NEBULA_MGMT_CA_PASSPHRASE` and `NEBULA_MGMT_MASTER_KEY` instead of typing the passphrase at start.
+Non-interactive deployments (systemd, Docker): set `NEBULA_MGMT_MASTER_KEY` via environment variable or `master_key` in `server.yml`.
 
 ### Enroll a host
 
@@ -345,13 +343,13 @@ Non-admin operators see and manage only the CAs they own; admins see all. Hosts 
 
 ### Backups & key handling
 
-Per [ADR 0002](docs/adr/0002-per-operator-cas.md) (supersedes [ADR 0001](docs/adr/0001-ca-key-storage.md)), CA private keys live encrypted inside SQLite using envelope encryption. The master key (`NEBULA_MGMT_MASTER_KEY`, 32 random bytes, base64-encoded) is supplied at startup and **never written to disk or the DB**. Backups collapse to a single file:
+Per [ADR 0002](docs/adr/0002-per-operator-cas.md) (which removed [ADR 0001](docs/adr/0001-ca-key-storage.md)), CA private keys live encrypted inside SQLite using envelope encryption. The master key (`NEBULA_MGMT_MASTER_KEY`, 32 random bytes, base64-encoded) is supplied at startup and **never written to disk or the DB**. Backups collapse to a single file:
 
 ```sh
 sudo cp /var/lib/nebula-mgmt/nebula.db /backups/nebula-$(date +%F).db
 ```
 
-Keep `NEBULA_MGMT_MASTER_KEY` in your secret manager — both the DB and the master key are required to mint a certificate. The legacy `data_dir/ca.crt` / `data_dir/ca.key` produced by `nebula-mgmt init` are kept for one release as a rollback artifact, then deletable once the import into the `cas` table has succeeded.
+Keep `NEBULA_MGMT_MASTER_KEY` in your secret manager — both the DB and the master key are required to mint a certificate.
 
 The server administrator can decrypt every CA on the box (the master key is in process memory while the server runs). We accept this for the single-binary deployment story — see [ADR 0003](docs/adr/0003-ca-encryption-model.md) for the alternatives (operator-derived KEK, zero-knowledge, external signer) and why we did not adopt them today.
 

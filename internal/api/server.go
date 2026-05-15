@@ -6,7 +6,6 @@ import (
 	"expvar"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -21,23 +20,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// CAConfig holds paths and passphrase for CA persistence.
-type CAConfig struct {
-	CertPath   string
-	KeyPath    string
-	Passphrase string
-}
-
 // Server is the HTTP API server.
 type Server struct {
 	router         chi.Router
 	store          store.Store
-	caMu           sync.RWMutex
-	ca             *pki.CAManager  // legacy single-CA fallback when host.CAID is empty
 	caResolver     *pki.CAResolver // resolves CAs by id from the store (multi-CA)
 	master         *keystore.Master
 	defaultCAID    string // id of the seeded default CA (when imported)
-	caConfig       CAConfig
 	logger         *slog.Logger
 	apiKey         string
 	metrics        *metrics
@@ -50,11 +39,9 @@ type Server struct {
 }
 
 // NewServer creates a new API server.
-func NewServer(s store.Store, ca *pki.CAManager, apiKey string, logger *slog.Logger, caCfg CAConfig) *Server {
+func NewServer(s store.Store, apiKey string, logger *slog.Logger) *Server {
 	srv := &Server{
 		store:              s,
-		ca:                 ca,
-		caConfig:           caCfg,
 		logger:             logger,
 		apiKey:             apiKey,
 		metrics:            newMetrics(s),
@@ -198,8 +185,6 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/v1/hosts/{id}/reenroll", s.handleReenroll)
 		r.Post("/api/v1/hosts/{id}/mobile-bundle", s.handleMobileBundle)
 		r.Get("/api/v1/blocklist", s.handleGetBlocklist)
-		r.Get("/api/v1/ca", s.handleGetCA)
-		r.Post("/api/v1/ca/rotate", s.handleRotateCA)
 		r.Get("/api/v1/networks/{id}/firewall", s.handleGetFirewall)
 		r.Put("/api/v1/networks/{id}/firewall", s.handleUpdateFirewall)
 		r.Get("/api/v1/audit-log", s.handleGetAuditLog)

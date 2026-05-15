@@ -14,11 +14,12 @@ project [README](../README.md).
 - A Linux host (Debian / Ubuntu / RHEL family supported by the
   packages below; tarball fallback for the rest).
 - Persistent storage for `data_dir` (default `/var/lib/nebula-mgmt`) —
-  the SQLite database, the encrypted CA material, and the operator
-  data all live here.
+  the SQLite database and all CA material encrypted at rest live here.
 - The `NEBULA_MGMT_MASTER_KEY` (base64 32-byte AES-256 key) **must** be
-  supplied at startup via an environment variable. The key is never
-  written to disk by the server; loss of the key means loss of the
+  supplied at startup via:
+  - Environment variable `NEBULA_MGMT_MASTER_KEY` (recommended for systemd / Docker), or
+  - The `master_key` field in `server.yml` (base64-encoded).
+  The key is never written to disk by the server; loss of the key means loss of the
   ability to mint new certificates against existing CAs.
 - ~25 MiB of disk for the binary; runtime memory typically < 100 MiB.
 
@@ -67,19 +68,19 @@ prebuilt tarball or the published Docker image — see the
 ## Bootstrap
 
 ```sh
-# 1. Drop the secrets into a systemd drop-in so they never appear in
-#    /etc/nebula-mgmt/server.yml and never enter your VCS.
+# 1. Generate a master key (required for CA encryption) and set it in a
+#    systemd drop-in so it never appears in /etc/nebula-mgmt/server.yml.
+openssl rand -base64 32
 sudo systemctl edit nebula-mgmt.service
 # [Service]
 # Environment=NEBULA_MGMT_MASTER_KEY=<base64-32-byte-key>
-# Environment=NEBULA_MGMT_CA_PASSPHRASE=<long-random-passphrase>
 
 # 2. Materialise the config from the shipped example and edit.
 sudo cp /etc/nebula-mgmt/server.example.yml /etc/nebula-mgmt/server.yml
 sudoedit /etc/nebula-mgmt/server.yml
 
 # 3. Run init exactly once. The script creates the initial admin
-#    operator and seeds the first CA.
+#    operator and provisions the admin-default CA.
 sudo -u nebula-mgmt -E nebula-mgmt init --config /etc/nebula-mgmt/server.yml
 
 # 4. Enable + start.
@@ -154,7 +155,8 @@ sudo -u nebula-mgmt sqlite3 /var/lib/nebula-mgmt/nebula.db \
 ```
 
 The `NEBULA_MGMT_MASTER_KEY` is **load-bearing**: the DB on its own
-is useless without the matching key. Keep both in your secret manager.
+is useless without the matching key. Keep the master key in your secret
+manager — it is not stored in the database or configuration.
 
 ## Networks and Hosts
 

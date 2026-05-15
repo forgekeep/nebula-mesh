@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/juev/nebula-mesh/internal/auth"
+	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
@@ -30,13 +32,43 @@ func newTestServer(t *testing.T) (*Server, *store.SQLiteStore) {
 	}
 	t.Cleanup(func() { s.Close() })
 
-	ca, _, err := pki.NewCA("test-ca", 24*time.Hour)
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := NewServer(s, testAPIKey, logger)
+
+	// Seed master + resolver for CA resolution in tests
+	master, err := keystore.NewMaster(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
 	if err != nil {
 		t.Fatal(err)
 	}
+	srv.WithMaster(master)
+	srv.WithCAResolver(pki.NewCAResolver(s, master))
 
-	logger := slog.Default()
-	srv := NewServer(s, ca, testAPIKey, logger, CAConfig{})
+	// Seed a default test CA for hosts/enrollment tests
+	op := &models.Operator{
+		ID:           "test-admin",
+		Username:     "admin",
+		PasswordHash: "hash",
+		Role:         "admin",
+		Status:       models.OperatorStatusActive,
+		AuthProvider: models.OperatorAuthLocal,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+	if err := s.CreateOperator(ctx, op); err != nil {
+		t.Fatal(err)
+	}
+
+	ca, _, err := pki.MintAndStoreCA(ctx, s, master, logger, pki.MintRequest{
+		Operator: op,
+		Name:     "test-default",
+		Duration: 365 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.WithDefaultCAID(ca.ID)
+
 	// Existing tests use deliberately weak passwords to keep fixtures
 	// readable. Production policy (10+ chars, 3 classes, common-pw block)
 	// is exercised in internal/auth — here we relax to "non-empty".
@@ -638,110 +670,6 @@ func TestFirewallRules_CorruptedJSON(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500 for corrupted firewall JSON, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestRotateCA_Persists(t *testing.T) {
-	s, err := store.NewSQLiteStore(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Migrate(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
-
-	ca, _, err := pki.NewCA("test-ca", 24*time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	dir := t.TempDir()
-	certPath := dir + "/ca.crt"
-	keyPath := dir + "/ca.key"
-	passphrase := "test-pass"
-
-	// Save initial CA
-	if err := ca.Save(certPath, keyPath, passphrase); err != nil {
-		t.Fatal(err)
-	}
-
-	srv := NewServer(s, ca, testAPIKey, slog.Default(), CAConfig{
-		CertPath:   certPath,
-		KeyPath:    keyPath,
-		Passphrase: passphrase,
-	})
-
-	// Get old fingerprint
-	oldFP, _ := ca.CACertFingerprint()
-
-	// Rotate
-	req := httptest.NewRequest("POST", "/api/v1/ca/rotate", nil)
-	authRequest(req)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("rotate status = %d, body: %s", w.Code, w.Body.String())
-	}
-
-	// Load CA from disk and verify it's different
-	loaded, err := pki.LoadCA(certPath, keyPath, passphrase)
-	if err != nil {
-		t.Fatalf("load rotated CA: %v", err)
-	}
-	newFP, _ := loaded.CACertFingerprint()
-	if newFP == oldFP {
-		t.Error("CA fingerprint should change after rotation")
-	}
-}
-
-func TestConcurrentCAAccess(t *testing.T) {
-	s, err := store.NewSQLiteStore(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Migrate(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
-
-	ca, _, err := pki.NewCA("test-ca", 24*time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	dir := t.TempDir()
-	srv := NewServer(s, ca, testAPIKey, slog.Default(), CAConfig{
-		CertPath:   dir + "/ca.crt",
-		KeyPath:    dir + "/ca.key",
-		Passphrase: "test",
-	})
-	if err := ca.Save(dir+"/ca.crt", dir+"/ca.key", "test"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Run concurrent GET /ca and POST /ca/rotate — must not race
-	done := make(chan struct{})
-	for i := 0; i < 10; i++ {
-		go func() {
-			defer func() { done <- struct{}{} }()
-			req := httptest.NewRequest("GET", "/api/v1/ca", nil)
-			authRequest(req)
-			w := httptest.NewRecorder()
-			srv.ServeHTTP(w, req)
-		}()
-	}
-	go func() {
-		defer func() { done <- struct{}{} }()
-		req := httptest.NewRequest("POST", "/api/v1/ca/rotate", nil)
-		authRequest(req)
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, req)
-	}()
-
-	for i := 0; i < 11; i++ {
-		<-done
 	}
 }
 

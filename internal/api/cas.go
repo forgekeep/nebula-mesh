@@ -105,7 +105,7 @@ func (s *Server) handleCreateCA(w http.ResponseWriter, r *http.Request) {
 		duration = d
 	}
 
-	mgr, _, err := pki.NewCA(req.Name, duration)
+	mgr, err := pki.NewCA(req.Name, duration)
 	if err != nil {
 		s.logger.Error("generate CA", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to generate CA")

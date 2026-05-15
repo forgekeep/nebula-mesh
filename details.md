@@ -300,10 +300,10 @@ type CAManager struct {
     caKey  []byte // decrypted private key in memory
 }
 
-func NewCA(name string, duration time.Duration) (*CAManager, []byte, error)
-// Returns: manager + encrypted PEM of CA key (for backup display)
+func NewCA(name string, duration time.Duration) (*CAManager, error)
+// Returns: manager
 
-func LoadCA(certPEM, encryptedKeyPEM, passphrase []byte) (*CAManager, error)
+func LoadCAFromMaterial(certPEM []byte, rawKey ed25519.PrivateKey) (*CAManager, error)
 
 func (m *CAManager) CACertPEM() []byte
 func (m *CAManager) CACertFingerprint() string

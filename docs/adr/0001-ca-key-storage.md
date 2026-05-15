@@ -1,6 +1,6 @@
 # ADR 0001 — CA key storage: file-system vs database
 
-- **Status**: Superseded by [ADR 0002](0002-per-operator-cas.md) (2026-05-12)
+- **Status**: Superseded by [ADR 0007](0007-remove-legacy-ca-stack.md) (2026-05-15)
 - **Decision**: keep CA private key material in encrypted files outside the SQLite database.
 - **Context**: issue [#11](https://github.com/juev/nebula-mesh/issues/11) — *Evaluate storing CA key material in the database*.
 

@@ -25,7 +25,7 @@ func generateHostKeypair(t *testing.T) (pub, priv []byte) {
 
 func newTestCA(t *testing.T) *CAManager {
 	t.Helper()
-	ca, _, err := NewCA("test-ca", 24*time.Hour)
+	ca, err := NewCA("test-ca", 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestSign_VerifyWithCAPool(t *testing.T) {
 
 func TestSign_ExpiredCA(t *testing.T) {
 	// Create CA with very short duration (already expired by the time we sign)
-	ca, _, err := NewCA("expired-ca", -1*time.Hour)
+	ca, err := NewCA("expired-ca", -1*time.Hour)
 	if err != nil {
 		t.Fatalf("NewCA: %v", err)
 	}

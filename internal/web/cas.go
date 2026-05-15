@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -35,7 +36,13 @@ type CAMaster interface {
 // WithMaster wires the keystore master the CA-create handler needs.
 // Without it, /ui/cas/new renders an inline error pointing at the
 // NEBULA_MGMT_MASTER_KEY docs instead of failing with a 500.
-func (w *Web) WithMaster(m CAMaster) { w.caMaster = m }
+func (w *Web) WithMaster(m CAMaster) {
+	w.caMaster = m
+	// If m is a *keystore.Master, store it for rotation operations.
+	if full, ok := m.(*keystore.Master); ok {
+		w.caFullMaster = full
+	}
+}
 
 func (w *Web) handleCAsList(rw http.ResponseWriter, r *http.Request) {
 	op := w.session.CurrentOperator(r)
@@ -283,6 +290,26 @@ func (w *Web) handleCADelete(rw http.ResponseWriter, r *http.Request) {
 		_ = w.store.AddAuditEntry(r.Context(), op.Username, "ca.deleted", c.ID, c.Name)
 	}
 	http.Redirect(rw, r, "/ui/cas", http.StatusSeeOther)
+}
+
+func (w *Web) handleCARotate(rw http.ResponseWriter, r *http.Request) {
+	c, ok := w.loadAccessibleCA(rw, r)
+	if !ok {
+		return
+	}
+	newCA, err := pki.RotateAndStoreCA(r.Context(), w.store, w.caFullMaster, w.logger, c)
+	if err != nil {
+		w.logger.Error("rotate ca", "error", err)
+		http.Redirect(rw, r, "/ui/cas/"+c.ID+"?error="+
+			http.StatusText(http.StatusInternalServerError)+": "+err.Error(),
+			http.StatusSeeOther)
+		return
+	}
+	if op := w.session.CurrentOperator(r); op != nil {
+		_ = w.store.AddAuditEntry(r.Context(), op.Username, "ca.rotated", newCA.ID,
+			fmt.Sprintf("predecessor=%s", c.ID))
+	}
+	http.Redirect(rw, r, "/ui/cas/"+newCA.ID, http.StatusSeeOther)
 }
 
 // loadAccessibleCA wraps the GetCA + ownership check used by every

@@ -28,6 +28,10 @@
 
     <div class="row" style="margin-top:1em">
         {{if eq (printf "%s" .CA.Status) "active"}}
+        <form method="POST" action="/ui/cas/{{.CA.ID}}/rotate" style="display:inline">
+            <button type="submit" class="btn btn-primary"
+                    onclick="return confirm('Rotate {{.CA.Name}}? A new successor CA will be created. Existing host certs remain valid until natural expiry; new certs will be signed by the successor.')">Rotate</button>
+        </form>
         <form method="POST" action="/ui/cas/{{.CA.ID}}/retire" style="display:inline">
             <button type="submit" class="btn btn-warning"
                     onclick="return confirm('Retire {{.CA.Name}}? Retired CAs can no longer sign new certificates; existing host certs keep working until they expire.')">Retire</button>

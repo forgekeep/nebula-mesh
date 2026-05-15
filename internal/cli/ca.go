@@ -23,6 +23,14 @@ type caInfo struct {
 	IsDefault       bool   `json:"is_default"`
 }
 
+type caRotateResponse struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	PredecessorID string `json:"predecessor_id"`
+	Fingerprint   string `json:"fingerprint"`
+	Status        string `json:"status"`
+}
+
 // CACreate creates a new CA via the API.
 func CACreate(serverURL, apiKey, name, duration string) error {
 	if name == "" {
@@ -97,4 +105,36 @@ func CAList(serverURL, apiKey string) error {
 // CADelete deletes a CA by id. Fails if any network still references it.
 func CADelete(serverURL, apiKey, id string) error {
 	return doHostAction(serverURL, apiKey, "DELETE", "/api/v1/cas/"+id, http.StatusNoContent, "CA deleted")
+}
+
+// CARotate rotates a CA via the API.
+func CARotate(serverURL, apiKey, id string) error {
+	if apiKey == "" {
+		return fmt.Errorf("--api-key is required")
+	}
+	req, err := http.NewRequest("POST", serverURL+"/api/v1/cas/"+id+"/rotate", nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request: %w", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Error("close response body", "error", err)
+		}
+	}()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	var out caRotateResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	fmt.Printf("Rotated CA: %s (predecessor: %s, fingerprint: %s)\n", out.ID, out.PredecessorID, out.Fingerprint)
+	return nil
 }

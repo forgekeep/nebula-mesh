@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -2024,5 +2025,316 @@ func TestCountEmptyCAIDRows_FreshDatabase(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("CountEmptyCAIDRows on fresh DB = %d, want 0", count)
+	}
+}
+
+// --- CAs with PredecessorID ---
+
+func createTestOperator(t *testing.T, s *SQLiteStore) *models.Operator {
+	t.Helper()
+	ctx := context.Background()
+	op := &models.Operator{
+		ID:           "op_test",
+		Username:     "testop",
+		PasswordHash: "hash",
+		Status:       models.OperatorStatusActive,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+	if err := s.CreateOperator(ctx, op); err != nil {
+		t.Fatal(err)
+	}
+	return op
+}
+
+func createTestCA(t *testing.T, s *SQLiteStore, id, name, operatorID string, predecessorID *string) *models.CA {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now()
+	ca := &models.CA{
+		ID:                   id,
+		Name:                 name,
+		OwnerOperatorID:      operatorID,
+		CertPEM:              "cert_pem_" + id,
+		Fingerprint:          "fp_" + id,
+		NotBefore:            now,
+		NotAfter:             now.AddDate(10, 0, 0),
+		Status:               models.CAStatusActive,
+		PredecessorID:        predecessorID,
+		EncryptedKeyDEK:      []byte("key_dek"),
+		NonceDEK:             []byte("nonce_dek"),
+		EncryptedKeyMaterial: []byte("key_material"),
+		NonceKey:             []byte("nonce_key"),
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+	if err := s.CreateCA(ctx, ca); err != nil {
+		t.Fatal(err)
+	}
+	return ca
+}
+
+func TestCAs_PredecessorID_RoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	op := createTestOperator(t, s)
+
+	// Create oldCA without predecessor
+	oldCA := createTestCA(t, s, "ca_old", "old-ca", op.ID, nil)
+
+	// Create newCA with oldCA as predecessor
+	predecessorID := oldCA.ID
+	_ = createTestCA(t, s, "ca_new", "new-ca", op.ID, &predecessorID)
+
+	// Read back newCA and verify predecessor_id
+	got, err := s.GetCA(ctx, "ca_new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PredecessorID == nil || *got.PredecessorID != predecessorID {
+		t.Errorf("newCA.PredecessorID = %v, want %q", got.PredecessorID, predecessorID)
+	}
+
+	// Read back oldCA and verify predecessor_id is nil
+	oldGot, err := s.GetCA(ctx, "ca_old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldGot.PredecessorID != nil {
+		t.Errorf("oldCA.PredecessorID = %v, want nil", oldGot.PredecessorID)
+	}
+}
+
+func TestCAs_ListCAsByOwner_IncludesPredecessorID(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	op := createTestOperator(t, s)
+
+	// Create chain: CA1 -> CA2 -> CA3
+	ca1 := createTestCA(t, s, "ca1", "ca-1", op.ID, nil)
+	pred1 := ca1.ID
+	ca2 := createTestCA(t, s, "ca2", "ca-2", op.ID, &pred1)
+	pred2 := ca2.ID
+	_ = createTestCA(t, s, "ca3", "ca-3", op.ID, &pred2)
+
+	// List all CAs and verify predecessors
+	cas, err := s.ListCAsByOwner(ctx, op.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cas) != 3 {
+		t.Fatalf("ListCAsByOwner = %d CAs, want 3", len(cas))
+	}
+
+	// Map by ID for easier lookup
+	caMap := make(map[string]*models.CA)
+	for _, ca := range cas {
+		caMap[ca.ID] = ca
+	}
+
+	// Verify CA1 has no predecessor
+	if caMap["ca1"].PredecessorID != nil {
+		t.Errorf("ca1.PredecessorID = %v, want nil", caMap["ca1"].PredecessorID)
+	}
+
+	// Verify CA2 has CA1 as predecessor
+	if caMap["ca2"].PredecessorID == nil || *caMap["ca2"].PredecessorID != "ca1" {
+		t.Errorf("ca2.PredecessorID = %v, want ca1", caMap["ca2"].PredecessorID)
+	}
+
+	// Verify CA3 has CA2 as predecessor
+	if caMap["ca3"].PredecessorID == nil || *caMap["ca3"].PredecessorID != "ca2" {
+		t.Errorf("ca3.PredecessorID = %v, want ca2", caMap["ca3"].PredecessorID)
+	}
+}
+
+func TestCAs_ListApproachingExpiry(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	op := createTestOperator(t, s)
+
+	now := time.Now()
+
+	// Create fresh CA (10-year lifetime, just started)
+	freshCA := &models.CA{
+		ID:              "ca_fresh",
+		Name:            "fresh",
+		OwnerOperatorID: op.ID,
+		CertPEM:         "cert",
+		Fingerprint:     "fp_fresh",
+		NotBefore:       now,
+		NotAfter:        now.AddDate(10, 0, 0),
+		Status:          models.CAStatusActive,
+		EncryptedKeyDEK: []byte("key"),
+		NonceDEK:        []byte("nonce"),
+		EncryptedKeyMaterial: []byte("material"),
+		NonceKey:        []byte("nonce_key"),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := s.CreateCA(ctx, freshCA); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create mid-life CA (10-year lifetime, 5 years have passed)
+	midLifeCA := &models.CA{
+		ID:              "ca_midlife",
+		Name:            "midlife",
+		OwnerOperatorID: op.ID,
+		CertPEM:         "cert",
+		Fingerprint:     "fp_midlife",
+		NotBefore:       now.AddDate(-5, 0, 0),
+		NotAfter:        now.AddDate(5, 0, 0),
+		Status:          models.CAStatusActive,
+		EncryptedKeyDEK: []byte("key"),
+		NonceDEK:        []byte("nonce"),
+		EncryptedKeyMaterial: []byte("material"),
+		NonceKey:        []byte("nonce_key"),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := s.CreateCA(ctx, midLifeCA); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create near-expiry CA (10-year lifetime, 8 years have passed, 2 years left = 20%)
+	nearExpiryCA := &models.CA{
+		ID:              "ca_expiring",
+		Name:            "expiring",
+		OwnerOperatorID: op.ID,
+		CertPEM:         "cert",
+		Fingerprint:     "fp_expiring",
+		NotBefore:       now.AddDate(-8, 0, 0),
+		NotAfter:        now.AddDate(2, 0, 0),
+		Status:          models.CAStatusActive,
+		EncryptedKeyDEK: []byte("key"),
+		NonceDEK:        []byte("nonce"),
+		EncryptedKeyMaterial: []byte("material"),
+		NonceKey:        []byte("nonce_key"),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := s.CreateCA(ctx, nearExpiryCA); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create retired CA (should not be included in results)
+	retiredCA := &models.CA{
+		ID:              "ca_retired",
+		Name:            "retired",
+		OwnerOperatorID: op.ID,
+		CertPEM:         "cert",
+		Fingerprint:     "fp_retired",
+		NotBefore:       now.AddDate(-8, 0, 0),
+		NotAfter:        now.AddDate(2, 0, 0),
+		Status:          models.CAStatusRetired,
+		EncryptedKeyDEK: []byte("key"),
+		NonceDEK:        []byte("nonce"),
+		EncryptedKeyMaterial: []byte("material"),
+		NonceKey:        []byte("nonce_key"),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := s.CreateCA(ctx, retiredCA); err != nil {
+		t.Fatal(err)
+	}
+
+	// Query with threshold=0.21 (21% remaining, slightly higher to account for floating-point precision)
+	// Should return only near-expiry (2 years left / 10 years = 0.20, but with rounding may be slightly more)
+	cas, err := s.ListCAsApproachingExpiry(ctx, 0.21)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cas) != 1 {
+		t.Fatalf("ListCAsApproachingExpiry = %d CAs, want 1", len(cas))
+	}
+
+	if cas[0].ID != "ca_expiring" {
+		t.Errorf("returned CA = %q, want ca_expiring", cas[0].ID)
+	}
+}
+
+func TestCAs_ListApproachingExpiry_Empty(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Empty DB should return empty slice
+	cas, err := s.ListCAsApproachingExpiry(ctx, 0.20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cas == nil {
+		t.Error("ListCAsApproachingExpiry returned nil, want empty slice")
+	}
+	if len(cas) != 0 {
+		t.Errorf("ListCAsApproachingExpiry on empty DB = %d CAs, want 0", len(cas))
+	}
+}
+
+func TestCAs_FindCAByPredecessor_Found(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	op := createTestOperator(t, s)
+
+	// Create CA1 (original, no predecessor)
+	ca1 := createTestCA(t, s, "ca_original", "original-ca", op.ID, nil)
+
+	// Create CA2 with CA1 as predecessor, status=active
+	pred1 := ca1.ID
+	ca2 := createTestCA(t, s, "ca_successor", "successor-ca", op.ID, &pred1)
+
+	// FindCAByPredecessor should return CA2
+	found, err := s.FindCAByPredecessor(ctx, ca1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found == nil {
+		t.Fatal("FindCAByPredecessor returned nil, want CA2")
+	}
+	if found.ID != ca2.ID {
+		t.Errorf("FindCAByPredecessor returned ID=%q, want %q", found.ID, ca2.ID)
+	}
+	if found.PredecessorID == nil || *found.PredecessorID != ca1.ID {
+		t.Errorf("successor.PredecessorID = %v, want %q", found.PredecessorID, ca1.ID)
+	}
+}
+
+func TestCAs_FindCAByPredecessor_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Empty DB: FindCAByPredecessor should return ErrNotFound
+	found, err := s.FindCAByPredecessor(ctx, "nonexistent_id")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("FindCAByPredecessor on empty DB returned err=%v, want ErrNotFound", err)
+	}
+	if found != nil {
+		t.Errorf("FindCAByPredecessor returned CA=%+v, want nil", found)
+	}
+}
+
+func TestCAs_FindCAByPredecessor_IgnoresRetired(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	op := createTestOperator(t, s)
+
+	// Create CA1 (original)
+	ca1 := createTestCA(t, s, "ca_old", "old-ca", op.ID, nil)
+
+	// Create CA2 with CA1 as predecessor, but mark as retired
+	pred1 := ca1.ID
+	ca2 := createTestCA(t, s, "ca_retired", "retired-ca", op.ID, &pred1)
+	if err := s.UpdateCAStatus(ctx, ca2.ID, models.CAStatusRetired); err != nil {
+		t.Fatal(err)
+	}
+
+	// FindCAByPredecessor should return ErrNotFound because CA2 is retired
+	found, err := s.FindCAByPredecessor(ctx, ca1.ID)
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("FindCAByPredecessor with retired successor returned err=%v, want ErrNotFound", err)
+	}
+	if found != nil {
+		t.Errorf("FindCAByPredecessor returned CA=%+v, want nil", found)
 	}
 }

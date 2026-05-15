@@ -9,6 +9,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// CAAutoRotateConfig configures the CA auto-rotation scanner: interval between scans,
+// and threshold (as fraction of total lifetime) to trigger rotation.
+// Defaults: Interval=6h, Threshold=0.20 (applied at runtime in the scanner).
+type CAAutoRotateConfig struct {
+	Enabled   bool          `yaml:"enabled,omitempty"`
+	Interval  time.Duration `yaml:"interval,omitempty"`
+	Threshold float64       `yaml:"threshold,omitempty"`
+}
+
 type ServerConfig struct {
 	Listen     string      `yaml:"listen"`
 	DataDir    string      `yaml:"data_dir"`
@@ -65,6 +74,10 @@ type ServerConfig struct {
 	// the `network_config` table under the `enrollment_token_ttl` key.
 	// Empty / unparseable value falls back to 24h.
 	EnrollmentTokenTTL string `yaml:"enrollment_token_ttl,omitempty"`
+
+	// CAAutoRotate configures the periodic CA auto-rotation scanner (issue #110).
+	// Disabled by default — operators must opt in by setting Enabled=true.
+	CAAutoRotate CAAutoRotateConfig `yaml:"ca_auto_rotate,omitempty"`
 }
 
 // EnrollmentTokenTTLDuration returns the configured default token TTL parsed
@@ -213,6 +226,17 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 
 	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
 		return nil, fmt.Errorf("tls_cert and tls_key must both be set or both empty")
+	}
+
+	if cfg.CAAutoRotate.Enabled {
+		// Threshold: if non-zero, must be in (0, 1.0). Zero is OK (will apply default 0.20 at runtime).
+		if cfg.CAAutoRotate.Threshold != 0 && (cfg.CAAutoRotate.Threshold <= 0 || cfg.CAAutoRotate.Threshold >= 1.0) {
+			return nil, fmt.Errorf("ca_auto_rotate.threshold must be in range (0, 1.0), got %v", cfg.CAAutoRotate.Threshold)
+		}
+		// Interval: if non-zero, must be >= 1m. Zero is OK (will apply default 6h at runtime).
+		if cfg.CAAutoRotate.Interval != 0 && cfg.CAAutoRotate.Interval < 1*time.Minute {
+			return nil, fmt.Errorf("ca_auto_rotate.interval must be >= 1m, got %v", cfg.CAAutoRotate.Interval)
+		}
 	}
 
 	return cfg, nil

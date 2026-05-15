@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -192,5 +193,98 @@ func TestSaveServerConfig_AtomicReplace(t *testing.T) {
 	}
 	if loaded.Listen != ":8000" {
 		t.Errorf("Listen = %q, want :8000", loaded.Listen)
+	}
+}
+
+func TestLoadServerConfig_AcceptsCAAutoRotate(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+
+	data := []byte(`listen: ":8080"
+data_dir: "/tmp"
+db_path: "/tmp/test.db"
+api_key: "test"
+log_level: "info"
+ca_auto_rotate:
+  enabled: true
+  interval: 6h
+  threshold: 0.2
+`)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadServerConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !cfg.CAAutoRotate.Enabled {
+		t.Errorf("CAAutoRotate.Enabled = %v, want true", cfg.CAAutoRotate.Enabled)
+	}
+	if cfg.CAAutoRotate.Threshold != 0.2 {
+		t.Errorf("CAAutoRotate.Threshold = %v, want 0.2", cfg.CAAutoRotate.Threshold)
+	}
+}
+
+func TestLoadServerConfig_RejectsCAAutoRotateBadThreshold(t *testing.T) {
+	tests := []struct {
+		name      string
+		threshold float64
+		wantErr   bool
+	}{
+		{"threshold=0", 0, false},          // 0 = unset, OK, will apply default
+		{"threshold=-0.1", -0.1, true},     // negative, not allowed
+		{"threshold=1.0", 1.0, true},       // >= 1.0, not allowed
+		{"threshold=1.5", 1.5, true},       // > 1.0, not allowed
+		{"threshold=0.5", 0.5, false},      // valid
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfgPath := filepath.Join(dir, "server.yml")
+
+			data := []byte(`listen: ":8080"
+data_dir: "/tmp"
+db_path: "/tmp/test.db"
+api_key: "test"
+log_level: "info"
+ca_auto_rotate:
+  enabled: true
+  threshold: ` + fmt.Sprintf("%v", tt.threshold) + `
+`)
+			if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := LoadServerConfig(cfgPath)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("threshold=%v: got error=%v, want error=%v", tt.threshold, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoadServerConfig_RejectsCAAutoRotateBadInterval(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+
+	data := []byte(`listen: ":8080"
+data_dir: "/tmp"
+db_path: "/tmp/test.db"
+api_key: "test"
+log_level: "info"
+ca_auto_rotate:
+  enabled: true
+  interval: 30s
+`)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadServerConfig(cfgPath)
+	if err == nil {
+		t.Fatal("expected error for interval < 1m, got nil")
 	}
 }

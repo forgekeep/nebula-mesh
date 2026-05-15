@@ -199,6 +199,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/v1/cas", s.handleCreateCA)
 		r.Get("/api/v1/cas/{id}", s.handleGetCAByID)
 		r.Delete("/api/v1/cas/{id}", s.handleDeleteCA)
+		r.Post("/api/v1/cas/{id}/rotate", s.handleRotateCA)
 		r.Get("/api/v1/settings", s.handleGetSettings)
 		r.Patch("/api/v1/settings", s.handlePatchSettings)
 	})

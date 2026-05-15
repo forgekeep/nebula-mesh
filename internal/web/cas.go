@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -15,21 +16,22 @@ import (
 	"github.com/juev/nebula-mesh/internal/store"
 )
 
+// caView wraps a CA model with pre-computed display state for templates.
+type caView struct {
+	*models.CA
+	IsExpiringSoon bool
+}
+
 // ErrCAMasterNotConfigured is returned by mintCAForOperator when the
 // master keystore is not wired. Auto-provision skips silently on this error.
 var ErrCAMasterNotConfigured = errors.New("ca master key not configured")
 
-// CAMaster is the slim interface the Web UI needs from the keystore to
-// wrap a freshly-generated CA key for storage. Mirrors the methods the
-// API server uses; supplied by the same *keystore.Master singleton.
-type CAMaster interface {
-	GenerateDEK() (dek []byte, wrapped keystore.WrappedKey, err error)
-}
-
 // WithMaster wires the keystore master the CA-create handler needs.
 // Without it, /ui/cas/new renders an inline error pointing at the
 // NEBULA_MGMT_MASTER_KEY docs instead of failing with a 500.
-func (w *Web) WithMaster(m CAMaster) { w.caMaster = m }
+func (w *Web) WithMaster(m *keystore.Master) {
+	w.caMaster = m
+}
 
 func (w *Web) handleCAsList(rw http.ResponseWriter, r *http.Request) {
 	op := w.session.CurrentOperator(r)
@@ -51,9 +53,17 @@ func (w *Web) handleCAsList(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Pre-compute IsExpiringSoon for each CA using pki.ShouldRenew threshold.
+	caViews := make([]*caView, len(cas))
+	for i, ca := range cas {
+		caViews[i] = &caView{
+			CA:             ca,
+			IsExpiringSoon: pki.ShouldRenew(ca.NotBefore, ca.NotAfter),
+		}
+	}
 	w.renderForRequest(rw, r, "cas_list.html", map[string]any{
 		"Active":  "cas",
-		"CAs":     cas,
+		"CAs":     caViews,
 		"IsAdmin": op.Role == "admin",
 	})
 }
@@ -228,10 +238,12 @@ func (w *Web) handleCADetail(rw http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	isExpiringSoon := pki.ShouldRenew(c.NotBefore, c.NotAfter)
 	w.renderForRequest(rw, r, "ca_detail.html", map[string]any{
-		"Active": "cas",
-		"CA":     c,
-		"Error":  r.URL.Query().Get("error"),
+		"Active":            "cas",
+		"CA":                c,
+		"IsExpiringSoon":    isExpiringSoon,
+		"Error":             r.URL.Query().Get("error"),
 	})
 }
 
@@ -267,6 +279,26 @@ func (w *Web) handleCADelete(rw http.ResponseWriter, r *http.Request) {
 		_ = w.store.AddAuditEntry(r.Context(), op.Username, "ca.deleted", c.ID, c.Name)
 	}
 	http.Redirect(rw, r, "/ui/cas", http.StatusSeeOther)
+}
+
+func (w *Web) handleCARotate(rw http.ResponseWriter, r *http.Request) {
+	c, ok := w.loadAccessibleCA(rw, r)
+	if !ok {
+		return
+	}
+	newCA, err := pki.RotateAndStoreCA(r.Context(), w.store, w.caMaster, w.logger, c)
+	if err != nil {
+		w.logger.Error("rotate ca", "error", err)
+		http.Redirect(rw, r, "/ui/cas/"+c.ID+"?error="+
+			http.StatusText(http.StatusInternalServerError)+": "+err.Error(),
+			http.StatusSeeOther)
+		return
+	}
+	if op := w.session.CurrentOperator(r); op != nil {
+		_ = w.store.AddAuditEntry(r.Context(), op.Username, "ca.rotated", newCA.ID,
+			fmt.Sprintf("predecessor=%s", c.ID))
+	}
+	http.Redirect(rw, r, "/ui/cas/"+newCA.ID, http.StatusSeeOther)
 }
 
 // loadAccessibleCA wraps the GetCA + ownership check used by every

@@ -22,6 +22,7 @@ type CA struct {
 	NotBefore            time.Time `json:"not_before"`
 	NotAfter             time.Time `json:"not_after"`
 	Status               CAStatus  `json:"status"`
+	PredecessorID        *string   `json:"predecessor_id,omitempty"`
 	EncryptedKeyDEK      []byte    `json:"-"`
 	NonceDEK             []byte    `json:"-"`
 	EncryptedKeyMaterial []byte    `json:"-"`

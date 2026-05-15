@@ -201,6 +201,20 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// If host's CA has a successor, include trust bundle in response.
+	// Trust bundle allows agents to accept both old and new CA certs during rotation.
+	if host.CAID != "" && resp.CACertPEM == nil {
+		successor, ferr := s.store.FindCAByPredecessor(r.Context(), host.CAID)
+		if ferr == nil && successor != nil {
+			oldCA, oerr := s.store.GetCA(r.Context(), host.CAID)
+			if oerr == nil && oldCA != nil {
+				bundle := oldCA.CertPEM + "\n" + successor.CertPEM
+				resp.CACertPEM = &bundle
+				s.logger.Info("returning trust bundle", "host_id", host.ID, "old_ca", host.CAID, "successor_ca", successor.ID)
+			}
+		}
+	}
+
 	// Check if the network config version moved since this host's last poll.
 	// If it did, re-render the Nebula config with the current lighthouse list
 	// (and any other network-level config) and ship it to the agent.

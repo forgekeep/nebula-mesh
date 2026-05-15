@@ -61,7 +61,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  network <create|list>")
 	fmt.Fprintln(os.Stderr, "  user <create|list|disable|enable>")
 	fmt.Fprintln(os.Stderr, "  apikey <create|revoke>")
-	fmt.Fprintln(os.Stderr, "  ca <create|list|delete>")
+	fmt.Fprintln(os.Stderr, "  ca <create|list|delete|rotate>")
 }
 
 func runInit(args []string) error {
@@ -245,7 +245,7 @@ func runUserList(args []string) error {
 
 func runCA(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: nebula-mgmt ca <create|list|delete>")
+		return fmt.Errorf("usage: nebula-mgmt ca <create|list|delete|rotate>")
 	}
 	switch args[0] {
 	case "create":
@@ -254,6 +254,8 @@ func runCA(args []string) error {
 		return runCAList(args[1:])
 	case "delete":
 		return runHostAction(args[1:], "ca delete", cli.CADelete)
+	case "rotate":
+		return runCARotate(args[1:])
 	default:
 		return fmt.Errorf("unknown ca subcommand: %s", args[0])
 	}
@@ -285,6 +287,23 @@ func runCAList(args []string) error {
 		return fmt.Errorf("--api-key is required")
 	}
 	return cli.CAList(*server, *apiKey)
+}
+
+func runCARotate(args []string) error {
+	fs := flag.NewFlagSet("ca rotate", flag.ExitOnError)
+	server := fs.String("server", "http://localhost:8080", "management server URL")
+	apiKey := fs.String("api-key", "", "API key")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: nebula-mgmt ca rotate [flags] <id>")
+	}
+	if *apiKey == "" {
+		return fmt.Errorf("--api-key is required")
+	}
+	id := fs.Arg(0)
+	return cli.CARotate(*server, *apiKey, id)
 }
 
 func runAPIKey(args []string) error {

@@ -329,6 +329,8 @@ nebula-mgmt ca delete --server ... --api-key "$OPERATOR_KEY" --id "$CA_ID"
 
 Non-admin operators see and manage only the CAs they own; admins see all. Hosts enrolled under a tenant CA receive **that** CA's certificate, not the default one. Audit log entries (`ca.created`, `ca.deleted`, plus existing `host.*` events with the host's `ca_id`) record both the actor and the affected CA. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the encryption-at-rest design.
 
+**CA rotation**: when a CA approaches its expiry (≤20% lifetime remaining), the UI shows a warning badge on the CA pages. Operators can click **Rotate** to create a successor CA; existing host certificates remain valid until their natural expiry. CLI: `nebula-mgmt ca rotate <id>`. Optional opt-in auto-rotation: set `ca_auto_rotate.enabled: true` in `server.yaml` to enable automatic rotation (disabled by default). See [ADR 0008](docs/adr/0008-ca-rotation.md) for the hybrid model and trust bundle distribution.
+
 </details>
 
 <details>

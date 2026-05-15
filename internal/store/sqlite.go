@@ -90,6 +90,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"012_agent_auth.up.sql",
 		"013_host_mobile.up.sql",
 		"014_multi_address.up.sql",
+		"015_ca_predecessor.up.sql",
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.

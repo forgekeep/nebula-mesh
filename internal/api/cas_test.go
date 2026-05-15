@@ -234,3 +234,215 @@ func TestAuditLog_RecordsCACreate(t *testing.T) {
 		t.Error("ca.created audit entry not recorded")
 	}
 }
+
+func TestRotateCA_Success(t *testing.T) {
+	srv, opKey := newServerWithMaster(t)
+
+	// Create initial CA
+	body, _ := json.Marshal(map[string]string{"name": "test-ca"})
+	req := httptest.NewRequest("POST", "/api/v1/cas", bytes.NewBuffer(body))
+	req.Header.Set("Authorization", "Bearer "+opKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create CA = %d", rec.Code)
+	}
+
+	var ca1 caResponse
+	if err := json.NewDecoder(rec.Body).Decode(&ca1); err != nil {
+		t.Fatal(err)
+	}
+	ca1ID := ca1.ID
+
+	// Rotate the CA
+	req = httptest.NewRequest("POST", "/api/v1/cas/"+ca1ID+"/rotate", nil)
+	req.Header.Set("Authorization", "Bearer "+opKey)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rotate = %d; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var ca2 caResponse
+	if err := json.NewDecoder(rec.Body).Decode(&ca2); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify response contains predecessor_id
+	if ca2.PredecessorID == nil {
+		t.Errorf("predecessor_id = nil, want %q", ca1ID)
+	} else if *ca2.PredecessorID != ca1ID {
+		t.Errorf("predecessor_id = %q, want %q", *ca2.PredecessorID, ca1ID)
+	}
+
+	// Verify new CA has different fingerprint
+	if ca2.Fingerprint == ca1.Fingerprint {
+		t.Error("new CA should have different fingerprint")
+	}
+
+	// Verify both CAs exist in DB
+	caList, err := srv.store.ListCAsByOwner(context.Background(), ca1.OwnerOperatorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(caList) != 2 {
+		t.Errorf("expected 2 CAs, got %d", len(caList))
+	}
+
+	// Verify audit entry was recorded
+	entries, err := srv.store.ListAuditEntries(context.Background(), storeAuditFilter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundRotate := false
+	for _, e := range entries {
+		if e.Action == "ca.rotated" {
+			foundRotate = true
+		}
+	}
+	if !foundRotate {
+		t.Error("ca.rotated audit entry not recorded")
+	}
+}
+
+func TestRotateCA_Forbidden_NonOwner(t *testing.T) {
+	srv, _ := newServerWithMaster(t)
+
+	// Create CA with admin key
+	adminKey := createAdminKey(t, srv)
+	body, _ := json.Marshal(map[string]string{"name": "test-ca"})
+	req := httptest.NewRequest("POST", "/api/v1/cas", bytes.NewBuffer(body))
+	req.Header.Set("Authorization", "Bearer "+adminKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create CA = %d", rec.Code)
+	}
+
+	var ca caResponse
+	if err := json.NewDecoder(rec.Body).Decode(&ca); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create non-admin operator
+	nonAdminID := uuid.New().String()
+	nonAdminKey := uuid.New().String()
+	if err := srv.store.CreateOperator(context.Background(), &models.Operator{
+		ID:           nonAdminID,
+		Username:     "non-admin",
+		PasswordHash: "x",
+		Role:         "user",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	keyHash := sha256.Sum256([]byte(nonAdminKey))
+	if err := srv.store.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{
+		ID: uuid.New().String(), OperatorID: nonAdminID, KeyHash: hex.EncodeToString(keyHash[:]),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Non-owner tries to rotate
+	req = httptest.NewRequest("POST", "/api/v1/cas/"+ca.ID+"/rotate", nil)
+	req.Header.Set("Authorization", "Bearer "+nonAdminKey)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-owner rotate = %d, want 403", rec.Code)
+	}
+}
+
+func TestRotateCA_NotFound(t *testing.T) {
+	srv, opKey := newServerWithMaster(t)
+
+	req := httptest.NewRequest("POST", "/api/v1/cas/nonexistent/rotate", nil)
+	req.Header.Set("Authorization", "Bearer "+opKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("rotate nonexistent = %d, want 404", rec.Code)
+	}
+}
+
+func TestRotateCA_Idempotent_ReturnsExistingSuccessor(t *testing.T) {
+	srv, opKey := newServerWithMaster(t)
+
+	// Create initial CA
+	body, _ := json.Marshal(map[string]string{"name": "test-ca"})
+	req := httptest.NewRequest("POST", "/api/v1/cas", bytes.NewBuffer(body))
+	req.Header.Set("Authorization", "Bearer "+opKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create CA = %d", rec.Code)
+	}
+
+	var ca1 caResponse
+	if err := json.NewDecoder(rec.Body).Decode(&ca1); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rotate first time
+	req = httptest.NewRequest("POST", "/api/v1/cas/"+ca1.ID+"/rotate", nil)
+	req.Header.Set("Authorization", "Bearer "+opKey)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first rotate = %d", rec.Code)
+	}
+
+	var ca2 caResponse
+	if err := json.NewDecoder(rec.Body).Decode(&ca2); err != nil {
+		t.Fatal(err)
+	}
+	ca2ID := ca2.ID
+
+	// Rotate second time (should return same successor)
+	req = httptest.NewRequest("POST", "/api/v1/cas/"+ca1.ID+"/rotate", nil)
+	req.Header.Set("Authorization", "Bearer "+opKey)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("second rotate = %d", rec.Code)
+	}
+
+	var ca2Again caResponse
+	if err := json.NewDecoder(rec.Body).Decode(&ca2Again); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify we got back the same successor
+	if ca2Again.ID != ca2ID {
+		t.Errorf("second rotate returned different CA: %q vs %q", ca2Again.ID, ca2ID)
+	}
+
+	// Verify only 2 CAs in DB (not 3)
+	caList, err := srv.store.ListCAsByOwner(context.Background(), ca1.OwnerOperatorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(caList) != 2 {
+		t.Errorf("expected 2 CAs total, got %d", len(caList))
+	}
+}
+
+func createAdminKey(t *testing.T, srv *Server) string {
+	t.Helper()
+	adminID := uuid.New().String()
+	if err := srv.store.CreateOperator(context.Background(), &models.Operator{
+		ID:           adminID,
+		Username:     "admin-" + uuid.New().String(),
+		PasswordHash: "x",
+		Role:         "admin",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rawKey := uuid.New().String()
+	keyHash := sha256.Sum256([]byte(rawKey))
+	if err := srv.store.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{
+		ID: uuid.New().String(), OperatorID: adminID, KeyHash: hex.EncodeToString(keyHash[:]),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return rawKey
+}

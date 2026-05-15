@@ -21,11 +21,14 @@
         <tbody>
         {{range .CAs}}
         <tr>
-            <td><a href="/ui/cas/{{.ID}}">{{.Name}}</a></td>
-            <td><code>{{.Fingerprint}}</code></td>
-            {{if $.IsAdmin}}<td>{{.OwnerOperatorID}}</td>{{end}}
-            <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
-            <td>{{.NotAfter.Format "2006-01-02"}}</td>
+            <td><a href="/ui/cas/{{.CA.ID}}">{{.CA.Name}}</a></td>
+            <td><code>{{.CA.Fingerprint}}</code></td>
+            {{if $.IsAdmin}}<td>{{.CA.OwnerOperatorID}}</td>{{end}}
+            <td>
+                <span class="badge badge-{{.CA.Status}}">{{.CA.Status}}</span>
+                {{if .IsExpiringSoon}}<span class="badge badge-warning">⚠ Expires soon</span>{{end}}
+            </td>
+            <td>{{.CA.NotAfter.Format "2006-01-02"}}</td>
         </tr>
         {{end}}
         </tbody>

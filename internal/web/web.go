@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/juev/nebula-mesh/internal/auth"
+	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/store"
@@ -41,7 +42,7 @@ type Web struct {
 	events                *EventBus
 	limiter               *ratelimit.Limiter
 	passwordPolicy        auth.Policy
-	caMaster              CAMaster
+	caMaster              *keystore.Master
 	caResolver            *pki.CAResolver
 }
 
@@ -274,6 +275,7 @@ func (w *Web) setupRoutes() {
 		r.Post("/ui/cas", w.handleCACreate)
 		r.Get("/ui/cas/{id}", w.handleCADetail)
 		r.Post("/ui/cas/{id}/retire", w.handleCARetire)
+		r.Post("/ui/cas/{id}/rotate", w.handleCARotate)
 		r.Post("/ui/cas/{id}/delete", w.handleCADelete)
 		r.Post("/ui/2fa/setup", w.handleTwoFASetup)
 		r.Post("/ui/2fa/enable", w.handleTwoFAEnable)

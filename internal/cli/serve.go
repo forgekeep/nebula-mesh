@@ -13,6 +13,7 @@ import (
 	"github.com/juev/nebula-mesh/internal/alerts"
 	"github.com/juev/nebula-mesh/internal/api"
 	"github.com/juev/nebula-mesh/internal/auth"
+	"github.com/juev/nebula-mesh/internal/cawatch"
 	"github.com/juev/nebula-mesh/internal/config"
 	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/keystore"
@@ -262,6 +263,36 @@ func Serve(configPath string) error {
 			"threshold", scanner.Threshold,
 			"webhook", cfg.Alerts.WebhookURL != "",
 		)
+	}
+
+	// CA auto-rotation scanner — periodically finds CAs approaching expiry
+	// and rotates them. Disabled by default; opt in via the `ca_auto_rotate`
+	// block in server config (issue #110).
+	if cfg.CAAutoRotate.Enabled {
+		if master == nil {
+			logger.Warn("ca_auto_rotate enabled but master key not configured; auto-rotate disabled")
+		} else {
+			threshold := cfg.CAAutoRotate.Threshold
+			if threshold <= 0 {
+				threshold = 0.20
+			}
+			interval := cfg.CAAutoRotate.Interval
+			if interval <= 0 {
+				interval = 6 * time.Hour
+			}
+			caScanner := &cawatch.Scanner{
+				Store:     s,
+				Master:    master,
+				Logger:    logger,
+				Threshold: threshold,
+				Interval:  interval,
+			}
+			go caScanner.StartLoop(ctx)
+			logger.Info("ca auto-rotate scanner enabled",
+				"interval", interval,
+				"threshold", threshold,
+			)
+		}
 	}
 
 	sigCh := make(chan os.Signal, 1)

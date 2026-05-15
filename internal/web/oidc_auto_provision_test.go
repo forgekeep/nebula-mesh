@@ -61,7 +61,7 @@ func TestOIDCUpsert_AutoProvisionsForUserRole(t *testing.T) {
 	}
 }
 
-func TestOIDCUpsert_DoesNotProvisionForAdminRole(t *testing.T) {
+func TestOIDCUpsert_AutoProvisionsForAdminRole(t *testing.T) {
 	w, s := newOperatorsWebWithMaster(t)
 	ctx := context.Background()
 
@@ -85,13 +85,27 @@ func TestOIDCUpsert_DoesNotProvisionForAdminRole(t *testing.T) {
 		t.Errorf("Role = %q, want admin", op.Role)
 	}
 
-	// Verify NO CA was created (admins should not auto-provision).
+	// Verify CA was auto-provisioned.
 	cas, err := s.ListCAsByOwner(ctx, op.ID)
 	if err != nil {
 		t.Fatalf("ListCAsByOwner failed: %v", err)
 	}
-	if len(cas) != 0 {
-		t.Fatalf("ListCAsByOwner returned %d CAs, want 0", len(cas))
+	if len(cas) != 1 {
+		t.Fatalf("ListCAsByOwner returned %d CAs, want 1", len(cas))
+	}
+
+	ca := cas[0]
+	if ca.Name != "bob-default" {
+		t.Errorf("CA name = %q, want bob-default", ca.Name)
+	}
+	if ca.Status != models.CAStatusActive {
+		t.Errorf("CA status = %q, want %q", ca.Status, models.CAStatusActive)
+	}
+	if ca.Fingerprint == "" {
+		t.Error("CA fingerprint is empty")
+	}
+	if ca.OwnerOperatorID != op.ID {
+		t.Errorf("CA owner = %q, want %q", ca.OwnerOperatorID, op.ID)
 	}
 }
 

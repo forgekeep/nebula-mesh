@@ -73,9 +73,9 @@ func TestAdminCreatesUser_AutoProvisions(t *testing.T) {
 	}
 }
 
-// TestAdminCreatesAdmin_DoesNotAutoProvision verifies that when an admin
-// creates an admin-role operator, no CA is auto-provisioned.
-func TestAdminCreatesAdmin_DoesNotAutoProvision(t *testing.T) {
+// TestAdminCreatesAdmin_AutoProvisions verifies that when an admin
+// creates an admin-role operator, a default CA is auto-provisioned.
+func TestAdminCreatesAdmin_AutoProvisions(t *testing.T) {
 	w, s := newOperatorsWebWithMaster(t)
 
 	// Create admin session.
@@ -108,13 +108,27 @@ func TestAdminCreatesAdmin_DoesNotAutoProvision(t *testing.T) {
 		t.Fatalf("GetOperatorByUsername(charlie) = %v", err)
 	}
 
-	// Verify no CA was created.
+	// Verify CA was created.
 	cas, err := s.ListCAsByOwner(ctx, charlie.ID)
 	if err != nil {
 		t.Fatalf("ListCAsByOwner = %v", err)
 	}
-	if len(cas) != 0 {
-		t.Fatalf("charlie should have 0 CAs, got %d", len(cas))
+	if len(cas) != 1 {
+		t.Fatalf("charlie should have 1 CA, got %d", len(cas))
+	}
+
+	ca := cas[0]
+	if ca.Name != "charlie-default" {
+		t.Errorf("CA name = %q, want charlie-default", ca.Name)
+	}
+	if ca.Status != models.CAStatusActive {
+		t.Errorf("CA status = %q, want %q", ca.Status, models.CAStatusActive)
+	}
+	if ca.Fingerprint == "" {
+		t.Error("CA fingerprint is empty")
+	}
+	if ca.OwnerOperatorID != charlie.ID {
+		t.Errorf("CA owner = %q, want %q", ca.OwnerOperatorID, charlie.ID)
 	}
 }
 

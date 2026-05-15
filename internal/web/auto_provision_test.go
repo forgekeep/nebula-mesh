@@ -213,7 +213,7 @@ func TestProvisionDefaultCA_IdempotentWhenAlreadyHasCA(t *testing.T) {
 	}
 }
 
-func TestProvisionDefaultCA_SkipsForAdminRole(t *testing.T) {
+func TestProvisionDefaultCA_AutoProvisionsForAdminRole(t *testing.T) {
 	w, s := newOperatorsWebWithMaster(t)
 	ctx := context.Background()
 
@@ -231,19 +231,33 @@ func TestProvisionDefaultCA_SkipsForAdminRole(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Provision for admin should skip.
+	// Provision for admin should auto-provision default CA.
 	err := w.provisionDefaultCA(ctx, op)
 	if err != nil {
 		t.Fatalf("provisionDefaultCA for admin = %v, want nil", err)
 	}
 
-	// Verify no CA was created.
+	// Verify CA was created.
 	cas, err := s.ListCAsByOwner(ctx, op.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cas) != 0 {
-		t.Fatalf("ListCAsByOwner returned %d CA(s), want 0", len(cas))
+	if len(cas) != 1 {
+		t.Fatalf("ListCAsByOwner returned %d CA(s), want 1", len(cas))
+	}
+
+	ca := cas[0]
+	if ca.Name != "admin-default" {
+		t.Errorf("CA name = %q, want admin-default", ca.Name)
+	}
+	if ca.Status != models.CAStatusActive {
+		t.Errorf("CA status = %q, want %q", ca.Status, models.CAStatusActive)
+	}
+	if ca.Fingerprint == "" {
+		t.Error("CA fingerprint is empty")
+	}
+	if ca.OwnerOperatorID != op.ID {
+		t.Errorf("CA owner = %q, want %q", ca.OwnerOperatorID, op.ID)
 	}
 }
 

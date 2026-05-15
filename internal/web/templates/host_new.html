@@ -38,7 +38,7 @@
                         {{- range $.Network.CIDRs }}<option value="{{ . }}">{{ . }}</option>{{- end }}
                     </select>
                     {{- end }}
-                    <input type="text" name="nebula_ips" value="{{ $ip }}" required class="form-control" placeholder="overlay address" />
+                    <input type="text" name="nebula_ips" value="{{ $ip }}" required class="form-control nebula-ip-input" placeholder="overlay address" />
                     {{- with index $.Form.NebulaIPErrors $i }}<div class="error-inline" style="color: var(--danger); font-size: 13px;">{{ . }}</div>{{- end }}
                     <button type="button" data-action="remove" aria-label="Remove IP" style="background: transparent; border: 1px solid var(--border); padding: 4px 10px; cursor: pointer;">×</button>
                 </div>
@@ -49,11 +49,12 @@
                         {{- range $.Network.CIDRs }}<option value="{{ . }}">{{ . }}</option>{{- end }}
                     </select>
                     {{- end }}
-                    <input type="text" name="nebula_ips" required class="form-control" placeholder="overlay address" />
+                    <input type="text" name="nebula_ips" required class="form-control nebula-ip-input" placeholder="overlay address" />
                     <button type="button" data-action="remove" aria-label="Remove IP" style="background: transparent; border: 1px solid var(--border); padding: 4px 10px; cursor: pointer;">×</button>
                 </div>
                 {{- end }}
             </div>
+            <p id="cidr-hint" style="font-size: 12px; color: var(--text-muted); margin-top: 4px; min-height: 1em;"></p>
             <button type="button" data-action="add-ip" style="margin-top: 8px;" class="btn btn-secondary">+ Add IP</button>
         </div>
         <div class="form-group">
@@ -133,14 +134,25 @@
 
 <script>
 (function() {
-    // Handle network selection change to update parent CIDR dropdown visibility
+    // Suggest the .10 host in the given CIDR, falling back to .1 for /31-/32.
+    function suggestIPInCIDR(cidr) {
+        var m = cidr.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/);
+        if (!m) return "";
+        var bits = parseInt(m[5], 10);
+        if (bits >= 30) return "";
+        var host = bits <= 23 ? 10 : 10; // first usable host in the /24-block
+        return m[1] + "." + m[2] + "." + m[3] + "." + host;
+    }
+
+    // Handle network selection change to update parent CIDR dropdown visibility,
+    // refresh the CIDR-range hint, and seed a placeholder example IP.
     window.onNetworkChange = function() {
         var sel = document.getElementById("network-select");
         var selectedOpt = sel.options[sel.selectedIndex];
         var cidrsStr = selectedOpt.getAttribute("data-cidrs") || "";
         var cidrs = cidrsStr ? cidrsStr.split(";") : [];
 
-        // Update parent_cidr_* selects visibility for all IP rows
+        // Parent CIDR dropdowns are only useful when the network has multiple blocks.
         var rows = document.querySelectorAll(".ip-row");
         rows.forEach(function(row) {
             var selects = row.querySelectorAll("select[name^='parent_cidr_']");
@@ -148,6 +160,24 @@
                 sel.style.display = cidrs.length > 1 ? "block" : "none";
             });
         });
+
+        // Update placeholder on every overlay IP input.
+        var placeholder = cidrs.length > 0 ? (suggestIPInCIDR(cidrs[0]) || "overlay address") : "overlay address";
+        document.querySelectorAll(".nebula-ip-input").forEach(function(inp) {
+            inp.setAttribute("placeholder", placeholder);
+        });
+
+        // Update the textual CIDR hint below the IP rows.
+        var hint = document.getElementById("cidr-hint");
+        if (hint) {
+            if (cidrs.length === 0) {
+                hint.textContent = "";
+            } else if (cidrs.length === 1) {
+                hint.textContent = "Pick an address inside " + cidrs[0];
+            } else {
+                hint.textContent = "Pick an address inside one of: " + cidrs.join(", ");
+            }
+        }
     };
 
     // Setup add/remove row handlers

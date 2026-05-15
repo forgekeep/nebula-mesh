@@ -766,6 +766,27 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	kind := models.HostKind(form.Kind)
+	if kind == "" {
+		kind = models.HostKindAgent
+	}
+	if !models.ValidKind(kind) {
+		w.renderHostNewError(rw, r, form, "invalid host kind")
+		return
+	}
+	variant := models.HostVariant(form.Variant)
+	if kind != models.HostKindMobile {
+		variant = models.HostVariantNone
+	}
+	if !models.ValidVariant(variant) {
+		w.renderHostNewError(rw, r, form, "invalid mobile variant")
+		return
+	}
+	if err := models.ValidateMobileConstraints(kind, variant, role); err != nil {
+		w.renderHostNewError(rw, r, form, err.Error())
+		return
+	}
+
 	now := time.Now()
 	host := &models.Host{
 		ID:           uuid.New().String(),
@@ -780,9 +801,23 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		PublicIP:     form.PublicIP,
 		ListenPort:   listenPort,
 		Status:       models.HostStatusPending,
+		Kind:         kind,
+		Variant:      variant,
 		Advanced:     advanced,
 		CreatedAt:    now,
 		UpdatedAt:    now,
+	}
+
+	// Mobile hosts don't use the agent enrollment flow — they get a
+	// self-contained YAML bundle on creation, so no enrollment token is needed.
+	if kind == models.HostKindMobile {
+		if err := w.store.CreateHost(r.Context(), host); err != nil {
+			w.logger.Error("create mobile host", "error", err)
+			http.Error(rw, "Failed to create host", http.StatusInternalServerError)
+			return
+		}
+		w.renderMobileBundle(rw, r, host)
+		return
 	}
 
 	token := &models.EnrollmentToken{
@@ -1263,31 +1298,31 @@ func (w *Web) handleGenerateMobileBundle(rw http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Build mobile bundle
+	w.renderMobileBundle(rw, r, host)
+}
+
+// renderMobileBundle builds a fresh certificate + YAML bundle for the given
+// mobile host and renders host_mobile_bundle.html with the QR code. The private
+// key inside the bundle is shown only once, so the response is marked no-store.
+// Called from handleGenerateMobileBundle (explicit regenerate button) and from
+// handleHostCreate (initial creation of a mobile host).
+func (w *Web) renderMobileBundle(rw http.ResponseWriter, r *http.Request, host *models.Host) {
 	bundle, err := mobilebundle.Build(r.Context(), w.store, w.caResolver, host)
 	if err != nil {
 		w.logger.Error("build mobile bundle", "error", err)
 		http.Error(rw, fmt.Sprintf("Failed to generate bundle: %v", err), http.StatusInternalServerError)
 		return
 	}
-
-	// Generate QR code
 	qrSVG, qrErr := renderQRSVG(string(bundle))
-
-	// Generate download link via data: URI
 	downloadHref := "data:application/yaml;base64," + base64.StdEncoding.EncodeToString(bundle)
-
-	// Set Cache-Control to prevent caching (private key in response)
 	rw.Header().Set("Cache-Control", "no-store")
-
-	// Render template with bundle details
 	w.renderForRequest(rw, r, "host_mobile_bundle.html", map[string]any{
-		"Host":          host,
-		"YAML":          string(bundle),
-		"QRSVG":         template.HTML(qrSVG),
-		"QRError":       qrErr,
-		"DownloadHref":  template.URL(downloadHref),
-		"Active":        "hosts",
+		"Host":         host,
+		"YAML":         string(bundle),
+		"QRSVG":        template.HTML(qrSVG),
+		"QRError":      qrErr,
+		"DownloadHref": template.URL(downloadHref),
+		"Active":       "hosts",
 	})
 }
 

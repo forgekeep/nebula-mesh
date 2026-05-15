@@ -125,13 +125,20 @@
             border: 1px solid var(--border);
             background: var(--bg-card);
             color: var(--text);
+            text-decoration: none;
             transition: all 0.15s;
         }
-        .btn:hover { background: var(--bg-hover); }
+        /* Pin text color on every .btn:hover variant — otherwise the global
+           a:hover { color: var(--primary-hover) } rule wins by specificity and
+           the label fades (most painfully on .btn-primary, where the hover
+           background is also --primary-hover → invisible text). */
+        .btn:hover, a.btn:hover { background: var(--bg-hover); color: var(--text); }
         .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-primary:hover, a.btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: #fff; }
         .btn-warning { background: var(--warning); border-color: var(--warning); color: #fff; }
+        .btn-warning:hover, a.btn-warning:hover { background: #d49337; border-color: #d49337; color: #fff; }
         .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+        .btn-danger:hover, a.btn-danger:hover { background: #c84545; border-color: #c84545; color: #fff; }
         .btn-sm { padding: 4px 10px; font-size: 12px; }
 
         .badge {

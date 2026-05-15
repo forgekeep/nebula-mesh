@@ -9,29 +9,51 @@
         to get a new one (which will mint a new certificate).
     </div>
 
-    <div class="bundle-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
+    <div class="bundle-grid" style="display: grid; grid-template-columns: minmax(300px, 360px) 1fr; gap: 24px; margin-top: 24px; align-items: start;">
         <div class="bundle-qr">
-            <h3>QR Code</h3>
+            <h3 style="margin-bottom: 12px;">Scan with Nebula app</h3>
             {{if .QRError}}
-                <p class="help-text" style="color: var(--color-warning);">
-                    ⚠️ Bundle is too large for QR code ({{len .YAML}} bytes > 2953 limit).
-                    Please use the download link below instead.
+                <p style="color: var(--warning); font-size: 13px;">
+                    ⚠️ Bundle is too large for QR code ({{len .YAML}} bytes &gt; 2953 limit).
+                    Please use the download link instead.
                 </p>
             {{else}}
-                {{.QRSVG}}
+                <div style="background: #fff; padding: 12px; border-radius: var(--radius); border: 1px solid var(--border); display: inline-block; line-height: 0;">
+                    {{.QRSVG}}
+                </div>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+                    Open the Nebula iOS/Android app → <em>Add site</em> → <em>Scan QR</em>.
+                </p>
             {{end}}
         </div>
 
         <div class="bundle-yaml">
-            <h3>YAML Configuration</h3>
-            <div style="margin-bottom: 1rem;">
+            <h3 style="margin-bottom: 12px;">YAML configuration</h3>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
                 <a href="{{.DownloadHref}}" download="{{.Host.Name}}.yaml" class="btn btn-primary">
-                    Download {{.Host.Name}}.yaml
+                    ⬇ Download {{.Host.Name}}.yaml
                 </a>
+                <button type="button" class="btn" onclick="copyBundleYAML(this)">Copy</button>
             </div>
-            <textarea readonly rows="20" style="width: 100%; font-family: monospace; padding: 0.75rem; border: 1px solid var(--border); background: var(--bg-muted);">{{.YAML}}</textarea>
+            <textarea id="bundle-yaml" readonly rows="20" style="width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; padding: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: var(--radius); resize: vertical; line-height: 1.4;">{{.YAML}}</textarea>
         </div>
     </div>
+    <script>
+        function copyBundleYAML(btn) {
+            var ta = document.getElementById('bundle-yaml');
+            if (!ta) return;
+            ta.select();
+            var ok = false;
+            try { ok = document.execCommand('copy'); } catch (_) {}
+            window.getSelection().removeAllRanges();
+            if (navigator.clipboard && !ok) {
+                navigator.clipboard.writeText(ta.value).catch(function(){});
+            }
+            var prev = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(function() { btn.textContent = prev; }, 1500);
+        }
+    </script>
 
     <div style="margin-top: 2rem;">
         <a href="/ui/hosts/{{.Host.ID}}" class="btn">Back to {{.Host.Name}}</a>

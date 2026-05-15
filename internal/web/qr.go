@@ -38,22 +38,25 @@ func renderQRSVG(text string) (string, error) {
 	width := bounds.Dx()
 	height := bounds.Dy()
 
-	// Build SVG manually by examining each module.
+	// Build SVG manually by examining each module. The QR spec recommends a
+	// quiet zone (white border) of at least 4 modules — without it scanners
+	// often refuse to lock on, especially when the surrounding page is dark.
 	var buf bytes.Buffer
-	moduleSize := 1 // in SVG units; total width = moduleSize * width
+	moduleSize := 1 // SVG units per module
+	quietZone := 16 // white border around the QR, in SVG units
+	viewSize := width*moduleSize + 2*quietZone
 
-	fmt.Fprintf(&buf, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="256" height="256">`, width, height)
+	fmt.Fprintf(&buf, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="288" height="288" shape-rendering="crispEdges">`, viewSize, viewSize)
+	// White background covering the full viewBox so the QR reads on any theme.
+	fmt.Fprintf(&buf, `<rect width="%d" height="%d" fill="#fff"/>`, viewSize, viewSize)
 
-	// Iterate through each module and output black rectangles.
+	// Iterate through each module and output black rectangles, offset by quietZone.
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// code.At(x, y) returns the color at that module.
-			// Black modules return color.Black or similar (not color.White).
 			r, g, b, a := code.At(x, y).RGBA()
-			// If it's black (r=g=b=0, a=65535), output a rect.
 			if r == 0 && g == 0 && b == 0 && a == 65535 {
 				fmt.Fprintf(&buf, `<rect x="%d" y="%d" width="%d" height="%d" fill="#000"/>`,
-					x*moduleSize, y*moduleSize, moduleSize, moduleSize)
+					quietZone+x*moduleSize, quietZone+y*moduleSize, moduleSize, moduleSize)
 			}
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strings"
 
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
@@ -46,8 +47,7 @@ func validateHostIPForNetwork(ctx context.Context, s store.Store, networkID, ip,
 	}
 	if foundCIDR == (netip.Prefix{}) {
 		// IP doesn't fall into any CIDR
-		cidrsStr := fmt.Sprintf("%v", net.CIDRs)
-		return fmt.Errorf("nebula_ip %s is outside all network CIDRs %s", ip, cidrsStr)
+		return fmt.Errorf("%s is outside the network's CIDR range (%s)", ip, strings.Join(net.CIDRs, ", "))
 	}
 
 	// Check IPv4 boundary (network/broadcast) within the matched CIDR

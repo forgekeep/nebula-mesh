@@ -1423,15 +1423,23 @@ func (s *SQLiteStore) saveCertificateInTx(tx *sql.Tx, hostID, fp string, certPEM
 		return fmt.Errorf("unmark current: %w", err)
 	}
 
+	// Inherit ca_id from the host so the startup invariant (no empty ca_id
+	// rows across networks/hosts/certificates/blocklist) holds after enrol /
+	// rotate / mobile-bundle paths complete.
+	var caID string
+	if err := tx.QueryRow(`SELECT ca_id FROM hosts WHERE id = ?`, hostID).Scan(&caID); err != nil {
+		return fmt.Errorf("get host ca_id for cert insert: %w", err)
+	}
+
 	prefix := hostID
 	if len(prefix) > 8 {
 		prefix = prefix[:8]
 	}
 	id := fmt.Sprintf("cert_%s_%d", prefix, time.Now().UnixNano())
 	_, err = tx.Exec(
-		`INSERT INTO certificates (id, host_id, fingerprint, pem, not_before, not_after, is_current, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
-		id, hostID, fp, string(certPEM), notBefore, notAfter, time.Now(),
+		`INSERT INTO certificates (id, host_id, ca_id, fingerprint, pem, not_before, not_after, is_current, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+		id, hostID, caID, fp, string(certPEM), notBefore, notAfter, time.Now(),
 	)
 	if err != nil {
 		return fmt.Errorf("insert certificate: %w", err)

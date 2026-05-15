@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/juev/nebula-mesh)](go.mod)
 
-> Self-hosted control plane for [Slack's Nebula](https://github.com/slackhq/nebula) mesh VPN — issue certificates, manage hosts, distribute config, and roll out changes from one place.
+> Self-hosted control plane for [Slack's Nebula](https://github.com/slackhq/nebula) mesh VPN — issue certificates, manage hosts (including iOS / Android via QR), distribute config, rotate CAs, and roll out changes from one place.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -71,13 +71,15 @@ When this beats hand-rolled scripts or a managed service:
 <a name="features"></a>
 
 
-- **Web UI + REST API + CLI** — one server, three interfaces. Built with chi + Go templates + htmx (no SPA build step).
-- **PKI lifecycle** — per-operator CAs encrypted at rest in SQLite under a process-wide AES-256-GCM master key (envelope encryption per [ADR 0002](docs/adr/0002-per-operator-cas.md)); per-host certs signed via `slackhq/nebula/cert`; blocklist-backed revocation.
+- **Web UI + REST API + CLI** — one server, three interfaces. Built with chi + Go templates + htmx (no SPA build step). Inline field-level form validation with state preservation on error.
+- **PKI lifecycle** — per-operator CAs encrypted at rest in SQLite under a process-wide AES-256-GCM master key (envelope encryption per [ADR 0002](docs/adr/0002-per-operator-cas.md)); per-host certs signed via `slackhq/nebula/cert`; blocklist-backed revocation. New operators get a default CA auto-provisioned on first sign-in.
+- **CA rotation** — when a CA approaches expiry (≤20% lifetime left), a warning badge appears in the UI; operators rotate manually with one click or opt into background auto-rotation. Existing host certificates remain valid until natural expiry. Details in [ADR 0008](docs/adr/0008-ca-rotation.md).
 - **Multi-operator** — local accounts, OIDC (Keycloak / Authentik / Okta / …), TOTP 2FA with recovery codes, configurable self-registration, per-operator API keys with atomic disable.
-- **Per-operator CAs** — each operator's networks form an isolated trust domain; non-admin operators cannot see or sign against another operator's CA.
-- **Zero-trust enrollment** — hosts join with a single-use token; private keys never leave the host.
-- **Auto-rotation** — agent polls the server, atomically writes new certs/config (temp + fsync + rename), reloads Nebula via `SIGHUP`.
-- **Per-host advanced overrides** — `listen_host`, `mtu`, `tun_device`, `punchy`, `unsafe_routes` opt-in per host without touching the network default.
+- **Per-operator CAs** — each operator's networks form an isolated trust domain; non-admin operators cannot see or sign against another operator's CA. Network and host creation is gated on the operator owning at least one CA.
+- **Zero-trust enrollment** — hosts join with a single-use token; private keys never leave the host. Mobile hosts (iOS / Android) enroll via a self-contained QR code bundle.
+- **Auto-rotation** — agent polls the server, atomically writes new certs/config (temp + fsync + rename), reloads Nebula via `SIGHUP`. Agent supports idle-standby mode and a first-class `enroll` subcommand.
+- **Multi-address overlays** — networks and hosts can carry multiple overlay IPs (e.g. for dual-stack or multi-segment routing).
+- **Per-host advanced overrides** — `listen_host`, `mtu`, `tun_device`, `punchy`, `unsafe_routes` opt-in per host without touching the network default. Host records are editable via UI/API after creation (`PATCH /api/v1/hosts/{id}`).
 - **Audit trail** — every mutating UI / API / CLI call is recorded with actor, action, target, plus a stable `ca_id` on host events.
 - **Per-network firewall rules** — managed declaratively via API, distributed to all hosts.
 - **Production-ready basics** — `/healthz`, `/readyz`, Prometheus exporter at `/metrics` (legacy `expvar` view at `/debug/vars`), built-in cert-expiry alerter (audit + webhook + per-host Prometheus gauge), structured `slog` logs, optional in-process TLS, SQLite (WAL) with tracked migrations.
@@ -231,7 +233,9 @@ Non-interactive deployments (systemd, Docker): set `NEBULA_MGMT_MASTER_KEY` via 
 
 ### Enroll a host
 
-Create a host record on the server (CLI or Web UI), grab the one-time enrollment token, run `nebula-agent` on the host with `--server` + `--token` once, then put the agent under systemd. The agent keeps `host.crt` / `host.key` / `host.signing.key` / `ca.crt` / `config.yml` in sync, signs every poll with the per-host Ed25519 key generated at enrollment (ADR 0004), and exits 0 when the server returns `403 revoked` or `410 gone`.
+**Server / desktop / VM** — create a host record on the server (CLI or Web UI), grab the one-time enrollment token, run `nebula-agent` on the host with `--server` + `--token` once, then put the agent under systemd. The agent keeps `host.crt` / `host.key` / `host.signing.key` / `ca.crt` / `config.yml` in sync, signs every poll with the per-host Ed25519 key generated at enrollment (ADR 0004), and exits 0 when the server returns `403 revoked` or `410 gone`.
+
+**iOS / Android** — create the host with type **Mobile bundle**; the Web UI then renders a QR-code bundle (cert + key + CA + config) that the official Nebula mobile app scans to enrol in one step. No agent runs on the device; rotation requires re-issuing a new bundle. See [`docs/agent.md`](docs/agent.md) for the bundle format.
 
 > Full nebula-agent operations guide: [`docs/agent.md`](docs/agent.md) — installation, configuration, enrollment + systemd hand-off, signed-poll headers, force-rotate / re-enroll endpoints, troubleshooting, upgrade, and security notes.
 

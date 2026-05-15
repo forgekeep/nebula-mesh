@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/juev/nebula-mesh/internal/config"
+	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
 )
@@ -32,34 +32,18 @@ func Init(configPath string) error {
 		return fmt.Errorf("create data dir: %w", err)
 	}
 
-	// Get passphrase for CA key (env var or interactive)
-	passphrase, err := readCAPassphrase()
+	// Master key is REQUIRED
+	masterB64 := cfg.MasterKey
+	if env := os.Getenv("NEBULA_MGMT_MASTER_KEY"); env != "" {
+		masterB64 = env
+	}
+	if masterB64 == "" {
+		return fmt.Errorf("master key required: set NEBULA_MGMT_MASTER_KEY env or master_key in %s", configPath)
+	}
+	master, err := keystore.NewMasterFromBase64(masterB64)
 	if err != nil {
-		return fmt.Errorf("read passphrase: %w", err)
+		return fmt.Errorf("parse master key: %w", err)
 	}
-	if passphrase == "" {
-		return fmt.Errorf("passphrase cannot be empty")
-	}
-
-	// Create CA
-	certPath := filepath.Join(cfg.DataDir, "ca.crt")
-	keyPath := filepath.Join(cfg.DataDir, "ca.key")
-
-	ca, _, err := pki.NewCA("nebula-mgmt CA", 365*24*time.Hour)
-	if err != nil {
-		return fmt.Errorf("create CA: %w", err)
-	}
-
-	if err := ca.Save(certPath, keyPath, passphrase); err != nil {
-		return fmt.Errorf("save CA: %w", err)
-	}
-
-	fp, err := ca.CACertFingerprint()
-	if err != nil {
-		return fmt.Errorf("CA fingerprint: %w", err)
-	}
-	fmt.Printf("CA created: %s\n", certPath)
-	fmt.Printf("CA fingerprint: %s\n", fp)
 
 	// Generate API key if not set
 	if cfg.APIKey == "" {
@@ -100,6 +84,27 @@ func Init(configPath string) error {
 		return fmt.Errorf("seed admin operator: %w", err)
 	} else if seeded {
 		fmt.Printf("Admin operator created: %s (password = ui_password from config; api_key seeded as their key)\n", DefaultAdminUsername)
+	}
+
+	// Mint admin default CA
+	adminOp, err := s.GetOperatorByUsername(migrateCtx, DefaultAdminUsername)
+	if err != nil {
+		return fmt.Errorf("get admin operator: %w", err)
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	ca, minted, err := pki.MintAndStoreCA(migrateCtx, s, master, logger,
+		pki.MintRequest{
+			Operator: adminOp,
+			Name:     DefaultAdminUsername + "-default",
+			Duration: 10 * 365 * 24 * time.Hour,
+			SkipIfActive: true,
+		})
+	if err != nil {
+		return fmt.Errorf("provision admin CA: %w", err)
+	}
+	if minted {
+		fmt.Printf("Admin default CA provisioned: %s (fingerprint: %s)\n",
+			ca.Name, ca.Fingerprint)
 	}
 
 	fmt.Printf("Database initialized: %s\n", cfg.DBPath)

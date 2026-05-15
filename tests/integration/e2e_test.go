@@ -18,6 +18,7 @@ import (
 
 	"github.com/juev/nebula-mesh/internal/api"
 	agentpop "github.com/juev/nebula-mesh/internal/agent/pop"
+	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
 	corepop "github.com/juev/nebula-mesh/internal/pop"
@@ -71,7 +72,7 @@ func signedGetUpdates(t *testing.T, ts *httptest.Server, fingerprint string, sig
 
 const testAPIKey = "e2e-test-api-key"
 
-func setupE2E(t *testing.T) (*httptest.Server, *store.SQLiteStore, *pki.CAManager) {
+func setupE2E(t *testing.T) (*httptest.Server, *store.SQLiteStore, *models.CA) {
 	t.Helper()
 
 	s, err := store.NewSQLiteStore(":memory:")
@@ -83,16 +84,47 @@ func setupE2E(t *testing.T) (*httptest.Server, *store.SQLiteStore, *pki.CAManage
 	}
 	t.Cleanup(func() { s.Close() })
 
-	ca, _, err := pki.NewCA("e2e-test-ca", 365*24*time.Hour)
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := api.NewServer(s, testAPIKey, logger)
+
+	// Setup CA for test: create master + resolver + default CA
+	master, err := keystore.NewMaster(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
 	if err != nil {
 		t.Fatal(err)
 	}
+	srv.WithMaster(master)
+	srv.WithCAResolver(pki.NewCAResolver(s, master))
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := api.NewServer(s, ca, testAPIKey, logger, api.CAConfig{})
+	// Create default operator and CA
+	op := &models.Operator{
+		ID:           "e2e-admin",
+		Username:     "admin",
+		PasswordHash: "hash",
+		Role:         "admin",
+		Status:       models.OperatorStatusActive,
+		AuthProvider: models.OperatorAuthLocal,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+	if err := s.CreateOperator(ctx, op); err != nil {
+		t.Fatal(err)
+	}
+
+	ca, _, err := pki.MintAndStoreCA(ctx, s, master, logger, pki.MintRequest{
+		Operator: op,
+		Name:     "e2e-test-ca",
+		Duration: 365 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.WithDefaultCAID(ca.ID)
+
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 
+	// Return stored CA (not the manager)
 	return ts, s, ca
 }
 
@@ -114,7 +146,7 @@ func apiCall(t *testing.T, ts *httptest.Server, method, path string, body any) *
 }
 
 func TestE2E_FullCycle(t *testing.T) {
-	ts, _, ca := setupE2E(t)
+	ts, _, _ := setupE2E(t)
 
 	// 1. Create network
 	resp := apiCall(t, ts, "POST", "/api/v1/networks", map[string]any{
@@ -232,8 +264,7 @@ func TestE2E_FullCycle(t *testing.T) {
 		t.Errorf("cert name = %q, want host-1", hostCert.Name())
 	}
 
-	caCertPEM, _ := ca.CACertPEM()
-	pool, err := cert.NewCAPoolFromPEM(caCertPEM)
+	pool, err := cert.NewCAPoolFromPEM([]byte(enrollResult.CACertificatePEM))
 	if err != nil {
 		t.Fatalf("CA pool: %v", err)
 	}

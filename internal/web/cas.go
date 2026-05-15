@@ -77,7 +77,7 @@ func (w *Web) mintCAForOperator(ctx context.Context, op *models.Operator, name s
 		return nil, ErrCAMasterNotConfigured
 	}
 
-	mgr, _, err := pki.NewCA(name, duration)
+	mgr, err := pki.NewCA(name, duration)
 	if err != nil {
 		w.logger.Error("generate ca", "error", err)
 		return nil, err

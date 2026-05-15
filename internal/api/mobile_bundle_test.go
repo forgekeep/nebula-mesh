@@ -30,7 +30,7 @@ func TestHandleMobileBundle_Success(t *testing.T) {
 		Variant:   models.HostVariantIOS,
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusPending,
-		CAID:      "",
+		CAID:      srv.defaultCAID,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -86,7 +86,7 @@ func TestHandleMobileBundle_RejectsNonMobile(t *testing.T) {
 		Kind:      models.HostKindAgent,
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusPending,
-		CAID:      "",
+		CAID:      srv.defaultCAID,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}

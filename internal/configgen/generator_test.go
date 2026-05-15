@@ -377,7 +377,7 @@ func TestGenerate_MultipleLighthousesEachMulti(t *testing.T) {
 
 func TestGenerate_InlinePEM_RoundTrip(t *testing.T) {
 	// Generate real CA and host certificates
-	caMgr, _, err := pki.NewCA("test-ca", 365*24*time.Hour)
+	caMgr, err := pki.NewCA("test-ca", 365*24*time.Hour)
 	if err != nil {
 		t.Fatalf("NewCA: %v", err)
 	}

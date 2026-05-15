@@ -104,6 +104,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		ListenPort:   req.ListenPort,
 		Status:       models.HostStatusPending,
 		Advanced:     req.Advanced,
+		CAID:         s.defaultCAID,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}

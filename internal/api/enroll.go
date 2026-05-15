@@ -121,9 +121,6 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hostCert, caCertPEM, err := func() (cert.Certificate, []byte, error) {
-		s.caMu.RLock()
-		defer s.caMu.RUnlock()
-
 		c, signErr := caMgr.Sign(pki.SignRequest{
 			Name:      host.Name,
 			PublicKey: pubKey,

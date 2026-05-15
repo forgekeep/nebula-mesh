@@ -31,7 +31,6 @@ type Store interface {
 	ListCAsByOwner(ctx context.Context, ownerID string) ([]*models.CA, error)
 	UpdateCAStatus(ctx context.Context, id string, status models.CAStatus) error
 	DeleteCA(ctx context.Context, id string) error
-	BackfillCAID(ctx context.Context, caID string) error
 
 	// Networks
 	CreateNetwork(ctx context.Context, n *models.Network) error

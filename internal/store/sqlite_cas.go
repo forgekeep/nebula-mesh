@@ -138,22 +138,6 @@ func (s *SQLiteStore) UpdateCAStatus(_ context.Context, id string, status models
 	return nil
 }
 
-// BackfillCAID stamps ca_id on every existing row in networks / hosts /
-// certificates / blocklist that still has an empty ca_id. Used once after
-// the legacy CA is imported into the cas table.
-func (s *SQLiteStore) BackfillCAID(_ context.Context, caID string) error {
-	if caID == "" {
-		return fmt.Errorf("caID is required")
-	}
-	for _, table := range []string{"networks", "hosts", "certificates", "blocklist"} {
-		stmt := `UPDATE ` + table + ` SET ca_id = ? WHERE ca_id = ''`
-		if _, err := s.db.Exec(stmt, caID); err != nil {
-			return fmt.Errorf("backfill ca_id on %s: %w", table, err)
-		}
-	}
-	return nil
-}
-
 // DeleteCA removes a CA row. The DB-level ON DELETE RESTRICT on
 // networks.ca_id (when enforced by application logic) is mirrored here:
 // the call returns an error if networks still reference the CA, so the
@@ -179,4 +163,24 @@ func (s *SQLiteStore) DeleteCA(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// CountEmptyCAIDRows counts the total number of rows across networks, hosts,
+// certificates, and blocklist tables that have an empty ca_id. This is used
+// at startup to detect rows from the pre-multi-CA era that have not been
+// backfilled with a CA owner.
+func (s *SQLiteStore) CountEmptyCAIDRows(ctx context.Context) (int, error) {
+	const q = `
+		SELECT
+		  (SELECT COUNT(*) FROM networks WHERE ca_id IS NULL OR ca_id = '') +
+		  (SELECT COUNT(*) FROM hosts WHERE ca_id IS NULL OR ca_id = '') +
+		  (SELECT COUNT(*) FROM certificates WHERE ca_id IS NULL OR ca_id = '') +
+		  (SELECT COUNT(*) FROM blocklist WHERE ca_id IS NULL OR ca_id = '')
+	`
+	var n int
+	err := s.db.QueryRowContext(ctx, q).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count empty ca_id rows: %w", err)
+	}
+	return n, nil
 }

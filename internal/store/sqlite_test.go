@@ -2013,3 +2013,16 @@ func TestListHosts_PreservesAddressOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestCountEmptyCAIDRows_FreshDatabase(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	count, err := s.CountEmptyCAIDRows(ctx)
+	if err != nil {
+		t.Fatalf("CountEmptyCAIDRows failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("CountEmptyCAIDRows on fresh DB = %d, want 0", count)
+	}
+}

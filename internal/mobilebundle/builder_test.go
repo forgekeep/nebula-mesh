@@ -26,7 +26,7 @@ func TestBuild_RoundTrip(t *testing.T) {
 	}
 
 	// Create a CA.
-	ca, _, err := pki.NewCA("test-ca", 365*24*time.Hour)
+	ca, err := pki.NewCA("test-ca", 365*24*time.Hour)
 	require.NoError(t, err)
 
 	// Create CA resolver (wrap ca in a stub that returns it by id).
@@ -139,7 +139,7 @@ func TestBuild_Rotate(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	ca, _, err := pki.NewCA("test-ca", 365*24*time.Hour)
+	ca, err := pki.NewCA("test-ca", 365*24*time.Hour)
 	require.NoError(t, err)
 	resolver := &StubCAResolver{ca: ca}
 
@@ -206,7 +206,7 @@ func TestBuild_RejectsNonMobile(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	ca, _, err := pki.NewCA("test-ca", 365*24*time.Hour)
+	ca, err := pki.NewCA("test-ca", 365*24*time.Hour)
 	require.NoError(t, err)
 	resolver := &StubCAResolver{ca: ca}
 

@@ -13,7 +13,7 @@ type Rotation struct {
 
 // NewRotation creates a new CA and sets up a rotation from the old CA.
 func NewRotation(oldCA *CAManager, newName string, duration time.Duration) (*Rotation, error) {
-	newCA, _, err := NewCA(newName, duration)
+	newCA, err := NewCA(newName, duration)
 	if err != nil {
 		return nil, fmt.Errorf("create new CA: %w", err)
 	}

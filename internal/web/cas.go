@@ -139,19 +139,14 @@ func (w *Web) mintCAForOperator(ctx context.Context, op *models.Operator, name s
 }
 
 // provisionDefaultCA is the idempotent onboarding-time hook for auto-provisioning
-// a default CA. If op is a non-admin operator with zero active CAs, mints
-// <op.Username>-default with a 10-year lifetime. Silently skips (returns nil) when
-// the master key is not configured, when op is an admin, or when op already has
-// an active CA. Returns any error from mintCAForOperator if minting is attempted.
+// a default CA. If op has zero active CAs, mints <op.Username>-default with a
+// 10-year lifetime. Silently skips (returns nil) when the master key is not
+// configured or when op already has an active CA. Returns any error from
+// mintCAForOperator if minting is attempted.
 func (w *Web) provisionDefaultCA(ctx context.Context, op *models.Operator) error {
 	// Skip if no master key configured.
 	if w.caMaster == nil {
 		w.logger.Warn("auto-provision skipped: master key not configured")
-		return nil
-	}
-
-	// Skip if operator is admin.
-	if op.Role != "user" {
 		return nil
 	}
 

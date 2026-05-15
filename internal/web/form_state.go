@@ -286,3 +286,40 @@ func (w *Web) renderHostEditError(rw http.ResponseWriter, r *http.Request, host 
 		"Error":    errMsg,
 	})
 }
+
+// operatorFormState captures form values for /ui/operators so a validation
+// failure can re-render the form with Username/DisplayName/Role preserved.
+// Password and PasswordConfirm are intentionally not stored to prevent
+// secrets from being echoed in HTML re-renders.
+// Errors maps field names to per-field error messages for inline rendering.
+type operatorFormState struct {
+	Username    string
+	DisplayName string
+	Role        string
+	Errors      map[string]string
+}
+
+func newOperatorFormState(r *http.Request) operatorFormState {
+	role := r.FormValue("role")
+	if role == "" {
+		role = "user"
+	}
+	return operatorFormState{
+		Username:    strings.TrimSpace(r.FormValue("username")),
+		DisplayName: strings.TrimSpace(r.FormValue("display_name")),
+		Role:        role,
+		Errors:      make(map[string]string),
+	}
+}
+
+// renderOperatorNewError re-renders /ui/operators/new with the submitted form
+// values preserved and per-field error messages. Returns 400 because the
+// request payload is the cause. PasswordHint is a static string describing
+// the active password policy.
+func (w *Web) renderOperatorNewError(rw http.ResponseWriter, r *http.Request, form operatorFormState, hint string) {
+	w.renderForRequestWithStatus(rw, r, http.StatusBadRequest, "operator_new.html", map[string]any{
+		"Active":        "operators",
+		"Form":          form,
+		"PasswordHint":  hint,
+	})
+}

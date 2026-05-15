@@ -114,3 +114,88 @@ func TestNewHostFormState_TrimsEmptyNebulaIPs(t *testing.T) {
 		t.Errorf("NebulaIPs[1] = %q, want %q", state.NebulaIPs[1], "fd00::10")
 	}
 }
+
+// TestNewOperatorFormState_ParsesFields parses form values from POST
+// into operatorFormState with defaults for missing role field.
+func TestNewOperatorFormState_ParsesFields(t *testing.T) {
+	// Case 1: Full form with all fields
+	form := url.Values{
+		"username":     {"alice"},
+		"display_name": {"Alice Smith"},
+		"role":         {"admin"},
+	}
+	req := httptest.NewRequest("POST", "/ui/operators", nil)
+	req.PostForm = form
+
+	state := newOperatorFormState(req)
+
+	if state.Username != "alice" {
+		t.Errorf("Username = %q, want %q", state.Username, "alice")
+	}
+	if state.DisplayName != "Alice Smith" {
+		t.Errorf("DisplayName = %q, want %q", state.DisplayName, "Alice Smith")
+	}
+	if state.Role != "admin" {
+		t.Errorf("Role = %q, want %q", state.Role, "admin")
+	}
+	if state.Errors == nil {
+		t.Errorf("Errors = nil, want non-nil empty map")
+	}
+	if len(state.Errors) != 0 {
+		t.Errorf("len(Errors) = %d, want 0; got %v", len(state.Errors), state.Errors)
+	}
+
+	// Case 2: Missing role defaults to "user"
+	form2 := url.Values{
+		"username":     {"bob"},
+		"display_name": {"Bob"},
+	}
+	req2 := httptest.NewRequest("POST", "/ui/operators", nil)
+	req2.PostForm = form2
+
+	state2 := newOperatorFormState(req2)
+
+	if state2.Role != "user" {
+		t.Errorf("Role (missing) = %q, want %q", state2.Role, "user")
+	}
+
+	// Case 3: Empty form yields empty struct with initialized Errors map
+	form3 := url.Values{}
+	req3 := httptest.NewRequest("POST", "/ui/operators", nil)
+	req3.PostForm = form3
+
+	state3 := newOperatorFormState(req3)
+
+	if state3.Username != "" {
+		t.Errorf("Username (empty) = %q, want %q", state3.Username, "")
+	}
+	if state3.DisplayName != "" {
+		t.Errorf("DisplayName (empty) = %q, want %q", state3.DisplayName, "")
+	}
+	if state3.Role != "user" {
+		t.Errorf("Role (empty) = %q, want %q", state3.Role, "user")
+	}
+	if state3.Errors == nil {
+		t.Errorf("Errors (empty) = nil, want non-nil empty map")
+	}
+}
+
+// TestNewOperatorFormState_TrimSpaces verifies that constructor trims whitespace.
+func TestNewOperatorFormState_TrimSpaces(t *testing.T) {
+	form := url.Values{
+		"username":     {"  alice  "},
+		"display_name": {"\n Bob \t"},
+		"role":         {"admin"},
+	}
+	req := httptest.NewRequest("POST", "/ui/operators", nil)
+	req.PostForm = form
+
+	state := newOperatorFormState(req)
+
+	if state.Username != "alice" {
+		t.Errorf("Username (with spaces) = %q, want %q", state.Username, "alice")
+	}
+	if state.DisplayName != "Bob" {
+		t.Errorf("DisplayName (with spaces) = %q, want %q", state.DisplayName, "Bob")
+	}
+}

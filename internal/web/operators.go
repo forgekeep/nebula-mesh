@@ -44,48 +44,52 @@ func (w *Web) handleOperatorsList(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleOperatorNewPage(rw http.ResponseWriter, r *http.Request) {
+	form := newOperatorFormState(r)
 	w.renderForRequest(rw, r, "operator_new.html", map[string]any{
-		"Active": "operators",
-		"Error":  "",
+		"Active":       "operators",
+		"Form":         form,
+		"PasswordHint": w.passwordPolicy.HumanHint(),
 	})
 }
 
 func (w *Web) handleOperatorCreate(rw http.ResponseWriter, r *http.Request) {
-	username := strings.TrimSpace(r.FormValue("username"))
-	displayName := strings.TrimSpace(r.FormValue("display_name"))
+	form := newOperatorFormState(r)
 	password := r.FormValue("password")
 	confirm := r.FormValue("password_confirm")
-	role := strings.TrimSpace(r.FormValue("role"))
-	if role == "" {
-		role = "user"
+	hint := w.passwordPolicy.HumanHint()
+
+	// Check required fields: username and password.
+	if form.Username == "" {
+		form.Errors["username"] = "Required"
+	}
+	if password == "" {
+		form.Errors["password"] = "Required"
 	}
 
-	if username == "" || password == "" {
-		w.renderForRequest(rw, r, "operator_new.html", map[string]any{
-			"Active": "operators",
-			"Error":  "Username and password are required",
-		})
+	// If any required fields are missing, render error and return.
+	if len(form.Errors) > 0 {
+		w.renderOperatorNewError(rw, r, form, hint)
 		return
 	}
+
+	// Check password confirmation matches.
 	if password != confirm {
-		w.renderForRequest(rw, r, "operator_new.html", map[string]any{
-			"Active": "operators",
-			"Error":  "Password confirmation does not match",
-		})
+		form.Errors["password_confirm"] = "Does not match"
+		w.renderOperatorNewError(rw, r, form, hint)
 		return
 	}
-	if err := w.passwordPolicy.Validate(password, strings.ToLower(username)); err != nil {
-		w.renderForRequest(rw, r, "operator_new.html", map[string]any{
-			"Active": "operators",
-			"Error":  err.Error(),
-		})
+
+	// Validate password policy.
+	if err := w.passwordPolicy.Validate(password, strings.ToLower(form.Username)); err != nil {
+		form.Errors["password"] = err.Error()
+		w.renderOperatorNewError(rw, r, form, hint)
 		return
 	}
-	if _, err := w.store.GetOperatorByUsername(r.Context(), username); err == nil {
-		w.renderForRequest(rw, r, "operator_new.html", map[string]any{
-			"Active": "operators",
-			"Error":  "Username already taken",
-		})
+
+	// Check username availability.
+	if _, err := w.store.GetOperatorByUsername(r.Context(), form.Username); err == nil {
+		form.Errors["username"] = "Username already taken"
+		w.renderOperatorNewError(rw, r, form, hint)
 		return
 	} else if !errors.Is(err, store.ErrNotFound) {
 		w.logger.Error("operator lookup", "error", err)
@@ -93,6 +97,7 @@ func (w *Web) handleOperatorCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Hash password and create operator.
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		w.logger.Error("hash password", "error", err)
@@ -101,11 +106,11 @@ func (w *Web) handleOperatorCreate(rw http.ResponseWriter, r *http.Request) {
 	}
 	op := &models.Operator{
 		ID:           uuid.New().String(),
-		Username:     username,
-		DisplayName:  displayName,
+		Username:     form.Username,
+		DisplayName:  form.DisplayName,
 		PasswordHash: string(hash),
 		Status:       models.OperatorStatusActive,
-		Role:         role,
+		Role:         form.Role,
 		AuthProvider: models.OperatorAuthLocal,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
@@ -115,6 +120,8 @@ func (w *Web) handleOperatorCreate(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	// Audit entry only written after successful CreateOperator.
 	actor := actorUsername(r, w.session)
 	_ = w.store.AddAuditEntry(r.Context(), actor, "operator.create", op.ID, op.Username)
 

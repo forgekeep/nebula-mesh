@@ -7,18 +7,42 @@
 </div>
 
 <form method="POST" action="/ui/operators" class="card">
-    {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-    <label>Username <input type="text" name="username" required></label>
-    <label>Display name <input type="text" name="display_name"></label>
-    <label>Password <input type="password" name="password" required></label>
-    <label>Confirm password <input type="password" name="password_confirm" required></label>
-    <label>
-        Role
-        <select name="role">
-            <option value="user">user</option>
-            <option value="admin">admin</option>
-        </select>
-    </label>
+    {{with index $.Form.Errors "_general"}}<div class="error" role="alert">{{.}}</div>{{end}}
+    <div class="form-group">
+        <label>Username
+            <input type="text" name="username" value="{{.Form.Username}}" class="form-control" required>
+        </label>
+        {{with index $.Form.Errors "username"}}<div class="error-inline" role="alert" style="color: var(--danger); font-size: 13px;">{{.}}</div>{{end}}
+    </div>
+    <div class="form-group">
+        <label>Display name
+            <input type="text" name="display_name" value="{{.Form.DisplayName}}" class="form-control">
+        </label>
+        {{with index $.Form.Errors "display_name"}}<div class="error-inline" role="alert" style="color: var(--danger); font-size: 13px;">{{.}}</div>{{end}}
+    </div>
+    <div class="form-group">
+        <label>Password
+            <input type="password" name="password" class="form-control" required>
+        </label>
+        {{if .PasswordHint}}<div class="muted" style="font-size: 13px; margin-top: 4px;">{{.PasswordHint}}</div>{{end}}
+        {{with index $.Form.Errors "password"}}<div class="error-inline" role="alert" style="color: var(--danger); font-size: 13px;">{{.}}</div>{{end}}
+    </div>
+    <div class="form-group">
+        <label>Confirm password
+            <input type="password" name="password_confirm" class="form-control" required>
+        </label>
+        {{with index $.Form.Errors "password_confirm"}}<div class="error-inline" role="alert" style="color: var(--danger); font-size: 13px;">{{.}}</div>{{end}}
+    </div>
+    <div class="form-group">
+        <label>
+            Role
+            <select name="role" class="form-control">
+                <option value="user"{{if eq .Form.Role "user"}} selected{{end}}>user</option>
+                <option value="admin"{{if eq .Form.Role "admin"}} selected{{end}}>admin</option>
+            </select>
+        </label>
+        {{with index $.Form.Errors "role"}}<div class="error-inline" role="alert" style="color: var(--danger); font-size: 13px;">{{.}}</div>{{end}}
+    </div>
     <button type="submit" class="btn btn-primary">Create</button>
 </form>
 {{end}}

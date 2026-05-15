@@ -85,6 +85,34 @@ func (p Policy) Validate(password, usernameLower string) error {
 	return nil
 }
 
+// HumanHint returns a human-readable description of the password policy.
+// Used to provide inline guidance on password form pages.
+func (p Policy) HumanHint() string {
+	var hints []string
+
+	if p.MinLength > 0 {
+		hints = append(hints, fmt.Sprintf("at least %d characters", p.MinLength))
+	}
+
+	if p.RequireClasses > 0 {
+		hints = append(hints, fmt.Sprintf("%d of: lowercase, uppercase, digit, symbol", p.RequireClasses))
+	}
+
+	if p.BlockCommon {
+		hints = append(hints, "not a common password")
+	}
+
+	if p.BlockUsername {
+		hints = append(hints, "not equal to or containing username")
+	}
+
+	if len(hints) == 0 {
+		return ""
+	}
+
+	return "Password must contain " + strings.Join(hints, "; ") + "."
+}
+
 //go:embed common_passwords.txt
 var commonPasswordsRaw string
 

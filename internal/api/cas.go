@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -198,4 +199,36 @@ func (s *Server) canAccessCA(r *http.Request, c *models.CA) bool {
 		return false
 	}
 	return actor.ID == c.OwnerOperatorID
+}
+
+func (s *Server) handleRotateCA(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	oldCA, err := s.store.GetCA(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "CA not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get ca", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get CA")
+		return
+	}
+	if !s.canAccessCA(r, oldCA) {
+		writeError(w, http.StatusForbidden, "you do not own this CA")
+		return
+	}
+
+	newCA, err := pki.RotateAndStoreCA(r.Context(), s.store, s.master, s.logger, oldCA)
+	if err != nil {
+		if errors.Is(err, pki.ErrMasterRequired) {
+			writeError(w, http.StatusBadRequest, "master key not configured")
+			return
+		}
+		s.logger.Error("rotate ca", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to rotate CA")
+		return
+	}
+
+	s.recordAuditAction(r.Context(), auditCARotated, newCA.ID, fmt.Sprintf("predecessor=%s", oldCA.ID))
+	writeJSON(w, http.StatusOK, s.toCAResponse(newCA))
 }

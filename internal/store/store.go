@@ -29,6 +29,8 @@ type Store interface {
 	GetCAByFingerprint(ctx context.Context, fp string) (*models.CA, error)
 	ListCAs(ctx context.Context) ([]*models.CA, error)
 	ListCAsByOwner(ctx context.Context, ownerID string) ([]*models.CA, error)
+	ListCAsApproachingExpiry(ctx context.Context, thresholdRatio float64) ([]*models.CA, error)
+	FindCAByPredecessor(ctx context.Context, predecessorID string) (*models.CA, error)
 	UpdateCAStatus(ctx context.Context, id string, status models.CAStatus) error
 	DeleteCA(ctx context.Context, id string) error
 

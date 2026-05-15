@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/juev/nebula-mesh/internal/mobilebundle"
 	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -248,10 +249,18 @@ func (w *Web) handleProfilePage(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Pre-compute IsExpiringSoon for each CA using pki.ShouldRenew threshold.
+	caViews := make([]*caView, len(cas))
+	for i, ca := range cas {
+		caViews[i] = &caView{
+			CA:             ca,
+			IsExpiringSoon: pki.ShouldRenew(ca.NotBefore, ca.NotAfter),
+		}
+	}
 	w.renderForRequest(rw, r, "profile.html", map[string]any{
 		"Active":   "profile",
 		"Operator": op,
-		"CAs":      cas,
+		"CAs":      caViews,
 	})
 }
 

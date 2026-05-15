@@ -60,6 +60,7 @@ const (
 	auditHostRekeyCompleted      = "host.rekey.completed"
 	auditCACreated               = "ca.created"
 	auditCADeleted               = "ca.deleted"
+	auditCARotated               = "ca.rotated"
 	auditOperatorCreate          = "operator.create"
 	auditOperatorDisable         = "operator.disable"
 	auditOperatorEnable          = "operator.enable"
@@ -185,7 +186,7 @@ func newMetrics(s store.Store) *metrics {
 	m.caSignatures.WithLabelValues(caIDFallback).Add(0)
 	for _, action := range []string{
 		auditHostCreate, auditHostDelete, auditHostUpdate, auditHostBlock, auditHostUnblock,
-		auditCACreated, auditCADeleted,
+		auditCACreated, auditCADeleted, auditCARotated,
 		auditOperatorCreate, auditOperatorDisable, auditOperatorEnable,
 		auditOperatorAPIKeyCreate, auditOperatorAPIKeyRevoke,
 	} {

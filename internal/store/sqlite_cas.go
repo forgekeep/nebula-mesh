@@ -11,20 +11,24 @@ import (
 	"github.com/juev/nebula-mesh/internal/models"
 )
 
-const caColumns = `id, name, owner_operator_id, cert_pem, fingerprint, not_before, not_after, status, encrypted_key_dek, nonce_dek, encrypted_key_material, nonce_key, created_at, updated_at`
+const caColumns = `id, name, owner_operator_id, cert_pem, fingerprint, not_before, not_after, status, predecessor_id, encrypted_key_dek, nonce_dek, encrypted_key_material, nonce_key, created_at, updated_at`
 
 func scanCA(scanner interface {
 	Scan(dest ...any) error
 }) (*models.CA, error) {
 	var c models.CA
+	var predecessorID sql.NullString
 	if err := scanner.Scan(
 		&c.ID, &c.Name, &c.OwnerOperatorID, &c.CertPEM, &c.Fingerprint,
-		&c.NotBefore, &c.NotAfter, &c.Status,
+		&c.NotBefore, &c.NotAfter, &c.Status, &predecessorID,
 		&c.EncryptedKeyDEK, &c.NonceDEK,
 		&c.EncryptedKeyMaterial, &c.NonceKey,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return nil, err
+	}
+	if predecessorID.Valid {
+		c.PredecessorID = &predecessorID.String
 	}
 	return &c, nil
 }
@@ -44,9 +48,9 @@ func (s *SQLiteStore) CreateCA(_ context.Context, c *models.CA) error {
 		c.UpdatedAt = now
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO cas (`+caColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO cas (`+caColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.Name, c.OwnerOperatorID, c.CertPEM, c.Fingerprint,
-		c.NotBefore, c.NotAfter, c.Status,
+		c.NotBefore, c.NotAfter, c.Status, c.PredecessorID,
 		c.EncryptedKeyDEK, c.NonceDEK,
 		c.EncryptedKeyMaterial, c.NonceKey,
 		c.CreatedAt, c.UpdatedAt,
@@ -121,6 +125,49 @@ func (s *SQLiteStore) ListCAsByOwner(_ context.Context, ownerID string) ([]*mode
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListCAsApproachingExpiry(_ context.Context, thresholdRatio float64) ([]*models.CA, error) {
+	// Query for active CAs where remaining lifetime <= threshold * total lifetime.
+	// SQLite stores times as RFC3339 strings, so we extract just the date portion (YYYY-MM-DD)
+	// and use julianday() for date arithmetic.
+	// Calculation: (not_after_days - now_days) / (not_after_days - not_before_days) <= threshold
+	rows, err := s.db.Query(`
+		SELECT `+caColumns+` FROM cas
+		WHERE status = ?
+		  AND (julianday(SUBSTR(not_after, 1, 10)) - julianday(SUBSTR(datetime('now'), 1, 10))) /
+		       (julianday(SUBSTR(not_after, 1, 10)) - julianday(SUBSTR(not_before, 1, 10))) <= ?
+		ORDER BY not_after ASC
+	`, models.CAStatusActive, thresholdRatio)
+	if err != nil {
+		return nil, fmt.Errorf("list CAs approaching expiry: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("close rows", "error", err)
+		}
+	}()
+	out := make([]*models.CA, 0)
+	for rows.Next() {
+		c, err := scanCA(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan CA: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) FindCAByPredecessor(_ context.Context, predecessorID string) (*models.CA, error) {
+	row := s.db.QueryRow(`SELECT `+caColumns+` FROM cas WHERE predecessor_id = ? AND status = ? LIMIT 1`, predecessorID, models.CAStatusActive)
+	c, err := scanCA(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find CA by predecessor: %w", err)
+	}
+	return c, nil
 }
 
 func (s *SQLiteStore) UpdateCAStatus(_ context.Context, id string, status models.CAStatus) error {

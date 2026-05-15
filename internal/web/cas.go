@@ -15,6 +15,12 @@ import (
 	"github.com/juev/nebula-mesh/internal/store"
 )
 
+// caView wraps a CA model with pre-computed display state for templates.
+type caView struct {
+	*models.CA
+	IsExpiringSoon bool
+}
+
 // ErrCAMasterNotConfigured is returned by mintCAForOperator when the
 // master keystore is not wired. Auto-provision skips silently on this error.
 var ErrCAMasterNotConfigured = errors.New("ca master key not configured")
@@ -51,9 +57,17 @@ func (w *Web) handleCAsList(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Pre-compute IsExpiringSoon for each CA using pki.ShouldRenew threshold.
+	caViews := make([]*caView, len(cas))
+	for i, ca := range cas {
+		caViews[i] = &caView{
+			CA:             ca,
+			IsExpiringSoon: pki.ShouldRenew(ca.NotBefore, ca.NotAfter),
+		}
+	}
 	w.renderForRequest(rw, r, "cas_list.html", map[string]any{
 		"Active":  "cas",
-		"CAs":     cas,
+		"CAs":     caViews,
 		"IsAdmin": op.Role == "admin",
 	})
 }
@@ -228,10 +242,12 @@ func (w *Web) handleCADetail(rw http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	isExpiringSoon := pki.ShouldRenew(c.NotBefore, c.NotAfter)
 	w.renderForRequest(rw, r, "ca_detail.html", map[string]any{
-		"Active": "cas",
-		"CA":     c,
-		"Error":  r.URL.Query().Get("error"),
+		"Active":            "cas",
+		"CA":                c,
+		"IsExpiringSoon":    isExpiringSoon,
+		"Error":             r.URL.Query().Get("error"),
 	})
 }
 

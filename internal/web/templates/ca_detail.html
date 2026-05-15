@@ -10,7 +10,10 @@
 
 <div class="card">
     <dl>
-        <dt>Status</dt>         <dd><span class="badge badge-{{.CA.Status}}">{{.CA.Status}}</span></dd>
+        <dt>Status</dt>         <dd>
+            <span class="badge badge-{{.CA.Status}}">{{.CA.Status}}</span>
+            {{if .IsExpiringSoon}}<span class="badge badge-warning">⚠ Expires soon</span>{{end}}
+        </dd>
         <dt>Fingerprint</dt>    <dd><code>{{.CA.Fingerprint}}</code></dd>
         <dt>Owner</dt>          <dd>{{.CA.OwnerOperatorID}}</dd>
         <dt>Valid from</dt>     <dd>{{.CA.NotBefore.Format "2006-01-02 15:04 MST"}}</dd>

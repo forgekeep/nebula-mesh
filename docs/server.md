@@ -347,6 +347,91 @@ bundles become stale.
 There is no automatic update mechanism for mobile clients; manual re-import is
 required each time the underlying network configuration changes.
 
+## CA Rotation
+
+### Overview
+
+When a CA approaches its expiry date (≤20% lifetime remaining), the Web UI displays
+a warning badge alerting the operator. The operator can manually rotate the CA via
+the UI, REST API, or CLI; a new CA is created as the successor of the old one.
+Existing host certificates signed by the old CA remain valid until their natural
+expiry.
+
+Optionally, an opt-in background worker can automatically rotate approaching-expiry CAs.
+
+### Manual rotation
+
+**Web UI:** Navigate to **/ui/cas** or the CA detail page; click the **Rotate** button.
+
+**REST API:**
+```bash
+curl -X POST "https://mgmt.example.com:8080/api/v1/cas/<ca-id>/rotate" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+Response (201):
+```json
+{
+  "id": "ca_new123",
+  "name": "tenant-a",
+  "predecessor_id": "ca_old789",
+  "status": "active",
+  "created_at": "2026-05-15T12:00:00Z"
+}
+```
+
+**CLI:**
+```bash
+nebula-mgmt ca rotate --server https://mgmt.example.com:8080 --api-key "$API_KEY" \
+  --id ca_xyz789
+```
+
+### Storage model
+
+After rotation, the database contains two active CAs:
+
+- **Old CA** (`predecessor_id = NULL`): Remains `status = active`. Any host
+  certificates signed by this CA before rotation continue to verify and function
+  until their natural expiry.
+- **New CA** (`predecessor_id = old-ca-id`): The successor. Same owner, same
+  lifetime duration as the old CA, new key material.
+
+When an agent polls `/api/v1/agent/updates`, it receives a **trust bundle** —
+the concatenated PEM certificates of both the old and new CA. The agent writes
+the trust bundle to disk atomically; Nebula natively parses multi-cert PEM files,
+so certificate verification works seamlessly during the transition.
+
+### Opt-in auto-rotation
+
+To enable automatic CA rotation, add the `ca_auto_rotate` section to `server.yml`:
+
+```yaml
+ca_auto_rotate:
+  enabled: true            # default: false
+  interval: 6h             # default: 6h — how often to check for expiring CAs
+  threshold: 0.20          # default: 0.20 — rotate when ≤20% lifetime remaining
+```
+
+The background scanner:
+
+1. Runs once per `interval` in a separate goroutine.
+2. Queries for active CAs with ≤`threshold` lifetime remaining.
+3. For each CA, creates a successor via `pki.RotateAndStoreCA`.
+4. Records an audit entry `ca.auto_rotated` with the new CA ID.
+5. Logs the rotation event.
+
+If an error occurs (e.g., transient database failure), the scanner logs and skips
+to the next check interval without blocking server shutdown.
+
+**Default behavior:** Auto-rotation is disabled (`enabled: false`). Operators
+retain explicit control over when CAs are rotated.
+
+### Related
+
+- [ADR 0008](../docs/adr/0008-ca-rotation.md) — Hybrid CA rotation design.
+- [ADR 0007](../docs/adr/0007-remove-legacy-ca-stack.md) — Per-operator CA storage
+  (successor to this feature).
+
 ## Troubleshooting
 
 ### `database is locked` errors at startup

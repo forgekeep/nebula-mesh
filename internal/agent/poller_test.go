@@ -140,6 +140,49 @@ func TestPoller_WithCertUpdate(t *testing.T) {
 	}
 }
 
+func TestPoller_WithCACertUpdate(t *testing.T) {
+	caCertPEM := "-----BEGIN NEBULA CERTIFICATE-----\nca-cert-data\n-----END NEBULA CERTIFICATE-----"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(UpdatesResponse{
+			HasUpdates: true,
+			CACertPEM:  &caCertPEM,
+			Blocklist:  []string{},
+		})
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	seedSigningKeyAt(t, dir)
+	p := newPoller(t, PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "test-fp",
+		DataDir:     dir,
+		Interval:    50 * time.Millisecond,
+	})
+
+	var signalled atomic.Bool
+	p.signalFunc = func() error {
+		signalled.Store(true)
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_ = p.Run(ctx)
+
+	data, err := os.ReadFile(filepath.Join(dir, "ca.crt"))
+	if err != nil {
+		t.Fatalf("read CA cert: %v", err)
+	}
+	if string(data) != caCertPEM {
+		t.Errorf("CA cert = %q, want %q", string(data), caCertPEM)
+	}
+
+	if !signalled.Load() {
+		t.Error("should signal nebula after CA cert update")
+	}
+}
+
 func TestPoller_WithConfigUpdate(t *testing.T) {
 	configYAML := "pki:\n  ca: /etc/nebula/ca.crt\n"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

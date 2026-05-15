@@ -26,22 +26,11 @@ type caView struct {
 // master keystore is not wired. Auto-provision skips silently on this error.
 var ErrCAMasterNotConfigured = errors.New("ca master key not configured")
 
-// CAMaster is the slim interface the Web UI needs from the keystore to
-// wrap a freshly-generated CA key for storage. Mirrors the methods the
-// API server uses; supplied by the same *keystore.Master singleton.
-type CAMaster interface {
-	GenerateDEK() (dek []byte, wrapped keystore.WrappedKey, err error)
-}
-
 // WithMaster wires the keystore master the CA-create handler needs.
 // Without it, /ui/cas/new renders an inline error pointing at the
 // NEBULA_MGMT_MASTER_KEY docs instead of failing with a 500.
-func (w *Web) WithMaster(m CAMaster) {
+func (w *Web) WithMaster(m *keystore.Master) {
 	w.caMaster = m
-	// If m is a *keystore.Master, store it for rotation operations.
-	if full, ok := m.(*keystore.Master); ok {
-		w.caFullMaster = full
-	}
 }
 
 func (w *Web) handleCAsList(rw http.ResponseWriter, r *http.Request) {
@@ -297,7 +286,7 @@ func (w *Web) handleCARotate(rw http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	newCA, err := pki.RotateAndStoreCA(r.Context(), w.store, w.caFullMaster, w.logger, c)
+	newCA, err := pki.RotateAndStoreCA(r.Context(), w.store, w.caMaster, w.logger, c)
 	if err != nil {
 		w.logger.Error("rotate ca", "error", err)
 		http.Redirect(rw, r, "/ui/cas/"+c.ID+"?error="+

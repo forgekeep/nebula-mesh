@@ -42,8 +42,7 @@ type Web struct {
 	events                *EventBus
 	limiter               *ratelimit.Limiter
 	passwordPolicy        auth.Policy
-	caMaster              CAMaster
-	caFullMaster          *keystore.Master // Full master for rotation/etc, separate from CAMaster interface
+	caMaster              *keystore.Master
 	caResolver            *pki.CAResolver
 }
 

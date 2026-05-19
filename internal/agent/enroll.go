@@ -117,8 +117,9 @@ func Enroll(serverURL, token, dataDir, signingKeyPath string) error {
 		return fmt.Errorf("decode enrollment response: %w", err)
 	}
 
-	// Ensure data directory exists
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	// Ensure data directory exists. 0o750 — agent owns its cert/key files
+	// and no other local user needs to traverse this directory.
+	if err := os.MkdirAll(dataDir, 0o750); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
 
@@ -130,7 +131,7 @@ func Enroll(serverURL, token, dataDir, signingKeyPath string) error {
 
 	// Save signing private key (ADR 0004 — used to sign poll requests).
 	// Lives in its own directory, not dataDir; create parent if missing.
-	if err := os.MkdirAll(filepath.Dir(signingKeyPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(signingKeyPath), 0o750); err != nil {
 		return fmt.Errorf("create signing key dir: %w", err)
 	}
 	signingPrivPEM := pem.EncodeToMemory(&pem.Block{Type: SigningPrivateKeyPEMType, Bytes: signingPriv})
@@ -148,8 +149,10 @@ func Enroll(serverURL, token, dataDir, signingKeyPath string) error {
 		return fmt.Errorf("write CA cert: %w", err)
 	}
 
-	// Save config
-	if err := os.WriteFile(filepath.Join(dataDir, "config.yml"), []byte(enrollResp.ConfigYAML), 0o644); err != nil {
+	// Save config. 0o640 — the agent config may embed enrollment metadata
+	// and refresh state; treat as secret-adjacent even though it's not the
+	// private key itself.
+	if err := os.WriteFile(filepath.Join(dataDir, "config.yml"), []byte(enrollResp.ConfigYAML), 0o640); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 
@@ -160,7 +163,7 @@ func Enroll(serverURL, token, dataDir, signingKeyPath string) error {
 // writable by the current process. It writes and removes a temp file
 // because Unix permissions alone cannot capture ACL/capability rules.
 func preflightWritable(dir string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
 	f, err := os.CreateTemp(dir, ".nebula-agent-preflight-")

@@ -197,7 +197,28 @@ type OIDCConfig struct {
 	GroupsClaim   string   `yaml:"groups_claim,omitempty"`   // default "groups"
 	AllowedGroups []string `yaml:"allowed_groups,omitempty"`
 	AllowedEmails []string `yaml:"allowed_emails,omitempty"`
-	DefaultRole   string   `yaml:"default_role,omitempty"` // default "admin"
+	DefaultRole   string   `yaml:"default_role,omitempty"`
+}
+
+// Validate refuses configurations that would silently auto-provision the
+// first OIDC user as admin. Either constrain who can log in (allowed_groups
+// or allowed_emails), or auto-provision as a lower-privileged role
+// (default_role != "admin"). Setting default_role: admin with empty
+// allowlists is permitted only as a deliberate two-field opt-in to
+// "anyone-who-can-log-in-is-admin".
+func (o *OIDCConfig) Validate() error {
+	if o == nil || !o.Enabled {
+		return nil
+	}
+	roleUnsetOrAdmin := o.DefaultRole == "" || o.DefaultRole == "admin"
+	noAllowlist := len(o.AllowedGroups) == 0 && len(o.AllowedEmails) == 0
+	if roleUnsetOrAdmin && noAllowlist {
+		return fmt.Errorf(
+			"oidc.default_role %q with no oidc.allowed_groups or oidc.allowed_emails would silently grant admin to any successful login; set oidc.default_role to a non-admin role (e.g. %q), or set at least one allowlist entry",
+			o.DefaultRole, "user",
+		)
+	}
+	return nil
 }
 
 func LoadServerConfig(path string) (*ServerConfig, error) {
@@ -226,6 +247,10 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 
 	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
 		return nil, fmt.Errorf("tls_cert and tls_key must both be set or both empty")
+	}
+
+	if err := cfg.OIDC.Validate(); err != nil {
+		return nil, err
 	}
 
 	if cfg.CAAutoRotate.Enabled {

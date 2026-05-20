@@ -79,6 +79,7 @@ func TestMintAndStoreCA_HappyPath(t *testing.T) {
 	}
 	if ca == nil {
 		t.Fatal("ca is nil")
+		return
 	}
 	if ca.Name != "alice-default" {
 		t.Errorf("Name = %q, want alice-default", ca.Name)

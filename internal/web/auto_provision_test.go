@@ -288,6 +288,7 @@ func TestMintCAForOperator_Success(t *testing.T) {
 
 	if ca == nil {
 		t.Fatal("returned CA is nil")
+		return
 	}
 	if ca.Name != "dave-test-ca" {
 		t.Errorf("CA name = %q, want dave-test-ca", ca.Name)

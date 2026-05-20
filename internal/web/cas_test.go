@@ -273,6 +273,7 @@ func TestCAs_Rotate_CreatesSuccessor(t *testing.T) {
 	}
 	if newCA == nil {
 		t.Fatal("new CA not found after rotate")
+		return
 	}
 
 	// Verify predecessor_id is set to oldCA.ID.

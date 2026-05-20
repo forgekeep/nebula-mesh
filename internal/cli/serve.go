@@ -227,7 +227,7 @@ func Serve(configPath string) error {
 
 	httpServer := &http.Server{
 		Addr:         cfg.Listen,
-		Handler:      mux,
+		Handler:      securityHeaders(mux),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

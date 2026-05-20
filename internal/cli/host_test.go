@@ -79,6 +79,7 @@ func TestHostAction_NotFound(t *testing.T) {
 	err := HostBlock(srv.URL, "test-key", "missing")
 	if err == nil {
 		t.Fatal("expected error for 404 response")
+		return
 	}
 	if !strings.Contains(err.Error(), "HTTP 404") {
 		t.Errorf("error = %q, should mention HTTP 404", err.Error())

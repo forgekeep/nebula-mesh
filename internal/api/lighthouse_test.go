@@ -262,6 +262,7 @@ func TestRenderHostConfig_UnsafeRouteFamilyMismatch(t *testing.T) {
 	cfg, err := srv.renderHostConfig(ctx, host)
 	if err == nil {
 		t.Fatal("renderHostConfig should fail when route family doesn't match host addresses")
+		return
 	}
 	if cfg != nil {
 		t.Error("config should be nil on error")

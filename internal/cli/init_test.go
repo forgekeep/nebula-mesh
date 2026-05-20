@@ -33,6 +33,7 @@ master_key: ""
 	err := Init(cfgPath)
 	if err == nil {
 		t.Fatal("expected error without master key, got nil")
+		return
 	}
 
 	errMsg := err.Error()

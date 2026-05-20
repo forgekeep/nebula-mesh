@@ -345,6 +345,7 @@ func TestMintCAForOperator_ErrorWhenMasterNil(t *testing.T) {
 	_, err = w.mintCAForOperator(ctx, op, "eve-ca", 365*24*time.Hour)
 	if err == nil {
 		t.Fatal("mintCAForOperator with nil master: got nil error, want ErrCAMasterNotConfigured")
+		return
 	}
 	if !strings.Contains(err.Error(), "ca master key not configured") {
 		t.Errorf("error message = %q, want to contain 'ca master key not configured'", err.Error())

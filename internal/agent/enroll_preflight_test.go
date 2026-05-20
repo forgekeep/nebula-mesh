@@ -37,6 +37,7 @@ func TestEnroll_PreflightFailsBeforeServerCall(t *testing.T) {
 	err := Enroll(server.URL, "test-token", dataDir, signingKeyPath)
 	if err == nil {
 		t.Fatal("expected error for unwritable signing key dir, got nil")
+		return
 	}
 	if !strings.Contains(err.Error(), "permission denied") {
 		t.Errorf("error should mention permission denied; got %v", err)

@@ -1,5 +1,5 @@
 variable "release_version" {
-  description = "Git tag of the nebula-mesh release to install (e.g. v0.3.0). Use `latest` to track the latest GitHub release."
+  description = "Git tag of the nebula-mesh release to install (e.g. v0.3.1). Use `latest` to track the latest GitHub release."
   type        = string
   default     = "latest"
 }

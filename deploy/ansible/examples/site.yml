@@ -14,7 +14,7 @@
   roles:
     - role: nebula_mgmt
       vars:
-        nebula_mgmt_release: "v0.3.0"
+        nebula_mgmt_release: "v0.3.1"
         nebula_mgmt_tls_cert: /etc/nebula-mgmt/tls/fullchain.pem
         nebula_mgmt_tls_key:  /etc/nebula-mgmt/tls/privkey.pem
         # Pulled from Vault — never hard-code these.
@@ -31,7 +31,7 @@
   roles:
     - role: nebula_agent
       vars:
-        nebula_agent_release:     "v0.3.0"
+        nebula_agent_release:     "v0.3.1"
         nebula_agent_server_url:  "https://mgmt.internal.example.com:8080"
         # `nebula_agent_enroll_token` MUST be set per-host. Either:
         #   - keep it in host_vars/<hostname>/vault.yml, or

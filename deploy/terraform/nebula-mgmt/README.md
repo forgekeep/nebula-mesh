@@ -29,9 +29,9 @@ nothing more than the server URL + a per-host enrolment token.
 
 ```hcl
 module "nebula_mgmt" {
-  source = "github.com/juev/nebula-mesh//deploy/terraform/nebula-mgmt?ref=v0.3.0"
+  source = "github.com/juev/nebula-mesh//deploy/terraform/nebula-mgmt?ref=v0.3.1"
 
-  release_version = "v0.3.0"
+  release_version = "v0.3.1"
   fqdn            = "mgmt.internal.example.com"
   tls_email       = "ops@example.com"   # for the Let's Encrypt issuer
   admin_username  = "admin"

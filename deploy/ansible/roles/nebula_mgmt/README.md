@@ -15,7 +15,7 @@ never re-runs `nebula-mgmt init` after the first successful bootstrap
 
 | Variable | Purpose |
 |---|---|
-| `nebula_mgmt_release` | Git tag of the release to install (e.g. `v0.3.0` or `latest`). |
+| `nebula_mgmt_release` | Git tag of the release to install (e.g. `v0.3.1` or `latest`). |
 | `nebula_mgmt_master_key` | Base-64 32-byte AES-256 master key. Pull from Vault. |
 | `nebula_mgmt_ca_passphrase` | Legacy single-CA passphrase. Pull from Vault. |
 
@@ -41,7 +41,7 @@ See [`defaults/main.yml`](defaults/main.yml) for the full list.
   roles:
     - role: nebula_mgmt
       vars:
-        nebula_mgmt_release: "v0.3.0"
+        nebula_mgmt_release: "v0.3.1"
         nebula_mgmt_master_key: "{{ lookup('community.hashi_vault.vault_read',
                                         'secret/nebula/master_key').value }}"
         nebula_mgmt_ca_passphrase: "{{ lookup('community.hashi_vault.vault_read',

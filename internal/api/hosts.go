@@ -51,6 +51,28 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name, nebula_ips, and network_id are required")
 		return
 	}
+
+	network, err := s.store.GetNetwork(r.Context(), req.NetworkID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusBadRequest, "network not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get network for host create", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to load network")
+		return
+	}
+	netOK, err := s.canAccessNetwork(r.Context(), network)
+	if err != nil {
+		s.logger.Error("authz check for host create", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !netOK {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
 	if err := validateHostIPs(r.Context(), s.store, req.NetworkID, req.NebulaIPs, ""); err != nil {
 		if IsHostIPValidationError(err) {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -90,6 +112,16 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Host inherits the network's CA. Combined with the canAccessNetwork
+	// gate above, this binds new hosts to the same trust domain as the
+	// network's operator (closes the GHSA-598g class of cross-tenant cert
+	// issuance via host create + rotate-cert). The defaultCAID fallback
+	// preserves backward compatibility for admin-created networks via the
+	// CAID-less /api/v1/networks endpoint (out-of-scope follow-up).
+	caID := network.CAID
+	if caID == "" {
+		caID = s.defaultCAID
+	}
 	now := time.Now()
 	host := &models.Host{
 		ID:           uuid.New().String(),
@@ -104,7 +136,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		ListenPort:   req.ListenPort,
 		Status:       models.HostStatusPending,
 		Advanced:     req.Advanced,
-		CAID:         s.defaultCAID,
+		CAID:         caID,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -152,6 +184,34 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list hosts")
 		return
 	}
+
+	// For non-admin, scope to owned CAs
+	if !actorIsAdmin(r.Context()) {
+		actor := ActorOf(r.Context())
+		if actor == nil {
+			writeJSON(w, http.StatusOK, []*models.Host{})
+			return
+		}
+		cas, err := s.store.ListCAsByOwner(r.Context(), actor.ID)
+		if err != nil {
+			s.logger.Error("list cas by owner", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to check permissions")
+			return
+		}
+		ownedCAIDs := make(map[string]struct{}, len(cas))
+		for _, ca := range cas {
+			ownedCAIDs[ca.ID] = struct{}{}
+		}
+		// Filter hosts to only those under owned CAs
+		filtered := hosts[:0]
+		for _, h := range hosts {
+			if _, ok := ownedCAIDs[h.CAID]; ok {
+				filtered = append(filtered, h)
+			}
+		}
+		hosts = filtered
+	}
+
 	writeJSON(w, http.StatusOK, hosts)
 }
 
@@ -167,12 +227,42 @@ func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get host")
 		return
 	}
+	ok, err := s.canAccessHost(r.Context(), host)
+	if err != nil {
+		s.logger.Error("authz check", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, host)
 }
 
 func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	host, err := s.store.GetHost(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "host not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get host for delete", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get host")
+		return
+	}
+	ok, err := s.canAccessHost(r.Context(), host)
+	if err != nil {
+		s.logger.Error("authz check", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 	if err := s.store.DeleteHostAndBlockCert(r.Context(), id, "host deleted"); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "host not found")
@@ -189,6 +279,26 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	existing, err := s.store.GetHost(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "host not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get host for block", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get host")
+		return
+	}
+	ok, err := s.canAccessHost(r.Context(), existing)
+	if err != nil {
+		s.logger.Error("authz check", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 	host, err := s.store.BlockHostAndAddToBlocklist(r.Context(), id, "manually blocked")
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "host not found")
@@ -206,6 +316,26 @@ func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUnblockHost(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	existing, err := s.store.GetHost(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "host not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get host for unblock", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get host")
+		return
+	}
+	ok, err := s.canAccessHost(r.Context(), existing)
+	if err != nil {
+		s.logger.Error("authz check", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 	host, err := s.store.UnblockHostAndRemoveFromBlocklist(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "host not found")
@@ -222,6 +352,10 @@ func (s *Server) handleUnblockHost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetBlocklist(w http.ResponseWriter, r *http.Request) {
+	if !actorIsAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "blocklist access requires the admin role")
+		return
+	}
 	list, err := s.store.GetBlocklist(r.Context())
 	if err != nil {
 		s.logger.Error("get blocklist", "error", err)
@@ -267,6 +401,16 @@ func (s *Server) handleRotateCert(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("get host for rotate-cert", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to get host")
+		return
+	}
+	ok, err := s.canAccessHost(r.Context(), host)
+	if err != nil {
+		s.logger.Error("authz check for rotate-cert", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -346,6 +490,16 @@ func (s *Server) mintEnrollmentTokenForHost(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "failed to get host")
 		return
 	}
+	ok, err := s.canAccessHost(r.Context(), host)
+	if err != nil {
+		s.logger.Error("authz check", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
 	tokenStr := uuid.New().String()
 	expiresAt := time.Now().Add(s.tokenTTLFor(r.Context(), host.NetworkID))
@@ -380,8 +534,16 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get host")
 		return
 	}
-
-	// API trusts the bearer token for authorisation; per-CA ownership is enforced only in the Web layer (handleHostUpdate). Matches handleCreateHost/handleDeleteHost behaviour.
+	ok, err := s.canAccessHost(r.Context(), host)
+	if err != nil {
+		s.logger.Error("authz check", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
 	// Decode request body (lenient for PATCH, forward-compatible)
 	var req updateHostRequest

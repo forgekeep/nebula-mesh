@@ -64,6 +64,10 @@ func (s *Server) handleCreateOperator(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListOperators(w http.ResponseWriter, r *http.Request) {
+	if !actorIsAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "operator management requires the admin role")
+		return
+	}
 	ops, err := s.store.ListOperators(r.Context())
 	if err != nil {
 		s.logger.Error("list operators", "error", err)
@@ -77,6 +81,10 @@ func (s *Server) handleListOperators(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDisableOperator(w http.ResponseWriter, r *http.Request) {
+	if !actorIsAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "operator management requires the admin role")
+		return
+	}
 	id := chi.URLParam(r, "id")
 	if err := s.store.DisableOperator(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -92,6 +100,10 @@ func (s *Server) handleDisableOperator(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEnableOperator(w http.ResponseWriter, r *http.Request) {
+	if !actorIsAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "operator management requires the admin role")
+		return
+	}
 	id := chi.URLParam(r, "id")
 	if err := s.store.EnableOperator(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -116,6 +128,10 @@ type createAPIKeyResponse struct {
 }
 
 func (s *Server) handleCreateOperatorAPIKey(w http.ResponseWriter, r *http.Request) {
+	if !actorIsAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "operator management requires the admin role")
+		return
+	}
 	id := chi.URLParam(r, "id")
 	if _, err := s.store.GetOperator(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -155,6 +171,10 @@ func (s *Server) handleCreateOperatorAPIKey(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleRevokeOperatorAPIKey(w http.ResponseWriter, r *http.Request) {
+	if !actorIsAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "operator management requires the admin role")
+		return
+	}
 	id := chi.URLParam(r, "id")
 	kid := chi.URLParam(r, "kid")
 	if err := s.store.RevokeOperatorAPIKey(r.Context(), kid); err != nil {
@@ -171,6 +191,10 @@ func (s *Server) handleRevokeOperatorAPIKey(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleListOperatorAPIKeys(w http.ResponseWriter, r *http.Request) {
+	if !actorIsAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "operator management requires the admin role")
+		return
+	}
 	id := chi.URLParam(r, "id")
 	keys, err := s.store.ListOperatorAPIKeys(r.Context(), id)
 	if err != nil {

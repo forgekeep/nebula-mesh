@@ -29,6 +29,16 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get host")
 		return
 	}
+	ok, err := s.canAccessHost(r.Context(), host)
+	if err != nil {
+		s.logger.Error("authz check", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
 	// Check that host is mobile
 	if host.Kind != models.HostKindMobile {

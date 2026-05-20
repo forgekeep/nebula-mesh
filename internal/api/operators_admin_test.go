@@ -65,3 +65,120 @@ func TestCreateOperator_AdminCanCreate(t *testing.T) {
 		t.Errorf("admin status = %d, want 201; body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestListOperators_RequiresAdminRole(t *testing.T) {
+	srv, _ := newTestServer(t)
+	userKey := createUserWithAPIKey(t, srv, "user")
+
+	req := httptest.NewRequest("GET", "/api/v1/operators", nil)
+	req.Header.Set("Authorization", "Bearer "+userKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-admin status = %d, want 403", rec.Code)
+	}
+}
+
+// TestGetBlocklist_RequiresAdminRole verifies non-admin operators cannot read
+// the global blocklist. Without the gate, GET /api/v1/blocklist exposes the
+// fingerprints of every blocked cert across every tenant.
+func TestGetBlocklist_RequiresAdminRole(t *testing.T) {
+	srv, _ := newTestServer(t)
+	userKey := createUserWithAPIKey(t, srv, "user")
+
+	req := httptest.NewRequest("GET", "/api/v1/blocklist", nil)
+	req.Header.Set("Authorization", "Bearer "+userKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-admin status = %d, want 403", rec.Code)
+	}
+}
+
+func TestDisableOperator_RequiresAdminRole(t *testing.T) {
+	srv, _ := newTestServer(t)
+	userKey := createUserWithAPIKey(t, srv, "user")
+	targetOp := &models.Operator{
+		ID:           uuid.New().String(),
+		Username:     "target-" + uuid.New().String()[:6],
+		PasswordHash: "x",
+		Role:         "user",
+	}
+	if err := srv.store.CreateOperator(context.Background(), targetOp); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("POST", "/api/v1/operators/"+targetOp.ID+"/disable", nil)
+	req.Header.Set("Authorization", "Bearer "+userKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-admin status = %d, want 403", rec.Code)
+	}
+}
+
+func TestEnableOperator_RequiresAdminRole(t *testing.T) {
+	srv, _ := newTestServer(t)
+	userKey := createUserWithAPIKey(t, srv, "user")
+	targetOp := &models.Operator{
+		ID:           uuid.New().String(),
+		Username:     "target-" + uuid.New().String()[:6],
+		PasswordHash: "x",
+		Role:         "user",
+	}
+	if err := srv.store.CreateOperator(context.Background(), targetOp); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("POST", "/api/v1/operators/"+targetOp.ID+"/enable", nil)
+	req.Header.Set("Authorization", "Bearer "+userKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-admin status = %d, want 403", rec.Code)
+	}
+}
+
+func TestCreateOperatorAPIKey_RequiresAdminRole(t *testing.T) {
+	srv, _ := newTestServer(t)
+	userKey := createUserWithAPIKey(t, srv, "user")
+	targetID := createUserWithAPIKey(t, srv, "user")
+
+	body, _ := json.Marshal(map[string]string{"name": "evil-key"})
+	req := httptest.NewRequest("POST", "/api/v1/operators/"+targetID+"/api-keys", bytes.NewBuffer(body))
+	req.Header.Set("Authorization", "Bearer "+userKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-admin status = %d, want 403", rec.Code)
+	}
+}
+
+func TestRevokeOperatorAPIKey_RequiresAdminRole(t *testing.T) {
+	srv, _ := newTestServer(t)
+	userKey := createUserWithAPIKey(t, srv, "user")
+	targetID := createUserWithAPIKey(t, srv, "user")
+	keyID := uuid.New().String()
+
+	req := httptest.NewRequest("DELETE", "/api/v1/operators/"+targetID+"/api-keys/"+keyID, nil)
+	req.Header.Set("Authorization", "Bearer "+userKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-admin status = %d, want 403", rec.Code)
+	}
+}
+
+func TestListOperatorAPIKeys_RequiresAdminRole(t *testing.T) {
+	srv, _ := newTestServer(t)
+	userKey := createUserWithAPIKey(t, srv, "user")
+	targetID := createUserWithAPIKey(t, srv, "user")
+
+	req := httptest.NewRequest("GET", "/api/v1/operators/"+targetID+"/api-keys", nil)
+	req.Header.Set("Authorization", "Bearer "+userKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-admin status = %d, want 403", rec.Code)
+	}
+}

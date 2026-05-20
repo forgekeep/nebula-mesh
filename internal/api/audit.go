@@ -10,6 +10,10 @@ import (
 const defaultAuditLimit = 100
 
 func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {
+	if !actorIsAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "audit log access requires the admin role")
+		return
+	}
 	filter := store.AuditFilter{
 		Action: r.URL.Query().Get("action"),
 		Limit:  defaultAuditLimit,

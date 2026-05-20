@@ -17,6 +17,10 @@ type createNetworkRequest struct {
 }
 
 func (s *Server) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
+	if !actorIsAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "network creation requires the admin role")
+		return
+	}
 	var req createNetworkRequest
 	if err := decodeJSONStrict(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -55,6 +59,30 @@ func (s *Server) handleListNetworks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list networks")
 		return
 	}
+	if !actorIsAdmin(r.Context()) {
+		actor := ActorOf(r.Context())
+		if actor == nil {
+			writeJSON(w, http.StatusOK, []*models.Network{})
+			return
+		}
+		cas, err := s.store.ListCAsByOwner(r.Context(), actor.ID)
+		if err != nil {
+			s.logger.Error("list cas by owner", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to scope networks")
+			return
+		}
+		owned := make(map[string]struct{}, len(cas))
+		for _, ca := range cas {
+			owned[ca.ID] = struct{}{}
+		}
+		filtered := networks[:0]
+		for _, n := range networks {
+			if _, ok := owned[n.CAID]; ok {
+				filtered = append(filtered, n)
+			}
+		}
+		networks = filtered
+	}
 	writeJSON(w, http.StatusOK, networks)
 }
 
@@ -68,6 +96,16 @@ func (s *Server) handleGetNetwork(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("get network", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to get network")
+		return
+	}
+	ok, err := s.canAccessNetwork(r.Context(), network)
+	if err != nil {
+		s.logger.Error("authz check", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 

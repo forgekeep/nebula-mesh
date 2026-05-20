@@ -29,6 +29,27 @@ var defaultFirewallRules = firewallRulesRequest{
 func (s *Server) handleGetFirewall(w http.ResponseWriter, r *http.Request) {
 	networkID := chi.URLParam(r, "id")
 
+	network, err := s.store.GetNetwork(r.Context(), networkID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "network not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get network for firewall", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to load network")
+		return
+	}
+	ok, err := s.canAccessNetwork(r.Context(), network)
+	if err != nil {
+		s.logger.Error("authz check", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
 	rules, err := s.getFirewallRules(r, networkID)
 	if err != nil {
 		s.logger.Error("get firewall rules", "error", err)
@@ -41,6 +62,27 @@ func (s *Server) handleGetFirewall(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateFirewall(w http.ResponseWriter, r *http.Request) {
 	networkID := chi.URLParam(r, "id")
+
+	network, err := s.store.GetNetwork(r.Context(), networkID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "network not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get network for firewall update", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to load network")
+		return
+	}
+	ok, err := s.canAccessNetwork(r.Context(), network)
+	if err != nil {
+		s.logger.Error("authz check", "error", err)
+		writeError(w, http.StatusInternalServerError, "authz check failed")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
 	var req firewallRulesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

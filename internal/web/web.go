@@ -131,6 +131,14 @@ func (w *Web) recordLogin(result, factor string) {
 // before ServeHTTP is invoked. Default is false.
 func (w *Web) AllowSelfRegistration(allow bool) { w.allowSelfRegistration = allow }
 
+// WithCookieSecure threads the resolved cookie-secure flag through to the
+// session manager and (if attached) OIDC. Call after WithOIDC so the OIDC
+// state cookie picks up the same flag. Closes GHSA-rqfj-vv8r-xhqc.
+func (w *Web) WithCookieSecure(secure bool) {
+	w.session.SetCookieSecure(secure)
+	w.oidc.SetCookieSecure(secure) // nil-safe inside SetCookieSecure
+}
+
 // WithOIDC attaches an OIDC provider and registers its login/callback routes.
 // Must be called before ServeHTTP is invoked.
 func (w *Web) WithOIDC(o *OIDC) {

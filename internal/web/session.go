@@ -23,12 +23,20 @@ const (
 
 // SessionManager handles DB-backed cookie sessions for operator users.
 type SessionManager struct {
-	store store.Store
+	store        store.Store
+	cookieSecure bool
 }
 
 // NewSessionManager creates a new session manager backed by the given store.
 func NewSessionManager(s store.Store) *SessionManager {
 	return &SessionManager{store: s}
+}
+
+// SetCookieSecure controls the Secure attribute on session cookies. Called
+// at startup from cli/serve.go with the resolved server-config value.
+// Closes GHSA-rqfj-vv8r-xhqc.
+func (sm *SessionManager) SetCookieSecure(secure bool) {
+	sm.cookieSecure = secure
 }
 
 // LoginResult is the outcome of the first authentication step.
@@ -92,6 +100,7 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   sm.cookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   cookieMaxAge,
 	})
@@ -123,6 +132,7 @@ func (sm *SessionManager) StartAuthenticatedSession(w http.ResponseWriter, r *ht
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   sm.cookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
@@ -162,6 +172,7 @@ func (sm *SessionManager) CompleteTwoFactor(w http.ResponseWriter, r *http.Reque
 		Value:    cookie.Value,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   sm.cookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
@@ -176,11 +187,17 @@ func (sm *SessionManager) Logout(w http.ResponseWriter, r *http.Request) {
 			slog.Debug("delete session", "error", err)
 		}
 	}
+	// Match every attribute of the live session cookie so browsers reliably
+	// replace it. RFC 6265 requires (Name, Domain, Path) to match; setting
+	// SameSite and Secure to the same values prevents fingerprint mismatches
+	// that have caused stale-cookie bugs in production CDNs.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   sm.cookieSecure,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
 }

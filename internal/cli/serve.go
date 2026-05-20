@@ -223,6 +223,11 @@ func Serve(configPath string) error {
 		logger.Info("oidc enabled", "issuer", cfg.OIDC.Issuer)
 	}
 
+	// Resolve cookie_secure AFTER any OIDC wiring so the OIDC state cookie
+	// picks up the same flag (the helper propagates to both session manager
+	// and OIDC). Closes GHSA-rqfj-vv8r-xhqc.
+	webUI.WithCookieSecure(cfg.CookieSecureResolved())
+
 	mux := buildMux(webUI, apiSrv)
 
 	httpServer := &http.Server{

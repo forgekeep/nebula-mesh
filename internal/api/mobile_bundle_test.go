@@ -52,6 +52,20 @@ func TestHandleMobileBundle_Success(t *testing.T) {
 		t.Errorf("Content-Type = %q, want 'application/yaml; charset=utf-8'", ct)
 	}
 
+	// Bundle inlines a freshly-minted X25519 private key — every cache
+	// between server and operator must drop the response. X-Content-Type-Options
+	// is covered by the securityHeaders middleware (cli/security_headers_test.go).
+	// Regression for GHSA-6vgg-xhvh-38ff.
+	for header, want := range map[string]string{
+		"Cache-Control": "no-store",
+		"Pragma":        "no-cache",
+		"Expires":       "0",
+	} {
+		if got := w.Header().Get(header); got != want {
+			t.Errorf("%s = %q, want %q", header, got, want)
+		}
+	}
+
 	// Verify body is valid YAML with expected keys
 	var yamlData map[string]interface{}
 	if err := yaml.Unmarshal(w.Body.Bytes(), &yamlData); err != nil {

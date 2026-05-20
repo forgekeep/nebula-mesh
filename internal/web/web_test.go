@@ -99,6 +99,69 @@ func TestLogin_Success(t *testing.T) {
 	}
 }
 
+// TestSession_CookieSecureFlag covers GHSA-rqfj-vv8r-xhqc: when the
+// resolved cookie_secure flag is true, both the live session cookie and
+// the logout-delete cookie must carry Secure. Mirrors the OIDC test for
+// the state cookie.
+func TestSession_CookieSecureFlag(t *testing.T) {
+	w, _ := newTestWeb(t)
+	w.WithCookieSecure(true)
+
+	cookies := loginSession(t, w)
+	var live *http.Cookie
+	for _, c := range cookies {
+		if c.Name == sessionCookieName {
+			live = c
+			break
+		}
+	}
+	if live == nil {
+		t.Fatal("session cookie not set after login")
+	}
+	if !live.Secure {
+		t.Error("session cookie missing Secure attribute")
+	}
+	if !live.HttpOnly {
+		t.Error("session cookie missing HttpOnly attribute")
+	}
+	if live.SameSite != http.SameSiteLaxMode {
+		t.Errorf("session cookie SameSite = %v, want Lax", live.SameSite)
+	}
+
+	// Re-issuing the logout cookie with mismatched attributes leaves
+	// browsers holding the original — assert the delete cookie matches
+	// the live cookie's fingerprint.
+	logoutReq := httptest.NewRequest("GET", "/ui/logout", nil)
+	logoutReq.AddCookie(live)
+	logoutRec := httptest.NewRecorder()
+	w.ServeHTTP(logoutRec, logoutReq)
+	var del *http.Cookie
+	for _, c := range logoutRec.Result().Cookies() {
+		if c.Name == sessionCookieName {
+			del = c
+		}
+	}
+	if del == nil {
+		t.Fatal("logout did not emit a session-cookie delete")
+	}
+	if !del.Secure || !del.HttpOnly || del.SameSite != http.SameSiteLaxMode {
+		t.Errorf("logout cookie attribute drift: Secure=%v HttpOnly=%v SameSite=%v",
+			del.Secure, del.HttpOnly, del.SameSite)
+	}
+}
+
+// TestSession_CookieSecureDefault confirms that without an explicit
+// WithCookieSecure call, the cookie is NOT marked Secure — required so
+// plain-HTTP local development stays usable.
+func TestSession_CookieSecureDefault(t *testing.T) {
+	w, _ := newTestWeb(t)
+	for _, c := range loginSession(t, w) {
+		if c.Name == sessionCookieName && c.Secure {
+			t.Error("session cookie unexpectedly Secure when flag not set")
+		}
+	}
+}
+
 func TestLogin_WrongPassword(t *testing.T) {
 	w, _ := newTestWeb(t)
 	form := url.Values{"username": {testUsername}, "password": {"wrong"}}

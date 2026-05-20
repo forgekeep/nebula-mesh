@@ -78,6 +78,25 @@ type ServerConfig struct {
 	// CAAutoRotate configures the periodic CA auto-rotation scanner (issue #110).
 	// Disabled by default — operators must opt in by setting Enabled=true.
 	CAAutoRotate CAAutoRotateConfig `yaml:"ca_auto_rotate,omitempty"`
+
+	// CookieSecure controls the `Secure` attribute on session and OIDC
+	// state cookies (GHSA-rqfj-vv8r-xhqc). When unset, the effective
+	// value is inferred from the TLS configuration: true if both
+	// tls_cert and tls_key are populated, false otherwise. Operators
+	// terminating TLS at a reverse proxy must set this to true
+	// explicitly — `rate_limit.trust_proxy_header` is not a reliable
+	// signal that the proxy speaks TLS to clients.
+	CookieSecure *bool `yaml:"cookie_secure,omitempty"`
+}
+
+// CookieSecureResolved returns the effective Secure-cookie flag for this
+// configuration. Explicit value wins; if unset, infer from the presence
+// of TLS material on the server itself.
+func (c ServerConfig) CookieSecureResolved() bool {
+	if c.CookieSecure != nil {
+		return *c.CookieSecure
+	}
+	return c.TLSCert != "" && c.TLSKey != ""
 }
 
 // EnrollmentTokenTTLDuration returns the configured default token TTL parsed

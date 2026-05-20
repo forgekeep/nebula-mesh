@@ -129,3 +129,25 @@ func TestOIDC_HandleCallbackBadState(t *testing.T) {
 		t.Errorf("status = %d, want 400 for invalid state", rec.Code)
 	}
 }
+
+// TestOIDC_SetCookieSecure covers GHSA-rqfj-vv8r-xhqc's OIDC arm. The
+// setter must be nil-safe (it is called unconditionally from Web.WithCookieSecure
+// even when OIDC is not configured) and must propagate the flag into
+// every state-cookie write — both the live-state set in HandleLogin and
+// the delete-cookie in HandleCallback.
+func TestOIDC_SetCookieSecure(t *testing.T) {
+	// nil-safety: must not panic when no OIDC is configured.
+	var nilOIDC *OIDC
+	nilOIDC.SetCookieSecure(true)
+
+	// Setter writes to the field.
+	o := &OIDC{}
+	o.SetCookieSecure(true)
+	if !o.cookieSecure {
+		t.Error("SetCookieSecure(true) did not propagate")
+	}
+	o.SetCookieSecure(false)
+	if o.cookieSecure {
+		t.Error("SetCookieSecure(false) did not propagate")
+	}
+}

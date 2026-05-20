@@ -39,11 +39,25 @@ type OIDC struct {
 	stateMu sync.Mutex
 	states  map[string]time.Time // state token → expiry
 
+	// cookieSecure controls the Secure attribute on the OIDC state cookie.
+	// Set via SetCookieSecure from the server's resolved config value.
+	// Closes GHSA-rqfj-vv8r-xhqc.
+	cookieSecure bool
+
 	// provisionCA is invoked after a new operator is successfully created
 	// during OIDC first-time login. Enables auto-provisioning of default CA
 	// for user-role operators without coupling OIDC to Web struct.
 	// If nil, auto-provision is skipped.
 	provisionCA func(ctx context.Context, op *models.Operator) error
+}
+
+// SetCookieSecure controls the Secure attribute on the OIDC state cookie.
+// Called at startup from cli/serve.go with the resolved server-config value.
+func (o *OIDC) SetCookieSecure(secure bool) {
+	if o == nil {
+		return
+	}
+	o.cookieSecure = secure
 }
 
 // NewOIDC builds an OIDC integration from the given config. It contacts the
@@ -100,6 +114,7 @@ func (o *OIDC) HandleLogin(rw http.ResponseWriter, r *http.Request) {
 		Value:    state,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   o.cookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(oidcStateTTL.Seconds()),
 	})
@@ -122,7 +137,18 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "invalid oidc state", http.StatusBadRequest)
 		return
 	}
-	http.SetCookie(rw, &http.Cookie{Name: oidcStateCookieName, Value: "", Path: "/", MaxAge: -1})
+	// Match every attribute of the live state cookie so the browser
+	// replaces it reliably (RFC 6265). Without HttpOnly/SameSite/Secure
+	// matching, some CDNs and corporate proxies keep the original around.
+	http.SetCookie(rw, &http.Cookie{
+		Name:     oidcStateCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   o.cookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
 
 	code := r.URL.Query().Get("code")
 	if code == "" {

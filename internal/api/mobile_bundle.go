@@ -69,8 +69,15 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return YAML bundle with proper content-type
+	// Return YAML bundle with proper content-type. The bundle inlines a
+	// freshly-minted X25519 private key, so suppress every layer of cache
+	// between server and operator (intermediate proxies/CDNs, browser disk
+	// cache). X-Content-Type-Options is set globally by the securityHeaders
+	// middleware in cli/serve.go. Closes GHSA-6vgg-xhvh-38ff.
 	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(bundle); err != nil {
 		s.logger.Error("write mobile bundle response", "error", err)

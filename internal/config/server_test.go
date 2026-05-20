@@ -288,3 +288,29 @@ ca_auto_rotate:
 		t.Fatal("expected error for interval < 1m, got nil")
 	}
 }
+
+// TestCookieSecureResolved covers GHSA-rqfj-vv8r-xhqc's resolution rules:
+// explicit cookie_secure wins; otherwise the value is inferred from the
+// presence of TLS material on the server.
+func TestCookieSecureResolved(t *testing.T) {
+	ptr := func(b bool) *bool { return &b }
+	cases := []struct {
+		name string
+		cfg  ServerConfig
+		want bool
+	}{
+		{"explicit_true", ServerConfig{CookieSecure: ptr(true)}, true},
+		{"explicit_false_overrides_tls", ServerConfig{CookieSecure: ptr(false), TLSCert: "c", TLSKey: "k"}, false},
+		{"unset_no_tls", ServerConfig{}, false},
+		{"unset_with_tls", ServerConfig{TLSCert: "c", TLSKey: "k"}, true},
+		{"unset_partial_tls_cert_only", ServerConfig{TLSCert: "c"}, false},
+		{"unset_partial_tls_key_only", ServerConfig{TLSKey: "k"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.cfg.CookieSecureResolved(); got != c.want {
+				t.Errorf("CookieSecureResolved() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}

@@ -218,6 +218,7 @@ func TestCheckEnrollment_ReturnsCfgWhenReady(t *testing.T) {
 	got, reason := checkEnrollment(cfgPath)
 	if got == nil {
 		t.Fatalf("got nil cfg with reason %q", reason)
+		return
 	}
 	if reason != "" {
 		t.Errorf("reason = %q, want empty", reason)

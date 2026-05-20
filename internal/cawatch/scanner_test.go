@@ -109,6 +109,7 @@ func TestScanner_Run_RotatesApproachingExpiry(t *testing.T) {
 	}
 	if successor == nil {
 		t.Fatal("scanner did not create successor for approaching CA")
+		return
 	}
 	if successor.PredecessorID == nil || *successor.PredecessorID != approaching.ID {
 		t.Errorf("successor.PredecessorID = %v, want %q", successor.PredecessorID, approaching.ID)
@@ -171,6 +172,7 @@ func TestScanner_Run_IdempotentOnSecondCall(t *testing.T) {
 	}
 	if successor1 == nil {
 		t.Fatal("first run did not create successor")
+		return
 	}
 
 	// Second run

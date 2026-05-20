@@ -36,6 +36,7 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
+		s.recordAuditAction(r.Context(), auditHostMobileBundleForbidden, host.ID, "non_owner")
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
@@ -68,6 +69,10 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to build bundle")
 		return
 	}
+
+	// Mobile-bundle issuance mints a fresh X25519 private key + cert; audit the
+	// positive path so the forensic trail exists alongside host.mobile_bundle.forbidden.
+	s.recordAuditAction(r.Context(), auditHostMobileBundleIssued, host.ID, "ca_id="+host.CAID)
 
 	// Return YAML bundle with proper content-type. The bundle inlines a
 	// freshly-minted X25519 private key, so suppress every layer of cache

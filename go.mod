@@ -1,6 +1,6 @@
 module github.com/juev/nebula-mesh
 
-go 1.26.1
+go 1.26.3
 
 require (
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc

@@ -27,8 +27,10 @@ func Init(configPath string) error {
 		return err
 	}
 
-	// Ensure data directory
-	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+	// Ensure data directory. 0o750 — contains the SQLite DB and CA material
+	// (per ADR 0002 encrypted DEKs alongside the legacy CA files); no need
+	// for other local users to traverse.
+	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
 

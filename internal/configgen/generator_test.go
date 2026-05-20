@@ -96,6 +96,58 @@ func TestGenerate_Lighthouse(t *testing.T) {
 	if !strings.Contains(s, "4242") {
 		t.Error("lighthouse should have listen port")
 	}
+	// Lock down the explicit empty static_host_map. yaml.v3 emits a non-nil
+	// empty map as `{}`; a future refactor that switches StaticHostMap to
+	// omitempty (or to *map[…]) would silently drop the key, which downstream
+	// Nebula agents may rely on.
+	if !strings.Contains(s, "static_host_map: {}") {
+		t.Errorf("lighthouse should emit empty static_host_map: {}; got:\n%s", s)
+	}
+}
+
+// TestGenerate_LighthouseAndRelay covers the configurations where a host is
+// both a lighthouse and a relay. The previous template emitted both
+// am_lighthouse: true and am_relay: true; the typed-struct impl must too.
+func TestGenerate_LighthouseAndRelay(t *testing.T) {
+	input := GeneratorInput{
+		HostName:     "lh-relay-1",
+		NebulaIPs:    []string{"192.168.100.1"},
+		IsLighthouse: true,
+		IsRelay:      true,
+		CACertPath:   "/etc/nebula/ca.crt",
+		CertPath:     "/etc/nebula/host.crt",
+		KeyPath:      "/etc/nebula/host.key",
+		ListenPort:   4242,
+		FirewallInbound: []FirewallRule{
+			{Port: "any", Proto: "any", Group: "any"},
+		},
+		FirewallOutbound: []FirewallRule{
+			{Port: "any", Proto: "any", Group: "any"},
+		},
+	}
+
+	data, err := Generate(input)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	var parsed struct {
+		Lighthouse struct {
+			AmLighthouse bool `yaml:"am_lighthouse"`
+		} `yaml:"lighthouse"`
+		Relay struct {
+			AmRelay bool `yaml:"am_relay"`
+		} `yaml:"relay"`
+	}
+	if err := yaml.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("invalid YAML: %v\n%s", err, string(data))
+	}
+	if !parsed.Lighthouse.AmLighthouse {
+		t.Error("lighthouse.am_lighthouse should be true")
+	}
+	if !parsed.Relay.AmRelay {
+		t.Error("relay.am_relay should be true")
+	}
 }
 
 func TestGenerate_Relay(t *testing.T) {
@@ -253,7 +305,20 @@ KEY...KEY...KEY
 	}
 }
 
-// Task 2.3 tests: multi-address lighthouses
+// Task 2.3 tests: multi-address lighthouses.
+//
+// Originally asserted exact byte sequences (flow-style + quoted IPs). After
+// the yaml.v3 typed-struct migration (issue #126), these assert on parsed
+// structure instead — block-style emission is fine as long as the semantic
+// content matches.
+
+// parsedConfig is a minimal subset of nebula config for round-trip assertions.
+type parsedConfig struct {
+	StaticHostMap map[string][]string `yaml:"static_host_map"`
+	Lighthouse    struct {
+		Hosts []string `yaml:"hosts"`
+	} `yaml:"lighthouse"`
+}
 
 func TestGenerate_StaticHostMap_PerAddress(t *testing.T) {
 	input := GeneratorInput{
@@ -281,13 +346,16 @@ func TestGenerate_StaticHostMap_PerAddress(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	s := string(data)
-	// Should have one static_host_map entry per lighthouse IP
-	if !strings.Contains(s, `"10.0.0.1": ["1.2.3.4:4242"]`) {
-		t.Error("missing IPv4 lighthouse in static_host_map")
+	var parsed parsedConfig
+	if err := yaml.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("invalid YAML: %v\n%s", err, string(data))
 	}
-	if !strings.Contains(s, `"fd00::1": ["1.2.3.4:4242"]`) {
-		t.Error("missing IPv6 lighthouse in static_host_map")
+
+	if got := parsed.StaticHostMap["10.0.0.1"]; len(got) != 1 || got[0] != "1.2.3.4:4242" {
+		t.Errorf("static_host_map[10.0.0.1] = %v, want [1.2.3.4:4242]", got)
+	}
+	if got := parsed.StaticHostMap["fd00::1"]; len(got) != 1 || got[0] != "1.2.3.4:4242" {
+		t.Errorf("static_host_map[fd00::1] = %v, want [1.2.3.4:4242]", got)
 	}
 }
 
@@ -317,13 +385,17 @@ func TestGenerate_LighthouseHosts_AllAddresses(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	s := string(data)
-	// lighthouse.hosts should contain both addresses
-	if !strings.Contains(s, `- "10.0.0.1"`) {
-		t.Error("missing IPv4 lighthouse in lighthouse.hosts")
+	var parsed parsedConfig
+	if err := yaml.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("invalid YAML: %v\n%s", err, string(data))
 	}
-	if !strings.Contains(s, `- "fd00::1"`) {
-		t.Error("missing IPv6 lighthouse in lighthouse.hosts")
+
+	want := map[string]bool{"10.0.0.1": true, "fd00::1": true}
+	for _, h := range parsed.Lighthouse.Hosts {
+		delete(want, h)
+	}
+	if len(want) > 0 {
+		t.Errorf("missing lighthouse.hosts entries: %v (got %v)", want, parsed.Lighthouse.Hosts)
 	}
 }
 
@@ -354,25 +426,22 @@ func TestGenerate_MultipleLighthousesEachMulti(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	s := string(data)
-	// Should have 4 entries in static_host_map (2 lighthouses × 2 IPs each)
-	if !strings.Contains(s, `"10.0.0.1": ["1.2.3.4:4242"]`) {
-		t.Error("missing first lighthouse IPv4")
-	}
-	if !strings.Contains(s, `"fd00::1": ["1.2.3.4:4242"]`) {
-		t.Error("missing first lighthouse IPv6")
-	}
-	if !strings.Contains(s, `"10.0.0.2": ["5.6.7.8:4242"]`) {
-		t.Error("missing second lighthouse IPv4")
-	}
-	if !strings.Contains(s, `"fd00::2": ["5.6.7.8:4242"]`) {
-		t.Error("missing second lighthouse IPv6")
-	}
-
-	// Parse to ensure valid YAML
-	var parsed map[string]any
+	var parsed parsedConfig
 	if err := yaml.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("invalid YAML: %v\n%s", err, string(data))
+	}
+
+	expected := map[string]string{
+		"10.0.0.1": "1.2.3.4:4242",
+		"fd00::1":  "1.2.3.4:4242",
+		"10.0.0.2": "5.6.7.8:4242",
+		"fd00::2":  "5.6.7.8:4242",
+	}
+	for ip, addr := range expected {
+		got := parsed.StaticHostMap[ip]
+		if len(got) != 1 || got[0] != addr {
+			t.Errorf("static_host_map[%s] = %v, want [%s]", ip, got, addr)
+		}
 	}
 }
 

@@ -209,9 +209,13 @@ func (o *OIDC) upsertOperator(ctx context.Context, issuer, subject, username, di
 		return nil, err
 	}
 
+	// config.OIDCConfig.Validate refuses the unset+no-allowlist combo at
+	// startup; the remaining unset case has an allowlist gating who reaches
+	// this branch, so "user" is the conservative default rather than the
+	// prior implicit "admin".
 	role := o.cfg.DefaultRole
 	if role == "" {
-		role = "admin"
+		role = "user"
 	}
 	op := &models.Operator{
 		ID:           uuid.New().String(),

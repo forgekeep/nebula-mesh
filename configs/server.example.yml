@@ -100,4 +100,10 @@ allow_self_registration: false
 #   groups_claim: "groups"                 # default
 #   allowed_groups: ["nebula-admins"]      # optional allowlist
 #   allowed_emails: []                     # optional allowlist
-#   default_role: "admin"                  # role for newly-federated users
+#   # default_role gates who becomes admin on first OIDC login. The server
+#   # refuses to start if `default_role` is unset (or "admin") AND both
+#   # allowlists are empty — that combination would silently grant admin to
+#   # any successful login. To opt into "anyone-who-can-log-in-is-admin",
+#   # set `default_role: "admin"` AND at least one allowlist entry (the
+#   # two-field footprint is the point).
+#   default_role: "user"                   # role for newly-federated users

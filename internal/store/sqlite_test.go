@@ -2291,6 +2291,7 @@ func TestCAs_FindCAByPredecessor_Found(t *testing.T) {
 	}
 	if found == nil {
 		t.Fatal("FindCAByPredecessor returned nil, want CA2")
+		return
 	}
 	if found.ID != ca2.ID {
 		t.Errorf("FindCAByPredecessor returned ID=%q, want %q", found.ID, ca2.ID)

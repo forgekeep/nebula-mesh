@@ -28,11 +28,10 @@ func maxBodySize(maxBytes int64) func(http.Handler) http.Handler {
 }
 
 // bearerAuth returns middleware that authenticates the Bearer token against
-// the DB-backed operator API keys. The legacyKey (if non-empty) is accepted
-// as a fallback for backward compatibility with the config-only api_key —
-// in that case no operator is attached to the context and ActorName falls
-// back to "legacy-admin".
-func bearerAuth(s store.Store, legacyKey string) func(http.Handler) http.Handler {
+// the DB-backed operator API keys and attaches the matching operator to the
+// request context. Requests that pass through are guaranteed to have a
+// non-nil ActorOf(ctx).
+func bearerAuth(s store.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			auth := r.Header.Get("Authorization")
@@ -47,7 +46,6 @@ func bearerAuth(s store.Store, legacyKey string) func(http.Handler) http.Handler
 				return
 			}
 
-			// Hash and look up in operator_api_keys.
 			sum := sha256.Sum256([]byte(token))
 			hash := hex.EncodeToString(sum[:])
 			op, key, err := s.GetOperatorByAPIKeyHash(r.Context(), hash)
@@ -62,12 +60,6 @@ func bearerAuth(s store.Store, legacyKey string) func(http.Handler) http.Handler
 			case !errors.Is(err, store.ErrNotFound):
 				slog.Error("auth lookup", "error", err)
 				writeError(w, http.StatusInternalServerError, "auth lookup failed")
-				return
-			}
-
-			// Fallback: legacy config-file API key.
-			if legacyKey != "" && token == legacyKey {
-				next.ServeHTTP(w, r)
 				return
 			}
 

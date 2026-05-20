@@ -118,7 +118,7 @@ func Serve(configPath string) error {
 	}
 
 	// Create API server
-	apiSrv := api.NewServer(s, cfg.APIKey, logger)
+	apiSrv := api.NewServer(s, logger)
 	apiSrv.WithMetricsEnabled(cfg.Metrics.PrometheusEnabled())
 	apiSrv.WithEnrollmentTokenTTL(cfg.EnrollmentTokenTTLDuration())
 

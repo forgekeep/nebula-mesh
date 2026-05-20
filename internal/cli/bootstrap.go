@@ -20,6 +20,11 @@ const DefaultAdminUsername = "admin"
 // every startup: it is idempotent and a no-op if the operators table is
 // already populated. Either uiPassword or apiKey may be empty.
 //
+// When apiKey is non-empty it is hashed and stored as the admin's first
+// operator API key. This is the only consumer of cfg.APIKey — the runtime
+// auth path (bearerAuth) authenticates exclusively via operator_api_keys
+// and does NOT accept the config key as a bearer fallback.
+//
 // It returns true if a new admin was seeded so the caller can log it.
 func SeedAdminOperator(ctx context.Context, s store.Store, uiPassword, apiKey string) (bool, error) {
 	existing, err := s.ListOperators(ctx)
@@ -59,7 +64,7 @@ func SeedAdminOperator(ctx context.Context, s store.Store, uiPassword, apiKey st
 		err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
 			ID:         uuid.New().String(),
 			OperatorID: op.ID,
-			Name:       "legacy-config-key",
+			Name:       "initial-admin-key",
 			KeyHash:    hex.EncodeToString(keyHash[:]),
 		})
 		if err != nil {

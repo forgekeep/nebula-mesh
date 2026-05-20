@@ -57,20 +57,6 @@ func newServerWithMaster(t *testing.T) (*Server, string) {
 	return srv, rawKey
 }
 
-func TestCreateCA_RequiresOperatorContext(t *testing.T) {
-	srv, _ := newServerWithMaster(t)
-
-	body, _ := json.Marshal(map[string]string{"name": "tenant-a"})
-	req := httptest.NewRequest("POST", "/api/v1/cas", bytes.NewBuffer(body))
-	authRequest(req) // legacy config key — no operator context
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("legacy-config CA create = %d, want 403", rec.Code)
-	}
-}
-
 func TestCreateCA_OperatorCanCreate(t *testing.T) {
 	srv, opKey := newServerWithMaster(t)
 

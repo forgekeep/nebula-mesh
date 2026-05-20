@@ -11,20 +11,22 @@ type actorContextKeyType struct{}
 
 var actorContextKey = actorContextKeyType{}
 
-// ActorOf returns the operator attached to the request context, if any.
-// Returns nil when the request was authenticated via the legacy config key.
+// ActorOf returns the operator attached to the request context. On protected
+// API routes bearerAuth guarantees a non-nil value; nil indicates an
+// unauthenticated context (e.g. public endpoints, tests).
 func ActorOf(ctx context.Context) *models.Operator {
 	op, _ := ctx.Value(actorContextKey).(*models.Operator)
 	return op
 }
 
 // ActorName returns a stable string identifier for the actor, suitable for
-// audit log entries. Falls back to "legacy-admin" for legacy-config-key auth.
+// audit log entries. Returns "unknown" if no actor is on the context — this
+// should not happen on routes guarded by bearerAuth.
 func ActorName(ctx context.Context) string {
 	if op := ActorOf(ctx); op != nil {
 		return op.Username
 	}
-	return "legacy-admin"
+	return "unknown"
 }
 
 func withActor(ctx context.Context, op *models.Operator) context.Context {
@@ -32,14 +34,10 @@ func withActor(ctx context.Context, op *models.Operator) context.Context {
 }
 
 // actorIsAdmin reports whether the request's authenticated actor has the
-// admin role. The legacy config-key fallback (no operator on context) is
-// also treated as admin, matching its pre-multi-operator behavior.
+// admin role. Returns false when no actor is on the context (fail-closed).
 func actorIsAdmin(ctx context.Context) bool {
 	op := ActorOf(ctx)
-	if op == nil {
-		return true // legacy config api_key — effectively root
-	}
-	return op.Role == "admin"
+	return op != nil && op.Role == "admin"
 }
 
 // recordAuditAction writes an audit log entry and bumps the matching

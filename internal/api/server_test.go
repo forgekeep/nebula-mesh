@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,7 +36,7 @@ func newTestServer(t *testing.T) (*Server, *store.SQLiteStore) {
 
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := NewServer(s, testAPIKey, logger)
+	srv := NewServer(s, logger)
 
 	// Seed master + resolver for CA resolution in tests
 	master, err := keystore.NewMaster(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
@@ -56,6 +58,18 @@ func newTestServer(t *testing.T) (*Server, *store.SQLiteStore) {
 		UpdatedAt:    time.Now(),
 	}
 	if err := s.CreateOperator(ctx, op); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed testAPIKey as an operator API key for op so authRequest authenticates
+	// via the DB-backed path with the actor attached to the request context.
+	keySum := sha256.Sum256([]byte(testAPIKey))
+	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
+		ID:         "test-admin-key",
+		OperatorID: op.ID,
+		Name:       "test-admin-key",
+		KeyHash:    hex.EncodeToString(keySum[:]),
+	}); err != nil {
 		t.Fatal(err)
 	}
 

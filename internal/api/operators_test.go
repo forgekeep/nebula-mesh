@@ -188,11 +188,11 @@ func TestAuditLogActorIsRecorded(t *testing.T) {
 	}
 	var found bool
 	for _, e := range entries {
-		if e.Action == "operator.create" && e.Actor == "legacy-admin" {
+		if e.Action == "operator.create" && e.Actor == "admin" {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("audit entry for operator.create with actor=legacy-admin not found")
+		t.Error("audit entry for operator.create with actor=admin not found")
 	}
 }

@@ -28,7 +28,6 @@ type Server struct {
 	master         *keystore.Master
 	defaultCAID    string // id of the seeded default CA (when imported)
 	logger         *slog.Logger
-	apiKey         string
 	metrics        *metrics
 	metricsEnabled bool
 	hostSeen           HostSeenEmitter
@@ -39,11 +38,10 @@ type Server struct {
 }
 
 // NewServer creates a new API server.
-func NewServer(s store.Store, apiKey string, logger *slog.Logger) *Server {
+func NewServer(s store.Store, logger *slog.Logger) *Server {
 	srv := &Server{
 		store:              s,
 		logger:             logger,
-		apiKey:             apiKey,
 		metrics:            newMetrics(s),
 		metricsEnabled:     true,
 		passwordPolicy:     auth.Default(),
@@ -169,7 +167,7 @@ func (s *Server) setupRoutes() {
 	// Protected endpoints (require API key)
 	r.Group(func(r chi.Router) {
 		r.Use(s.rateLimitMiddleware("api"))
-		r.Use(bearerAuth(s.store, s.apiKey))
+		r.Use(bearerAuth(s.store))
 		r.Post("/api/v1/networks", s.handleCreateNetwork)
 		r.Get("/api/v1/networks", s.handleListNetworks)
 		r.Get("/api/v1/networks/{id}", s.handleGetNetwork)

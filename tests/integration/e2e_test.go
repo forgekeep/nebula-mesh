@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"io"
@@ -86,7 +88,7 @@ func setupE2E(t *testing.T) (*httptest.Server, *store.SQLiteStore, *models.CA) {
 
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := api.NewServer(s, testAPIKey, logger)
+	srv := api.NewServer(s, logger)
 
 	// Setup CA for test: create master + resolver + default CA
 	master, err := keystore.NewMaster(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
@@ -108,6 +110,18 @@ func setupE2E(t *testing.T) (*httptest.Server, *store.SQLiteStore, *models.CA) {
 		UpdatedAt:    time.Now(),
 	}
 	if err := s.CreateOperator(ctx, op); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed testAPIKey as an operator API key so e2e requests authenticate via
+	// the DB-backed path with the actor attached.
+	keySum := sha256.Sum256([]byte(testAPIKey))
+	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
+		ID:         "e2e-admin-key",
+		OperatorID: op.ID,
+		Name:       "e2e-admin-key",
+		KeyHash:    hex.EncodeToString(keySum[:]),
+	}); err != nil {
 		t.Fatal(err)
 	}
 

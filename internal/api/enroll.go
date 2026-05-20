@@ -120,6 +120,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}
+	defer caMgr.Wipe() // GHSA-8h84-fhqq-q58v: zeroise plaintext CA key on return.
 	hostCert, caCertPEM, err := func() (cert.Certificate, []byte, error) {
 		c, signErr := caMgr.Sign(pki.SignRequest{
 			Name:      host.Name,

@@ -150,10 +150,11 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	rawToken := uuid.New().String()
 	token := &models.EnrollmentToken{
 		ID:        uuid.New().String(),
 		HostID:    host.ID,
-		Token:     uuid.New().String(),
+		TokenHash: models.HashEnrollmentToken(rawToken),
 		ExpiresAt: now.Add(s.tokenTTLFor(r.Context(), host.NetworkID)),
 		CreatedAt: now,
 	}
@@ -166,7 +167,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, createHostResponse{
 		Host:            host,
-		EnrollmentToken: token.Token,
+		EnrollmentToken: rawToken,
 	})
 }
 

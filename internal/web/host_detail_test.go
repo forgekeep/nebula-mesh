@@ -595,7 +595,7 @@ func TestHandleHostDetail_AgentToken_DisplaysWhenPassing(t *testing.T) {
 	token := &models.EnrollmentToken{
 		ID:        "t-1",
 		HostID:    host.ID,
-		Token:     "secret-token-value",
+		TokenHash: models.HashEnrollmentToken("secret-token-value"),
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 		CreatedAt: time.Now(),
 	}

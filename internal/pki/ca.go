@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/slackhq/nebula/cert"
 )
 
@@ -63,6 +64,22 @@ func LoadCAFromMaterial(certPEM []byte, rawKey ed25519.PrivateKey) (*CAManager, 
 // the returned slice as sensitive and zeroise once done.
 func (m *CAManager) RawKey() ed25519.PrivateKey {
 	return m.caKey
+}
+
+// Wipe overwrites the in-memory plaintext signing key with zeros so it
+// no longer lingers on the Go heap waiting for GC. Callers MUST defer
+// this immediately after LoadByID / NewCA, per the keystore package's
+// "zeroise the plaintext as soon as it is no longer needed" contract.
+// After Wipe(), any subsequent Sign() will produce invalid signatures.
+// Closes GHSA-8h84-fhqq-q58v.
+//
+// Nil-safe so `defer caMgr.Wipe()` placed before the error check is
+// also safe — load failures return nil and the defer becomes a no-op.
+func (m *CAManager) Wipe() {
+	if m == nil {
+		return
+	}
+	keystore.Zeroize(m.caKey)
 }
 
 // CACert returns the CA certificate.

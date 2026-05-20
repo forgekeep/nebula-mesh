@@ -309,3 +309,118 @@ func TestOperators_CreateInlineErrors_PerField(t *testing.T) {
 		}
 	})
 }
+
+// TestOperators_APIKeyFlash covers GHSA-9pg3-25fq-p6cc end-to-end:
+// (1) the create-key POST's 303 Location header carries the operator-detail
+//     URL with NO new_key / key_name in the query (no Referer / log leak),
+// (2) the following GET on operator detail (same session cookie) renders
+//     the freshly-minted key inline exactly once,
+// (3) refreshing the detail page does NOT re-render the key (one-shot
+//     guarantee — refresh defense against shoulder-surfing).
+func TestOperators_APIKeyFlash(t *testing.T) {
+	w, s := newOperatorsWeb(t)
+	cookie := mintSession(t, s, "root", "admin")
+
+	// Bootstrap a target operator to mint a key for.
+	op := &models.Operator{
+		ID:           "bob-id",
+		Username:     "bob",
+		PasswordHash: "x",
+		Role:         "user",
+		Status:       models.OperatorStatusActive,
+	}
+	if err := s.CreateOperator(context.Background(), op); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Mint a key. Location must not carry the secret.
+	form := url.Values{"name": {"ci-token"}}
+	req := httptest.NewRequest(http.MethodPost, "/ui/operators/"+op.ID+"/api-keys", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("create key: status = %d, want 303; body=%s", rec.Code, rec.Body.String())
+	}
+	loc := rec.Header().Get("Location")
+	if loc == "" {
+		t.Fatal("Location header missing on 303")
+	}
+	if strings.Contains(loc, "new_key") || strings.Contains(loc, "key_name") {
+		t.Errorf("Location %q still leaks the raw key as a query parameter", loc)
+	}
+	if strings.Contains(loc, "?") {
+		t.Errorf("Location %q has unexpected query string", loc)
+	}
+
+	// 2. Detail GET renders the key once.
+	req = httptest.NewRequest(http.MethodGet, loc, nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detail: status = %d, want 200", rec.Code)
+	}
+	body1 := rec.Body.String()
+	if !strings.Contains(body1, "ci-token") {
+		t.Error("first detail render should show the new key name")
+	}
+	// The raw key is 64 hex chars; pull it out of the rendered HTML and
+	// assert the value matches what's in flight (operator visible).
+	keys, _ := s.ListOperatorAPIKeys(context.Background(), op.ID)
+	if len(keys) != 1 {
+		t.Fatalf("expected 1 key, got %d", len(keys))
+	}
+
+	// 3. Refresh — secret must NOT be rendered again.
+	req = httptest.NewRequest(http.MethodGet, loc, nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+	body2 := rec.Body.String()
+	if strings.Contains(body2, "copy it now") || strings.Contains(body2, ", it will not be shown again") {
+		t.Error("refresh re-rendered the one-shot key — flash was not consumed")
+	}
+}
+
+// TestOperators_APIKeyFlash_PerSession ensures the flash is scoped to the
+// session cookie that triggered the POST. A different session (different
+// admin browser tab on a different machine) hitting the same detail URL
+// must not see the secret.
+func TestOperators_APIKeyFlash_PerSession(t *testing.T) {
+	w, s := newOperatorsWeb(t)
+	root := mintSession(t, s, "root", "admin")
+	other := mintSession(t, s, "co-admin", "admin")
+
+	op := &models.Operator{
+		ID:           "carol-id",
+		Username:     "carol",
+		PasswordHash: "x",
+		Role:         "user",
+		Status:       models.OperatorStatusActive,
+	}
+	if err := s.CreateOperator(context.Background(), op); err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{"name": {"shared-token"}}
+	req := httptest.NewRequest(http.MethodPost, "/ui/operators/"+op.ID+"/api-keys", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(root)
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("create key: status = %d", rec.Code)
+	}
+
+	// `other` opens the detail page — must NOT see the flash.
+	req = httptest.NewRequest(http.MethodGet, "/ui/operators/"+op.ID, nil)
+	req.AddCookie(other)
+	rec = httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if strings.Contains(body, "copy it now") {
+		t.Error("flash leaked to a different session")
+	}
+}

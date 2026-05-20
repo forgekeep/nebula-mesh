@@ -91,6 +91,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 		"013_host_mobile.up.sql",
 		"014_multi_address.up.sql",
 		"015_ca_predecessor.up.sql",
+		"016_enrollment_token_hash.up.sql",
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.
@@ -1174,8 +1175,8 @@ func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t 
 	}
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO enrollment_tokens (id, host_id, token, used, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		t.ID, t.HostID, t.Token, false, t.ExpiresAt, t.CreatedAt,
+		`INSERT INTO enrollment_tokens (id, host_id, token_hash, used, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		t.ID, t.HostID, t.TokenHash, false, t.ExpiresAt, t.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert token: %w", err)
@@ -1189,8 +1190,8 @@ func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t 
 
 func (s *SQLiteStore) CreateToken(_ context.Context, t *models.EnrollmentToken) error {
 	_, err := s.db.Exec(
-		`INSERT INTO enrollment_tokens (id, host_id, token, used, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		t.ID, t.HostID, t.Token, false, t.ExpiresAt, t.CreatedAt,
+		`INSERT INTO enrollment_tokens (id, host_id, token_hash, used, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		t.ID, t.HostID, t.TokenHash, false, t.ExpiresAt, t.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert token: %w", err)
@@ -1201,6 +1202,8 @@ func (s *SQLiteStore) CreateToken(_ context.Context, t *models.EnrollmentToken) 
 // CreateTokenForHost atomically invalidates any active enrollment tokens for
 // the host and writes a fresh single-use one. Used by the regenerate-token,
 // reenroll, and rekey flows (ADR 0004) where the host row must be preserved.
+// The `token` argument is the raw value handed back to the caller; the store
+// only ever persists its SHA-256 hex (GHSA-ghmh-jhmj-wcmf).
 func (s *SQLiteStore) CreateTokenForHost(_ context.Context, hostID, token string, expiresAt time.Time) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -1218,8 +1221,8 @@ func (s *SQLiteStore) CreateTokenForHost(_ context.Context, hostID, token string
 	now := time.Now()
 	id := fmt.Sprintf("etok_%d", now.UnixNano())
 	if _, err := tx.Exec(
-		`INSERT INTO enrollment_tokens (id, host_id, token, used, expires_at, created_at) VALUES (?, ?, ?, 0, ?, ?)`,
-		id, hostID, token, expiresAt, now,
+		`INSERT INTO enrollment_tokens (id, host_id, token_hash, used, expires_at, created_at) VALUES (?, ?, ?, 0, ?, ?)`,
+		id, hostID, models.HashEnrollmentToken(token), expiresAt, now,
 	); err != nil {
 		return fmt.Errorf("insert token: %w", err)
 	}
@@ -1229,6 +1232,8 @@ func (s *SQLiteStore) CreateTokenForHost(_ context.Context, hostID, token string
 	return nil
 }
 
+// ConsumeToken accepts the raw token from the caller, hashes it, and
+// looks up by SHA-256 hex. Marks the row used on success. GHSA-ghmh-jhmj-wcmf.
 func (s *SQLiteStore) ConsumeToken(_ context.Context, token string) (*models.EnrollmentToken, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -1242,9 +1247,9 @@ func (s *SQLiteStore) ConsumeToken(_ context.Context, token string) (*models.Enr
 
 	t := &models.EnrollmentToken{}
 	err = tx.QueryRow(
-		`SELECT id, host_id, token, used, expires_at, created_at FROM enrollment_tokens WHERE token = ?`,
-		token,
-	).Scan(&t.ID, &t.HostID, &t.Token, &t.Used, &t.ExpiresAt, &t.CreatedAt)
+		`SELECT id, host_id, token_hash, used, expires_at, created_at FROM enrollment_tokens WHERE token_hash = ?`,
+		models.HashEnrollmentToken(token),
+	).Scan(&t.ID, &t.HostID, &t.TokenHash, &t.Used, &t.ExpiresAt, &t.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

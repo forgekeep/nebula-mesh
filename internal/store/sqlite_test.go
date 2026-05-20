@@ -348,7 +348,7 @@ func TestConsumeToken_Success(t *testing.T) {
 	}
 
 	tok := &models.EnrollmentToken{
-		ID: "tok_1", HostID: "host_1", Token: "secret-token",
+		ID: "tok_1", HostID: "host_1", TokenHash: models.HashEnrollmentToken("secret-token"),
 		ExpiresAt: time.Now().Add(1 * time.Hour), CreatedAt: time.Now(),
 	}
 	if err := s.CreateToken(ctx, tok); err != nil {
@@ -380,7 +380,7 @@ func TestConsumeToken_AlreadyUsed(t *testing.T) {
 	s.CreateHost(ctx, h)
 
 	tok := &models.EnrollmentToken{
-		ID: "tok_1", HostID: "host_1", Token: "one-time",
+		ID: "tok_1", HostID: "host_1", TokenHash: models.HashEnrollmentToken("one-time"),
 		ExpiresAt: time.Now().Add(1 * time.Hour), CreatedAt: time.Now(),
 	}
 	s.CreateToken(ctx, tok)
@@ -405,7 +405,7 @@ func TestConsumeToken_Expired(t *testing.T) {
 	s.CreateHost(ctx, h)
 
 	tok := &models.EnrollmentToken{
-		ID: "tok_1", HostID: "host_1", Token: "expired-token",
+		ID: "tok_1", HostID: "host_1", TokenHash: models.HashEnrollmentToken("expired-token"),
 		ExpiresAt: time.Now().Add(-1 * time.Hour), CreatedAt: time.Now(),
 	}
 	s.CreateToken(ctx, tok)
@@ -1208,7 +1208,7 @@ func TestCreateHostAndToken(t *testing.T) {
 		CreatedAt: now, UpdatedAt: now,
 	}
 	token := &models.EnrollmentToken{
-		ID: "tok_atomic", HostID: host.ID, Token: "test-token-123",
+		ID: "tok_atomic", HostID: host.ID, TokenHash: models.HashEnrollmentToken("test-token-123"),
 		ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now,
 	}
 
@@ -1247,7 +1247,7 @@ func TestCreateHostAndToken_DuplicateHost(t *testing.T) {
 		CreatedAt: now, UpdatedAt: now,
 	}
 	token1 := &models.EnrollmentToken{
-		ID: "tok1", HostID: host.ID, Token: "token-1",
+		ID: "tok1", HostID: host.ID, TokenHash: models.HashEnrollmentToken("token-1"),
 		ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now,
 	}
 
@@ -1258,7 +1258,7 @@ func TestCreateHostAndToken_DuplicateHost(t *testing.T) {
 
 	// Duplicate host should fail, and token should not be created
 	token2 := &models.EnrollmentToken{
-		ID: "tok2", HostID: host.ID, Token: "token-2",
+		ID: "tok2", HostID: host.ID, TokenHash: models.HashEnrollmentToken("token-2"),
 		ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now,
 	}
 	err := s.CreateHostAndToken(ctx, host, token2)
@@ -1724,7 +1724,7 @@ func TestSQLiteStore_CreateHostAndToken_KindDefault(t *testing.T) {
 	}
 
 	enrollToken := &models.EnrollmentToken{
-		Token:     "test-token-xyz",
+		TokenHash: models.HashEnrollmentToken("test-token-xyz"),
 		HostID:    agentHost.ID,
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 		CreatedAt: time.Now(),

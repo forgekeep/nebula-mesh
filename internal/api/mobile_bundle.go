@@ -53,6 +53,7 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to resolve CA")
 		return
 	}
+	defer caMgr.Wipe() // GHSA-8h84-fhqq-q58v: zeroise plaintext CA key on return.
 
 	// Build the mobile bundle; wrap resolved CA in a simple resolver for builder
 	resolver := &caManagerResolver{ca: caMgr}

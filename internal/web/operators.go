@@ -150,12 +150,16 @@ func (w *Web) handleOperatorDetail(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// GHSA-9pg3-25fq-p6cc: pop the one-shot API-key flash set on the prior
+	// POST instead of trusting query parameters. Empty strings on miss /
+	// expiry / refresh — template treats those as "nothing to show".
+	rawKey, keyName, _ := w.popAPIKeyFlash(r)
 	w.renderForRequest(rw, r, "operator_detail.html", map[string]any{
-		"Active":     "operators",
-		"Operator":   op,
-		"APIKeys":    keys,
-		"NewAPIKey":  r.URL.Query().Get("new_key"),
-		"KeyName":    r.URL.Query().Get("key_name"),
+		"Active":    "operators",
+		"Operator":  op,
+		"APIKeys":   keys,
+		"NewAPIKey": rawKey,
+		"KeyName":   keyName,
 	})
 }
 
@@ -248,7 +252,11 @@ func (w *Web) handleOperatorCreateAPIKey(rw http.ResponseWriter, r *http.Request
 	}
 	actor := actorUsername(r, w.session)
 	_ = w.store.AddAuditEntry(r.Context(), actor, "operator.api_key.create", id, key.ID)
-	http.Redirect(rw, r, "/ui/operators/"+id+"?new_key="+raw+"&key_name="+name, http.StatusSeeOther)
+	// GHSA-9pg3-25fq-p6cc: stash the raw key in a one-shot server-side
+	// flash keyed by the session cookie instead of appending it to the
+	// redirect Location. The detail handler pops + clears on render.
+	w.setAPIKeyFlash(r, raw, name)
+	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther)
 }
 
 func (w *Web) handleOperatorRevokeAPIKey(rw http.ResponseWriter, r *http.Request) {

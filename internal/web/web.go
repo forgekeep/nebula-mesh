@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -44,7 +45,22 @@ type Web struct {
 	passwordPolicy        auth.Policy
 	caMaster              *keystore.Master
 	caResolver            *pki.CAResolver
+
+	// apiKeyFlash holds freshly-minted operator API keys for one-shot
+	// display on the next operator-detail render. Closes GHSA-9pg3-25fq-p6cc
+	// by avoiding the raw token in the redirect URL. Keyed by the live
+	// session-cookie value so a refresh on a different browser sees nothing.
+	apiKeyFlashMu sync.Mutex
+	apiKeyFlash   map[string]apiKeyFlashEntry
 }
+
+type apiKeyFlashEntry struct {
+	Key     string
+	KeyName string
+	Expiry  time.Time
+}
+
+const apiKeyFlashTTL = 5 * time.Minute
 
 // WithPasswordPolicy installs the password policy used by registration
 // and any future self-service password change. Defaults to auth.Default()

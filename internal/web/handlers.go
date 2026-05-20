@@ -820,10 +820,11 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	rawToken := uuid.New().String()
 	token := &models.EnrollmentToken{
 		ID:        uuid.New().String(),
 		HostID:    host.ID,
-		Token:     uuid.New().String(),
+		TokenHash: models.HashEnrollmentToken(rawToken),
 		ExpiresAt: now.Add(24 * time.Hour),
 		CreatedAt: now,
 	}
@@ -836,7 +837,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	w.renderForRequest(rw, r, "host_detail.html", map[string]any{
 		"Active": "hosts",
 		"Host":   host,
-		"Token":  token.Token,
+		"Token":  rawToken,
 	})
 }
 

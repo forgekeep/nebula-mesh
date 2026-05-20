@@ -38,11 +38,8 @@ func (s *Server) handleListCAs(w http.ResponseWriter, r *http.Request) {
 	)
 	if actorIsAdmin(r.Context()) {
 		cas, err = s.store.ListCAs(r.Context())
-	} else if actor := ActorOf(r.Context()); actor != nil {
-		cas, err = s.store.ListCAsByOwner(r.Context(), actor.ID)
 	} else {
-		writeError(w, http.StatusUnauthorized, "operator context required")
-		return
+		cas, err = s.store.ListCAsByOwner(r.Context(), ActorOf(r.Context()).ID)
 	}
 	if err != nil {
 		s.logger.Error("list CAs", "error", err)
@@ -76,12 +73,6 @@ func (s *Server) handleGetCAByID(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateCA(w http.ResponseWriter, r *http.Request) {
 	actor := ActorOf(r.Context())
-	if actor == nil {
-		// Legacy config-key fallback also gets denied here — creating a CA
-		// requires a real operator identity to own it.
-		writeError(w, http.StatusForbidden, "creating a CA requires an authenticated operator")
-		return
-	}
 	if s.master == nil {
 		writeError(w, http.StatusServiceUnavailable, "CA creation requires NEBULA_MGMT_MASTER_KEY to be configured")
 		return
@@ -189,16 +180,12 @@ func (s *Server) handleDeleteCA(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// canAccessCA checks ownership. Admins (and legacy-config callers) bypass.
+// canAccessCA checks ownership. Admins bypass.
 func (s *Server) canAccessCA(r *http.Request, c *models.CA) bool {
 	if actorIsAdmin(r.Context()) {
 		return true
 	}
-	actor := ActorOf(r.Context())
-	if actor == nil {
-		return false
-	}
-	return actor.ID == c.OwnerOperatorID
+	return ActorOf(r.Context()).ID == c.OwnerOperatorID
 }
 
 func (s *Server) handleRotateCA(w http.ResponseWriter, r *http.Request) {

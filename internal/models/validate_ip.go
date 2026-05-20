@@ -3,8 +3,17 @@ package models
 import (
 	"fmt"
 	"net/netip"
+	"regexp"
 	"strings"
 )
+
+// tunDeviceRe is the strict whitelist for TunDevice (advanced.tun_device).
+// Closes GHSA-7hp6-g3pq-3pc3: the previous denylist (whitespace + slash)
+// missed carriage-return and Unicode line separators which YAML parsers
+// accept as line terminators, enabling injection into the rendered agent
+// config.yml. Linux caps interface names at IFNAMSIZ (15 printable bytes
+// + NUL), so a 1-15 char whitelist is also OS-correct.
+var tunDeviceRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,15}$`)
 
 // FriendlyAddrError returns a stable user-facing message for an IP-parse
 // failure. The Go stdlib's netip.ParseAddr error text is intentionally
@@ -147,11 +156,8 @@ func ValidateHostAdvanced(adv *HostAdvanced) error {
 		}
 	}
 	if adv.TunDevice != "" {
-		if strings.ContainsAny(adv.TunDevice, " \t\n/") {
-			return fmt.Errorf("advanced.tun_device must not contain whitespace or slashes")
-		}
-		if len(adv.TunDevice) > 32 {
-			return fmt.Errorf("advanced.tun_device must be at most 32 characters")
+		if !tunDeviceRe.MatchString(adv.TunDevice) {
+			return fmt.Errorf("advanced.tun_device must match [A-Za-z0-9_-]{1,15}")
 		}
 	}
 	for i, r := range adv.UnsafeRoutes {

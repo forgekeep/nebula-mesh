@@ -31,13 +31,13 @@ import (
 func TestOIDC_HandleCallback_EmailVerified(t *testing.T) {
 	skipCheck := false
 	cases := []struct {
-		name             string
-		emailVerified    any  // value to put under the email_verified key
-		omitClaim        bool // true = drop the email_verified key entirely
-		requireOverride  *bool
-		wantStatus       int
-		wantBodyContain  string
-		wantAuditAction  string
+		name            string
+		emailVerified   any  // value to put under the email_verified key
+		omitClaim       bool // true = drop the email_verified key entirely
+		requireOverride *bool
+		wantStatus      int
+		wantBodyContain string
+		wantAuditAction string
 	}{
 		{
 			name:            "verified true succeeds",

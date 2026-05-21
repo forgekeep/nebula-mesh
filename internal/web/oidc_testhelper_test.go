@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
+
 	"github.com/juev/nebula-mesh/internal/config"
 	"github.com/juev/nebula-mesh/internal/store"
 )
@@ -301,13 +302,13 @@ func newOIDCFromMock(t *testing.T, idp *mockIDP, s store.Store, extraCfg config.
 // variant or set the cookie / query explicitly in the test.
 func driveCallback(t *testing.T, o *OIDC, stateValue, code string) *httptest.ResponseRecorder {
 	t.Helper()
-	// Pre-seat the state so consumeState recognises it.
+	// Pre-seat the state so consumeState recognizes it.
 	o.rememberState(stateValue)
 	q := "/ui/oidc/callback?state=" + stateValue
 	if code != "" {
 		q += "&code=" + code
 	}
-	req := httptest.NewRequest("GET", q, nil)
+	req := httptest.NewRequest(http.MethodGet, q, nil)
 	req.AddCookie(&http.Cookie{Name: oidcStateCookieName, Value: stateValue})
 	rec := httptest.NewRecorder()
 	o.HandleCallback(rec, req)
@@ -322,7 +323,7 @@ func driveCallbackWithError(t *testing.T, o *OIDC, stateValue, errParam string) 
 	t.Helper()
 	o.rememberState(stateValue)
 	q := "/ui/oidc/callback?error=" + errParam + "&state=" + stateValue
-	req := httptest.NewRequest("GET", q, nil)
+	req := httptest.NewRequest(http.MethodGet, q, nil)
 	req.AddCookie(&http.Cookie{Name: oidcStateCookieName, Value: stateValue})
 	rec := httptest.NewRecorder()
 	o.HandleCallback(rec, req)
@@ -334,7 +335,7 @@ func driveCallbackWithError(t *testing.T, o *OIDC, stateValue, errParam string) 
 // IdP, store, or session manager. State-sweep tests want to drive those
 // methods directly; the full newOIDCFromMock path stands up an httptest
 // server, generates an RSA key, and runs OIDC discovery, all of which are
-// irrelevant to the in-memory map's behaviour.
+// irrelevant to the in-memory map's behavior.
 //
 // Returns a struct with: empty states map, a discard-sink slog logger, an
 // empty OIDCConfig, and zero values for the rest. Future required

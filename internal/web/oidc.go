@@ -350,7 +350,7 @@ func (o *OIDC) rememberState(state string) {
 
 // sweepLocked drops every state entry whose expiry is at or before now. The
 // caller MUST hold stateMu. Called lazily from rememberState so the per-call
-// cost is amortised across logins and the map cannot grow without bound
+// cost is amortized across logins and the map cannot grow without bound
 // when an unauthenticated client bursts /ui/oidc/login. Avoiding a
 // background goroutine keeps the OIDC type cheap to construct and matches
 // the project's preference for lazy in-memory cleanup where the hot path

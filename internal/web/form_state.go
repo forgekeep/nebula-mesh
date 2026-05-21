@@ -34,40 +34,40 @@ func trimEmpty(src []string) []string {
 // NebulaIPs is a slice to support multiple overlay addresses per host (issue #108).
 // NebulaIPErrors maps row index to per-row error messages for inline rendering.
 type hostFormState struct {
-	NetworkID        string
-	Name             string
-	NebulaIPs        []string
-	NebulaIPErrors   map[int]string
-	Role             string
-	Groups           string
-	PublicIP         string
-	ListenPort       string
-	AdvListenHost    string
-	AdvMTU           string
-	AdvTunDevice     string
-	AdvPunchy        string
-	AdvUnsafeRoutes  string
-	Kind             string
-	Variant          string
+	NetworkID       string
+	Name            string
+	NebulaIPs       []string
+	NebulaIPErrors  map[int]string
+	Role            string
+	Groups          string
+	PublicIP        string
+	ListenPort      string
+	AdvListenHost   string
+	AdvMTU          string
+	AdvTunDevice    string
+	AdvPunchy       string
+	AdvUnsafeRoutes string
+	Kind            string
+	Variant         string
 }
 
 func newHostFormState(r *http.Request) hostFormState {
 	return hostFormState{
-		NetworkID:        r.FormValue("network_id"),
-		Name:             r.FormValue("name"),
-		NebulaIPs:        trimEmpty(r.Form["nebula_ips"]),
-		NebulaIPErrors:   make(map[int]string),
-		Role:             r.FormValue("role"),
-		Groups:           r.FormValue("groups"),
-		PublicIP:         r.FormValue("public_ip"),
-		ListenPort:       r.FormValue("listen_port"),
-		AdvListenHost:    r.FormValue("adv_listen_host"),
-		AdvMTU:           r.FormValue("adv_mtu"),
-		AdvTunDevice:     r.FormValue("adv_tun_device"),
-		AdvPunchy:        r.FormValue("adv_punchy"),
-		AdvUnsafeRoutes:  r.FormValue("adv_unsafe_routes"),
-		Kind:             r.FormValue("kind"),
-		Variant:          r.FormValue("variant"),
+		NetworkID:       r.FormValue("network_id"),
+		Name:            r.FormValue("name"),
+		NebulaIPs:       trimEmpty(r.Form["nebula_ips"]),
+		NebulaIPErrors:  make(map[int]string),
+		Role:            r.FormValue("role"),
+		Groups:          r.FormValue("groups"),
+		PublicIP:        r.FormValue("public_ip"),
+		ListenPort:      r.FormValue("listen_port"),
+		AdvListenHost:   r.FormValue("adv_listen_host"),
+		AdvMTU:          r.FormValue("adv_mtu"),
+		AdvTunDevice:    r.FormValue("adv_tun_device"),
+		AdvPunchy:       r.FormValue("adv_punchy"),
+		AdvUnsafeRoutes: r.FormValue("adv_unsafe_routes"),
+		Kind:            r.FormValue("kind"),
+		Variant:         r.FormValue("variant"),
 	}
 }
 
@@ -78,10 +78,10 @@ func newHostFormState(r *http.Request) hostFormState {
 // CIDRs is a slice to support multiple CIDR blocks per network (issue #108).
 // CIDRErrors maps row index to per-row error messages for inline rendering.
 type networkFormState struct {
-	Name      string
-	CIDRs     []string
+	Name       string
+	CIDRs      []string
 	CIDRErrors map[int]string
-	CAID      string
+	CAID       string
 }
 
 func newNetworkFormState(r *http.Request) networkFormState {
@@ -279,11 +279,11 @@ func hostFormStateFromHost(h *models.Host) hostFormState {
 // payload is the cause. Mirrors renderHostNewError for consistency.
 func (w *Web) renderHostEditError(rw http.ResponseWriter, r *http.Request, host *models.Host, network *models.Network, form hostFormState, errMsg string) {
 	w.renderForRequestWithStatus(rw, r, http.StatusBadRequest, "host_edit.html", map[string]any{
-		"Active":   "hosts",
-		"Host":     host,
-		"Network":  network,
-		"Form":     form,
-		"Error":    errMsg,
+		"Active":  "hosts",
+		"Host":    host,
+		"Network": network,
+		"Form":    form,
+		"Error":   errMsg,
 	})
 }
 
@@ -318,8 +318,8 @@ func newOperatorFormState(r *http.Request) operatorFormState {
 // the active password policy.
 func (w *Web) renderOperatorNewError(rw http.ResponseWriter, r *http.Request, form operatorFormState, hint string) {
 	w.renderForRequestWithStatus(rw, r, http.StatusBadRequest, "operator_new.html", map[string]any{
-		"Active":        "operators",
-		"Form":          form,
-		"PasswordHint":  hint,
+		"Active":       "operators",
+		"Form":         form,
+		"PasswordHint": hint,
 	})
 }

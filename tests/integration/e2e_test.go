@@ -18,15 +18,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/api"
+	"github.com/slackhq/nebula/cert"
+	"golang.org/x/crypto/curve25519"
+
 	agentpop "github.com/juev/nebula-mesh/internal/agent/pop"
+	"github.com/juev/nebula-mesh/internal/api"
 	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
 	corepop "github.com/juev/nebula-mesh/internal/pop"
 	"github.com/juev/nebula-mesh/internal/store"
-	"github.com/slackhq/nebula/cert"
-	"golang.org/x/crypto/curve25519"
 )
 
 // signingKeypair returns a fresh Ed25519 keypair and its PEM-encoded public
@@ -46,7 +47,7 @@ func signingKeypair(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey, string
 // to what internal/agent.Poller produces.
 func signedGetUpdates(t *testing.T, ts *httptest.Server, fingerprint string, signingPriv ed25519.PrivateKey) *http.Response {
 	t.Helper()
-	req, err := http.NewRequest("GET", ts.URL+"/api/v1/agent/updates", nil)
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/agent/updates", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +457,7 @@ func TestAgentUpdates_CertSaveFailure(t *testing.T) {
 // below: it creates a host, runs the full enrollment handshake, and returns
 // the host record, its cert fingerprint, its rendered config, and the
 // Ed25519 signing private key needed to issue signed polls afterwards.
-func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP string, extra map[string]any) (*models.Host, string, string, ed25519.PrivateKey) {
+func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP string, extra map[string]any) (host *models.Host, fingerprint, renderedConfig string, signingKey ed25519.PrivateKey) {
 	t.Helper()
 	payload := map[string]any{
 		"network_id": networkID,

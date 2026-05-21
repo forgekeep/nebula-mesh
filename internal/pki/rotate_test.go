@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestRotateAndStoreCA_HappyPath(t *testing.T) {
@@ -90,9 +91,9 @@ func TestRotateAndStoreCA_IdempotentExistingSuccessor(t *testing.T) {
 	require.NotNil(t, ca2)
 
 	// Rotate again (idempotence): should return CA2 without creating CA3.
-	ca2_again, err := pki.RotateAndStoreCA(context.Background(), s, master, logger, ca1)
+	ca2Again, err := pki.RotateAndStoreCA(context.Background(), s, master, logger, ca1)
 	require.NoError(t, err)
-	assert.Equal(t, ca2_again.ID, ca2.ID)
+	assert.Equal(t, ca2Again.ID, ca2.ID)
 
 	// Verify DB has exactly 2 CAs.
 	all, err := s.ListCAsByOwner(context.Background(), op.ID)

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,7 @@ func TestEnroll_Success(t *testing.T) {
 
 	// Mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" || r.URL.Path != "/api/v1/enroll" {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/enroll" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -53,7 +54,7 @@ func TestEnroll_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := Enroll(server.URL, "test-token", dir, signingKeyPath)
+	err := Enroll(context.Background(), server.URL, "test-token", dir, signingKeyPath)
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -100,7 +101,7 @@ func TestEnroll_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := Enroll(server.URL, "bad-token", t.TempDir(), filepath.Join(t.TempDir(), "host.signing.key"))
+	err := Enroll(context.Background(), server.URL, "bad-token", t.TempDir(), filepath.Join(t.TempDir(), "host.signing.key"))
 	if err == nil {
 		t.Fatal("expected error for server error response, got nil")
 	}

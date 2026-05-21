@@ -15,9 +15,9 @@ import (
 	"github.com/juev/nebula-mesh/internal/auth"
 	"github.com/juev/nebula-mesh/internal/cawatch"
 	"github.com/juev/nebula-mesh/internal/config"
-	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/pki"
+	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/juev/nebula-mesh/internal/web"
 )

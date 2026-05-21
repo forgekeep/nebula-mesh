@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/juev/nebula-mesh/internal/models"
 	"gopkg.in/yaml.v3"
+
+	"github.com/juev/nebula-mesh/internal/models"
 )
 
 // TestHandleMobileBundle_Success verifies the handler generates a mobile bundle
@@ -38,7 +39,7 @@ func TestHandleMobileBundle_Success(t *testing.T) {
 		t.Fatalf("create mobile host: %v", err)
 	}
 
-	req := httptest.NewRequest("POST", "/api/v1/hosts/"+host.ID+"/mobile-bundle", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+host.ID+"/mobile-bundle", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -108,7 +109,7 @@ func TestHandleMobileBundle_RejectsNonMobile(t *testing.T) {
 		t.Fatalf("create agent host: %v", err)
 	}
 
-	req := httptest.NewRequest("POST", "/api/v1/hosts/"+host.ID+"/mobile-bundle", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+host.ID+"/mobile-bundle", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -130,7 +131,7 @@ func TestHandleMobileBundle_RejectsNonMobile(t *testing.T) {
 func TestHandleMobileBundle_NotFound(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	req := httptest.NewRequest("POST", "/api/v1/hosts/nonexistent/mobile-bundle", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/nonexistent/mobile-bundle", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -144,7 +145,7 @@ func TestHandleMobileBundle_NotFound(t *testing.T) {
 func TestHandleMobileBundle_Unauthorized(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	req := httptest.NewRequest("POST", "/api/v1/hosts/anything/mobile-bundle", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/anything/mobile-bundle", nil)
 	// Note: no authRequest call — missing Authorization header
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

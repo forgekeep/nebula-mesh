@@ -8,10 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/slackhq/nebula/cert"
+
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
-	"github.com/slackhq/nebula/cert"
 )
 
 func TestBuild_RoundTrip(t *testing.T) {

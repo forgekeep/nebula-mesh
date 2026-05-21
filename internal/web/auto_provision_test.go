@@ -357,7 +357,7 @@ func TestHandleCACreate_StillWorks(t *testing.T) {
 	cookie := mintSession(t, s, "frank", "user")
 
 	form := "name=frank-ca&duration=8760h"
-	req := httptest.NewRequest("POST", "/ui/cas", strings.NewReader(form))
+	req := httptest.NewRequest(http.MethodPost, "/ui/cas", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()

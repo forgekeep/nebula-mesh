@@ -17,7 +17,7 @@ import (
 
 // Scanner is a periodic CA auto-rotation watchdog. Wire one up at server start,
 // call StartLoop with a cancellable context, and it ticks every Interval
-// until the context is cancelled.
+// until the context is canceled.
 type Scanner struct {
 	Store     store.Store
 	Master    *keystore.Master
@@ -59,7 +59,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 }
 
 // StartLoop runs Run() immediately, then on every Interval tick until ctx is
-// cancelled. Returns once the loop exits.
+// canceled. Returns once the loop exits.
 func (s *Scanner) StartLoop(ctx context.Context) {
 	interval := s.Interval
 	if interval <= 0 {

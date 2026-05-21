@@ -20,7 +20,7 @@ const strongPassword = "Correcthorse-Battery!Staple1"
 func TestRegister_DisabledByDefault(t *testing.T) {
 	w, _ := newTestWeb(t)
 
-	req := httptest.NewRequest("GET", "/ui/register", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/register", nil)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
@@ -28,7 +28,7 @@ func TestRegister_DisabledByDefault(t *testing.T) {
 	}
 
 	form := url.Values{"username": {"alice"}, "password": {strongPassword}, "password_confirm": {strongPassword}}
-	req = httptest.NewRequest("POST", "/ui/register", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec = httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -47,7 +47,7 @@ func TestRegister_Enabled_CreatesOperator(t *testing.T) {
 		"password":         {strongPassword},
 		"password_confirm": {strongPassword},
 	}
-	req := httptest.NewRequest("POST", "/ui/register", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -73,7 +73,7 @@ func TestRegister_RejectsDuplicateUsername(t *testing.T) {
 		"password":         {strongPassword},
 		"password_confirm": {strongPassword},
 	}
-	req := httptest.NewRequest("POST", "/ui/register", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -87,7 +87,7 @@ func TestRegister_RejectsShortPassword(t *testing.T) {
 	w.AllowSelfRegistration(true)
 
 	form := url.Values{"username": {"bob"}, "password": {"short"}, "password_confirm": {"short"}}
-	req := httptest.NewRequest("POST", "/ui/register", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -102,7 +102,7 @@ func TestRegister_RejectsMismatchedConfirmation(t *testing.T) {
 	w.AllowSelfRegistration(true)
 
 	form := url.Values{"username": {"carol"}, "password": {strongPassword}, "password_confirm": {strongPassword + "X"}}
-	req := httptest.NewRequest("POST", "/ui/register", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -113,7 +113,7 @@ func TestRegister_RejectsMismatchedConfirmation(t *testing.T) {
 
 func TestLoginPage_ShowsRegisterLinkOnlyWhenEnabled(t *testing.T) {
 	w, _ := newTestWeb(t)
-	req := httptest.NewRequest("GET", "/ui/login", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/login", nil)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if strings.Contains(rec.Body.String(), "Create an account") {
@@ -121,7 +121,7 @@ func TestLoginPage_ShowsRegisterLinkOnlyWhenEnabled(t *testing.T) {
 	}
 
 	w.AllowSelfRegistration(true)
-	req = httptest.NewRequest("GET", "/ui/login", nil)
+	req = httptest.NewRequest(http.MethodGet, "/ui/login", nil)
 	rec = httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if !strings.Contains(rec.Body.String(), "Create an account") {

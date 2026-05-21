@@ -129,8 +129,8 @@ type RateLimitConfig struct {
 	// Enabled is a pointer so an absent YAML block defaults to "true"
 	// (issue #52 requires on-by-default) while still allowing a
 	// `rate_limit: { enabled: false }` to disable it.
-	Enabled          *bool                          `yaml:"enabled,omitempty"`
-	TrustProxyHeader bool                           `yaml:"trust_proxy_header,omitempty"`
+	Enabled          *bool                           `yaml:"enabled,omitempty"`
+	TrustProxyHeader bool                            `yaml:"trust_proxy_header,omitempty"`
 	Groups           map[string]RateLimitGroupConfig `yaml:"groups,omitempty"`
 }
 
@@ -289,7 +289,9 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 // SaveServerConfig writes the config to path atomically (temp file + rename).
 // Existing comments and unknown fields in the file are not preserved.
 func SaveServerConfig(path string, cfg *ServerConfig) error {
-	data, err := yaml.Marshal(cfg)
+	// The server config legitimately contains secrets (OIDC client secret,
+	// API keys); they live in this file by design.
+	data, err := yaml.Marshal(cfg) //nolint:gosec // G117: secrets are an expected part of the config
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}

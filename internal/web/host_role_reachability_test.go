@@ -78,12 +78,12 @@ func TestCreateHostViaUI_RoleReachability(t *testing.T) {
 			form := url.Values{
 				"network_id":  {"net-rr"},
 				"name":        {"h-" + strings.ReplaceAll(tc.name, " ", "-")},
-				"nebula_ips":   {tc.nebulaIP},
+				"nebula_ips":  {tc.nebulaIP},
 				"role":        {tc.role},
 				"public_ip":   {tc.publicIP},
 				"listen_port": {tc.listenPort},
 			}
-			req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
+			req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			for _, c := range cookies {
 				req.AddCookie(c)

@@ -11,9 +11,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type createOperatorRequest struct {
@@ -123,8 +124,8 @@ type createAPIKeyRequest struct {
 }
 
 type createAPIKeyResponse struct {
-	Key   string                  `json:"key"`   // shown once
-	Entry *models.OperatorAPIKey  `json:"entry"`
+	Key   string                 `json:"key"` // shown once
+	Entry *models.OperatorAPIKey `json:"entry"`
 }
 
 func (s *Server) handleCreateOperatorAPIKey(w http.ResponseWriter, r *http.Request) {

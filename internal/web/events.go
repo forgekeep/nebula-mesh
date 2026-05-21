@@ -25,8 +25,8 @@ type HostSeenEvent struct {
 // and stale subscribers get unblocked by dropping the event, never the
 // publisher.
 type EventBus struct {
-	mu      sync.Mutex
-	subs    map[chan HostSeenEvent]struct{}
+	mu   sync.Mutex
+	subs map[chan HostSeenEvent]struct{}
 }
 
 // NewEventBus creates a fresh bus.

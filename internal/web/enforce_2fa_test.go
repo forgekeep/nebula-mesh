@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func newEnforceWeb(t *testing.T) (*Web, store.Store) {

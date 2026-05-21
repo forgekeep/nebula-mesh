@@ -312,11 +312,16 @@ func TestOperators_CreateInlineErrors_PerField(t *testing.T) {
 
 // TestOperators_APIKeyFlash covers GHSA-9pg3-25fq-p6cc end-to-end:
 // (1) the create-key POST's 303 Location header carries the operator-detail
-//     URL with NO new_key / key_name in the query (no Referer / log leak),
+//
+//	URL with NO new_key / key_name in the query (no Referer / log leak),
+//
 // (2) the following GET on operator detail (same session cookie) renders
-//     the freshly-minted key inline exactly once,
+//
+//	the freshly-minted key inline exactly once,
+//
 // (3) refreshing the detail page does NOT re-render the key (one-shot
-//     guarantee — refresh defense against shoulder-surfing).
+//
+//	guarantee — refresh defense against shoulder-surfing).
 func TestOperators_APIKeyFlash(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "root", "admin")

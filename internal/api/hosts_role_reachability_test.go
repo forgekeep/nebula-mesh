@@ -87,12 +87,12 @@ func TestCreateHost_RoleReachability(t *testing.T) {
 			body, _ := json.Marshal(createHostRequest{
 				NetworkID:  netID,
 				Name:       "h-" + strings.ReplaceAll(tc.name, " ", "-"),
-				NebulaIPs: []string{tc.nebulaIP},
+				NebulaIPs:  []string{tc.nebulaIP},
 				Role:       tc.role,
 				PublicIP:   tc.publicIP,
 				ListenPort: tc.listenPort,
 			})
-			req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 			authRequest(req)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, req)

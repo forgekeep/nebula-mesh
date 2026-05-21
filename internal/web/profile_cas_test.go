@@ -14,7 +14,7 @@ func TestProfile_ShowsMyCAs(t *testing.T) {
 	ca1 := seedActiveCA(t, s, "ca-1", "op-alice", "ca-one")
 	ca2 := seedActiveCA(t, s, "ca-2", "op-alice", "ca-two")
 
-	req := httptest.NewRequest("GET", "/ui/profile", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/profile", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -59,7 +59,7 @@ func TestProfile_EmptyState(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "alice", "user")
 
-	req := httptest.NewRequest("GET", "/ui/profile", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/profile", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)

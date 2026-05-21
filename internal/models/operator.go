@@ -20,20 +20,20 @@ const (
 
 // Operator is an administrative user of the management server.
 type Operator struct {
-	ID            string               `json:"id"`
-	Username      string               `json:"username"`
-	DisplayName   string               `json:"display_name"`
-	PasswordHash  string               `json:"-"`
-	AuthProvider  OperatorAuthProvider `json:"auth_provider"`
-	Status        OperatorStatus       `json:"status"`
-	Role          string               `json:"role"`
-	TOTPSecret    string               `json:"-"`
-	TOTPEnabled   bool                 `json:"totp_enabled"`
-	OIDCIssuer    string               `json:"oidc_issuer,omitempty"`
-	OIDCSubject   string               `json:"oidc_subject,omitempty"`
-	CreatedAt     time.Time            `json:"created_at"`
-	UpdatedAt     time.Time            `json:"updated_at"`
-	LastLoginAt   *time.Time           `json:"last_login_at,omitempty"`
+	ID           string               `json:"id"`
+	Username     string               `json:"username"`
+	DisplayName  string               `json:"display_name"`
+	PasswordHash string               `json:"-"`
+	AuthProvider OperatorAuthProvider `json:"auth_provider"`
+	Status       OperatorStatus       `json:"status"`
+	Role         string               `json:"role"`
+	TOTPSecret   string               `json:"-"`
+	TOTPEnabled  bool                 `json:"totp_enabled"`
+	OIDCIssuer   string               `json:"oidc_issuer,omitempty"`
+	OIDCSubject  string               `json:"oidc_subject,omitempty"`
+	CreatedAt    time.Time            `json:"created_at"`
+	UpdatedAt    time.Time            `json:"updated_at"`
+	LastLoginAt  *time.Time           `json:"last_login_at,omitempty"`
 }
 
 // OperatorAPIKey is a per-operator API key. Only the hash is stored.

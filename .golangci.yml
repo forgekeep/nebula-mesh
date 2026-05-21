@@ -2,25 +2,244 @@ version: "2"
 
 run:
   timeout: 5m
+  # Build tags used in the project (if any) — leave empty for now.
+  tests: true
+  # Don't fail on go.mod version mismatch with the installed Go toolchain.
+  go: ""
+
+output:
+  formats:
+    text:
+      path: stderr
+      print-linter-name: true
+      print-issued-lines: true
 
 linters:
   default: none
   enable:
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gocritic
-    - revive
-    - misspell
+    # --- Correctness & bugs ---
+    - errcheck         # unchecked errors
+    - govet            # standard vet checks
+    - staticcheck      # SA/ST/QF megachecks
+    - ineffassign      # ineffectual assignments
+    - unused           # unused code (funcs, vars, consts, fields)
+    - bodyclose        # http.Response.Body must be closed
+    - durationcheck    # time.Duration multiplication mistakes
+    - errorlint        # proper error wrapping / errors.Is/As usage
+    - nilerr           # `return nil` when err != nil
+    - noctx            # net/http requests without context
+    - rowserrcheck     # sql.Rows.Err must be checked
+    - sqlclosecheck    # sql.Rows / sql.Stmt must be closed
+    - copyloopvar      # Go 1.22+ loop variable capture
+    - gocheckcompilerdirectives # `//go:` directive typos
+    - reassign         # reassigning top-level pkg vars (errors.EOF, etc.)
+    - makezero         # `make([]T, len)` then append — usually a bug
+
+    # --- Security ---
+    - gosec            # security audit — REQUIRED by maintainer
+    - bidichk          # forbid trojan-source bidirectional unicode
+
+    # --- Style / readability ---
+    - gocritic         # broad set of opinionated checks
+    - revive           # configurable golint successor
+    - misspell         # english spelling
+    - unconvert        # remove redundant type conversions
+    - whitespace       # leading/trailing whitespace in funcs
+    - nakedret         # naked returns in long funcs
+    - prealloc         # preallocate slices in obvious loops
+    - usestdlibvars    # use stdlib consts (http.MethodGet, etc.)
+
   settings:
+    errcheck:
+      check-type-assertions: false
+      check-blank: false
+      # Common functions where ignoring the error is conventional.
+      exclude-functions:
+        - (*os.File).Close
+        - (io.Closer).Close
+        - (net.Conn).Close
+        - (net.Listener).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Stmt).Close
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # too noisy; only useful for hot-path structs
+        - shadow         # too many false positives in idiomatic Go
+      settings:
+        printf:
+          funcs:
+            - (github.com/juev/nebula-mesh/internal/alerts.Logger).Infof
+            - (github.com/juev/nebula-mesh/internal/alerts.Logger).Warnf
+            - (github.com/juev/nebula-mesh/internal/alerts.Logger).Errorf
+
+    staticcheck:
+      checks:
+        - all
+        # Examples to disable specific noisy checks (kept enabled by default):
+        # - "-ST1000"  # missing package doc
+        # - "-ST1003"  # naming conventions (too opinionated for legacy code)
+
+    gosec:
+      severity: low
+      confidence: low
+      excludes:
+        - G104 # "Errors unhandled" — errcheck covers this with better config
+        - G115 # Integer overflow conversion — many false positives on slice lengths
+        # G124 ("Cookie missing Secure/HttpOnly/SameSite") triggers even when
+        # the attributes are set through a struct field instead of a literal —
+        # gosec's pattern only matches inline true/false. Every cookie in this
+        # codebase sets all three attributes (HttpOnly, Secure via configurable
+        # field, SameSite); validated by code review.
+        - G124
+        # G710 ("Open redirect via taint analysis") flags every
+        # http.Redirect(..., "/ui/...") + chi URLParam combination as tainted.
+        # All redirects in this app are same-origin relative paths (no scheme
+        # or host accepted); validated by code review of internal/web/*.
+        - G710
+      config:
+        G306: "0644" # acceptable file perm for non-secret files
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - opinionated
+      disabled-checks:
+        - hugeParam        # noisy for value receivers used in tests
+        - rangeValCopy     # noisy on small structs
+        - typeDefFirst     # style preference
+        - paramTypeCombine # style preference
+        - unnamedResult    # too opinionated
+        - whyNoLint        # explanations not required
+        - commentedOutCode
+
     revive:
+      enable-all-rules: false
+      severity: warning
       rules:
-        - name: exported
-          disabled: true
+        - name: atomic
+        - name: blank-imports
+        - name: bool-literal-in-expr
+        - name: confusing-naming
+        - name: confusing-results
+        - name: constant-logical-expr
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: defer
+          arguments:
+            - - immediate-recover
+              - recover
+              - return
+        - name: duplicated-imports
+        - name: early-return
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: identical-branches
+        - name: if-return
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: range-val-in-closure
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: string-of-int
+        - name: superfluous-else
+        - name: time-equal
+        - name: time-naming
+        - name: unconditional-recursion
+        - name: unexported-return
+        - name: unnecessary-stmt
+        - name: unreachable-code
+        - name: unused-parameter
+          disabled: true # too noisy; gopls/unparam already cover the useful cases
+        - name: useless-break
+        - name: var-declaration
+        - name: var-naming
+        - name: waitgroup-by-value
+
+    misspell:
+      locale: US
+
+    nakedret:
+      max-func-lines: 30
+
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: false
+
+    unparam:
+      check-exported: false
+
   exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+      - bin$
+      - \.tools$
     rules:
+      # Tests can be more relaxed: random for fixtures, hardcoded creds, file perms.
       - path: _test\.go
         linters:
           - errcheck
+          - gosec
+          - gocritic
+          - bodyclose
+          - noctx
+          - prealloc
+          - unparam
+          - rowserrcheck
+          - sqlclosecheck
+      - path: tests/integration/
+        linters:
+          - errcheck
+          - gosec
+          - gocritic
+          - bodyclose
+          - noctx
+          - prealloc
+          - unparam
+      # Generated/embedded asset wrappers tend to trip stylistic linters.
+      - path: internal/web/templates/
+        linters:
+          - gocritic
+          - revive
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/juev/nebula-mesh
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+      - bin$
+      - \.tools$
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  # Show all issues from new linters even if they hit older code.
+  new: false

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,7 +38,7 @@ func CACreate(serverURL, apiKey, name, duration string) error {
 		return fmt.Errorf("--name is required")
 	}
 	body, _ := json.Marshal(caCreateRequest{Name: name, Duration: duration})
-	req, err := http.NewRequest("POST", serverURL+"/api/v1/cas", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, serverURL+"/api/v1/cas", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -68,7 +69,7 @@ func CACreate(serverURL, apiKey, name, duration string) error {
 
 // CAList prints the CAs visible to the caller.
 func CAList(serverURL, apiKey string) error {
-	req, err := http.NewRequest("GET", serverURL+"/api/v1/cas", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, serverURL+"/api/v1/cas", http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -112,7 +113,7 @@ func CARotate(serverURL, apiKey, id string) error {
 	if apiKey == "" {
 		return fmt.Errorf("--api-key is required")
 	}
-	req, err := http.NewRequest("POST", serverURL+"/api/v1/cas/"+id+"/rotate", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, serverURL+"/api/v1/cas/"+id+"/rotate", http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

@@ -66,7 +66,7 @@ func TestHandleGenerateMobileBundle_Success(t *testing.T) {
 		ID:        "h-mobile",
 		Name:      "phone-test",
 		NetworkID: "n-bundle",
-		NebulaIPs:  []string{"10.0.0.5"},
+		NebulaIPs: []string{"10.0.0.5"},
 		Kind:      models.HostKindMobile,
 		Variant:   models.HostVariantIOS,
 		Role:      models.HostRoleHost,
@@ -77,7 +77,7 @@ func TestHandleGenerateMobileBundle_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("POST", "/ui/hosts/h-mobile/mobile-bundle/generate", nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-mobile/mobile-bundle/generate", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -149,7 +149,7 @@ func TestHandleGenerateMobileBundle_AgentHostRejected(t *testing.T) {
 		ID:        "h-agent",
 		Name:      "agent-host",
 		NetworkID: "n-agent",
-		NebulaIPs:  []string{"10.0.0.5"},
+		NebulaIPs: []string{"10.0.0.5"},
 		Kind:      models.HostKindAgent,
 		Variant:   "",
 		Role:      models.HostRoleHost,
@@ -160,7 +160,7 @@ func TestHandleGenerateMobileBundle_AgentHostRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("POST", "/ui/hosts/h-agent/mobile-bundle/generate", nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-agent/mobile-bundle/generate", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -183,7 +183,7 @@ func TestHandleGenerateMobileBundle_NotFound(t *testing.T) {
 	w, _ := newTestWeb(t)
 	cookies := loginSession(t, w)
 
-	req := httptest.NewRequest("POST", "/ui/hosts/h-nonexistent/mobile-bundle/generate", nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-nonexistent/mobile-bundle/generate", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -216,7 +216,7 @@ func TestHandleGenerateMobileBundle_RequiresAuth(t *testing.T) {
 		ID:        "h-mobile-2",
 		Name:      "phone-noauth",
 		NetworkID: "n-auth",
-		NebulaIPs:  []string{"10.0.0.6"},
+		NebulaIPs: []string{"10.0.0.6"},
 		Kind:      models.HostKindMobile,
 		Variant:   models.HostVariantAndroid,
 		Role:      models.HostRoleHost,
@@ -227,7 +227,7 @@ func TestHandleGenerateMobileBundle_RequiresAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("POST", "/ui/hosts/h-mobile-2/mobile-bundle/generate", nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-mobile-2/mobile-bundle/generate", nil)
 	// No session cookie.
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)

@@ -69,15 +69,14 @@ func (c *NonceCache) SeenOrAdd(hostID, nonce string) bool {
 	now := c.now()
 	if el, ok := c.items[key]; ok {
 		entry := el.Value.(*nonceEntry)
-		if now.Sub(entry.lastSeen) >= c.idleTTL {
-			c.removeEl(el)
-		} else {
+		if now.Sub(entry.lastSeen) < c.idleTTL {
 			// Live duplicate: replay. Bump recency to defeat
 			// flood-then-replay tactics.
 			entry.lastSeen = now
 			c.order.MoveToFront(el)
 			return false
 		}
+		c.removeEl(el)
 	}
 
 	entry := &nonceEntry{key: key, lastSeen: now}

@@ -15,7 +15,7 @@ func TestNetworksForm_HidesSelectorWhenSingleCA(t *testing.T) {
 	cookie := mintSession(t, s, "alice", "user")
 	ca := seedActiveCA(t, s, "ca-alice", "op-alice", "alice-ca")
 
-	req := httptest.NewRequest("GET", "/ui/networks", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/networks", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -51,7 +51,7 @@ func TestNetworksForm_ShowsSelectorWhenMultipleCAs(t *testing.T) {
 	ca1 := seedActiveCA(t, s, "ca-1", "op-alice", "ca-one")
 	ca2 := seedActiveCA(t, s, "ca-2", "op-alice", "ca-two")
 
-	req := httptest.NewRequest("GET", "/ui/networks", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/networks", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)

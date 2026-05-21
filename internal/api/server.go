@@ -10,6 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	poppkg "github.com/juev/nebula-mesh/internal/api/pop"
 	"github.com/juev/nebula-mesh/internal/auth"
 	"github.com/juev/nebula-mesh/internal/configgen"
@@ -17,19 +19,18 @@ import (
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/ratelimit"
 	"github.com/juev/nebula-mesh/internal/store"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Server is the HTTP API server.
 type Server struct {
-	router         chi.Router
-	store          store.Store
-	caResolver     *pki.CAResolver // resolves CAs by id from the store (multi-CA)
-	master         *keystore.Master
-	defaultCAID    string // id of the seeded default CA (when imported)
-	logger         *slog.Logger
-	metrics        *metrics
-	metricsEnabled bool
+	router             chi.Router
+	store              store.Store
+	caResolver         *pki.CAResolver // resolves CAs by id from the store (multi-CA)
+	master             *keystore.Master
+	defaultCAID        string // id of the seeded default CA (when imported)
+	logger             *slog.Logger
+	metrics            *metrics
+	metricsEnabled     bool
 	hostSeen           HostSeenEmitter
 	limiter            *ratelimit.Limiter
 	passwordPolicy     auth.Policy

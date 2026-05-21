@@ -7,9 +7,10 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // DefaultAdminUsername is the username assigned to the auto-seeded admin operator.

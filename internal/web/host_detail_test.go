@@ -30,7 +30,7 @@ func TestHostDetail_HasEditButton(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIPs:  []string{"192.168.100.10"},
+		NebulaIPs: []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		CreatedAt: time.Now(),
@@ -40,7 +40,7 @@ func TestHostDetail_HasEditButton(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/h-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/h-1", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -77,7 +77,7 @@ func TestHostDetail_RendersAdvanced(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIPs:  []string{"192.168.100.10"},
+		NebulaIPs: []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Advanced: &models.HostAdvanced{
@@ -92,7 +92,7 @@ func TestHostDetail_RendersAdvanced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/h-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/h-1", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -154,7 +154,7 @@ func TestHostDetail_AdvancedAbsent_NoSection(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIPs:  []string{"192.168.100.10"},
+		NebulaIPs: []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Advanced:  nil,
@@ -165,7 +165,7 @@ func TestHostDetail_AdvancedAbsent_NoSection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/h-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/h-1", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -202,7 +202,7 @@ func TestHostDetail_PunchyRendering_True(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIPs:  []string{"192.168.100.10"},
+		NebulaIPs: []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Advanced: &models.HostAdvanced{
@@ -215,7 +215,7 @@ func TestHostDetail_PunchyRendering_True(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/h-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/h-1", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -257,7 +257,7 @@ func TestHostDetail_PunchyRendering_False(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIPs:  []string{"192.168.100.10"},
+		NebulaIPs: []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Advanced: &models.HostAdvanced{
@@ -270,7 +270,7 @@ func TestHostDetail_PunchyRendering_False(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/h-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/h-1", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -311,7 +311,7 @@ func TestHostDetail_UnsafeRoutesRendering(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "web-1",
-		NebulaIPs:  []string{"192.168.100.10"},
+		NebulaIPs: []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Advanced: &models.HostAdvanced{
@@ -327,7 +327,7 @@ func TestHostDetail_UnsafeRoutesRendering(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/h-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/h-1", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -371,7 +371,7 @@ func TestHandleHostDetail_MobileSection(t *testing.T) {
 		ID:        "h-1",
 		NetworkID: "n-1",
 		Name:      "iphone-test",
-		NebulaIPs:  []string{"192.168.100.10"},
+		NebulaIPs: []string{"192.168.100.10"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusPending,
 		Kind:      models.HostKindMobile,
@@ -383,7 +383,7 @@ func TestHandleHostDetail_MobileSection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/h-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/h-1", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -431,7 +431,7 @@ func TestHandleHostDetail_MobileSection_Android(t *testing.T) {
 		ID:        "h-2",
 		NetworkID: "n-1",
 		Name:      "android-test",
-		NebulaIPs:  []string{"192.168.100.20"},
+		NebulaIPs: []string{"192.168.100.20"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusPending,
 		Kind:      models.HostKindMobile,
@@ -443,7 +443,7 @@ func TestHandleHostDetail_MobileSection_Android(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/h-2", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/h-2", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -481,7 +481,7 @@ func TestHandleHostDetail_AgentNoMobileSection(t *testing.T) {
 		ID:        "h-3",
 		NetworkID: "n-1",
 		Name:      "agent-test",
-		NebulaIPs:  []string{"192.168.100.30"},
+		NebulaIPs: []string{"192.168.100.30"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Kind:      models.HostKindAgent,
@@ -492,7 +492,7 @@ func TestHandleHostDetail_AgentNoMobileSection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/h-3", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/h-3", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -533,7 +533,7 @@ func TestHandleHostDetail_MobileEnrolled_ShowsRegenerate(t *testing.T) {
 		ID:        "h-4",
 		NetworkID: "n-1",
 		Name:      "iphone-enrolled",
-		NebulaIPs:  []string{"192.168.100.40"},
+		NebulaIPs: []string{"192.168.100.40"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusEnrolled,
 		Kind:      models.HostKindMobile,
@@ -545,7 +545,7 @@ func TestHandleHostDetail_MobileEnrolled_ShowsRegenerate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/h-4", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/h-4", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -585,7 +585,7 @@ func TestHandleHostDetail_AgentToken_DisplaysWhenPassing(t *testing.T) {
 		ID:        "h-5",
 		NetworkID: "n-1",
 		Name:      "agent-with-token",
-		NebulaIPs:  []string{"192.168.100.50"},
+		NebulaIPs: []string{"192.168.100.50"},
 		Role:      models.HostRoleHost,
 		Status:    models.HostStatusPending,
 		Kind:      models.HostKindAgent,
@@ -603,7 +603,7 @@ func TestHandleHostDetail_AgentToken_DisplaysWhenPassing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/h-5", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/h-5", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}

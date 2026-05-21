@@ -9,12 +9,13 @@ import (
 	"net/netip"
 	"strconv"
 
+	"github.com/slackhq/nebula/cert"
+	"golang.org/x/crypto/curve25519"
+
 	"github.com/juev/nebula-mesh/internal/configgen"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
-	"github.com/slackhq/nebula/cert"
-	"golang.org/x/crypto/curve25519"
 )
 
 var ErrNotMobile = errors.New("mobilebundle: host is not a mobile host")
@@ -23,7 +24,9 @@ var ErrNotMobile = errors.New("mobilebundle: host is not a mobile host")
 // cert via store, and returns a self-contained Nebula YAML bundle with
 // inline PEM for ca/cert/key. The private key is not persisted server-side
 // — it lives only in the returned bytes.
-func Build(ctx context.Context, s store.Store, resolver interface{ LoadByID(context.Context, string) (*pki.CAManager, error) }, host *models.Host) ([]byte, error) {
+func Build(ctx context.Context, s store.Store, resolver interface {
+	LoadByID(context.Context, string) (*pki.CAManager, error)
+}, host *models.Host) ([]byte, error) {
 	if host.Kind != models.HostKindMobile {
 		return nil, ErrNotMobile
 	}

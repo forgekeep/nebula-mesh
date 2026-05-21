@@ -34,7 +34,13 @@ func TestOIDC_MissingConfigErrors(t *testing.T) {
 
 func TestOIDC_StateLifecycle(t *testing.T) {
 	o := &OIDC{states: map[string]time.Time{}}
-	_ = o
+	o.rememberState("abc")
+	if !o.consumeState("abc") {
+		t.Fatal("expected freshly remembered state to be consumable once")
+	}
+	if o.consumeState("abc") {
+		t.Fatal("expected state to be consumed exactly once")
+	}
 }
 
 func TestOIDC_IsAllowed(t *testing.T) {
@@ -47,19 +53,19 @@ func TestOIDC_IsAllowed(t *testing.T) {
 	}{
 		{name: "no allowlist allows everyone", want: true},
 		{
-			name:   "email allowlist matches",
-			cfg:    config.OIDCConfig{AllowedEmails: []string{"alice@example.com"}},
-			email:  "alice@example.com", want: true,
+			name:  "email allowlist matches",
+			cfg:   config.OIDCConfig{AllowedEmails: []string{"alice@example.com"}},
+			email: "alice@example.com", want: true,
 		},
 		{
-			name:   "email allowlist case insensitive",
-			cfg:    config.OIDCConfig{AllowedEmails: []string{"alice@example.com"}},
-			email:  "Alice@Example.com", want: true,
+			name:  "email allowlist case insensitive",
+			cfg:   config.OIDCConfig{AllowedEmails: []string{"alice@example.com"}},
+			email: "Alice@Example.com", want: true,
 		},
 		{
-			name:   "email allowlist rejects",
-			cfg:    config.OIDCConfig{AllowedEmails: []string{"alice@example.com"}},
-			email:  "bob@example.com", want: false,
+			name:  "email allowlist rejects",
+			cfg:   config.OIDCConfig{AllowedEmails: []string{"alice@example.com"}},
+			email: "bob@example.com", want: false,
 		},
 		{
 			name:   "group allowlist matches",
@@ -83,15 +89,11 @@ func TestOIDC_IsAllowed(t *testing.T) {
 }
 
 func TestOIDC_HandleLoginRedirects(t *testing.T) {
-	// We don't have a real provider, so simulate manually.
-	o := &OIDC{
-		cfg:      config.OIDCConfig{Enabled: true},
-		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		states:   map[string]time.Time{},
+	// Verify Enabled() reflects construction without invoking the real
+	// provider, which would require a network round-trip to discover.
+	if !(&OIDC{cfg: config.OIDCConfig{Enabled: true}}).Enabled() {
+		t.Fatal("expected Enabled() to be true for non-nil OIDC")
 	}
-	_ = o // skip; we only verify code paths compile.
-
-	_ = httptest.NewRecorder()
 }
 
 func TestOIDC_UpsertOperator(t *testing.T) {
@@ -122,7 +124,7 @@ func TestOIDC_HandleCallbackBadState(t *testing.T) {
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		states: map[string]time.Time{},
 	}
-	req := httptest.NewRequest("GET", "/ui/oidc/callback?state=foo&code=bar", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/oidc/callback?state=foo&code=bar", nil)
 	rec := httptest.NewRecorder()
 	o.HandleCallback(rec, req)
 	if rec.Code != http.StatusBadRequest {

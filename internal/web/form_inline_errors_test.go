@@ -46,7 +46,7 @@ func TestHostCreate_InlineErrorPreservesForm(t *testing.T) {
 		"groups":          {"web, prod"},
 		"adv_listen_host": {"0.0.0.0"},
 	}
-	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -101,7 +101,7 @@ func TestHostCreate_InlineErrorPreservesRole(t *testing.T) {
 		"nebula_ips": {"10.0.0.5"},
 		"role":       {"lighthouse"}, // requires public_ip + listen_port → fails
 	}
-	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -131,7 +131,7 @@ func TestNetworkCreate_InlineErrorPreservesForm(t *testing.T) {
 		"name":  {"prod-net"},
 		"cidrs": {"not-a-cidr"},
 	}
-	req := httptest.NewRequest("POST", "/ui/networks", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -173,7 +173,7 @@ func TestNetworkCreate_InlineErrorRequiredFields(t *testing.T) {
 		"name": {""},
 		// cidrs is empty array, which is required error
 	}
-	req := httptest.NewRequest("POST", "/ui/networks", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)

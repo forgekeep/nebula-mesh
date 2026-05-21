@@ -37,7 +37,7 @@ func Print(w io.Writer, name, version, commit, date string) {
 // Resolve returns the version triple, falling back to VCS info from the
 // embedded build info when the input fields are placeholders or empty.
 // Exported for testing.
-func Resolve(version, commit, date string) (string, string, string) {
+func Resolve(version, commit, date string) (resolvedVersion, resolvedCommit, resolvedDate string) {
 	if isPlaceholder(version) || isPlaceholder(commit) || isPlaceholder(date) {
 		if bi, ok := debug.ReadBuildInfo(); ok {
 			if isPlaceholder(version) && bi.Main.Version != "" && bi.Main.Version != "(devel)" {

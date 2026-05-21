@@ -98,7 +98,7 @@ func authRequest(req *http.Request) {
 
 func TestHealth(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -117,7 +117,7 @@ func TestHealth(t *testing.T) {
 
 func TestHealthz(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -127,7 +127,7 @@ func TestHealthz(t *testing.T) {
 
 func TestReadyz_DBHealthy(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/readyz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -140,7 +140,7 @@ func TestReadyz_DBClosed(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest("GET", "/readyz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusServiceUnavailable {
@@ -150,7 +150,7 @@ func TestReadyz_DBClosed(t *testing.T) {
 
 func TestMetrics(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -167,7 +167,7 @@ func TestMetrics(t *testing.T) {
 
 func TestAuthMiddleware_NoHeader(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/v1/hosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/hosts", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -178,7 +178,7 @@ func TestAuthMiddleware_NoHeader(t *testing.T) {
 
 func TestAuthMiddleware_InvalidKey(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/v1/hosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/hosts", nil)
 	req.Header.Set("Authorization", "Bearer wrong-key")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -190,7 +190,7 @@ func TestAuthMiddleware_InvalidKey(t *testing.T) {
 
 func TestAuthMiddleware_ValidKey(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/v1/hosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/hosts", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -206,7 +206,7 @@ func TestCreateAndListNetworks(t *testing.T) {
 	srv, _ := newTestServer(t)
 
 	body := `{"name":"test-net","cidrs":["192.168.100.0/24"]}`
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBufferString(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -224,7 +224,7 @@ func TestCreateAndListNetworks(t *testing.T) {
 	}
 
 	// List
-	req = httptest.NewRequest("GET", "/api/v1/networks", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/networks", nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -247,7 +247,7 @@ func TestCreateAndListNetworks(t *testing.T) {
 func createNetwork(t *testing.T, srv *Server) string {
 	t.Helper()
 	body := `{"name":"test-net","cidrs":["192.168.100.0/24"]}`
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBufferString(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -268,7 +268,7 @@ func TestCreateHost_InvalidRole(t *testing.T) {
 		NebulaIPs: []string{"192.168.100.10"},
 		Role:      "invalid",
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -288,7 +288,7 @@ func TestCreateAndGetHost(t *testing.T) {
 		NebulaIPs: []string{"192.168.100.10"},
 		Groups:    []string{"web"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -309,7 +309,7 @@ func TestCreateAndGetHost(t *testing.T) {
 	}
 
 	// Get host
-	req = httptest.NewRequest("GET", "/api/v1/hosts/"+resp.Host.ID, nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/hosts/"+resp.Host.ID, nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -326,7 +326,7 @@ func TestDeleteHost(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "to-delete", NebulaIPs: []string{"192.168.100.20"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -336,7 +336,7 @@ func TestDeleteHost(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	req = httptest.NewRequest("DELETE", "/api/v1/hosts/"+resp.Host.ID, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/hosts/"+resp.Host.ID, nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -346,7 +346,7 @@ func TestDeleteHost(t *testing.T) {
 	}
 
 	// Verify deleted
-	req = httptest.NewRequest("GET", "/api/v1/hosts/"+resp.Host.ID, nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/hosts/"+resp.Host.ID, nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -363,7 +363,7 @@ func TestBlockAndUnblockHost(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "block-cycle", NebulaIPs: []string{"192.168.100.50"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -374,7 +374,7 @@ func TestBlockAndUnblockHost(t *testing.T) {
 	}
 
 	// Block
-	req = httptest.NewRequest("POST", "/api/v1/hosts/"+resp.Host.ID+"/block", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+resp.Host.ID+"/block", nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -392,7 +392,7 @@ func TestBlockAndUnblockHost(t *testing.T) {
 	}
 
 	// Unblock
-	req = httptest.NewRequest("POST", "/api/v1/hosts/"+resp.Host.ID+"/unblock", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+resp.Host.ID+"/unblock", nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -411,7 +411,7 @@ func TestBlockAndUnblockHost(t *testing.T) {
 
 func TestUnblockHost_NotFound(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/v1/hosts/nonexistent/unblock", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/nonexistent/unblock", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -427,7 +427,7 @@ func TestDeleteHost_WithCertBlocklisted(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "enrolled-host", NebulaIPs: []string{"192.168.100.30"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -446,7 +446,7 @@ func TestDeleteHost_WithCertBlocklisted(t *testing.T) {
 	}
 
 	// Delete should add to blocklist
-	req = httptest.NewRequest("DELETE", "/api/v1/hosts/"+host.ID, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/hosts/"+host.ID, nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -476,7 +476,7 @@ func TestCreateNetwork_InvalidCIDR(t *testing.T) {
 	srv, _ := newTestServer(t)
 
 	body := `{"name":"bad-net","cidr":"invalid/33"}`
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBufferString(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -493,7 +493,7 @@ func TestCreateHost_InvalidIP(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "bad-host", NebulaIPs: []string{"not-an-ip"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -511,10 +511,10 @@ func TestCreateHost_InvalidPort(t *testing.T) {
 		body, _ := json.Marshal(createHostRequest{
 			NetworkID:  netID,
 			Name:       "bad-port",
-			NebulaIPs: []string{"192.168.100.10"},
+			NebulaIPs:  []string{"192.168.100.10"},
 			ListenPort: port,
 		})
-		req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 		authRequest(req)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
@@ -536,7 +536,7 @@ func TestCreateHost_ValidPort(t *testing.T) {
 			NebulaIPs:  []string{fmt.Sprintf("192.168.100.%d", 10+port%200)},
 			ListenPort: port,
 		})
-		req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 		authRequest(req)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
@@ -562,7 +562,7 @@ func TestCreateHost_EmptyGroup(t *testing.T) {
 			NebulaIPs: []string{"192.168.100.10"},
 			Groups:    groups,
 		})
-		req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 		authRequest(req)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
@@ -583,7 +583,7 @@ func TestCreateHost_ValidGroups(t *testing.T) {
 		NebulaIPs: []string{"192.168.100.10"},
 		Groups:    []string{"web", "prod"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -598,7 +598,7 @@ func TestFirewallRules_DefaultAndCRUD(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	// GET returns defaults
-	req := httptest.NewRequest("GET", "/api/v1/networks/"+netID+"/firewall", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/networks/"+netID+"/firewall", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -616,7 +616,7 @@ func TestFirewallRules_DefaultAndCRUD(t *testing.T) {
 
 	// PUT custom rules
 	customRules := `{"inbound":[{"port":"443","proto":"tcp","group":"web"}],"outbound":[{"port":"any","proto":"any","group":"any"}]}`
-	req = httptest.NewRequest("PUT", "/api/v1/networks/"+netID+"/firewall", bytes.NewBufferString(customRules))
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/networks/"+netID+"/firewall", bytes.NewBufferString(customRules))
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -625,7 +625,7 @@ func TestFirewallRules_DefaultAndCRUD(t *testing.T) {
 	}
 
 	// GET returns stored rules
-	req = httptest.NewRequest("GET", "/api/v1/networks/"+netID+"/firewall", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/networks/"+netID+"/firewall", nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -643,7 +643,7 @@ func TestFirewallRules_ValidationEmptyProto(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	invalidRules := `{"inbound":[{"port":"443","proto":"","group":"web"}],"outbound":[]}`
-	req := httptest.NewRequest("PUT", "/api/v1/networks/"+netID+"/firewall", bytes.NewBufferString(invalidRules))
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/networks/"+netID+"/firewall", bytes.NewBufferString(invalidRules))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -658,7 +658,7 @@ func TestFirewallRules_ValidationEmptyPort(t *testing.T) {
 	netID := createNetwork(t, srv)
 
 	invalidRules := `{"inbound":[],"outbound":[{"port":"","proto":"tcp","group":"any"}]}`
-	req := httptest.NewRequest("PUT", "/api/v1/networks/"+netID+"/firewall", bytes.NewBufferString(invalidRules))
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/networks/"+netID+"/firewall", bytes.NewBufferString(invalidRules))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -677,7 +677,7 @@ func TestFirewallRules_CorruptedJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/v1/networks/"+netID+"/firewall", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/networks/"+netID+"/firewall", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -691,7 +691,7 @@ func TestGetAuditLog_LimitBounds(t *testing.T) {
 	srv, _ := newTestServer(t)
 
 	// limit > 1000 → should be capped to 1000 (still OK)
-	req := httptest.NewRequest("GET", "/api/v1/audit-log?limit=5000", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit-log?limit=5000", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -700,7 +700,7 @@ func TestGetAuditLog_LimitBounds(t *testing.T) {
 	}
 
 	// limit = "abc" → bad request
-	req = httptest.NewRequest("GET", "/api/v1/audit-log?limit=abc", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/audit-log?limit=abc", nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -709,7 +709,7 @@ func TestGetAuditLog_LimitBounds(t *testing.T) {
 	}
 
 	// limit = -5 → bad request
-	req = httptest.NewRequest("GET", "/api/v1/audit-log?limit=-5", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/audit-log?limit=-5", nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -718,7 +718,7 @@ func TestGetAuditLog_LimitBounds(t *testing.T) {
 	}
 
 	// no limit → uses explicit default, returns OK
-	req = httptest.NewRequest("GET", "/api/v1/audit-log", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/audit-log", nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -746,7 +746,7 @@ func TestMaxBytesReader(t *testing.T) {
 	bigStr := string(bytes.Repeat([]byte("x"), 1<<20+1))
 	body, _ := json.Marshal(map[string]string{"name": bigStr, "cidr": "10.0.0.0/24"})
 
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewReader(body))
 	authRequest(req)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -766,7 +766,7 @@ func TestEnroll_HostDeletedAfterTokenCreated(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "doomed", NebulaIPs: []string{"192.168.100.50"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -797,7 +797,7 @@ func TestEnroll_HostDeletedAfterTokenCreated(t *testing.T) {
 		PublicKeyPEM:  "dummy-key",
 		SigningPubPEM: signingPEM,
 	})
-	req = httptest.NewRequest("POST", "/api/v1/enroll", bytes.NewBuffer(enrollBody))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/enroll", bytes.NewBuffer(enrollBody))
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -817,7 +817,7 @@ func TestEnroll_HostDeletedAfterTokenCreated(t *testing.T) {
 
 func TestHostNotFound(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/v1/hosts/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/hosts/nonexistent", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

@@ -13,7 +13,7 @@ import (
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store/migrations"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // database/sql driver registration
 )
 
 var (
@@ -44,12 +44,13 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		db.SetMaxOpenConns(1)
 	}
 
-	// Enable WAL mode and foreign keys
+	// Enable WAL mode and foreign keys. Setup runs at process start without
+	// an inherited context, so background is acceptable here.
 	for _, pragma := range []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA foreign_keys=ON",
 	} {
-		if _, err := db.Exec(pragma); err != nil {
+		if _, err := db.ExecContext(context.Background(), pragma); err != nil {
 			if closeErr := db.Close(); closeErr != nil {
 				slog.Error("close db after pragma failure", "error", closeErr)
 			}
@@ -74,7 +75,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 //     boundaries and Exec one statement at a time.
 //
 // See https://github.com/juev/nebula-mesh/issues/37.
-func (s *SQLiteStore) Migrate(_ context.Context) error {
+func (s *SQLiteStore) Migrate(ctx context.Context) error {
 	migrationFiles := []string{
 		"001_initial.up.sql",
 		"002_config_version.up.sql",
@@ -95,7 +96,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.
-	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		name        TEXT PRIMARY KEY,
 		applied_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`); err != nil {
@@ -103,7 +104,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 	}
 
 	for _, f := range migrationFiles {
-		applied, err := s.migrationApplied(f)
+		applied, err := s.migrationApplied(ctx, f)
 		if err != nil {
 			return fmt.Errorf("check migration %s: %w", f, err)
 		}
@@ -115,7 +116,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 			return fmt.Errorf("read migration %s: %w", f, err)
 		}
 		for _, stmt := range splitSQLStatements(string(sqlBytes)) {
-			if _, err := s.db.Exec(stmt); err != nil {
+			if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 				if isDuplicateColumnErr(err) {
 					// Tolerated for backward compatibility with DBs that
 					// partially applied a buggy earlier version of this
@@ -125,7 +126,7 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 				return fmt.Errorf("apply migration %s stmt %q: %w", f, firstLine(stmt), err)
 			}
 		}
-		if _, err := s.db.Exec(`INSERT OR REPLACE INTO schema_migrations(name) VALUES (?)`, f); err != nil {
+		if _, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO schema_migrations(name) VALUES (?)`, f); err != nil {
 			return fmt.Errorf("record migration %s: %w", f, err)
 		}
 	}
@@ -135,15 +136,15 @@ func (s *SQLiteStore) Migrate(_ context.Context) error {
 	// migration is now flagged as applied. Re-run the affected ALTER
 	// outside the normal migration flow so existing installs heal on the
 	// next start.
-	if err := s.repairBlocklistCAID(); err != nil {
+	if err := s.repairBlocklistCAID(ctx); err != nil {
 		return fmt.Errorf("repair blocklist ca_id: %w", err)
 	}
 	return nil
 }
 
-func (s *SQLiteStore) migrationApplied(name string) (bool, error) {
+func (s *SQLiteStore) migrationApplied(ctx context.Context, name string) (bool, error) {
 	var got string
-	row := s.db.QueryRow(`SELECT name FROM schema_migrations WHERE name = ?`, name)
+	row := s.db.QueryRowContext(ctx, `SELECT name FROM schema_migrations WHERE name = ?`, name)
 	if err := row.Scan(&got); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
@@ -156,8 +157,8 @@ func (s *SQLiteStore) migrationApplied(name string) (bool, error) {
 // repairBlocklistCAID heals databases that ran the buggy multi-statement
 // migration loader before issue #37 was fixed. If `blocklist.ca_id` is
 // absent, add it (together with its index) so multi-CA logic works.
-func (s *SQLiteStore) repairBlocklistCAID() error {
-	row := s.db.QueryRow(`SELECT COUNT(1) FROM pragma_table_info('blocklist') WHERE name = 'ca_id'`)
+func (s *SQLiteStore) repairBlocklistCAID(ctx context.Context) error {
+	row := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM pragma_table_info('blocklist') WHERE name = 'ca_id'`)
 	var n int
 	if err := row.Scan(&n); err != nil {
 		return err
@@ -165,12 +166,12 @@ func (s *SQLiteStore) repairBlocklistCAID() error {
 	if n > 0 {
 		return nil
 	}
-	if _, err := s.db.Exec(`ALTER TABLE blocklist ADD COLUMN ca_id TEXT NOT NULL DEFAULT ''`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE blocklist ADD COLUMN ca_id TEXT NOT NULL DEFAULT ''`); err != nil {
 		if !isDuplicateColumnErr(err) {
 			return err
 		}
 	}
-	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_blocklist_ca ON blocklist(ca_id)`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_blocklist_ca ON blocklist(ca_id)`); err != nil {
 		return err
 	}
 	return nil
@@ -380,7 +381,7 @@ func (s *SQLiteStore) UpdateNetwork(ctx context.Context, n *models.Network) erro
 
 func (s *SQLiteStore) GetNetwork(ctx context.Context, id string) (*models.Network, error) {
 	n := &models.Network{}
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT id, name, created_at, ca_id FROM networks WHERE id = ?`, id,
 	).Scan(&n.ID, &n.Name, &n.CreatedAt, &n.CAID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -407,16 +408,18 @@ func (s *SQLiteStore) ListNetworks(ctx context.Context) ([]*models.Network, erro
 
 	// Scan all networks first before querying for CIDRs.
 	// This avoids nested queries on SQLite which can cause deadlocks.
+	// `rows` is closed explicitly (not via defer) so loadNetworkCIDRs below
+	// can run on the same connection.
 	result := make([]*models.Network, 0)
 	for rows.Next() {
 		n := &models.Network{}
 		if err := rows.Scan(&n.ID, &n.Name, &n.CreatedAt, &n.CAID); err != nil {
-			_ = rows.Close()
+			_ = rows.Close() //nolint:sqlclosecheck // see comment above
 			return nil, fmt.Errorf("scan network: %w", err)
 		}
 		result = append(result, n)
 	}
-	_ = rows.Close()
+	_ = rows.Close() //nolint:sqlclosecheck // see comment above
 
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -607,7 +610,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 const hostColumns = `id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem, kind, variant`
 
 func (s *SQLiteStore) GetHost(ctx context.Context, id string) (*models.Host, error) {
-	row := s.db.QueryRow(`SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
 	h, err := s.scanHost(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -634,7 +637,7 @@ func (s *SQLiteStore) GetHost(ctx context.Context, id string) (*models.Host, err
 // value; callers that need to know which fingerprint matched can compare
 // against the input.
 func (s *SQLiteStore) GetHostByFingerprint(ctx context.Context, fingerprint string) (*models.Host, error) {
-	row := s.db.QueryRow(
+	row := s.db.QueryRowContext(ctx,
 		`SELECT `+hostColumns+` FROM hosts WHERE cert_fingerprint = ? OR prev_cert_fingerprint = ?`,
 		fingerprint, fingerprint,
 	)
@@ -687,16 +690,18 @@ func (s *SQLiteStore) ListHosts(ctx context.Context, filter HostFilter) ([]*mode
 
 	// Scan all hosts first before querying for addresses.
 	// This avoids nested queries on SQLite which can cause deadlocks.
+	// `rows` is closed explicitly (not via defer) so loadHostAddresses below
+	// can run on the same connection.
 	result := make([]*models.Host, 0)
 	for rows.Next() {
 		h, err := s.scanHost(rows)
 		if err != nil {
-			_ = rows.Close()
+			_ = rows.Close() //nolint:sqlclosecheck // see comment above
 			return nil, fmt.Errorf("scan host: %w", err)
 		}
 		result = append(result, h)
 	}
-	_ = rows.Close()
+	_ = rows.Close() //nolint:sqlclosecheck // see comment above
 
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -767,8 +772,8 @@ func (s *SQLiteStore) UpdateHost(ctx context.Context, h *models.Host) error {
 	return nil
 }
 
-func (s *SQLiteStore) UpdateHostLastSeen(_ context.Context, id string, t time.Time) error {
-	result, err := s.db.Exec(
+func (s *SQLiteStore) UpdateHostLastSeen(ctx context.Context, id string, t time.Time) error {
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE hosts SET last_seen_at=?, updated_at=? WHERE id=?`,
 		t, time.Now(), id,
 	)
@@ -785,8 +790,8 @@ func (s *SQLiteStore) UpdateHostLastSeen(_ context.Context, id string, t time.Ti
 	return nil
 }
 
-func (s *SQLiteStore) UpdateHostCert(_ context.Context, id, fingerprint string, expiresAt time.Time) error {
-	result, err := s.db.Exec(
+func (s *SQLiteStore) UpdateHostCert(ctx context.Context, id, fingerprint string, expiresAt time.Time) error {
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE hosts SET cert_fingerprint=?, cert_expires_at=?, updated_at=? WHERE id=?`,
 		fingerprint, expiresAt, time.Now(), id,
 	)
@@ -803,8 +808,8 @@ func (s *SQLiteStore) UpdateHostCert(_ context.Context, id, fingerprint string, 
 	return nil
 }
 
-func (s *SQLiteStore) UpdateHostStatus(_ context.Context, id string, status models.HostStatus) error {
-	result, err := s.db.Exec(
+func (s *SQLiteStore) UpdateHostStatus(ctx context.Context, id string, status models.HostStatus) error {
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE hosts SET status=?, updated_at=? WHERE id=?`,
 		status, time.Now(), id,
 	)
@@ -821,8 +826,8 @@ func (s *SQLiteStore) UpdateHostStatus(_ context.Context, id string, status mode
 	return nil
 }
 
-func (s *SQLiteStore) DeleteHost(_ context.Context, id string) error {
-	result, err := s.db.Exec(`DELETE FROM hosts WHERE id = ?`, id)
+func (s *SQLiteStore) DeleteHost(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM hosts WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete host: %w", err)
 	}
@@ -839,8 +844,8 @@ func (s *SQLiteStore) DeleteHost(_ context.Context, id string) error {
 // BlockHostAndAddToBlocklist atomically blocks a host and adds its cert to the blocklist.
 // If the blocked host was an enrolled lighthouse, the network's config_version is
 // bumped so peers stop directing traffic at it on their next poll.
-func (s *SQLiteStore) BlockHostAndAddToBlocklist(_ context.Context, id, reason string) (*models.Host, error) {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason string) (*models.Host, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
@@ -850,7 +855,7 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(_ context.Context, id, reason s
 		}
 	}()
 
-	row := tx.QueryRow(`SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
+	row := tx.QueryRowContext(ctx, `SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
 	h, err := s.scanHost(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -861,7 +866,7 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(_ context.Context, id, reason s
 
 	if h.CertFingerprint != "" {
 		var hostIDVal any = id
-		_, err = tx.Exec(
+		_, err = tx.ExecContext(ctx,
 			`INSERT OR REPLACE INTO blocklist (fingerprint, host_id, reason, created_at) VALUES (?, ?, ?, ?)`,
 			h.CertFingerprint, hostIDVal, reason, time.Now(),
 		)
@@ -872,7 +877,7 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(_ context.Context, id, reason s
 
 	wasEnrolledLighthouse := h.IsLighthouse && h.Status == models.HostStatusEnrolled
 
-	result, err := tx.Exec(
+	result, err := tx.ExecContext(ctx,
 		`UPDATE hosts SET status=?, updated_at=? WHERE id=?`,
 		models.HostStatusBlocked, time.Now(), id,
 	)
@@ -888,7 +893,7 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(_ context.Context, id, reason s
 	}
 
 	if wasEnrolledLighthouse {
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
 			h.NetworkID,
 		); err != nil {
@@ -907,8 +912,8 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(_ context.Context, id, reason s
 // UnblockHostAndRemoveFromBlocklist atomically marks a blocked host as pending
 // and removes its certificate fingerprint from the blocklist. The host must
 // re-enroll to obtain a new certificate after unblocking.
-func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(_ context.Context, id string) (*models.Host, error) {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(ctx context.Context, id string) (*models.Host, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
@@ -918,7 +923,7 @@ func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(_ context.Context, id st
 		}
 	}()
 
-	row := tx.QueryRow(`SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
+	row := tx.QueryRowContext(ctx, `SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
 	h, err := s.scanHost(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -928,12 +933,12 @@ func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(_ context.Context, id st
 	}
 
 	if h.CertFingerprint != "" {
-		if _, err := tx.Exec(`DELETE FROM blocklist WHERE fingerprint = ?`, h.CertFingerprint); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM blocklist WHERE fingerprint = ?`, h.CertFingerprint); err != nil {
 			return nil, fmt.Errorf("remove from blocklist: %w", err)
 		}
 	}
 
-	result, err := tx.Exec(
+	result, err := tx.ExecContext(ctx,
 		`UPDATE hosts SET status=?, updated_at=? WHERE id=?`,
 		models.HostStatusPending, time.Now(), id,
 	)
@@ -959,8 +964,8 @@ func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(_ context.Context, id st
 // DeleteHostAndBlockCert atomically deletes a host and adds its cert to the blocklist.
 // If the deleted host was an enrolled lighthouse, the network's config_version is
 // bumped so peers stop directing traffic at it on their next poll.
-func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason string) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) DeleteHostAndBlockCert(ctx context.Context, id, reason string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -970,7 +975,7 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason strin
 		}
 	}()
 
-	row := tx.QueryRow(`SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
+	row := tx.QueryRowContext(ctx, `SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
 	h, err := s.scanHost(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
@@ -981,7 +986,7 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason strin
 
 	if h.CertFingerprint != "" {
 		var hostIDVal any = id
-		_, err = tx.Exec(
+		_, err = tx.ExecContext(ctx,
 			`INSERT OR REPLACE INTO blocklist (fingerprint, host_id, reason, created_at) VALUES (?, ?, ?, ?)`,
 			h.CertFingerprint, hostIDVal, reason, time.Now(),
 		)
@@ -992,7 +997,7 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason strin
 
 	wasEnrolledLighthouse := h.IsLighthouse && h.Status == models.HostStatusEnrolled
 
-	result, err := tx.Exec(`DELETE FROM hosts WHERE id = ?`, id)
+	result, err := tx.ExecContext(ctx, `DELETE FROM hosts WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete host: %w", err)
 	}
@@ -1005,7 +1010,7 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason strin
 	}
 
 	if wasEnrolledLighthouse {
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
 			h.NetworkID,
 		); err != nil {
@@ -1024,8 +1029,8 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(_ context.Context, id, reason strin
 // SetPrevFingerprint records the previous cert fingerprint and the rotation
 // timestamp on the host row. Called from SaveCertificateAndUpdateHostCert
 // before the new fingerprint is written so the overlap window is preserved.
-func (s *SQLiteStore) SetPrevFingerprint(_ context.Context, hostID, prev string, rotatedAt time.Time) error {
-	res, err := s.db.Exec(
+func (s *SQLiteStore) SetPrevFingerprint(ctx context.Context, hostID, prev string, rotatedAt time.Time) error {
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE hosts SET prev_cert_fingerprint = ?, cert_rotated_at = ?, updated_at = ? WHERE id = ?`,
 		prev, rotatedAt, time.Now(), hostID,
 	)
@@ -1045,8 +1050,8 @@ func (s *SQLiteStore) SetPrevFingerprint(_ context.Context, hostID, prev string,
 // ClearPrevFingerprint drops the rotation overlap state once the agent has
 // successfully polled under the new fingerprint or the wall-clock window
 // expired.
-func (s *SQLiteStore) ClearPrevFingerprint(_ context.Context, hostID string) error {
-	res, err := s.db.Exec(
+func (s *SQLiteStore) ClearPrevFingerprint(ctx context.Context, hostID string) error {
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE hosts SET prev_cert_fingerprint = NULL, cert_rotated_at = NULL, updated_at = ? WHERE id = ?`,
 		time.Now(), hostID,
 	)
@@ -1066,8 +1071,8 @@ func (s *SQLiteStore) ClearPrevFingerprint(_ context.Context, hostID string) err
 // SetPendingRekey flips the pending_rekey flag atomically. If the flag is
 // already set on this host the call returns ErrRekeyAlreadyPending so a
 // duplicate force-rotate request can be rejected with 409.
-func (s *SQLiteStore) SetPendingRekey(_ context.Context, hostID string) error {
-	res, err := s.db.Exec(
+func (s *SQLiteStore) SetPendingRekey(ctx context.Context, hostID string) error {
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE hosts SET pending_rekey = 1, updated_at = ? WHERE id = ? AND pending_rekey = 0`,
 		time.Now(), hostID,
 	)
@@ -1082,7 +1087,7 @@ func (s *SQLiteStore) SetPendingRekey(_ context.Context, hostID string) error {
 		// Either the host does not exist or pending_rekey is already 1.
 		// Distinguish by re-reading the row.
 		var exists int
-		row := s.db.QueryRow(`SELECT 1 FROM hosts WHERE id = ?`, hostID)
+		row := s.db.QueryRowContext(ctx, `SELECT 1 FROM hosts WHERE id = ?`, hostID)
 		if err := row.Scan(&exists); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound
@@ -1097,8 +1102,8 @@ func (s *SQLiteStore) SetPendingRekey(_ context.Context, hostID string) error {
 // ClearPendingRekey resets the pending_rekey flag, typically after the agent
 // has redeemed the rekey token and the new keypair has been bound to the
 // existing host row.
-func (s *SQLiteStore) ClearPendingRekey(_ context.Context, hostID string) error {
-	res, err := s.db.Exec(
+func (s *SQLiteStore) ClearPendingRekey(ctx context.Context, hostID string) error {
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE hosts SET pending_rekey = 0, updated_at = ? WHERE id = ?`,
 		time.Now(), hostID,
 	)
@@ -1117,8 +1122,8 @@ func (s *SQLiteStore) ClearPendingRekey(_ context.Context, hostID string) error 
 
 // UpdateHostSigningPub stores the Ed25519 PEM public key bound to the host's
 // signing identity at enrollment / re-enrollment time.
-func (s *SQLiteStore) UpdateHostSigningPub(_ context.Context, hostID, signingPubPEM string) error {
-	res, err := s.db.Exec(
+func (s *SQLiteStore) UpdateHostSigningPub(ctx context.Context, hostID, signingPubPEM string) error {
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE hosts SET signing_pub_pem = ?, updated_at = ? WHERE id = ?`,
 		signingPubPEM, time.Now(), hostID,
 	)
@@ -1188,8 +1193,8 @@ func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t 
 	return nil
 }
 
-func (s *SQLiteStore) CreateToken(_ context.Context, t *models.EnrollmentToken) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) CreateToken(ctx context.Context, t *models.EnrollmentToken) error {
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO enrollment_tokens (id, host_id, token_hash, used, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		t.ID, t.HostID, t.TokenHash, false, t.ExpiresAt, t.CreatedAt,
 	)
@@ -1204,8 +1209,8 @@ func (s *SQLiteStore) CreateToken(_ context.Context, t *models.EnrollmentToken) 
 // reenroll, and rekey flows (ADR 0004) where the host row must be preserved.
 // The `token` argument is the raw value handed back to the caller; the store
 // only ever persists its SHA-256 hex (GHSA-ghmh-jhmj-wcmf).
-func (s *SQLiteStore) CreateTokenForHost(_ context.Context, hostID, token string, expiresAt time.Time) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) CreateTokenForHost(ctx context.Context, hostID, token string, expiresAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -1215,12 +1220,12 @@ func (s *SQLiteStore) CreateTokenForHost(_ context.Context, hostID, token string
 		}
 	}()
 
-	if _, err := tx.Exec(`DELETE FROM enrollment_tokens WHERE host_id = ? AND used = 0`, hostID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM enrollment_tokens WHERE host_id = ? AND used = 0`, hostID); err != nil {
 		return fmt.Errorf("delete previous tokens: %w", err)
 	}
 	now := time.Now()
 	id := fmt.Sprintf("etok_%d", now.UnixNano())
-	if _, err := tx.Exec(
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO enrollment_tokens (id, host_id, token_hash, used, expires_at, created_at) VALUES (?, ?, ?, 0, ?, ?)`,
 		id, hostID, models.HashEnrollmentToken(token), expiresAt, now,
 	); err != nil {
@@ -1234,8 +1239,8 @@ func (s *SQLiteStore) CreateTokenForHost(_ context.Context, hostID, token string
 
 // ConsumeToken accepts the raw token from the caller, hashes it, and
 // looks up by SHA-256 hex. Marks the row used on success. GHSA-ghmh-jhmj-wcmf.
-func (s *SQLiteStore) ConsumeToken(_ context.Context, token string) (*models.EnrollmentToken, error) {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) ConsumeToken(ctx context.Context, token string) (*models.EnrollmentToken, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
@@ -1246,7 +1251,7 @@ func (s *SQLiteStore) ConsumeToken(_ context.Context, token string) (*models.Enr
 	}()
 
 	t := &models.EnrollmentToken{}
-	err = tx.QueryRow(
+	err = tx.QueryRowContext(ctx,
 		`SELECT id, host_id, token_hash, used, expires_at, created_at FROM enrollment_tokens WHERE token_hash = ?`,
 		models.HashEnrollmentToken(token),
 	).Scan(&t.ID, &t.HostID, &t.TokenHash, &t.Used, &t.ExpiresAt, &t.CreatedAt)
@@ -1265,7 +1270,7 @@ func (s *SQLiteStore) ConsumeToken(_ context.Context, token string) (*models.Enr
 	}
 
 	now := time.Now()
-	_, err = tx.Exec(`UPDATE enrollment_tokens SET used = 1, used_at = ? WHERE id = ?`, now, t.ID)
+	_, err = tx.ExecContext(ctx, `UPDATE enrollment_tokens SET used = 1, used_at = ? WHERE id = ?`, now, t.ID)
 	if err != nil {
 		return nil, fmt.Errorf("consume token: %w", err)
 	}
@@ -1281,8 +1286,8 @@ func (s *SQLiteStore) ConsumeToken(_ context.Context, token string) (*models.Enr
 
 // --- Certificates ---
 
-func (s *SQLiteStore) SaveCertificate(_ context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) SaveCertificate(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -1292,7 +1297,7 @@ func (s *SQLiteStore) SaveCertificate(_ context.Context, hostID string, certPEM 
 		}
 	}()
 
-	if err := s.saveCertificateInTx(tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
+	if err := s.saveCertificateInTx(ctx, tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
 		return err
 	}
 
@@ -1305,8 +1310,8 @@ func (s *SQLiteStore) SaveCertificate(_ context.Context, hostID string, certPEM 
 // SaveCertificateAndEnrollHost atomically saves a certificate and marks the host as enrolled.
 // If the host has role=lighthouse, the network's config_version is bumped so peer
 // agents pick up the new lighthouse on their next poll.
-func (s *SQLiteStore) SaveCertificateAndEnrollHost(_ context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) SaveCertificateAndEnrollHost(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -1318,7 +1323,7 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(_ context.Context, hostID str
 
 	var isLighthouse bool
 	var networkID string
-	err = tx.QueryRow(
+	err = tx.QueryRowContext(ctx,
 		`SELECT is_lighthouse, network_id FROM hosts WHERE id = ?`, hostID,
 	).Scan(&isLighthouse, &networkID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1328,12 +1333,12 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(_ context.Context, hostID str
 		return fmt.Errorf("get host role: %w", err)
 	}
 
-	if err := s.saveCertificateInTx(tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
+	if err := s.saveCertificateInTx(ctx, tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
 		return err
 	}
 
 	// Update host: status=enrolled, cert_fingerprint, cert_expires_at
-	result, err := tx.Exec(
+	result, err := tx.ExecContext(ctx,
 		`UPDATE hosts SET status=?, cert_fingerprint=?, cert_expires_at=?, updated_at=? WHERE id=?`,
 		models.HostStatusEnrolled, fp, notAfter, time.Now(), hostID,
 	)
@@ -1349,7 +1354,7 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(_ context.Context, hostID str
 	}
 
 	if isLighthouse {
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
 			networkID,
 		); err != nil {
@@ -1368,8 +1373,8 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(_ context.Context, hostID str
 // is parked in prev_cert_fingerprint with cert_rotated_at = now() so the
 // poll handler can accept either fingerprint during the rotation overlap
 // window (ADR 0004 §7.1).
-func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(_ context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -1379,7 +1384,7 @@ func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(_ context.Context, hostID
 		}
 	}()
 
-	if err := s.saveCertificateInTx(tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
+	if err := s.saveCertificateInTx(ctx, tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
 		return err
 	}
 
@@ -1388,7 +1393,7 @@ func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(_ context.Context, hostID
 	// new one). Same-key rotation handing back the same fingerprint should
 	// not populate prev_cert_fingerprint; the agent's poll continues to
 	// match on cert_fingerprint.
-	result, err := tx.Exec(
+	result, err := tx.ExecContext(ctx,
 		`UPDATE hosts SET
 			prev_cert_fingerprint = CASE
 				WHEN cert_fingerprint IS NULL OR cert_fingerprint = '' OR cert_fingerprint = ? THEN prev_cert_fingerprint
@@ -1422,17 +1427,17 @@ func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(_ context.Context, hostID
 }
 
 // saveCertificateInTx saves a certificate within an existing transaction.
-func (s *SQLiteStore) saveCertificateInTx(tx *sql.Tx, hostID, fp string, certPEM []byte, notBefore, notAfter time.Time) error {
-	_, err := tx.Exec(`UPDATE certificates SET is_current = 0 WHERE host_id = ?`, hostID)
+func (s *SQLiteStore) saveCertificateInTx(ctx context.Context, tx *sql.Tx, hostID, fp string, certPEM []byte, notBefore, notAfter time.Time) error {
+	_, err := tx.ExecContext(ctx, `UPDATE certificates SET is_current = 0 WHERE host_id = ?`, hostID)
 	if err != nil {
 		return fmt.Errorf("unmark current: %w", err)
 	}
 
 	// Inherit ca_id from the host so the startup invariant (no empty ca_id
-	// rows across networks/hosts/certificates/blocklist) holds after enrol /
+	// rows across networks/hosts/certificates/blocklist) holds after enroll /
 	// rotate / mobile-bundle paths complete.
 	var caID string
-	if err := tx.QueryRow(`SELECT ca_id FROM hosts WHERE id = ?`, hostID).Scan(&caID); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT ca_id FROM hosts WHERE id = ?`, hostID).Scan(&caID); err != nil {
 		return fmt.Errorf("get host ca_id for cert insert: %w", err)
 	}
 
@@ -1441,7 +1446,7 @@ func (s *SQLiteStore) saveCertificateInTx(tx *sql.Tx, hostID, fp string, certPEM
 		prefix = prefix[:8]
 	}
 	id := fmt.Sprintf("cert_%s_%d", prefix, time.Now().UnixNano())
-	_, err = tx.Exec(
+	_, err = tx.ExecContext(ctx,
 		`INSERT INTO certificates (id, host_id, ca_id, fingerprint, pem, not_before, not_after, is_current, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
 		id, hostID, caID, fp, string(certPEM), notBefore, notAfter, time.Now(),
@@ -1452,9 +1457,9 @@ func (s *SQLiteStore) saveCertificateInTx(tx *sql.Tx, hostID, fp string, certPEM
 	return nil
 }
 
-func (s *SQLiteStore) GetCurrentCertificate(_ context.Context, hostID string) ([]byte, error) {
+func (s *SQLiteStore) GetCurrentCertificate(ctx context.Context, hostID string) ([]byte, error) {
 	var pem string
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT pem FROM certificates WHERE host_id = ? AND is_current = 1`, hostID,
 	).Scan(&pem)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1466,9 +1471,9 @@ func (s *SQLiteStore) GetCurrentCertificate(_ context.Context, hostID string) ([
 	return []byte(pem), nil
 }
 
-func (s *SQLiteStore) GetCertificateInfo(_ context.Context, hostID string) (*models.CertificateInfo, error) {
+func (s *SQLiteStore) GetCertificateInfo(ctx context.Context, hostID string) (*models.CertificateInfo, error) {
 	ci := &models.CertificateInfo{}
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT id, host_id, fingerprint, pem, not_before, not_after, is_current, created_at
 		 FROM certificates WHERE host_id = ? AND is_current = 1`, hostID,
 	).Scan(&ci.ID, &ci.HostID, &ci.Fingerprint, &ci.PEM, &ci.NotBefore, &ci.NotAfter, &ci.IsCurrent, &ci.CreatedAt)
@@ -1481,8 +1486,8 @@ func (s *SQLiteStore) GetCertificateInfo(_ context.Context, hostID string) (*mod
 	return ci, nil
 }
 
-func (s *SQLiteStore) ListEnrolledHostCerts(_ context.Context) ([]*models.CertificateInfo, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) ListEnrolledHostCerts(ctx context.Context) ([]*models.CertificateInfo, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT c.id, c.host_id, c.fingerprint, c.pem, c.not_before, c.not_after, c.is_current, c.created_at
 		 FROM certificates c
 		 JOIN hosts h ON h.id = c.host_id
@@ -1509,12 +1514,12 @@ func (s *SQLiteStore) ListEnrolledHostCerts(_ context.Context) ([]*models.Certif
 
 // --- Blocklist ---
 
-func (s *SQLiteStore) AddToBlocklist(_ context.Context, fingerprint, hostID, reason string) error {
+func (s *SQLiteStore) AddToBlocklist(ctx context.Context, fingerprint, hostID, reason string) error {
 	var hostIDVal any
 	if hostID != "" {
 		hostIDVal = hostID
 	}
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO blocklist (fingerprint, host_id, reason, created_at) VALUES (?, ?, ?, ?)`,
 		fingerprint, hostIDVal, reason, time.Now(),
 	)
@@ -1524,16 +1529,16 @@ func (s *SQLiteStore) AddToBlocklist(_ context.Context, fingerprint, hostID, rea
 	return nil
 }
 
-func (s *SQLiteStore) RemoveFromBlocklist(_ context.Context, fingerprint string) error {
-	_, err := s.db.Exec(`DELETE FROM blocklist WHERE fingerprint = ?`, fingerprint)
+func (s *SQLiteStore) RemoveFromBlocklist(ctx context.Context, fingerprint string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM blocklist WHERE fingerprint = ?`, fingerprint)
 	if err != nil {
 		return fmt.Errorf("remove from blocklist: %w", err)
 	}
 	return nil
 }
 
-func (s *SQLiteStore) GetBlocklist(_ context.Context) ([]string, error) {
-	rows, err := s.db.Query(`SELECT fingerprint FROM blocklist ORDER BY fingerprint`)
+func (s *SQLiteStore) GetBlocklist(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT fingerprint FROM blocklist ORDER BY fingerprint`)
 	if err != nil {
 		return nil, fmt.Errorf("get blocklist: %w", err)
 	}
@@ -1559,8 +1564,8 @@ func (s *SQLiteStore) GetBlocklist(_ context.Context) ([]string, error) {
 // RecordCertAlert upserts the (host_id, alerted_not_after) tuple so subsequent
 // scans for the same cert do not re-emit the alert. Update alerted_at to now
 // on every call so dashboards can show "last fired" times.
-func (s *SQLiteStore) RecordCertAlert(_ context.Context, hostID string, alertedNotAfter time.Time) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) RecordCertAlert(ctx context.Context, hostID string, alertedNotAfter time.Time) error {
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO cert_alerts (host_id, alerted_not_after, alerted_at) VALUES (?, ?, ?)
 		 ON CONFLICT(host_id) DO UPDATE SET alerted_not_after = excluded.alerted_not_after, alerted_at = excluded.alerted_at`,
 		hostID, alertedNotAfter, time.Now(),
@@ -1573,9 +1578,9 @@ func (s *SQLiteStore) RecordCertAlert(_ context.Context, hostID string, alertedN
 
 // GetCertAlert returns the alerted_not_after recorded for hostID, or
 // ErrNotFound when no alert has been recorded yet.
-func (s *SQLiteStore) GetCertAlert(_ context.Context, hostID string) (time.Time, error) {
+func (s *SQLiteStore) GetCertAlert(ctx context.Context, hostID string) (time.Time, error) {
 	var t time.Time
-	err := s.db.QueryRow(`SELECT alerted_not_after FROM cert_alerts WHERE host_id = ?`, hostID).Scan(&t)
+	err := s.db.QueryRowContext(ctx, `SELECT alerted_not_after FROM cert_alerts WHERE host_id = ?`, hostID).Scan(&t)
 	if errors.Is(err, sql.ErrNoRows) {
 		return time.Time{}, ErrNotFound
 	}
@@ -1589,9 +1594,9 @@ func (s *SQLiteStore) GetCertAlert(_ context.Context, hostID string) (time.Time,
 
 // GetServerSetting returns the stored value for key, or "" + ErrNotFound
 // when the key has never been set.
-func (s *SQLiteStore) GetServerSetting(_ context.Context, key string) (string, error) {
+func (s *SQLiteStore) GetServerSetting(ctx context.Context, key string) (string, error) {
 	var value string
-	err := s.db.QueryRow(`SELECT value FROM server_settings WHERE key = ?`, key).Scan(&value)
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM server_settings WHERE key = ?`, key).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -1602,8 +1607,8 @@ func (s *SQLiteStore) GetServerSetting(_ context.Context, key string) (string, e
 }
 
 // SetServerSetting upserts a key/value pair into server_settings.
-func (s *SQLiteStore) SetServerSetting(_ context.Context, key, value string) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) SetServerSetting(ctx context.Context, key, value string) error {
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO server_settings (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 		key, value,
@@ -1616,17 +1621,17 @@ func (s *SQLiteStore) SetServerSetting(_ context.Context, key, value string) err
 
 // --- Config Versioning ---
 
-func (s *SQLiteStore) BumpNetworkConfigVersion(_ context.Context, networkID string) error {
-	_, err := s.db.Exec(`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`, networkID)
+func (s *SQLiteStore) BumpNetworkConfigVersion(ctx context.Context, networkID string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE networks SET config_version = config_version + 1 WHERE id = ?`, networkID)
 	if err != nil {
 		return fmt.Errorf("bump config version: %w", err)
 	}
 	return nil
 }
 
-func (s *SQLiteStore) GetNetworkConfigVersion(_ context.Context, networkID string) (int, error) {
+func (s *SQLiteStore) GetNetworkConfigVersion(ctx context.Context, networkID string) (int, error) {
 	var version int
-	err := s.db.QueryRow(`SELECT config_version FROM networks WHERE id = ?`, networkID).Scan(&version)
+	err := s.db.QueryRowContext(ctx, `SELECT config_version FROM networks WHERE id = ?`, networkID).Scan(&version)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrNotFound
 	}
@@ -1636,9 +1641,9 @@ func (s *SQLiteStore) GetNetworkConfigVersion(_ context.Context, networkID strin
 	return version, nil
 }
 
-func (s *SQLiteStore) GetHostConfigVersion(_ context.Context, hostID string) (int, error) {
+func (s *SQLiteStore) GetHostConfigVersion(ctx context.Context, hostID string) (int, error) {
 	var version int
-	err := s.db.QueryRow(`SELECT config_version FROM hosts WHERE id = ?`, hostID).Scan(&version)
+	err := s.db.QueryRowContext(ctx, `SELECT config_version FROM hosts WHERE id = ?`, hostID).Scan(&version)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrNotFound
 	}
@@ -1648,8 +1653,8 @@ func (s *SQLiteStore) GetHostConfigVersion(_ context.Context, hostID string) (in
 	return version, nil
 }
 
-func (s *SQLiteStore) UpdateHostConfigVersion(_ context.Context, hostID string, version int) error {
-	result, err := s.db.Exec(
+func (s *SQLiteStore) UpdateHostConfigVersion(ctx context.Context, hostID string, version int) error {
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE hosts SET config_version=?, updated_at=? WHERE id=?`,
 		version, time.Now(), hostID,
 	)
@@ -1668,9 +1673,9 @@ func (s *SQLiteStore) UpdateHostConfigVersion(_ context.Context, hostID string, 
 
 // --- Network Config ---
 
-func (s *SQLiteStore) GetNetworkConfig(_ context.Context, networkID, key string) (string, error) {
+func (s *SQLiteStore) GetNetworkConfig(ctx context.Context, networkID, key string) (string, error) {
 	var value string
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT value FROM network_config WHERE network_id = ? AND key = ?`, networkID, key,
 	).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1682,8 +1687,8 @@ func (s *SQLiteStore) GetNetworkConfig(_ context.Context, networkID, key string)
 	return value, nil
 }
 
-func (s *SQLiteStore) SetNetworkConfig(_ context.Context, networkID, key, value string) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) SetNetworkConfig(ctx context.Context, networkID, key, value string) error {
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO network_config (network_id, key, value) VALUES (?, ?, ?)
 		 ON CONFLICT(network_id, key) DO UPDATE SET value = excluded.value`,
 		networkID, key, value,
@@ -1695,8 +1700,8 @@ func (s *SQLiteStore) SetNetworkConfig(_ context.Context, networkID, key, value 
 }
 
 // SetNetworkConfigAndBumpVersion atomically sets a config value and bumps the config version.
-func (s *SQLiteStore) SetNetworkConfigAndBumpVersion(_ context.Context, networkID, key, value string) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) SetNetworkConfigAndBumpVersion(ctx context.Context, networkID, key, value string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -1706,7 +1711,7 @@ func (s *SQLiteStore) SetNetworkConfigAndBumpVersion(_ context.Context, networkI
 		}
 	}()
 
-	_, err = tx.Exec(
+	_, err = tx.ExecContext(ctx,
 		`INSERT INTO network_config (network_id, key, value) VALUES (?, ?, ?)
 		 ON CONFLICT(network_id, key) DO UPDATE SET value = excluded.value`,
 		networkID, key, value,
@@ -1715,7 +1720,7 @@ func (s *SQLiteStore) SetNetworkConfigAndBumpVersion(_ context.Context, networkI
 		return fmt.Errorf("set network config: %w", err)
 	}
 
-	_, err = tx.Exec(`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`, networkID)
+	_, err = tx.ExecContext(ctx, `UPDATE networks SET config_version = config_version + 1 WHERE id = ?`, networkID)
 	if err != nil {
 		return fmt.Errorf("bump config version: %w", err)
 	}
@@ -1728,9 +1733,9 @@ func (s *SQLiteStore) SetNetworkConfigAndBumpVersion(_ context.Context, networkI
 
 // --- Audit Log ---
 
-func (s *SQLiteStore) AddAuditEntry(_ context.Context, actor, action, resource, details string) error {
+func (s *SQLiteStore) AddAuditEntry(ctx context.Context, actor, action, resource, details string) error {
 	id := fmt.Sprintf("audit_%d", time.Now().UnixNano())
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO audit_log (id, actor, action, resource, details) VALUES (?, ?, ?, ?, ?)`,
 		id, actor, action, resource, details,
 	)
@@ -1740,7 +1745,7 @@ func (s *SQLiteStore) AddAuditEntry(_ context.Context, actor, action, resource, 
 	return nil
 }
 
-func (s *SQLiteStore) ListAuditEntries(_ context.Context, filter AuditFilter) ([]*models.AuditEntry, error) {
+func (s *SQLiteStore) ListAuditEntries(ctx context.Context, filter AuditFilter) ([]*models.AuditEntry, error) {
 	query := `SELECT id, timestamp, actor, action, resource, COALESCE(details, '') FROM audit_log WHERE 1=1`
 	var args []any
 
@@ -1757,7 +1762,7 @@ func (s *SQLiteStore) ListAuditEntries(_ context.Context, filter AuditFilter) ([
 	query += ` LIMIT ?`
 	args = append(args, limit)
 
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list audit entries: %w", err)
 	}

@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pquerna/otp/totp"
+
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
-	"github.com/pquerna/otp/totp"
 )
 
 func TestGenerateAndVerifyTOTP(t *testing.T) {
@@ -77,7 +78,7 @@ func TestLogin_TOTPFlow(t *testing.T) {
 
 	// Step 1: password
 	form := url.Values{"username": {testUsername}, "password": {testPassword}}
-	req := httptest.NewRequest("POST", "/ui/login", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -90,7 +91,7 @@ func TestLogin_TOTPFlow(t *testing.T) {
 	cookies := rec.Result().Cookies()
 
 	// Visiting /ui/ should still redirect to login because session is pending_totp
-	req = httptest.NewRequest("GET", "/ui/", nil)
+	req = httptest.NewRequest(http.MethodGet, "/ui/", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -102,7 +103,7 @@ func TestLogin_TOTPFlow(t *testing.T) {
 
 	// Step 2: TOTP code
 	form = url.Values{"code": {code}}
-	req = httptest.NewRequest("POST", "/ui/login/totp", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "/ui/login/totp", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -117,7 +118,7 @@ func TestLogin_TOTPFlow(t *testing.T) {
 	}
 
 	// Now session should be fully authenticated
-	req = httptest.NewRequest("GET", "/ui/", nil)
+	req = httptest.NewRequest(http.MethodGet, "/ui/", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -133,14 +134,14 @@ func TestLogin_TOTPInvalidCode(t *testing.T) {
 	_, _ = enableTOTPForAdmin(t, w)
 
 	form := url.Values{"username": {testUsername}, "password": {testPassword}}
-	req := httptest.NewRequest("POST", "/ui/login", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	cookies := rec.Result().Cookies()
 
 	form = url.Values{"code": {"000000"}}
-	req = httptest.NewRequest("POST", "/ui/login/totp", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "/ui/login/totp", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -163,14 +164,14 @@ func TestLogin_TOTPRecoveryCode(t *testing.T) {
 	}
 
 	form := url.Values{"username": {testUsername}, "password": {testPassword}}
-	req := httptest.NewRequest("POST", "/ui/login", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	cookies := rec.Result().Cookies()
 
 	form = url.Values{"recovery_code": {plainCode}}
-	req = httptest.NewRequest("POST", "/ui/login/totp", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "/ui/login/totp", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -183,14 +184,14 @@ func TestLogin_TOTPRecoveryCode(t *testing.T) {
 
 	// Second attempt with same code should fail (single-use)
 	form = url.Values{"username": {testUsername}, "password": {testPassword}}
-	req = httptest.NewRequest("POST", "/ui/login", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec = httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	cookies = rec.Result().Cookies()
 
 	form = url.Values{"recovery_code": {plainCode}}
-	req = httptest.NewRequest("POST", "/ui/login/totp", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "/ui/login/totp", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -207,7 +208,7 @@ func TestTwoFASetupAndEnable(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	// Setup
-	req := httptest.NewRequest("POST", "/ui/2fa/setup", nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/2fa/setup", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -236,7 +237,7 @@ func TestTwoFASetupAndEnable(t *testing.T) {
 
 	// Enable
 	form := url.Values{"code": {code}}
-	req = httptest.NewRequest("POST", "/ui/2fa/enable", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "/ui/2fa/enable", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -278,7 +279,7 @@ func TestTwoFADisable_RequiresPassword(t *testing.T) {
 
 	// Wrong password — should fail
 	form := url.Values{"password": {"wrong"}}
-	req := httptest.NewRequest("POST", "/ui/2fa/disable", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/2fa/disable", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -295,7 +296,7 @@ func TestTwoFADisable_RequiresPassword(t *testing.T) {
 
 	// Correct password — should succeed
 	form = url.Values{"password": {testPassword}}
-	req = httptest.NewRequest("POST", "/ui/2fa/disable", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "/ui/2fa/disable", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -323,7 +324,7 @@ func TestTwoFAAuditEntries(t *testing.T) {
 
 	// Trigger failed disable
 	form := url.Values{"password": {"wrong"}}
-	req := httptest.NewRequest("POST", "/ui/2fa/disable", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/2fa/disable", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)

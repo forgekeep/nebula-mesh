@@ -106,10 +106,10 @@ func TestClientIP_IPv6(t *testing.T) {
 
 func TestMaskIP(t *testing.T) {
 	tests := map[string]string{
-		"203.0.113.42":         "203.0.113.0/24",
-		"10.0.0.1":             "10.0.0.0/24",
+		"203.0.113.42":          "203.0.113.0/24",
+		"10.0.0.1":              "10.0.0.0/24",
 		"2001:db8:1234:5678::1": "2001:db8:1234:5678::/64",
-		"not-an-ip":            "not-an-ip",
+		"not-an-ip":             "not-an-ip",
 	}
 	for in, want := range tests {
 		if got := MaskIP(in); got != want {

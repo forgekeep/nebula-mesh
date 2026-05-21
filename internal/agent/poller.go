@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -52,7 +53,8 @@ func IsRekey(err error) bool {
 func errorsAsRekey(err error, target **RekeyError) bool {
 	type unwrapper interface{ Unwrap() error }
 	for cur := err; cur != nil; {
-		if re, ok := cur.(*RekeyError); ok {
+		re := &RekeyError{}
+		if errors.As(cur, &re) {
 			*target = re
 			return true
 		}
@@ -90,7 +92,8 @@ func errorsAs(err error, target any) bool {
 	type unwrapper interface{ Unwrap() error }
 	for cur := err; cur != nil; {
 		if ptr, ok := target.(**RevocationError); ok {
-			if re, ok := cur.(*RevocationError); ok {
+			re := &RevocationError{}
+			if errors.As(cur, &re) {
 				*ptr = re
 				return true
 			}
@@ -160,7 +163,7 @@ func loadSigningKey(path string) (ed25519.PrivateKey, error) {
 	return ed25519.PrivateKey(block.Bytes), nil
 }
 
-// Run starts the poll loop, blocking until ctx is cancelled.
+// Run starts the poll loop, blocking until ctx is canceled.
 func (p *Poller) Run(ctx context.Context) error {
 	p.logger.Info("starting poll loop", "interval", p.config.Interval, "server", p.config.ServerURL)
 
@@ -191,14 +194,14 @@ func (p *Poller) Run(ctx context.Context) error {
 // PollOnce performs a single signed poll iteration and returns. The enroll
 // subcommand uses it to verify the freshly enrolled host can reach the
 // server before exiting. Errors are informational — callers decide whether
-// to gate behaviour on them; the daemon's Run() never invokes PollOnce.
+// to gate behavior on them; the daemon's Run() never invokes PollOnce.
 func (p *Poller) PollOnce(ctx context.Context) error {
 	return p.poll(ctx)
 }
 
 func (p *Poller) poll(ctx context.Context) error {
 	u := p.config.ServerURL + "/api/v1/agent/updates"
-	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create poll request: %w", err)
 	}

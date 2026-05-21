@@ -30,7 +30,7 @@ func TestAdminCreatesUser_AutoProvisions(t *testing.T) {
 		"password_confirm": {"SecurePass123!@#"},
 		"role":             {"user"},
 	}.Encode()
-	req := httptest.NewRequest("POST", "/ui/operators", strings.NewReader(form))
+	req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(adminCookie)
 	rec := httptest.NewRecorder()
@@ -89,7 +89,7 @@ func TestAdminCreatesAdmin_AutoProvisions(t *testing.T) {
 		"password_confirm": {"SecurePass123!@#"},
 		"role":             {"admin"},
 	}.Encode()
-	req := httptest.NewRequest("POST", "/ui/operators", strings.NewReader(form))
+	req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(adminCookie)
 	rec := httptest.NewRecorder()
@@ -163,7 +163,7 @@ func TestAdminCreatesUser_SkipsAutoProvisionWhenNoMaster(t *testing.T) {
 		"password_confirm": {"SecurePass123!@#"},
 		"role":             {"user"},
 	}.Encode()
-	req := httptest.NewRequest("POST", "/ui/operators", strings.NewReader(form))
+	req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(adminCookie)
 	rec := httptest.NewRecorder()

@@ -30,7 +30,7 @@ func TestHostNewForm_NetworkOptionsHaveDataCIDR(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/new", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/new", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}

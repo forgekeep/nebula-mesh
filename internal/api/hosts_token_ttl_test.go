@@ -24,7 +24,7 @@ func TestCreateHost_UsesServerDefaultTTL(t *testing.T) {
 		Name:      "h1",
 		NebulaIPs: []string{"192.168.100.10"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	before := time.Now()
@@ -50,7 +50,7 @@ func TestCreateHost_UsesServerDefaultTTL(t *testing.T) {
 	expectedMinExpiry := before.Add(2 * time.Hour).Add(-1 * time.Minute)
 	expectedMaxExpiry := time.Now().Add(2 * time.Hour).Add(1 * time.Minute)
 
-	regReq := httptest.NewRequest("POST", "/api/v1/hosts/"+hostID+"/enrollment-token", nil)
+	regReq := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+hostID+"/enrollment-token", nil)
 	authRequest(regReq)
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, regReq)
@@ -82,7 +82,7 @@ func TestCreateHost_UsesNetworkOverride(t *testing.T) {
 		Name:      "h2",
 		NebulaIPs: []string{"192.168.100.11"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	before := time.Now()
@@ -93,7 +93,7 @@ func TestCreateHost_UsesNetworkOverride(t *testing.T) {
 	var resp createHostResponse
 	_ = json.NewDecoder(w.Body).Decode(&resp)
 
-	regReq := httptest.NewRequest("POST", "/api/v1/hosts/"+resp.Host.ID+"/enrollment-token", nil)
+	regReq := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+resp.Host.ID+"/enrollment-token", nil)
 	authRequest(regReq)
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, regReq)
@@ -121,7 +121,7 @@ func TestRegenerateEnrollmentToken_InvalidatesPrevious(t *testing.T) {
 		Name:      "h3",
 		NebulaIPs: []string{"192.168.100.12"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -131,7 +131,7 @@ func TestRegenerateEnrollmentToken_InvalidatesPrevious(t *testing.T) {
 	var initial createHostResponse
 	_ = json.NewDecoder(w.Body).Decode(&initial)
 
-	regReq := httptest.NewRequest("POST", "/api/v1/hosts/"+initial.Host.ID+"/enrollment-token", nil)
+	regReq := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+initial.Host.ID+"/enrollment-token", nil)
 	authRequest(regReq)
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, regReq)
@@ -158,7 +158,7 @@ func TestRegenerateEnrollmentToken_InvalidatesPrevious(t *testing.T) {
 // auth, like every other host-CRUD route.
 func TestRegenerateEnrollmentToken_RequiresAuth(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/v1/hosts/anything/enrollment-token", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/anything/enrollment-token", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
@@ -169,7 +169,7 @@ func TestRegenerateEnrollmentToken_RequiresAuth(t *testing.T) {
 // TestRegenerateEnrollmentToken_HostNotFound — 404 for a non-existent host id.
 func TestRegenerateEnrollmentToken_HostNotFound(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/v1/hosts/missing-host/enrollment-token", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/missing-host/enrollment-token", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

@@ -121,7 +121,7 @@ func TestCreateAndGetNetwork(t *testing.T) {
 func TestGetNetwork_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	_, err := s.GetNetwork(context.Background(), "nonexistent")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -193,7 +193,7 @@ func TestListHosts_FilterByNetwork(t *testing.T) {
 		h := &models.Host{
 			ID: fmt.Sprintf("host_%d", i), NetworkID: net.ID, Name: name,
 			NebulaIPs: []string{fmt.Sprintf("192.168.100.%d", 10+i)},
-			Groups: []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
+			Groups:    []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 			CreatedAt: time.Now(), UpdatedAt: time.Now(),
 		}
 		if err := s.CreateHost(ctx, h); err != nil {
@@ -218,9 +218,9 @@ func TestListHosts_WithLimit(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		h := &models.Host{
 			ID: fmt.Sprintf("host_%d", i), NetworkID: net.ID,
-			Name:     fmt.Sprintf("host-%d", i),
+			Name:      fmt.Sprintf("host-%d", i),
 			NebulaIPs: []string{fmt.Sprintf("192.168.100.%d", 10+i)},
-			Groups:   []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
+			Groups:    []string{}, Role: models.HostRoleHost, Status: models.HostStatusPending,
 			CreatedAt: time.Now(), UpdatedAt: time.Now(),
 		}
 		if err := s.CreateHost(ctx, h); err != nil {
@@ -326,7 +326,7 @@ func TestDeleteHost(t *testing.T) {
 	}
 
 	_, err := s.GetHost(ctx, "host_1")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -387,7 +387,7 @@ func TestConsumeToken_AlreadyUsed(t *testing.T) {
 	s.ConsumeToken(ctx, "one-time")
 
 	_, err := s.ConsumeToken(ctx, "one-time")
-	if err != ErrTokenUsed {
+	if !errors.Is(err, ErrTokenUsed) {
 		t.Fatalf("err = %v, want ErrTokenUsed", err)
 	}
 }
@@ -411,7 +411,7 @@ func TestConsumeToken_Expired(t *testing.T) {
 	s.CreateToken(ctx, tok)
 
 	_, err := s.ConsumeToken(ctx, "expired-token")
-	if err != ErrTokenExpired {
+	if !errors.Is(err, ErrTokenExpired) {
 		t.Fatalf("err = %v, want ErrTokenExpired", err)
 	}
 }
@@ -419,7 +419,7 @@ func TestConsumeToken_Expired(t *testing.T) {
 func TestConsumeToken_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	_, err := s.ConsumeToken(context.Background(), "nonexistent")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -528,7 +528,7 @@ func TestUpdateHost_NotFound(t *testing.T) {
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
 	err := s.UpdateHost(ctx, h)
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -536,7 +536,7 @@ func TestUpdateHost_NotFound(t *testing.T) {
 func TestDeleteHost_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	err := s.DeleteHost(context.Background(), "nonexistent")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -674,7 +674,7 @@ func TestGetNetworkConfig_NotFound(t *testing.T) {
 	createTestNetwork(t, s)
 
 	_, err := s.GetNetworkConfig(ctx, "net_test1", "nonexistent")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -725,7 +725,7 @@ func TestUpdateHostLastSeen(t *testing.T) {
 func TestUpdateHostLastSeen_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	err := s.UpdateHostLastSeen(context.Background(), "nonexistent", time.Now())
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -760,7 +760,7 @@ func TestUpdateHostCert(t *testing.T) {
 func TestUpdateHostCert_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	err := s.UpdateHostCert(context.Background(), "nonexistent", "fp", time.Now())
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -791,7 +791,7 @@ func TestUpdateHostStatus(t *testing.T) {
 func TestUpdateHostStatus_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	err := s.UpdateHostStatus(context.Background(), "nonexistent", models.HostStatusBlocked)
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -850,7 +850,7 @@ func TestSaveCertificateAndEnrollHost_HostNotFound(t *testing.T) {
 
 	// Verify certificate was NOT saved (rollback)
 	_, err = s.GetCurrentCertificate(ctx, "nonexistent")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound for cert, got %v", err)
 	}
 }
@@ -911,7 +911,7 @@ func TestSaveCertificateAndUpdateHostCert_HostNotFound(t *testing.T) {
 
 	// Verify certificate was NOT saved (rollback)
 	_, err = s.GetCurrentCertificate(ctx, "nonexistent")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound for cert, got %v", err)
 	}
 }
@@ -997,7 +997,7 @@ func TestBlockHostAndAddToBlocklist_NoCert(t *testing.T) {
 func TestBlockHostAndAddToBlocklist_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	_, err := s.BlockHostAndAddToBlocklist(context.Background(), "nonexistent", "reason")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -1071,7 +1071,7 @@ func TestUnblockHostAndRemoveFromBlocklist_NoCert(t *testing.T) {
 func TestUnblockHostAndRemoveFromBlocklist_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	_, err := s.UnblockHostAndRemoveFromBlocklist(context.Background(), "nonexistent")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -1103,7 +1103,7 @@ func TestDeleteHostAndBlockCert(t *testing.T) {
 
 	// Host deleted
 	_, err := s.GetHost(ctx, h.ID)
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 
@@ -1141,7 +1141,7 @@ func TestDeleteHostAndBlockCert_NoCert(t *testing.T) {
 
 	// Host deleted
 	_, err := s.GetHost(ctx, h.ID)
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 
@@ -1155,7 +1155,7 @@ func TestDeleteHostAndBlockCert_NoCert(t *testing.T) {
 func TestDeleteHostAndBlockCert_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	err := s.DeleteHostAndBlockCert(context.Background(), "nonexistent", "reason")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -1329,7 +1329,7 @@ func TestUpdateHostConfigVersion(t *testing.T) {
 func TestUpdateHostConfigVersion_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	err := s.UpdateHostConfigVersion(context.Background(), "nonexistent", 1)
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -1337,7 +1337,7 @@ func TestUpdateHostConfigVersion_NotFound(t *testing.T) {
 func TestGetHostConfigVersion_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	_, err := s.GetHostConfigVersion(context.Background(), "nonexistent")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -1529,7 +1529,7 @@ func TestCertAlerts_RecordAndGet(t *testing.T) {
 	}
 
 	// No alert yet → ErrNotFound.
-	if _, err := s.GetCertAlert(ctx, h.ID); err != ErrNotFound {
+	if _, err := s.GetCertAlert(ctx, h.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound before any alert, got %v", err)
 	}
 
@@ -2157,20 +2157,20 @@ func TestCAs_ListApproachingExpiry(t *testing.T) {
 
 	// Create fresh CA (10-year lifetime, just started)
 	freshCA := &models.CA{
-		ID:              "ca_fresh",
-		Name:            "fresh",
-		OwnerOperatorID: op.ID,
-		CertPEM:         "cert",
-		Fingerprint:     "fp_fresh",
-		NotBefore:       now,
-		NotAfter:        now.AddDate(10, 0, 0),
-		Status:          models.CAStatusActive,
-		EncryptedKeyDEK: []byte("key"),
-		NonceDEK:        []byte("nonce"),
+		ID:                   "ca_fresh",
+		Name:                 "fresh",
+		OwnerOperatorID:      op.ID,
+		CertPEM:              "cert",
+		Fingerprint:          "fp_fresh",
+		NotBefore:            now,
+		NotAfter:             now.AddDate(10, 0, 0),
+		Status:               models.CAStatusActive,
+		EncryptedKeyDEK:      []byte("key"),
+		NonceDEK:             []byte("nonce"),
 		EncryptedKeyMaterial: []byte("material"),
-		NonceKey:        []byte("nonce_key"),
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		NonceKey:             []byte("nonce_key"),
+		CreatedAt:            now,
+		UpdatedAt:            now,
 	}
 	if err := s.CreateCA(ctx, freshCA); err != nil {
 		t.Fatal(err)
@@ -2178,20 +2178,20 @@ func TestCAs_ListApproachingExpiry(t *testing.T) {
 
 	// Create mid-life CA (10-year lifetime, 5 years have passed)
 	midLifeCA := &models.CA{
-		ID:              "ca_midlife",
-		Name:            "midlife",
-		OwnerOperatorID: op.ID,
-		CertPEM:         "cert",
-		Fingerprint:     "fp_midlife",
-		NotBefore:       now.AddDate(-5, 0, 0),
-		NotAfter:        now.AddDate(5, 0, 0),
-		Status:          models.CAStatusActive,
-		EncryptedKeyDEK: []byte("key"),
-		NonceDEK:        []byte("nonce"),
+		ID:                   "ca_midlife",
+		Name:                 "midlife",
+		OwnerOperatorID:      op.ID,
+		CertPEM:              "cert",
+		Fingerprint:          "fp_midlife",
+		NotBefore:            now.AddDate(-5, 0, 0),
+		NotAfter:             now.AddDate(5, 0, 0),
+		Status:               models.CAStatusActive,
+		EncryptedKeyDEK:      []byte("key"),
+		NonceDEK:             []byte("nonce"),
 		EncryptedKeyMaterial: []byte("material"),
-		NonceKey:        []byte("nonce_key"),
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		NonceKey:             []byte("nonce_key"),
+		CreatedAt:            now,
+		UpdatedAt:            now,
 	}
 	if err := s.CreateCA(ctx, midLifeCA); err != nil {
 		t.Fatal(err)
@@ -2199,20 +2199,20 @@ func TestCAs_ListApproachingExpiry(t *testing.T) {
 
 	// Create near-expiry CA (10-year lifetime, 8 years have passed, 2 years left = 20%)
 	nearExpiryCA := &models.CA{
-		ID:              "ca_expiring",
-		Name:            "expiring",
-		OwnerOperatorID: op.ID,
-		CertPEM:         "cert",
-		Fingerprint:     "fp_expiring",
-		NotBefore:       now.AddDate(-8, 0, 0),
-		NotAfter:        now.AddDate(2, 0, 0),
-		Status:          models.CAStatusActive,
-		EncryptedKeyDEK: []byte("key"),
-		NonceDEK:        []byte("nonce"),
+		ID:                   "ca_expiring",
+		Name:                 "expiring",
+		OwnerOperatorID:      op.ID,
+		CertPEM:              "cert",
+		Fingerprint:          "fp_expiring",
+		NotBefore:            now.AddDate(-8, 0, 0),
+		NotAfter:             now.AddDate(2, 0, 0),
+		Status:               models.CAStatusActive,
+		EncryptedKeyDEK:      []byte("key"),
+		NonceDEK:             []byte("nonce"),
 		EncryptedKeyMaterial: []byte("material"),
-		NonceKey:        []byte("nonce_key"),
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		NonceKey:             []byte("nonce_key"),
+		CreatedAt:            now,
+		UpdatedAt:            now,
 	}
 	if err := s.CreateCA(ctx, nearExpiryCA); err != nil {
 		t.Fatal(err)
@@ -2220,20 +2220,20 @@ func TestCAs_ListApproachingExpiry(t *testing.T) {
 
 	// Create retired CA (should not be included in results)
 	retiredCA := &models.CA{
-		ID:              "ca_retired",
-		Name:            "retired",
-		OwnerOperatorID: op.ID,
-		CertPEM:         "cert",
-		Fingerprint:     "fp_retired",
-		NotBefore:       now.AddDate(-8, 0, 0),
-		NotAfter:        now.AddDate(2, 0, 0),
-		Status:          models.CAStatusRetired,
-		EncryptedKeyDEK: []byte("key"),
-		NonceDEK:        []byte("nonce"),
+		ID:                   "ca_retired",
+		Name:                 "retired",
+		OwnerOperatorID:      op.ID,
+		CertPEM:              "cert",
+		Fingerprint:          "fp_retired",
+		NotBefore:            now.AddDate(-8, 0, 0),
+		NotAfter:             now.AddDate(2, 0, 0),
+		Status:               models.CAStatusRetired,
+		EncryptedKeyDEK:      []byte("key"),
+		NonceDEK:             []byte("nonce"),
 		EncryptedKeyMaterial: []byte("material"),
-		NonceKey:        []byte("nonce_key"),
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		NonceKey:             []byte("nonce_key"),
+		CreatedAt:            now,
+		UpdatedAt:            now,
 	}
 	if err := s.CreateCA(ctx, retiredCA); err != nil {
 		t.Fatal(err)

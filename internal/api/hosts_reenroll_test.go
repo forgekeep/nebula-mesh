@@ -21,7 +21,7 @@ func TestReenroll_MintsTokenAndPreservesHost(t *testing.T) {
 		NebulaIPs: []string{"192.168.100.42"},
 		Groups:    []string{"g1"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -37,7 +37,7 @@ func TestReenroll_MintsTokenAndPreservesHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req = httptest.NewRequest("POST", "/api/v1/hosts/"+initial.Host.ID+"/reenroll", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+initial.Host.ID+"/reenroll", nil)
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -73,7 +73,7 @@ func TestReenroll_MintsTokenAndPreservesHost(t *testing.T) {
 
 func TestReenroll_HostNotFound(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/v1/hosts/missing/reenroll", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/missing/reenroll", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -84,7 +84,7 @@ func TestReenroll_HostNotFound(t *testing.T) {
 
 func TestReenroll_RequiresAuth(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/v1/hosts/anything/reenroll", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/anything/reenroll", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {

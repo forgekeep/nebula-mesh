@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/models"
 )
@@ -33,7 +34,7 @@ type MintRequest struct {
 	// Duration is the validity period for the cert (e.g. 10 * 365 * 24 * time.Hour).
 	Duration time.Duration
 	// SkipIfActive, when true, causes the function to return an existing active CA
-	// for the operator instead of minting a new one (idempotent behaviour).
+	// for the operator instead of minting a new one (idempotent behavior).
 	SkipIfActive bool
 }
 

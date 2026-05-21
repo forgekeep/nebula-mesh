@@ -102,7 +102,7 @@ func runUnified(ctx context.Context, args []string, stderr io.Writer) error {
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	// One-shot enroll+poll path — explicit operator intent on the command
-	// line. Preserves the pre-#88 behaviour.
+	// line. Preserves the pre-#88 behavior.
 	if *token != "" && *serverURL != "" {
 		cfg, err := resolveConfig(*configPath, *serverURL, *dataDir, *pollInterval, *updateConfig, stderr)
 		if err != nil {
@@ -111,7 +111,7 @@ func runUnified(ctx context.Context, args []string, stderr io.Writer) error {
 		certPath := filepath.Join(cfg.DataDir, "host.crt")
 		if _, err := os.Stat(certPath); errors.Is(err, os.ErrNotExist) {
 			logger.Info("enrolling host", "server", cfg.ServerURL, "data_dir", cfg.DataDir, "signing_key", cfg.SigningKeyPath)
-			if err := agent.Enroll(cfg.ServerURL, *token, cfg.DataDir, cfg.SigningKeyPath); err != nil {
+			if err := agent.Enroll(ctx, cfg.ServerURL, *token, cfg.DataDir, cfg.SigningKeyPath); err != nil {
 				return fmt.Errorf("enrollment failed: %w", err)
 			}
 			logger.Info("enrollment successful")
@@ -131,8 +131,8 @@ func runUnified(ctx context.Context, args []string, stderr io.Writer) error {
 }
 
 // awaitEnrollment blocks until the agent has a usable config and the three
-// on-disk artefacts the poller needs (agent.yml, host.crt, signing key).
-// Returns ctx.Err() when the context is cancelled. The standby hint is
+// on-disk artifacts the poller needs (agent.yml, host.crt, signing key).
+// Returns ctx.Err() when the context is canceled. The standby hint is
 // logged exactly once per process lifetime, even across multiple reasons,
 // to keep journals readable.
 func awaitEnrollment(ctx context.Context, logger *slog.Logger, configPath string) (*config.AgentConfig, error) {
@@ -161,7 +161,7 @@ func awaitEnrollment(ctx context.Context, logger *slog.Logger, configPath string
 }
 
 // checkEnrollment returns the loaded config when every required on-disk
-// artefact is present, and a short human-readable reason string otherwise.
+// artifact is present, and a short human-readable reason string otherwise.
 // All errors map to "missing" — the standby loop only cares whether the
 // agent is ready to poll, not why a previous attempt failed.
 func checkEnrollment(configPath string) (*config.AgentConfig, string) {
@@ -287,7 +287,7 @@ func startPoller(ctx context.Context, cfg *config.AgentConfig, logger *slog.Logg
 			var re *agent.RekeyError
 			_ = errors.As(runErr, &re)
 			logger.Info("performing server-requested rekey")
-			if err := agent.Reenroll(cfg.ServerURL, re.Token, cfg.DataDir, cfg.SigningKeyPath); err != nil {
+			if err := agent.Reenroll(ctx, cfg.ServerURL, re.Token, cfg.DataDir, cfg.SigningKeyPath); err != nil {
 				return fmt.Errorf("rekey enrollment: %w", err)
 			}
 			continue
@@ -339,7 +339,7 @@ func runEnroll(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	}
 
 	_, _ = fmt.Fprintf(stdout, "enrolling with %s...\n", *serverURL)
-	if err := agent.Enroll(*serverURL, *token, *dataDir, *signingKeyPath); err != nil {
+	if err := agent.Enroll(ctx, *serverURL, *token, *dataDir, *signingKeyPath); err != nil {
 		return fmt.Errorf("enrollment failed: %w", err)
 	}
 

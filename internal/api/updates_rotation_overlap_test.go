@@ -30,7 +30,7 @@ func TestPoll_AcceptsPrevFingerprintDuringOverlap(t *testing.T) {
 	}
 
 	// Agent still polls under the old fingerprint — must succeed.
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	signPoll(t, req, agent)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -53,7 +53,7 @@ func TestPoll_ClearsPrevFingerprintAfterAgentUpgrades(t *testing.T) {
 	}
 
 	// Poll under the *current* fingerprint with prev still populated.
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	signPoll(t, req, agent)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -92,7 +92,7 @@ func TestPoll_RejectsStalePrevFingerprintAfterTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	signPoll(t, req, agent)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

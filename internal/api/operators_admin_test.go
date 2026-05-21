@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
 	"github.com/juev/nebula-mesh/internal/models"
 )
 
@@ -43,7 +44,7 @@ func TestCreateOperator_RequiresAdminRole(t *testing.T) {
 	userKey := createUserWithAPIKey(t, srv, "user")
 
 	body, _ := json.Marshal(map[string]string{"username": "bob", "password": "pw"})
-	req := httptest.NewRequest("POST", "/api/v1/operators", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operators", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+userKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -57,7 +58,7 @@ func TestCreateOperator_AdminCanCreate(t *testing.T) {
 	adminKey := createUserWithAPIKey(t, srv, "admin")
 
 	body, _ := json.Marshal(map[string]string{"username": "carol", "password": "pw"})
-	req := httptest.NewRequest("POST", "/api/v1/operators", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operators", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+adminKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -70,7 +71,7 @@ func TestListOperators_RequiresAdminRole(t *testing.T) {
 	srv, _ := newTestServer(t)
 	userKey := createUserWithAPIKey(t, srv, "user")
 
-	req := httptest.NewRequest("GET", "/api/v1/operators", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/operators", nil)
 	req.Header.Set("Authorization", "Bearer "+userKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -86,7 +87,7 @@ func TestGetBlocklist_RequiresAdminRole(t *testing.T) {
 	srv, _ := newTestServer(t)
 	userKey := createUserWithAPIKey(t, srv, "user")
 
-	req := httptest.NewRequest("GET", "/api/v1/blocklist", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/blocklist", nil)
 	req.Header.Set("Authorization", "Bearer "+userKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -108,7 +109,7 @@ func TestDisableOperator_RequiresAdminRole(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("POST", "/api/v1/operators/"+targetOp.ID+"/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operators/"+targetOp.ID+"/disable", nil)
 	req.Header.Set("Authorization", "Bearer "+userKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -130,7 +131,7 @@ func TestEnableOperator_RequiresAdminRole(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("POST", "/api/v1/operators/"+targetOp.ID+"/enable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operators/"+targetOp.ID+"/enable", nil)
 	req.Header.Set("Authorization", "Bearer "+userKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -145,7 +146,7 @@ func TestCreateOperatorAPIKey_RequiresAdminRole(t *testing.T) {
 	targetID := createUserWithAPIKey(t, srv, "user")
 
 	body, _ := json.Marshal(map[string]string{"name": "evil-key"})
-	req := httptest.NewRequest("POST", "/api/v1/operators/"+targetID+"/api-keys", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operators/"+targetID+"/api-keys", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+userKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -160,7 +161,7 @@ func TestRevokeOperatorAPIKey_RequiresAdminRole(t *testing.T) {
 	targetID := createUserWithAPIKey(t, srv, "user")
 	keyID := uuid.New().String()
 
-	req := httptest.NewRequest("DELETE", "/api/v1/operators/"+targetID+"/api-keys/"+keyID, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/operators/"+targetID+"/api-keys/"+keyID, nil)
 	req.Header.Set("Authorization", "Bearer "+userKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -174,7 +175,7 @@ func TestListOperatorAPIKeys_RequiresAdminRole(t *testing.T) {
 	userKey := createUserWithAPIKey(t, srv, "user")
 	targetID := createUserWithAPIKey(t, srv, "user")
 
-	req := httptest.NewRequest("GET", "/api/v1/operators/"+targetID+"/api-keys", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/operators/"+targetID+"/api-keys", nil)
 	req.Header.Set("Authorization", "Bearer "+userKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)

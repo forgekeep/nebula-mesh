@@ -42,7 +42,7 @@ func NewMasterFromBase64(b64 string) (*Master, error) {
 	}
 	raw, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidMasterKey, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidMasterKey, err)
 	}
 	return NewMaster(raw)
 }

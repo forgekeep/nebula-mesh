@@ -10,9 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
+
+	"github.com/juev/nebula-mesh/internal/models"
 )
 
 // TestMetricsEndpoint_PrometheusFormat asserts that /metrics now serves
@@ -25,11 +26,11 @@ func TestMetricsEndpoint_PrometheusFormat(t *testing.T) {
 	// least one sample. Prometheus's text exposition only emits metrics
 	// that have data — pre-seeding zeros for {method, route, status}
 	// would explode cardinality, so we exercise one route instead.
-	wReq := httptest.NewRequest("GET", "/healthz", nil)
+	wReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	wRec := httptest.NewRecorder()
 	srv.ServeHTTP(wRec, wReq)
 
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -67,12 +68,12 @@ func TestMetricsEndpoint_RecordsHTTPRequests(t *testing.T) {
 
 	// Fire a handful of requests we expect to be observed.
 	for i := 0; i < 3; i++ {
-		req := httptest.NewRequest("GET", "/healthz", nil)
+		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 	}
 
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -96,7 +97,7 @@ func TestMetricsEndpoint_EnrollmentIncrementsCounter(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "metrics-host", NebulaIPs: []string{"192.168.100.10"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -125,7 +126,7 @@ func TestMetricsEndpoint_EnrollmentIncrementsCounter(t *testing.T) {
 		PublicKeyPEM:  string(pubPEM),
 		SigningPubPEM: signingPEM,
 	})
-	req = httptest.NewRequest("POST", "/api/v1/enroll", bytes.NewBuffer(enrollBody))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/enroll", bytes.NewBuffer(enrollBody))
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -134,7 +135,7 @@ func TestMetricsEndpoint_EnrollmentIncrementsCounter(t *testing.T) {
 
 	// 3. Scrape /metrics and assert that nebula_mgmt_enrollments_total{result="ok"}
 	//    is at least 1.
-	req = httptest.NewRequest("GET", "/metrics", nil)
+	req = httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -158,14 +159,14 @@ func TestMetricsEndpoint_HostsGauge(t *testing.T) {
 		h := &models.Host{
 			ID: "h_" + string(s), NetworkID: netID, Name: "h-" + string(s),
 			NebulaIPs: []string{"192.168.100." + string(s[0:1]) + "0"},
-			Groups:   []string{}, Role: models.HostRoleHost, Status: s,
+			Groups:    []string{}, Role: models.HostRoleHost, Status: s,
 		}
 		if err := st.CreateHost(req(t).Context(), h); err != nil {
 			t.Fatalf("seed host %s: %v", s, err)
 		}
 	}
 
-	r := httptest.NewRequest("GET", "/metrics", nil)
+	r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
 	body := w.Body.String()
@@ -179,7 +180,7 @@ func TestMetricsEndpoint_HostsGauge(t *testing.T) {
 // Prometheus exporter takes /metrics.
 func TestExpvarEndpoint_LegacyPath(t *testing.T) {
 	srv, _ := newTestServer(t)
-	r := httptest.NewRequest("GET", "/debug/vars", nil)
+	r := httptest.NewRequest(http.MethodGet, "/debug/vars", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
@@ -195,7 +196,7 @@ func TestExpvarEndpoint_LegacyPath(t *testing.T) {
 // req returns a fresh *http.Request used just for its context (test helper).
 func req(t *testing.T) *http.Request {
 	t.Helper()
-	return httptest.NewRequest("GET", "/", nil)
+	return httptest.NewRequest(http.MethodGet, "/", nil)
 }
 
 // newTestServerWithMetrics is like newTestServer but lets the caller decide
@@ -215,14 +216,14 @@ func newTestServerWithMetrics(t *testing.T, enabled bool) (*Server, interface{})
 func TestMetricsEndpoint_DisabledByOption(t *testing.T) {
 	srv, _ := newTestServerWithMetrics(t, false)
 
-	r := httptest.NewRequest("GET", "/metrics", nil)
+	r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("disabled /metrics: status = %d, want 404", w.Code)
 	}
 
-	r2 := httptest.NewRequest("GET", "/debug/vars", nil)
+	r2 := httptest.NewRequest(http.MethodGet, "/debug/vars", nil)
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, r2)
 	if w2.Code != http.StatusOK {

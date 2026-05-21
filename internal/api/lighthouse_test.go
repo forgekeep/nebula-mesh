@@ -21,9 +21,9 @@ func enrollLighthouse(t *testing.T, srv *Server, networkID, hostID, name, nebula
 		NebulaIPs: []string{nebulaIP}, Groups: []string{},
 		Role: models.HostRoleLighthouse, IsLighthouse: true,
 		PublicIP: publicIP, ListenPort: 4242,
-		Status:    models.HostStatusEnrolled,
+		Status:          models.HostStatusEnrolled,
 		CertFingerprint: fp,
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt:       now, UpdatedAt: now,
 	}
 	if err := srv.store.CreateHost(ctx, h); err != nil {
 		t.Fatal(err)
@@ -210,12 +210,12 @@ func TestRenderHostConfig_UnsafeRouteFamilyMatch_Pass(t *testing.T) {
 	host := &models.Host{
 		ID: "host_dual", NetworkID: netID, Name: "dual-stack",
 		NebulaIPs: []string{"192.168.100.10", "fd00::10"}, Groups: []string{},
-		Role:      models.HostRoleHost,
-		Status:    models.HostStatusEnrolled,
+		Role:   models.HostRoleHost,
+		Status: models.HostStatusEnrolled,
 		Advanced: &models.HostAdvanced{
 			UnsafeRoutes: []models.UnsafeRoute{
-				{Route: "10.99.0.0/24", Via: "192.168.100.2"},     // IPv4 to IPv4
-				{Route: "fd00:99::/64", Via: "fd00::2"},           // IPv6 to IPv6
+				{Route: "10.99.0.0/24", Via: "192.168.100.2"}, // IPv4 to IPv4
+				{Route: "fd00:99::/64", Via: "fd00::2"},       // IPv6 to IPv6
 			},
 		},
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
@@ -246,8 +246,8 @@ func TestRenderHostConfig_UnsafeRouteFamilyMismatch(t *testing.T) {
 	host := &models.Host{
 		ID: "host_ipv4_only", NetworkID: netID, Name: "ipv4-only",
 		NebulaIPs: []string{"192.168.100.10"}, Groups: []string{},
-		Role:      models.HostRoleHost,
-		Status:    models.HostStatusEnrolled,
+		Role:   models.HostRoleHost,
+		Status: models.HostStatusEnrolled,
 		Advanced: &models.HostAdvanced{
 			UnsafeRoutes: []models.UnsafeRoute{
 				{Route: "fd00:99::/64", Via: "fd00::1"}, // IPv6 route but no IPv6 host address

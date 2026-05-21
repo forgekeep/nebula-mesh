@@ -233,11 +233,11 @@ func TestLoadServerConfig_RejectsCAAutoRotateBadThreshold(t *testing.T) {
 		threshold float64
 		wantErr   bool
 	}{
-		{"threshold=0", 0, false},          // 0 = unset, OK, will apply default
-		{"threshold=-0.1", -0.1, true},     // negative, not allowed
-		{"threshold=1.0", 1.0, true},       // >= 1.0, not allowed
-		{"threshold=1.5", 1.5, true},       // > 1.0, not allowed
-		{"threshold=0.5", 0.5, false},      // valid
+		{"threshold=0", 0, false},      // 0 = unset, OK, will apply default
+		{"threshold=-0.1", -0.1, true}, // negative, not allowed
+		{"threshold=1.0", 1.0, true},   // >= 1.0, not allowed
+		{"threshold=1.5", 1.5, true},   // > 1.0, not allowed
+		{"threshold=0.5", 0.5, false},  // valid
 	}
 
 	for _, tt := range tests {

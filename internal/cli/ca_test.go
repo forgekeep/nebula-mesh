@@ -25,11 +25,11 @@ func TestCARotate_BuildsCorrectRequest(t *testing.T) {
 		// Return mock response
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":              "new-ca-id",
-			"name":            "ca-name-rotated",
-			"predecessor_id":  "ca-123",
-			"fingerprint":     "abc123def456",
-			"status":          "active",
+			"id":             "new-ca-id",
+			"name":           "ca-name-rotated",
+			"predecessor_id": "ca-123",
+			"fingerprint":    "abc123def456",
+			"status":         "active",
 		})
 	}))
 	defer server.Close()

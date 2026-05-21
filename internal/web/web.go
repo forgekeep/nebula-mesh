@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
 	"github.com/juev/nebula-mesh/internal/auth"
 	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/pki"
@@ -314,7 +315,7 @@ func (w *Web) setupRoutes() {
 }
 
 // StartSessionCleanup starts periodic removal of expired sessions.
-// Stops when ctx is cancelled.
+// Stops when ctx is canceled.
 func (w *Web) StartSessionCleanup(ctx context.Context) {
 	w.session.StartCleanup(ctx, 1*time.Hour)
 }

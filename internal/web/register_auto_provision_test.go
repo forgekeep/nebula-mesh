@@ -18,7 +18,7 @@ func TestSelfRegister_AutoProvisionsDefaultCA(t *testing.T) {
 		"password":         {strongPassword},
 		"password_confirm": {strongPassword},
 	}
-	req := httptest.NewRequest("POST", "/ui/register", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -68,7 +68,7 @@ func TestSelfRegister_SkipsAutoProvisionWhenNoMaster(t *testing.T) {
 		"password":         {strongPassword},
 		"password_confirm": {strongPassword},
 	}
-	req := httptest.NewRequest("POST", "/ui/register", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)

@@ -20,13 +20,13 @@ func TestCAs_NonOwner_Forbidden(t *testing.T) {
 	// Bob mints a CA via the store directly so the test stays focused on
 	// the ownership check, not on the master-key plumbing.
 	ca := &models.CA{
-		ID:              "ca-bob",
-		Name:            "bob-ca",
-		OwnerOperatorID: "op-bob",
-		CertPEM:         "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
-		Fingerprint:     "fp-bob",
-		NotBefore:       time.Now(),
-		NotAfter:        time.Now().Add(time.Hour),
+		ID:                   "ca-bob",
+		Name:                 "bob-ca",
+		OwnerOperatorID:      "op-bob",
+		CertPEM:              "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
+		Fingerprint:          "fp-bob",
+		NotBefore:            time.Now(),
+		NotAfter:             time.Now().Add(time.Hour),
 		Status:               models.CAStatusActive,
 		EncryptedKeyDEK:      []byte("dek"),
 		NonceDEK:             []byte("ndek"),
@@ -66,7 +66,7 @@ func TestCAs_List_FiltersByOwnership(t *testing.T) {
 
 	for _, c := range []models.CA{
 		{ID: "ca1", Name: "alice-ca", OwnerOperatorID: "op-alice", Fingerprint: "fp-alice", NotAfter: time.Now().Add(time.Hour), Status: models.CAStatusActive, EncryptedKeyDEK: []byte("d"), NonceDEK: []byte("nd"), EncryptedKeyMaterial: []byte("k"), NonceKey: []byte("nk"), CreatedAt: time.Now(), UpdatedAt: time.Now()},
-		{ID: "ca2", Name: "bob-ca",   OwnerOperatorID: "op-bob",   Fingerprint: "fp-bob",   NotAfter: time.Now().Add(time.Hour), Status: models.CAStatusActive, EncryptedKeyDEK: []byte("d"), NonceDEK: []byte("nd"), EncryptedKeyMaterial: []byte("k"), NonceKey: []byte("nk"), CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "ca2", Name: "bob-ca", OwnerOperatorID: "op-bob", Fingerprint: "fp-bob", NotAfter: time.Now().Add(time.Hour), Status: models.CAStatusActive, EncryptedKeyDEK: []byte("d"), NonceDEK: []byte("nd"), EncryptedKeyMaterial: []byte("k"), NonceKey: []byte("nk"), CreatedAt: time.Now(), UpdatedAt: time.Now()},
 	} {
 		if err := s.CreateCA(context.Background(), &c); err != nil {
 			t.Fatal(err)
@@ -154,11 +154,11 @@ func TestCAs_List_RendersExpiryWarning(t *testing.T) {
 	now := time.Now()
 	ca := &models.CA{
 		ID: "ca-expiring", Name: "ca-expiring", OwnerOperatorID: "op-bob",
-		CertPEM: "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
-		Fingerprint: "fp-expiring",
-		NotBefore: now.AddDate(-9, 0, 0),
-		NotAfter: now.AddDate(1, 0, 0),
-		Status: models.CAStatusActive,
+		CertPEM:         "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
+		Fingerprint:     "fp-expiring",
+		NotBefore:       now.AddDate(-9, 0, 0),
+		NotAfter:        now.AddDate(1, 0, 0),
+		Status:          models.CAStatusActive,
 		EncryptedKeyDEK: []byte("d"), NonceDEK: []byte("nd"),
 		EncryptedKeyMaterial: []byte("k"), NonceKey: []byte("nk"),
 		CreatedAt: now, UpdatedAt: now,
@@ -190,11 +190,11 @@ func TestCAs_List_NoWarningForFreshCA(t *testing.T) {
 	now := time.Now()
 	ca := &models.CA{
 		ID: "ca-fresh", Name: "ca-fresh", OwnerOperatorID: "op-bob",
-		CertPEM: "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
-		Fingerprint: "fp-fresh",
-		NotBefore: now,
-		NotAfter: now.AddDate(10, 0, 0),
-		Status: models.CAStatusActive,
+		CertPEM:         "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
+		Fingerprint:     "fp-fresh",
+		NotBefore:       now,
+		NotAfter:        now.AddDate(10, 0, 0),
+		Status:          models.CAStatusActive,
 		EncryptedKeyDEK: []byte("d"), NonceDEK: []byte("nd"),
 		EncryptedKeyMaterial: []byte("k"), NonceKey: []byte("nk"),
 		CreatedAt: now, UpdatedAt: now,
@@ -225,11 +225,11 @@ func TestCAs_Rotate_CreatesSuccessor(t *testing.T) {
 	now := time.Now()
 	oldCA := &models.CA{
 		ID: "ca-old", Name: "ca-old", OwnerOperatorID: "op-bob",
-		CertPEM: "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
-		Fingerprint: "fp-old",
-		NotBefore: now.AddDate(-5, 0, 0),
-		NotAfter: now.AddDate(5, 0, 0),
-		Status: models.CAStatusActive,
+		CertPEM:         "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
+		Fingerprint:     "fp-old",
+		NotBefore:       now.AddDate(-5, 0, 0),
+		NotAfter:        now.AddDate(5, 0, 0),
+		Status:          models.CAStatusActive,
 		EncryptedKeyDEK: []byte("d"), NonceDEK: []byte("nd"),
 		EncryptedKeyMaterial: []byte("k"), NonceKey: []byte("nk"),
 		CreatedAt: now, UpdatedAt: now,
@@ -291,11 +291,11 @@ func TestCAs_Rotate_NonOwner_Forbidden(t *testing.T) {
 	now := time.Now()
 	ca := &models.CA{
 		ID: "ca-bob", Name: "ca-bob", OwnerOperatorID: "op-bob",
-		CertPEM: "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
-		Fingerprint: "fp-bob",
-		NotBefore: now.AddDate(-5, 0, 0),
-		NotAfter: now.AddDate(5, 0, 0),
-		Status: models.CAStatusActive,
+		CertPEM:         "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
+		Fingerprint:     "fp-bob",
+		NotBefore:       now.AddDate(-5, 0, 0),
+		NotAfter:        now.AddDate(5, 0, 0),
+		Status:          models.CAStatusActive,
 		EncryptedKeyDEK: []byte("d"), NonceDEK: []byte("nd"),
 		EncryptedKeyMaterial: []byte("k"), NonceKey: []byte("nk"),
 		CreatedAt: now, UpdatedAt: now,

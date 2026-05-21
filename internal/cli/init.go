@@ -96,9 +96,9 @@ func Init(configPath string) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ca, minted, err := pki.MintAndStoreCA(migrateCtx, s, master, logger,
 		pki.MintRequest{
-			Operator: adminOp,
-			Name:     DefaultAdminUsername + "-default",
-			Duration: 10 * 365 * 24 * time.Hour,
+			Operator:     adminOp,
+			Name:         DefaultAdminUsername + "-default",
+			Duration:     10 * 365 * 24 * time.Hour,
 			SkipIfActive: true,
 		})
 	if err != nil {

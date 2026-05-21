@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,7 +27,7 @@ func NetworkCreate(serverURL, apiKey, name, cidr string) error {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", serverURL+"/api/v1/networks", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, serverURL+"/api/v1/networks", bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -66,7 +67,7 @@ func NetworkCreate(serverURL, apiKey, name, cidr string) error {
 
 // NetworkList lists networks via the API.
 func NetworkList(serverURL, apiKey string) error {
-	req, err := http.NewRequest("GET", serverURL+"/api/v1/networks", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, serverURL+"/api/v1/networks", http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

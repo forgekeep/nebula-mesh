@@ -159,7 +159,7 @@ func TestEnrollSubcommand_WritesFiles(t *testing.T) {
 }
 
 // TestEnrollSubcommand_FirstPollFailureIsNonFatal — mock returns 500 on
-// /agent/updates. enroll still exits 0; the on-disk artefacts are intact;
+// /agent/updates. enroll still exits 0; the on-disk artifacts are intact;
 // stderr carries the warning.
 func TestEnrollSubcommand_FirstPollFailureIsNonFatal(t *testing.T) {
 	srv := newEnrollMockServer(t)
@@ -269,7 +269,7 @@ func TestEnrollSubcommand_RequiresServerAndToken(t *testing.T) {
 }
 
 // TestRun_LeavesStandbyAfterFilesAppear — start runUnified in idle, then
-// from a goroutine drop the enrollment artefacts into place and confirm
+// from a goroutine drop the enrollment artifacts into place and confirm
 // the daemon transitions to the poll loop (mock server records a signed
 // updates call). Uses a shorter standby tick for test latency — the real
 // tick is hard-coded but the helper drops files BEFORE the first tick to
@@ -293,7 +293,7 @@ func TestRun_LeavesStandbyAfterFilesAppear(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Use the real enroll subcommand to lay down the artefacts — that
+	// Use the real enroll subcommand to lay down the artifacts — that
 	// exercises the same code path operators will use.
 	enrollDone := make(chan struct{})
 	go func() {
@@ -362,4 +362,3 @@ func TestRun_LeavesStandbyAfterFilesAppear(t *testing.T) {
 		t.Error("daemon did not exit within 5s after cancel")
 	}
 }
-

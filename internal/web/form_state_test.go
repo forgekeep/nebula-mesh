@@ -1,6 +1,7 @@
 package web
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
@@ -10,11 +11,11 @@ import (
 // from POST form cidrs[] fields into Form.CIDRs slice.
 func TestNewNetworkFormState_ParsesArrayCIDRs(t *testing.T) {
 	form := url.Values{
-		"name":   {"dual-stack"},
-		"cidrs":  {"10.42.0.0/24", "fd00:42::/64"},
-		"ca_id":  {"ca-1"},
+		"name":  {"dual-stack"},
+		"cidrs": {"10.42.0.0/24", "fd00:42::/64"},
+		"ca_id": {"ca-1"},
 	}
-	req := httptest.NewRequest("POST", "/ui/networks", nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/networks", nil)
 	req.PostForm = form
 
 	state := newNetworkFormState(req)
@@ -42,7 +43,7 @@ func TestNewNetworkFormState_TrimsEmpty(t *testing.T) {
 		"name":  {"net"},
 		"cidrs": {"10.0.0.0/24", "", "fd00::/64", ""},
 	}
-	req := httptest.NewRequest("POST", "/ui/networks", nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/networks", nil)
 	req.PostForm = form
 
 	state := newNetworkFormState(req)
@@ -67,7 +68,7 @@ func TestNewHostFormState_ParsesArrayNebulaIPs(t *testing.T) {
 		"nebula_ips": {"10.42.0.10", "fd00::10"},
 		"role":       {"host"},
 	}
-	req := httptest.NewRequest("POST", "/ui/hosts", nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", nil)
 	req.PostForm = form
 
 	state := newHostFormState(req)
@@ -99,7 +100,7 @@ func TestNewHostFormState_TrimsEmptyNebulaIPs(t *testing.T) {
 		"name":       {"host-1"},
 		"nebula_ips": {"10.42.0.10", "", "fd00::10", ""},
 	}
-	req := httptest.NewRequest("POST", "/ui/hosts", nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", nil)
 	req.PostForm = form
 
 	state := newHostFormState(req)
@@ -124,7 +125,7 @@ func TestNewOperatorFormState_ParsesFields(t *testing.T) {
 		"display_name": {"Alice Smith"},
 		"role":         {"admin"},
 	}
-	req := httptest.NewRequest("POST", "/ui/operators", nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/operators", nil)
 	req.PostForm = form
 
 	state := newOperatorFormState(req)
@@ -150,7 +151,7 @@ func TestNewOperatorFormState_ParsesFields(t *testing.T) {
 		"username":     {"bob"},
 		"display_name": {"Bob"},
 	}
-	req2 := httptest.NewRequest("POST", "/ui/operators", nil)
+	req2 := httptest.NewRequest(http.MethodPost, "/ui/operators", nil)
 	req2.PostForm = form2
 
 	state2 := newOperatorFormState(req2)
@@ -161,7 +162,7 @@ func TestNewOperatorFormState_ParsesFields(t *testing.T) {
 
 	// Case 3: Empty form yields empty struct with initialized Errors map
 	form3 := url.Values{}
-	req3 := httptest.NewRequest("POST", "/ui/operators", nil)
+	req3 := httptest.NewRequest(http.MethodPost, "/ui/operators", nil)
 	req3.PostForm = form3
 
 	state3 := newOperatorFormState(req3)
@@ -187,7 +188,7 @@ func TestNewOperatorFormState_TrimSpaces(t *testing.T) {
 		"display_name": {"\n Bob \t"},
 		"role":         {"admin"},
 	}
-	req := httptest.NewRequest("POST", "/ui/operators", nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/operators", nil)
 	req.PostForm = form
 
 	state := newOperatorFormState(req)

@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,7 +35,7 @@ func TestEnroll_PreflightFailsBeforeServerCall(t *testing.T) {
 	dataDir := t.TempDir()
 	signingKeyPath := filepath.Join(readOnly, "agent", "host.signing.key")
 
-	err := Enroll(server.URL, "test-token", dataDir, signingKeyPath)
+	err := Enroll(context.Background(), server.URL, "test-token", dataDir, signingKeyPath)
 	if err == nil {
 		t.Fatal("expected error for unwritable signing key dir, got nil")
 	}

@@ -101,29 +101,29 @@ func TestOIDCConfig_Validate_ErrorMessageNamesFields(t *testing.T) {
 // be caught by CI instead of silently downgrading the gate.
 func TestOIDCConfig_RequireEmailVerified_YAMLRoundTrip(t *testing.T) {
 	cases := []struct {
-		name              string
-		yamlSnippet       string
-		wantParseError    bool
-		wantPointerNil    bool
-		wantRequired      bool // value of EmailVerifiedRequired() after parse (only checked if no parse error)
+		name           string
+		yamlSnippet    string
+		wantParseError bool
+		wantPointerNil bool
+		wantRequired   bool // value of EmailVerifiedRequired() after parse (only checked if no parse error)
 	}{
 		{
-			name:              "unset_defaults_to_required",
-			yamlSnippet:       `enabled: true`,
-			wantPointerNil:    true,
-			wantRequired:      true,
+			name:           "unset_defaults_to_required",
+			yamlSnippet:    `enabled: true`,
+			wantPointerNil: true,
+			wantRequired:   true,
 		},
 		{
-			name:              "bare_true_keeps_required",
-			yamlSnippet:       "enabled: true\nrequire_email_verified: true\n",
-			wantPointerNil:    false,
-			wantRequired:      true,
+			name:           "bare_true_keeps_required",
+			yamlSnippet:    "enabled: true\nrequire_email_verified: true\n",
+			wantPointerNil: false,
+			wantRequired:   true,
 		},
 		{
-			name:              "bare_false_opts_out",
-			yamlSnippet:       "enabled: true\nrequire_email_verified: false\n",
-			wantPointerNil:    false,
-			wantRequired:      false,
+			name:           "bare_false_opts_out",
+			yamlSnippet:    "enabled: true\nrequire_email_verified: false\n",
+			wantPointerNil: false,
+			wantRequired:   false,
 		},
 		{
 			// yaml.v3 default mode: !!str cannot unmarshal into

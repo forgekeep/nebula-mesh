@@ -51,7 +51,7 @@ func TestOIDC_HandleCallback_ErrorParamConsumesState(t *testing.T) {
 	})
 	// driveCallback re-seats the state — bypass that for the replay test
 	// so we observe the post-error state.
-	req := httptest.NewRequest("GET", "/ui/oidc/callback?state="+stateValue+"&code=code-replay", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/oidc/callback?state="+stateValue+"&code=code-replay", nil)
 	req.AddCookie(&http.Cookie{Name: oidcStateCookieName, Value: stateValue})
 	replayRec := httptest.NewRecorder()
 	o.HandleCallback(replayRec, req)

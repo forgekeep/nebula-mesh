@@ -217,6 +217,25 @@ type OIDCConfig struct {
 	AllowedGroups []string `yaml:"allowed_groups,omitempty"`
 	AllowedEmails []string `yaml:"allowed_emails,omitempty"`
 	DefaultRole   string   `yaml:"default_role,omitempty"`
+
+	// RequireEmailVerified gates the post-callback email_verified claim
+	// check. Pointer-bool to distinguish unset (default true: the IdP
+	// must assert email_verified before the address counts toward
+	// AllowedEmails) from an explicit `false` opt-out. The explicit
+	// opt-out is the escape hatch for legacy IdPs that omit the claim
+	// or send it in a shape HandleCallback can't decode (numeric,
+	// nested object, etc). emailVerifiedRequired() resolves nil → true.
+	RequireEmailVerified *bool `yaml:"require_email_verified,omitempty"`
+}
+
+// EmailVerifiedRequired reports whether HandleCallback must enforce the
+// email_verified claim. Defaults to true when RequireEmailVerified is
+// unset.
+func (o *OIDCConfig) EmailVerifiedRequired() bool {
+	if o == nil || o.RequireEmailVerified == nil {
+		return true
+	}
+	return *o.RequireEmailVerified
 }
 
 // Validate refuses configurations that would silently auto-provision the

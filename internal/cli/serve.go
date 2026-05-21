@@ -221,6 +221,18 @@ func Serve(configPath string) error {
 		}
 		webUI.WithOIDC(oidcProvider)
 		logger.Info("oidc enabled", "issuer", cfg.OIDC.Issuer)
+		// Surface the relaxed-posture deployment in startup logs so the
+		// operator-of-operator sees that email_verified is being skipped.
+		// Silent bypass is a real risk: a hostile or coerced deployer
+		// could flip the bit, register an unverified-email account at a
+		// permitted domain on a hostile IdP, and log in as a legitimate
+		// operator. Matches dex's `insecureSkipEmailVerified` posture
+		// (logs loudly when relaxed).
+		if !cfg.OIDC.EmailVerifiedRequired() {
+			logger.Warn("oidc email_verified check disabled",
+				"oidc_issuer", cfg.OIDC.Issuer,
+				"hint", "set oidc.require_email_verified: true (default) to re-enable")
+		}
 	}
 
 	// Resolve cookie_secure AFTER any OIDC wiring so the OIDC state cookie

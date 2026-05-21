@@ -3,6 +3,8 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestOIDCConfig_Validate(t *testing.T) {
@@ -82,3 +84,133 @@ func TestOIDCConfig_Validate_ErrorMessageNamesFields(t *testing.T) {
 		}
 	}
 }
+
+// TestOIDCConfig_RequireEmailVerified_YAMLRoundTrip pins yaml.v3's
+// decoding of the `require_email_verified` knob. The field is a
+// *bool so the unset case is distinguishable from explicit `false`
+// — EmailVerifiedRequired() must default to `true` when the field
+// is nil, and only return `false` for an explicit `false` value.
+//
+// The quoted-bool case (`"false"`) is the interesting one: yaml.v3
+// is strict about !!str → !!bool coercion and rejects it with a
+// type-error rather than silently treating it as false. Pinning the
+// behavior here means a future YAML-library swap (or yaml.v3 major
+// version bump) that started accepting quoted bools as truthy would
+// be caught by CI instead of silently downgrading the gate.
+func TestOIDCConfig_RequireEmailVerified_YAMLRoundTrip(t *testing.T) {
+	cases := []struct {
+		name              string
+		yamlSnippet       string
+		wantParseError    bool
+		wantPointerNil    bool
+		wantRequired      bool // value of EmailVerifiedRequired() after parse (only checked if no parse error)
+	}{
+		{
+			name:              "unset_defaults_to_required",
+			yamlSnippet:       `enabled: true`,
+			wantPointerNil:    true,
+			wantRequired:      true,
+		},
+		{
+			name:              "bare_true_keeps_required",
+			yamlSnippet:       "enabled: true\nrequire_email_verified: true\n",
+			wantPointerNil:    false,
+			wantRequired:      true,
+		},
+		{
+			name:              "bare_false_opts_out",
+			yamlSnippet:       "enabled: true\nrequire_email_verified: false\n",
+			wantPointerNil:    false,
+			wantRequired:      false,
+		},
+		{
+			// yaml.v3 default mode: !!str cannot unmarshal into
+			// a *bool, so the quoted form errors out. The error
+			// surfaces to the operator at LoadServerConfig time
+			// — louder failure than silently treating the
+			// quoted form as a bool of either polarity.
+			name:           "quoted_false_errors",
+			yamlSnippet:    "enabled: true\nrequire_email_verified: \"false\"\n",
+			wantParseError: true,
+		},
+		{
+			// Same posture for quoted "true": yaml.v3 errors
+			// rather than silently accepting it as truthy.
+			name:           "quoted_true_errors",
+			yamlSnippet:    "enabled: true\nrequire_email_verified: \"true\"\n",
+			wantParseError: true,
+		},
+		{
+			// yaml.v3 still accepts YAML 1.1 truthy strings
+			// (yes/no/on/off/y/n) as bools when the target is
+			// *bool. Operators who write `require_email_verified:
+			// no` thinking it's a quoted string will silently
+			// land in bypass mode. Pinning so the surprising
+			// behavior is at least visible in tests — a future
+			// yaml-lib swap that rejected these would actually
+			// be safer, not a regression.
+			name:           "yaml_1_1_no_accepted_as_bypass",
+			yamlSnippet:    "enabled: true\nrequire_email_verified: no\n",
+			wantPointerNil: false,
+			wantRequired:   false,
+		},
+		{
+			name:           "yaml_1_1_yes_accepted_as_required",
+			yamlSnippet:    "enabled: true\nrequire_email_verified: yes\n",
+			wantPointerNil: false,
+			wantRequired:   true,
+		},
+		{
+			name:           "yaml_1_1_off_accepted_as_bypass",
+			yamlSnippet:    "enabled: true\nrequire_email_verified: off\n",
+			wantPointerNil: false,
+			wantRequired:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var cfg OIDCConfig
+			err := yaml.Unmarshal([]byte(tc.yamlSnippet), &cfg)
+			if tc.wantParseError {
+				if err == nil {
+					t.Fatalf("expected parse error, got nil; cfg.RequireEmailVerified=%v EmailVerifiedRequired=%v", cfg.RequireEmailVerified, cfg.EmailVerifiedRequired())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected parse error: %v", err)
+			}
+			if (cfg.RequireEmailVerified == nil) != tc.wantPointerNil {
+				t.Errorf("RequireEmailVerified pointer nil=%v, want nil=%v", cfg.RequireEmailVerified == nil, tc.wantPointerNil)
+			}
+			if got := cfg.EmailVerifiedRequired(); got != tc.wantRequired {
+				t.Errorf("EmailVerifiedRequired() = %v, want %v", got, tc.wantRequired)
+			}
+		})
+	}
+}
+
+// TestOIDCConfig_EmailVerifiedRequired_DefaultsToTrue pins the
+// accessor's behavior on nil receiver and nil field, so a future
+// refactor that changes the default cannot do so silently.
+func TestOIDCConfig_EmailVerifiedRequired_DefaultsToTrue(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  *OIDCConfig
+		want bool
+	}{
+		{"nil_receiver", nil, true},
+		{"empty_config", &OIDCConfig{}, true},
+		{"explicit_true", &OIDCConfig{RequireEmailVerified: ptrBool(true)}, true},
+		{"explicit_false", &OIDCConfig{RequireEmailVerified: ptrBool(false)}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.cfg.EmailVerifiedRequired(); got != tc.want {
+				t.Errorf("EmailVerifiedRequired() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func ptrBool(b bool) *bool { return &b }

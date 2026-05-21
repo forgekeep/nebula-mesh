@@ -146,19 +146,20 @@ func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath strin
 	}
 
 	// Save certificate
-	if err := os.WriteFile(filepath.Join(dataDir, "host.crt"), []byte(enrollResp.CertificatePEM), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dataDir, "host.crt"), []byte(enrollResp.CertificatePEM), 0o644); err != nil { // #nosec G306 -- host certificate is public PEM material; 0o644 is intentional
 		return fmt.Errorf("write host cert: %w", err)
 	}
 
 	// Save CA certificate
-	if err := os.WriteFile(filepath.Join(dataDir, "ca.crt"), []byte(enrollResp.CACertificatePEM), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dataDir, "ca.crt"), []byte(enrollResp.CACertificatePEM), 0o644); err != nil { // #nosec G306 -- CA certificate is public PEM material; 0o644 is intentional
 		return fmt.Errorf("write CA cert: %w", err)
 	}
 
-	// Save config. 0o640 — the agent config may embed enrollment metadata
-	// and refresh state; treat as secret-adjacent even though it's not the
-	// private key itself.
-	if err := os.WriteFile(filepath.Join(dataDir, "config.yml"), []byte(enrollResp.ConfigYAML), 0o640); err != nil {
+	// Save config. 0o640 — rendered Nebula daemon config (host name,
+	// nebula IPs, lighthouse list, firewall rules, paths to key/cert
+	// files). No secrets in the file itself; the actual private key
+	// lives in host.key, written above at 0o600.
+	if err := os.WriteFile(filepath.Join(dataDir, "config.yml"), []byte(enrollResp.ConfigYAML), 0o640); err != nil { // #nosec G306 -- rendered Nebula config: host name, IPs, lighthouse, firewall rules, paths to key/cert files — no secrets; the actual private key is host.key (0o600)
 		return fmt.Errorf("write config: %w", err)
 	}
 

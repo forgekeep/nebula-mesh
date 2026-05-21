@@ -85,9 +85,7 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 	w.WriteHeader(http.StatusOK)
-	// Bundle is application/yaml from a trusted server-side builder; XSS is
-	// not a concern on a non-HTML response.
-	if _, err := w.Write(bundle); err != nil { //nolint:gosec // G705: not an HTML response
+	if _, err := w.Write(bundle); err != nil { // #nosec G705 -- response is application/yaml with X-Content-Type-Options: nosniff (set globally by securityHeaders middleware), not HTML; bundle is server-built YAML
 		s.logger.Error("write mobile bundle response", "error", err)
 	}
 }

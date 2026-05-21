@@ -98,7 +98,7 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 		}
 	}
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure gated by sm.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
@@ -130,7 +130,7 @@ func (sm *SessionManager) StartAuthenticatedSession(w http.ResponseWriter, r *ht
 	if err := sm.store.UpdateOperatorLastLogin(r.Context(), op.ID, time.Now()); err != nil {
 		slog.Debug("update last login", "error", err)
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure gated by sm.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
@@ -170,7 +170,7 @@ func (sm *SessionManager) CompleteTwoFactor(w http.ResponseWriter, r *http.Reque
 	if err := sm.store.UpdateOperatorLastLogin(r.Context(), operatorID, time.Now()); err != nil {
 		slog.Debug("update last login", "error", err)
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure gated by sm.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
 		Name:     sessionCookieName,
 		Value:    cookie.Value,
 		Path:     "/",
@@ -194,7 +194,7 @@ func (sm *SessionManager) Logout(w http.ResponseWriter, r *http.Request) {
 	// replace it. RFC 6265 requires (Name, Domain, Path) to match; setting
 	// SameSite and Secure to the same values prevents fingerprint mismatches
 	// that have caused stale-cookie bugs in production CDNs.
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure gated by sm.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",

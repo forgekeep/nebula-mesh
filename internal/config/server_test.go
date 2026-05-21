@@ -14,7 +14,6 @@ func TestLoadServerConfig_ValidFile(t *testing.T) {
 	data := []byte(`listen: ":9090"
 data_dir: "/tmp/nebula-mgmt"
 db_path: "/tmp/nebula-mgmt/test.db"
-api_key: "test-key-123"
 log_level: "debug"
 `)
 	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
@@ -34,9 +33,6 @@ log_level: "debug"
 	}
 	if cfg.DBPath != "/tmp/nebula-mgmt/test.db" {
 		t.Errorf("DBPath = %q, want %q", cfg.DBPath, "/tmp/nebula-mgmt/test.db")
-	}
-	if cfg.APIKey != "test-key-123" {
-		t.Errorf("APIKey = %q, want %q", cfg.APIKey, "test-key-123")
 	}
 	if cfg.LogLevel != "debug" {
 		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "debug")
@@ -150,7 +146,6 @@ func TestSaveServerConfig_Roundtrip(t *testing.T) {
 		Listen:   ":9090",
 		DataDir:  "/tmp/nebula",
 		DBPath:   "/tmp/nebula/db",
-		APIKey:   "abc123",
 		LogLevel: "warn",
 	}
 	if err := SaveServerConfig(cfgPath, original); err != nil {
@@ -169,8 +164,8 @@ func TestSaveServerConfig_Roundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if loaded.APIKey != original.APIKey || loaded.Listen != original.Listen {
-		t.Errorf("roundtrip mismatch: %+v vs %+v", loaded, original)
+	if loaded.Listen != original.Listen {
+		t.Errorf("roundtrip mismatch: Listen loaded=%q want=%q", loaded.Listen, original.Listen)
 	}
 }
 
@@ -182,7 +177,7 @@ func TestSaveServerConfig_AtomicReplace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	updated := &ServerConfig{Listen: ":8000", DataDir: "/d", DBPath: "/d/db", APIKey: "k", LogLevel: "info"}
+	updated := &ServerConfig{Listen: ":8000", DataDir: "/d", DBPath: "/d/db", LogLevel: "info"}
 	if err := SaveServerConfig(cfgPath, updated); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -312,5 +307,110 @@ func TestCookieSecureResolved(t *testing.T) {
 				t.Errorf("CookieSecureResolved() = %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// TestLoadServerConfig_DetectsLegacyAPIKey verifies that the detection of
+// legacy `api_key:` in YAML works for top-level keys.
+func TestLoadServerConfig_DetectsLegacyAPIKey(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+
+	data := []byte(`listen: ":8080"
+data_dir: "/tmp"
+db_path: "/tmp/test.db"
+api_key: "legacy-key"
+log_level: "info"
+`)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadServerConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !cfg.HasLegacyAPIKey() {
+		t.Errorf("HasLegacyAPIKey() = false, want true (api_key: field present)")
+	}
+}
+
+// TestLoadServerConfig_NoFalsePositive_Nested verifies that nested api_key
+// values (under other keys) do not trigger the legacy detection.
+func TestLoadServerConfig_NoFalsePositive_Nested(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+
+	data := []byte(`listen: ":8080"
+data_dir: "/tmp"
+db_path: "/tmp/test.db"
+metrics:
+  api_key: "nested-should-not-trigger"
+log_level: "info"
+`)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadServerConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.HasLegacyAPIKey() {
+		t.Errorf("HasLegacyAPIKey() = true, want false (nested api_key: should not trigger)")
+	}
+}
+
+// TestLoadServerConfig_NoFalsePositive_Commented verifies that commented-out
+// api_key: does not trigger the legacy detection.
+func TestLoadServerConfig_NoFalsePositive_Commented(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+
+	data := []byte(`listen: ":8080"
+data_dir: "/tmp"
+db_path: "/tmp/test.db"
+# api_key: "should-not-trigger"
+log_level: "info"
+`)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadServerConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.HasLegacyAPIKey() {
+		t.Errorf("HasLegacyAPIKey() = true, want false (commented api_key: should not trigger)")
+	}
+}
+
+// TestLoadServerConfig_NoFalsePositive_StringValue verifies that api_key
+// mentioned within string values does not trigger the legacy detection.
+func TestLoadServerConfig_NoFalsePositive_StringValue(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+
+	data := []byte(`listen: ":8080"
+data_dir: "/tmp"
+db_path: "/tmp/test.db"
+note: "api_key: should not trigger"
+log_level: "info"
+`)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadServerConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.HasLegacyAPIKey() {
+		t.Errorf("HasLegacyAPIKey() = true, want false (api_key: in string value should not trigger)")
 	}
 }

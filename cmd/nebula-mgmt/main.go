@@ -45,6 +45,8 @@ func run() error {
 		return runAPIKey(os.Args[2:])
 	case "ca":
 		return runCA(os.Args[2:])
+	case "ops":
+		return runOps(os.Args[2:])
 	case "version", "--version", "-v":
 		version.Print(os.Stdout, "nebula-mgmt", versionStr, commit, date)
 		return nil
@@ -56,12 +58,13 @@ func run() error {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: nebula-mgmt <command> [flags]")
-	fmt.Fprintln(os.Stderr, "commands: init, serve, host, network, user, apikey, ca, version")
+	fmt.Fprintln(os.Stderr, "commands: init, serve, host, network, user, apikey, ca, ops, version")
 	fmt.Fprintln(os.Stderr, "  host <create|list|delete|block|unblock>")
 	fmt.Fprintln(os.Stderr, "  network <create|list>")
 	fmt.Fprintln(os.Stderr, "  user <create|list|disable|enable>")
 	fmt.Fprintln(os.Stderr, "  apikey <create|revoke>")
 	fmt.Fprintln(os.Stderr, "  ca <create|list|delete|rotate>")
+	fmt.Fprintln(os.Stderr, "  ops <mint-admin-key>")
 }
 
 func runInit(args []string) error {
@@ -363,4 +366,28 @@ func runNetworkList(args []string) error {
 	}
 
 	return cli.NetworkList(*server, *apiKey)
+}
+
+func runOps(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: nebula-mgmt ops <mint-admin-key>")
+	}
+	switch args[0] {
+	case "mint-admin-key":
+		return runOpsMintAdminKey(args[1:])
+	default:
+		return fmt.Errorf("unknown ops subcommand: %s", args[0])
+	}
+}
+
+func runOpsMintAdminKey(args []string) error {
+	fs := flag.NewFlagSet("ops mint-admin-key", flag.ExitOnError)
+	configPath := fs.String("config", "", "config file path (required)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *configPath == "" {
+		return fmt.Errorf("--config is required")
+	}
+	return cli.OpsMintAdminKey(*configPath)
 }

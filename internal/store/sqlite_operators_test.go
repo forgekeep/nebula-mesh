@@ -155,6 +155,57 @@ func TestRevokeOperatorAPIKey(t *testing.T) {
 	}
 }
 
+// TestGetOperatorAPIKey covers the new ownership-verification lookup.
+// The method must return the row regardless of revoked state — callers
+// that need to verify kid-belongs-to-id compare key.OperatorID without
+// caring whether the key is still active.
+func TestGetOperatorAPIKey(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	op := newTestOperator(t, s, "grace")
+	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
+		ID: "k-grace", OperatorID: op.ID, Name: "primary", KeyHash: "grace-hash",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("active_key_returns", func(t *testing.T) {
+		got, err := s.GetOperatorAPIKey(ctx, "k-grace")
+		if err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if got.ID != "k-grace" || got.OperatorID != op.ID {
+			t.Errorf("got = %+v, want id=k-grace operator_id=%s", got, op.ID)
+		}
+		if got.RevokedAt != nil {
+			t.Errorf("revoked_at = %v, want nil for active key", got.RevokedAt)
+		}
+	})
+
+	t.Run("revoked_key_still_returns", func(t *testing.T) {
+		if err := s.RevokeOperatorAPIKey(ctx, "k-grace"); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.GetOperatorAPIKey(ctx, "k-grace")
+		if err != nil {
+			t.Fatalf("err = %v, want nil (revoked keys must still resolve for ownership check)", err)
+		}
+		if got.RevokedAt == nil {
+			t.Errorf("revoked_at = nil, want non-nil after revoke")
+		}
+		if got.OperatorID != op.ID {
+			t.Errorf("operator_id = %q, want %q (must survive revoke)", got.OperatorID, op.ID)
+		}
+	})
+
+	t.Run("missing_key_returns_ErrNotFound", func(t *testing.T) {
+		_, err := s.GetOperatorAPIKey(ctx, "k-does-not-exist")
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want ErrNotFound", err)
+		}
+	})
+}
+
 func TestSessionLifecycle(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

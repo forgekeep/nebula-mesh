@@ -166,6 +166,15 @@ func (w *Web) handleOperatorDetail(rw http.ResponseWriter, r *http.Request) {
 
 func (w *Web) handleOperatorDisable(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if _, err := w.store.GetOperator(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "operator not found", http.StatusNotFound)
+			return
+		}
+		w.logger.Error("get operator", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
 	if err := w.store.DisableOperator(r.Context(), id); err != nil && !errors.Is(err, store.ErrNotFound) {
 		w.logger.Error("disable operator", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
@@ -178,6 +187,15 @@ func (w *Web) handleOperatorDisable(rw http.ResponseWriter, r *http.Request) {
 
 func (w *Web) handleOperatorEnable(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if _, err := w.store.GetOperator(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "operator not found", http.StatusNotFound)
+			return
+		}
+		w.logger.Error("get operator", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
 	if err := w.store.EnableOperator(r.Context(), id); err != nil && !errors.Is(err, store.ErrNotFound) {
 		w.logger.Error("enable operator", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
@@ -263,19 +281,47 @@ func (w *Web) handleOperatorCreateAPIKey(rw http.ResponseWriter, r *http.Request
 func (w *Web) handleOperatorRevokeAPIKey(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	kid := chi.URLParam(r, "kid")
-	err := w.store.RevokeOperatorAPIKey(r.Context(), kid)
-	switch {
-	case err == nil:
-		actor := actorUsername(r, w.session)
-		_ = w.store.AddAuditEntry(r.Context(), actor, "operator.api_key.revoke", id, kid)
-	case errors.Is(err, store.ErrNotFound):
+	if _, err := w.store.GetOperator(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "operator not found", http.StatusNotFound)
+			return
+		}
+		w.logger.Error("get operator", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// Verify the API key belongs to this operator before revoking.
+	// Without this, an admin could revoke any operator's API key while
+	// the audit row records the URL-supplied operator id instead of the
+	// key's real owner, breaking forensic correlation.
+	key, err := w.store.GetOperatorAPIKey(r.Context(), kid)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "api key not found", http.StatusNotFound)
+			return
+		}
+		w.logger.Error("get api key", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if key.OperatorID != id {
+		http.Error(rw, "api key not found", http.StatusNotFound)
+		return
+	}
+	if key.RevokedAt != nil {
 		// Already revoked (DisableOperator auto-revokes every key in the
-		// same transaction). UI stays idempotent — just redirect back.
-	default:
+		// same transaction). UI stays idempotent — skip the no-op UPDATE
+		// and the audit row.
+		http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: hardcoded /ui/operators/ prefix ensures Location stays on the current host regardless of id contents
+		return
+	}
+	if err := w.store.RevokeOperatorAPIKey(r.Context(), kid); err != nil {
 		w.logger.Error("revoke api key", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	actor := actorUsername(r, w.session)
+	_ = w.store.AddAuditEntry(r.Context(), actor, "operator.api_key.revoke", id, kid)
 	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: hardcoded /ui/operators/ prefix ensures Location stays on the current host regardless of id contents
 }
 

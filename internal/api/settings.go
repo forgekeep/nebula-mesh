@@ -52,7 +52,7 @@ func (s *Server) handlePatchSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to update setting")
 			return
 		}
-		s.recordAuditAction(r.Context(), "settings.enforce_2fa", "enforce_2fa", val)
+		s.recordAuditAction(r.Context(), auditSettingsEnforce2FA, settingEnforceTOTP, val)
 	}
 	v, _ := s.store.GetServerSetting(r.Context(), settingEnforceTOTP)
 	writeJSON(w, http.StatusOK, settingsResponse{EnforceTOTP: v == "true"})

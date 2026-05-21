@@ -44,6 +44,24 @@ func TestHandleOperatorDisable_NonExistent_Returns404(t *testing.T) {
 	}
 }
 
+// TestHandleOperatorCreateAPIKey_NonExistent_Returns404 locks the
+// NotFound 404 path against future regression. The handler previously
+// swallowed all GetOperator errors as 404; the discrimination patch
+// makes that explicit (NotFound → 404, internal error → 500 + log).
+func TestHandleOperatorCreateAPIKey_NonExistent_Returns404(t *testing.T) {
+	w, s := newOperatorsWeb(t)
+	cookie := mintSession(t, s, "root", "admin")
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/operators/op-does-not-exist/api-keys", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
 // TestHandleOperatorEnable_NonExistent_Returns404 mirrors the Disable
 // test for the Enable handler.
 func TestHandleOperatorEnable_NonExistent_Returns404(t *testing.T) {

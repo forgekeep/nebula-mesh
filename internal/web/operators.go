@@ -242,7 +242,12 @@ func (w *Web) handleOperatorResetPassword(rw http.ResponseWriter, r *http.Reques
 func (w *Web) handleOperatorCreateAPIKey(rw http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if _, err := w.store.GetOperator(r.Context(), id); err != nil {
-		http.Error(rw, "operator not found", http.StatusNotFound)
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "operator not found", http.StatusNotFound)
+			return
+		}
+		w.logger.Error("get operator", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))

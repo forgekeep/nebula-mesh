@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -32,7 +33,32 @@ type SQLiteStore struct {
 // NewSQLiteStore opens a SQLite database at the given path.
 // Use ":memory:" for in-memory database.
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	// Pragmas are passed via the modernc.org/sqlite DSN `_pragma=` form so
+	// they are applied on EVERY new pool connection, not just the first
+	// one that happens to serve a `db.Exec("PRAGMA ...")` call. This
+	// matters most for busy_timeout: without it the loser of a lock-
+	// upgrade contention returns SQLITE_BUSY immediately (default 0ms),
+	// and conditional-insert idioms like SeedInitialAdminOperator's
+	// `WHERE NOT EXISTS (SELECT 1 FROM operators)` only deliver their
+	// silent-no-op contract if the loser actually waits for the winner's
+	// commit. 5000ms is long enough to absorb realistic bootstrap and
+	// migration contention without masking real deadlocks.
+	dsn := dbPath
+	pragmas := []string{
+		"busy_timeout(5000)",
+		"foreign_keys(on)",
+		"journal_mode(WAL)",
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	for _, p := range pragmas {
+		dsn += sep + "_pragma=" + url.QueryEscape(p)
+		sep = "&"
+	}
+
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -44,18 +70,14 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		db.SetMaxOpenConns(1)
 	}
 
-	// Enable WAL mode and foreign keys. Setup runs at process start without
-	// an inherited context, so background is acceptable here.
-	for _, pragma := range []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA foreign_keys=ON",
-	} {
-		if _, err := db.ExecContext(context.Background(), pragma); err != nil {
-			if closeErr := db.Close(); closeErr != nil {
-				slog.Error("close db after pragma failure", "error", closeErr)
-			}
-			return nil, fmt.Errorf("exec %s: %w", pragma, err)
+	// Ping forces at least one connection open so a DSN-pragma failure
+	// (e.g. an unknown pragma name) surfaces here at construction time
+	// rather than on the first real query.
+	if err := db.PingContext(context.Background()); err != nil {
+		if closeErr := db.Close(); closeErr != nil {
+			slog.Error("close db after ping failure", "error", closeErr)
 		}
+		return nil, fmt.Errorf("ping database: %w", err)
 	}
 
 	return &SQLiteStore{db: db}, nil

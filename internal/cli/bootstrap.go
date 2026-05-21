@@ -26,16 +26,14 @@ const DefaultAdminUsername = "admin"
 // auth path (bearerAuth) authenticates exclusively via operator_api_keys
 // and does NOT accept the config key as a bearer fallback.
 //
-// It returns true if a new admin was seeded so the caller can log it.
+// The empty-table check and the inserts are delegated to the store as a
+// single atomic operation (SeedInitialAdminOperator). Two concurrent
+// first-boot invocations therefore cannot both seed an admin row: the
+// race-loser's conditional INSERT sees a non-empty operators table and
+// returns (false, nil) without writing.
+//
+// It returns true if this call performed the seed so the caller can log it.
 func SeedAdminOperator(ctx context.Context, s store.Store, uiPassword, apiKey string) (bool, error) {
-	existing, err := s.ListOperators(ctx)
-	if err != nil {
-		return false, fmt.Errorf("list operators: %w", err)
-	}
-	if len(existing) > 0 {
-		return false, nil
-	}
-
 	secret := uiPassword
 	if secret == "" {
 		secret = apiKey
@@ -56,24 +54,22 @@ func SeedAdminOperator(ctx context.Context, s store.Store, uiPassword, apiKey st
 		PasswordHash: string(hash),
 		Role:         "admin",
 	}
-	if err := s.CreateOperator(ctx, op); err != nil {
-		return false, fmt.Errorf("create admin operator: %w", err)
-	}
-
+	var key *models.OperatorAPIKey
 	if apiKey != "" {
 		keyHash := sha256.Sum256([]byte(apiKey))
-		err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
+		key = &models.OperatorAPIKey{
 			ID:         uuid.New().String(),
 			OperatorID: op.ID,
 			Name:       "initial-admin-key",
 			KeyHash:    hex.EncodeToString(keyHash[:]),
-		})
-		if err != nil {
-			return false, fmt.Errorf("seed admin api key: %w", err)
 		}
 	}
 
-	return true, nil
+	seeded, err := s.SeedInitialAdminOperator(ctx, op, key)
+	if err != nil {
+		return false, fmt.Errorf("seed admin operator: %w", err)
+	}
+	return seeded, nil
 }
 
 // HashAPIKey hashes an API key for storage. Used by both bootstrap and the

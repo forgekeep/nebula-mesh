@@ -119,6 +119,12 @@ type Store interface {
 
 	// Operators
 	CreateOperator(ctx context.Context, op *models.Operator) error
+	// SeedInitialAdminOperator atomically inserts op (and optionally key,
+	// when key is non-nil) only if the operators table is empty. Returns
+	// (true, nil) when this call performed the seed, (false, nil) when
+	// another caller already populated the table. The check + insert run
+	// in a single transaction, so concurrent boots cannot both seed.
+	SeedInitialAdminOperator(ctx context.Context, op *models.Operator, key *models.OperatorAPIKey) (bool, error)
 	GetOperator(ctx context.Context, id string) (*models.Operator, error)
 	GetOperatorByUsername(ctx context.Context, username string) (*models.Operator, error)
 	GetOperatorByOIDC(ctx context.Context, issuer, subject string) (*models.Operator, error)

@@ -299,7 +299,7 @@ func (w *Web) handleCARotate(rw http.ResponseWriter, r *http.Request) {
 		_ = w.store.AddAuditEntry(r.Context(), op.Username, "ca.rotated", newCA.ID,
 			fmt.Sprintf("predecessor=%s", c.ID))
 	}
-	http.Redirect(rw, r, "/ui/cas/"+newCA.ID, http.StatusSeeOther)
+	http.Redirect(rw, r, "/ui/cas/"+newCA.ID, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: newCA.ID is a server-generated UUID from RotateAndStoreCA, hardcoded /ui/cas/ prefix keeps Location on the current host
 }
 
 // loadAccessibleCA wraps the GetCA + ownership check used by every

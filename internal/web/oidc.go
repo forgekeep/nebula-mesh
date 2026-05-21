@@ -110,7 +110,7 @@ func (o *OIDC) HandleLogin(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	o.rememberState(state)
-	http.SetCookie(rw, &http.Cookie{
+	http.SetCookie(rw, &http.Cookie{ // #nosec G124 -- Secure gated by o.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
 		Name:     oidcStateCookieName,
 		Value:    state,
 		Path:     "/",
@@ -152,7 +152,7 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 	// Match every attribute of the live state cookie so the browser
 	// replaces it reliably (RFC 6265). Without HttpOnly/SameSite/Secure
 	// matching, some CDNs and corporate proxies keep the original around.
-	http.SetCookie(rw, &http.Cookie{
+	http.SetCookie(rw, &http.Cookie{ // #nosec G124 -- Secure gated by o.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
 		Name:     oidcStateCookieName,
 		Value:    "",
 		Path:     "/",

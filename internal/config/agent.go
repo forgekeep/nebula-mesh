@@ -35,7 +35,7 @@ func DefaultAgentConfig() *AgentConfig {
 }
 
 func LoadAgentConfig(path string) (*AgentConfig, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- operator-controlled config path is the documented API contract
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}

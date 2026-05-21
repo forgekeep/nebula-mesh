@@ -30,9 +30,7 @@ func UserCreate(serverURL, apiKey, username, password, displayName, role string)
 	if username == "" || password == "" {
 		return fmt.Errorf("--username and --password are required")
 	}
-	// userCreateRequest intentionally carries the plaintext password to the
-	// server, which hashes it before storage.
-	body, err := json.Marshal(userCreateRequest{ //nolint:gosec // G117: intentional secret in transport DTO
+	body, err := json.Marshal(userCreateRequest{ // #nosec G117 -- short-lived outbound API request body to the server's operator-create endpoint, not stored on disk
 		Username: username, Password: password, DisplayName: displayName, Role: role,
 	})
 	if err != nil {

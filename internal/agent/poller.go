@@ -149,7 +149,7 @@ func NewPoller(cfg PollerConfig, logger *slog.Logger) (*Poller, error) {
 }
 
 func loadSigningKey(path string) (ed25519.PrivateKey, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G304 -- operator-controlled signing-key path from agent config, documented API contract
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +370,7 @@ func signalNebulaFromPID(pidFile string) error {
 		return fmt.Errorf("nebula PID file not configured")
 	}
 
-	data, err := os.ReadFile(pidFile)
+	data, err := os.ReadFile(pidFile) // #nosec G304 -- operator-controlled PID file path from agent config, documented API contract
 	if err != nil {
 		return fmt.Errorf("read PID file %s: %w", pidFile, err)
 	}

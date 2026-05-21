@@ -1076,7 +1076,7 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 
 	// Idempotent: no changes means success redirect (no audit entry)
 	if !hasChanges {
-		http.Redirect(rw, r, "/ui/hosts/"+host.ID, http.StatusSeeOther)
+		http.Redirect(rw, r, "/ui/hosts/"+host.ID, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: host.ID is a server-generated UUID, hardcoded /ui/hosts/ prefix keeps Location on the current host
 		return
 	}
 
@@ -1108,7 +1108,7 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	http.Redirect(rw, r, "/ui/hosts/"+host.ID, http.StatusSeeOther)
+	http.Redirect(rw, r, "/ui/hosts/"+host.ID, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: host.ID is a server-generated UUID, hardcoded /ui/hosts/ prefix keeps Location on the current host
 }
 
 func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
@@ -1323,9 +1323,9 @@ func (w *Web) renderMobileBundle(rw http.ResponseWriter, r *http.Request, host *
 	w.renderForRequest(rw, r, "host_mobile_bundle.html", map[string]any{
 		"Host":         host,
 		"YAML":         string(bundle),
-		"QRSVG":        template.HTML(qrSVG), //nolint:gosec // G203: server-generated SVG
+		"QRSVG":        template.HTML(qrSVG), // #nosec G203 -- qrSVG is produced by renderQRSVG (internal/web/qr.go) from a fixed SVG template + ints; no user-controlled string interpolation
 		"QRError":      qrErr,
-		"DownloadHref": template.URL(downloadHref), //nolint:gosec // G203: server-built data URL
+		"DownloadHref": template.URL(downloadHref), // #nosec G203 -- downloadHref is "data:application/yaml;base64," + base64(server-built bundle); prefix is hardcoded and base64 cannot inject scheme characters
 		"Active":       "hosts",
 	})
 }

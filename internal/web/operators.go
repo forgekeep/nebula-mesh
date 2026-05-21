@@ -173,7 +173,7 @@ func (w *Web) handleOperatorDisable(rw http.ResponseWriter, r *http.Request) {
 	}
 	actor := actorUsername(r, w.session)
 	_ = w.store.AddAuditEntry(r.Context(), actor, "operator.disable", id, "")
-	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther)
+	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: hardcoded /ui/operators/ prefix ensures Location stays on the current host regardless of id contents
 }
 
 func (w *Web) handleOperatorEnable(rw http.ResponseWriter, r *http.Request) {
@@ -185,7 +185,7 @@ func (w *Web) handleOperatorEnable(rw http.ResponseWriter, r *http.Request) {
 	}
 	actor := actorUsername(r, w.session)
 	_ = w.store.AddAuditEntry(r.Context(), actor, "operator.enable", id, "")
-	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther)
+	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: hardcoded /ui/operators/ prefix ensures Location stays on the current host regardless of id contents
 }
 
 func (w *Web) handleOperatorResetPassword(rw http.ResponseWriter, r *http.Request) {
@@ -218,7 +218,7 @@ func (w *Web) handleOperatorResetPassword(rw http.ResponseWriter, r *http.Reques
 	}
 	actor := actorUsername(r, w.session)
 	_ = w.store.AddAuditEntry(r.Context(), actor, "operator.reset_password", id, op.Username)
-	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther)
+	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: hardcoded /ui/operators/ prefix ensures Location stays on the current host regardless of id contents
 }
 
 func (w *Web) handleOperatorCreateAPIKey(rw http.ResponseWriter, r *http.Request) {
@@ -257,7 +257,7 @@ func (w *Web) handleOperatorCreateAPIKey(rw http.ResponseWriter, r *http.Request
 	// flash keyed by the session cookie instead of appending it to the
 	// redirect Location. The detail handler pops + clears on render.
 	w.setAPIKeyFlash(r, raw, name)
-	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther)
+	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: hardcoded /ui/operators/ prefix ensures Location stays on the current host regardless of id contents
 }
 
 func (w *Web) handleOperatorRevokeAPIKey(rw http.ResponseWriter, r *http.Request) {
@@ -276,7 +276,7 @@ func (w *Web) handleOperatorRevokeAPIKey(rw http.ResponseWriter, r *http.Request
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther)
+	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: hardcoded /ui/operators/ prefix ensures Location stays on the current host regardless of id contents
 }
 
 // newAPIKeyToken returns the plaintext key shown once to the operator.

@@ -126,6 +126,17 @@ func (o *OIDC) HandleLogin(rw http.ResponseWriter, r *http.Request) {
 // establishes a session cookie.
 func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 	if errParam := r.URL.Query().Get("error"); errParam != "" {
+		// Consume the matching state before the early return so an
+		// attacker who induces an IdP error on the first callback hit
+		// cannot replay the same state on a follow-up callback with a
+		// valid code. Missing-cookie / mismatched-state cases short-
+		// circuit through the same code path: nothing was consumed, but
+		// nothing was usable either.
+		if cookie, err := r.Cookie(oidcStateCookieName); err == nil && cookie.Value != "" {
+			if state := r.URL.Query().Get("state"); state != "" && cookie.Value == state {
+				_ = o.consumeState(state)
+			}
+		}
 		desc := r.URL.Query().Get("error_description")
 		o.logger.Warn("oidc provider error", "error", errParam, "description", desc)
 		http.Error(rw, "oidc provider error: "+errParam, http.StatusBadRequest)
@@ -207,6 +218,37 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 	subject := idToken.Subject
 	issuer := idToken.Issuer
 
+	// If the IdP supplied an email claim, refuse to consume it unless the
+	// IdP also asserts the address is verified. Default-deny when
+	// `email_verified` is missing or false: an attacker who registers an
+	// unverified address at a permitted domain on the IdP would otherwise
+	// satisfy AllowedEmails. Matches dex's connector posture; go-oidc does
+	// not enforce this claim itself.
+	//
+	// Operators can disable the check entirely via
+	// oidc.require_email_verified: false — the escape hatch for legacy
+	// IdPs whose claim encoding parseEmailVerified can't decode. The
+	// bypass is not silent: a per-login audit row tags the success path
+	// with `email_unverified_accepted=true` so forensics can distinguish
+	// bypass logins from verified ones via a single grep against the
+	// existing `operator.oidc.login` action. Startup also emits a WARN
+	// log surfacing the relaxed posture.
+	emailUnverifiedAccepted := false
+	if email != "" {
+		if o.cfg.EmailVerifiedRequired() {
+			if !parseEmailVerified(claims["email_verified"]) {
+				_ = o.store.AddAuditEntry(r.Context(), username, "operator.oidc.denied", subject, "email_unverified")
+				http.Error(rw, "your account is not allowed to log in", http.StatusForbidden)
+				return
+			}
+		} else if !parseEmailVerified(claims["email_verified"]) {
+			// The check is disabled AND the claim would not have
+			// passed it. Tag the audit row so a bypass-login is
+			// distinguishable from a verified-and-passed login.
+			emailUnverifiedAccepted = true
+		}
+	}
+
 	if !o.isAllowed(email, extractGroups(claims, groupsClaim)) {
 		_ = o.store.AddAuditEntry(r.Context(), username, "operator.oidc.denied", subject, email)
 		http.Error(rw, "your account is not allowed to log in", http.StatusForbidden)
@@ -219,7 +261,16 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	_ = o.store.AddAuditEntry(r.Context(), op.Username, "operator.oidc.login", op.ID, issuer)
+	details := issuer
+	if emailUnverifiedAccepted {
+		// Append rather than replace so existing queries against the
+		// issuer URL keep working; new queries can match the suffix
+		// `email_unverified_accepted=true` via a LIKE or substring
+		// check. Mirrors the `predecessor=%s` / `new_key=true` key=val
+		// shape used elsewhere in the audit log.
+		details = fmt.Sprintf("%s email_unverified_accepted=true", issuer)
+	}
+	_ = o.store.AddAuditEntry(r.Context(), op.Username, "operator.oidc.login", op.ID, details)
 
 	if err := o.session.StartAuthenticatedSession(rw, r, op); err != nil {
 		o.logger.Error("oidc session", "error", err)
@@ -293,7 +344,23 @@ func (o *OIDC) isAllowed(email string, groups []string) bool {
 func (o *OIDC) rememberState(state string) {
 	o.stateMu.Lock()
 	defer o.stateMu.Unlock()
+	o.sweepLocked(time.Now())
 	o.states[state] = time.Now().Add(oidcStateTTL)
+}
+
+// sweepLocked drops every state entry whose expiry is at or before now. The
+// caller MUST hold stateMu. Called lazily from rememberState so the per-call
+// cost is amortised across logins and the map cannot grow without bound
+// when an unauthenticated client bursts /ui/oidc/login. Avoiding a
+// background goroutine keeps the OIDC type cheap to construct and matches
+// the project's preference for lazy in-memory cleanup where the hot path
+// already takes the lock.
+func (o *OIDC) sweepLocked(now time.Time) {
+	for s, exp := range o.states {
+		if !now.Before(exp) {
+			delete(o.states, s)
+		}
+	}
 }
 
 func (o *OIDC) consumeState(state string) bool {
@@ -305,6 +372,51 @@ func (o *OIDC) consumeState(state string) bool {
 	}
 	delete(o.states, state)
 	return !time.Now().After(exp)
+}
+
+// parseEmailVerified decodes the OIDC `email_verified` claim across the
+// shapes real-world IdPs send. The spec (OIDC core, section 5.1) calls
+// for a JSON boolean, but Azure AD, Salesforce, older Keycloak releases
+// and some SAML→OIDC gateways send a JSON string ("true"/"false"). A
+// bare bool-typed type assertion fails closed for those callers,
+// pressuring operators to disable the check entirely — worse outcome
+// than accepting the documented string form.
+//
+// Accepted:
+//   - bool true / bool false
+//   - string "true" / "false" (case-insensitive: "True", "TRUE", etc.)
+//
+// Default-deny for everything else (nil, missing, numeric 0/1, nested
+// object). Numeric encoding was raised during review but is rarer than
+// the string form and violates the spec more clearly; rejecting it
+// keeps the parser narrow.
+//
+// The strict posture is load-bearing and intentional:
+//   - no whitespace trimming (" true " is rejected)
+//   - no numeric coercion (1, 1.0, json.Number("1") all rejected — note
+//     that encoding/json decodes JSON numbers as float64 by default, so
+//     production callers see float64 not int)
+//   - no "yes"/"no"/"on"/"off"/"1"/"0" string forms
+//
+// Widening the parser is a security-sensitive change: every new accepted
+// shape is a new opportunity for an attacker-controlled IdP to satisfy
+// the check with an unverified address. Operators who genuinely need
+// looser handling should set oidc.require_email_verified: false as a
+// deliberate opt-out (the bypass is logged at startup and audited per
+// login).
+func parseEmailVerified(raw any) bool {
+	switch v := raw.(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(v) {
+		case "true":
+			return true
+		case "false":
+			return false
+		}
+	}
+	return false
 }
 
 func extractGroups(claims map[string]any, key string) []string {

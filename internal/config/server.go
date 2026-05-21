@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,7 +23,6 @@ type ServerConfig struct {
 	Listen     string      `yaml:"listen"`
 	DataDir    string      `yaml:"data_dir"`
 	DBPath     string      `yaml:"db_path"`
-	APIKey     string      `yaml:"api_key"`
 	UIPassword string      `yaml:"ui_password,omitempty"`
 	LogLevel   string      `yaml:"log_level"`
 	TLSCert    string      `yaml:"tls_cert,omitempty"`
@@ -87,6 +87,11 @@ type ServerConfig struct {
 	// explicitly — `rate_limit.trust_proxy_header` is not a reliable
 	// signal that the proxy speaks TLS to clients.
 	CookieSecure *bool `yaml:"cookie_secure,omitempty"`
+
+	// legacyAPIKey tracks whether `api_key:` was detected in the YAML during load.
+	// The field was deprecated in favor of one-time stdout output from `init` and
+	// recovery via `nebula-mgmt ops mint-admin-key`.
+	legacyAPIKey bool
 }
 
 // CookieSecureResolved returns the effective Secure-cookie flag for this
@@ -97,6 +102,13 @@ func (c ServerConfig) CookieSecureResolved() bool {
 		return *c.CookieSecure
 	}
 	return c.TLSCert != "" && c.TLSKey != ""
+}
+
+// HasLegacyAPIKey reports whether the YAML config contained a top-level
+// `api_key:` key. The field was removed per #127 in favor of one-time
+// stdout output and recovery via `nebula-mgmt ops mint-admin-key`.
+func (c *ServerConfig) HasLegacyAPIKey() bool {
+	return c.legacyAPIKey
 }
 
 // EnrollmentTokenTTLDuration returns the configured default token TTL parsed
@@ -259,6 +271,26 @@ func (o *OIDCConfig) Validate() error {
 	return nil
 }
 
+// detectLegacyAPIKey reports whether the YAML bytes contain a top-level
+// `api_key:` key (uncommented, no leading whitespace). Used during load
+// to emit a deprecation warning — the field was removed per #127.
+func detectLegacyAPIKey(b []byte) bool {
+	for _, line := range bytes.Split(b, []byte("\n")) {
+		// Strip everything after `#` (comment).
+		if i := bytes.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		// Trim trailing whitespace; keep leading whitespace as-is
+		// for the "top-level only" check.
+		line = bytes.TrimRight(line, " \t\r")
+		// Top-level YAML key — no leading whitespace.
+		if bytes.HasPrefix(line, []byte("api_key:")) {
+			return true
+		}
+	}
+	return false
+}
+
 func LoadServerConfig(path string) (*ServerConfig, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- operator-controlled config path is the documented API contract
 	if err != nil {
@@ -271,6 +303,9 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 		DBPath:   "/var/lib/nebula-mgmt/nebula.db",
 		LogLevel: "info",
 	}
+
+	// Detect if YAML contains legacy `api_key:` field for deprecation warning.
+	cfg.legacyAPIKey = detectLegacyAPIKey(data)
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
@@ -308,7 +343,7 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 // SaveServerConfig writes the config to path atomically (temp file + rename).
 // Existing comments and unknown fields in the file are not preserved.
 func SaveServerConfig(path string, cfg *ServerConfig) error {
-	data, err := yaml.Marshal(cfg) // #nosec G117 -- remove with #127 (cfg.APIKey field is being deleted)
+	data, err := yaml.Marshal(cfg) // #nosec G117
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}

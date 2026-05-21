@@ -22,9 +22,10 @@ const DefaultAdminUsername = "admin"
 // already populated. Either uiPassword or apiKey may be empty.
 //
 // When apiKey is non-empty it is hashed and stored as the admin's first
-// operator API key. This is the only consumer of cfg.APIKey — the runtime
-// auth path (bearerAuth) authenticates exclusively via operator_api_keys
-// and does NOT accept the config key as a bearer fallback.
+// operator API key. The apiKey value comes from the caller (Init generates
+// it inline; Serve passes ""), not from a persisted config field. Runtime
+// auth via bearerAuth middleware authenticates exclusively through
+// operator_api_keys.
 //
 // The empty-table check and the inserts are delegated to the store as a
 // single atomic operation (SeedInitialAdminOperator). Two concurrent

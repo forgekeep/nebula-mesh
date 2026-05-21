@@ -262,7 +262,7 @@ nebula-mgmt host delete  --server ... --api-key "$API_KEY" --id "$HOST_ID"
 <a name="operators-auth-and-tenancy"></a>
 
 
-Each interactive admin should have their own operator account and per-operator API key. On `nebula-mgmt init`, an `admin` operator is seeded from `ui_password` (or `api_key` as a fallback); the config `api_key` is registered as `admin`'s first API key and continues to work as a legacy fallback.
+Each interactive admin should have their own operator account and per-operator API key. On `nebula-mgmt init`, an admin operator is seeded from `ui_password` (or, if that is empty, an auto-generated value used solely for the admin's bcrypt password hash). The admin's first operator API key is generated freshly inside init and printed to stdout once — capture it then; the server does not persist the plaintext to disk. Lost the key? Run `nebula-mgmt ops mint-admin-key --config <path>` to mint a new admin API key.
 
 ### Manage operators
 
@@ -409,7 +409,7 @@ Ops endpoints (`/healthz`, `/readyz`, `/metrics`, `/debug/`, `/favicon.ico`, `/s
 
 - **Authentication.** Interactive logins are bcrypt-verified against the operator's password; sessions are DB-backed and revoked atomically on `user disable`. Optional TOTP 2FA + recovery codes. Optional OIDC SSO.
 - **Authorization.** Operator-management API and CA-management API require `role: admin`; non-admin operators can only see and act on the CAs they own.
-- **API keys.** Per-operator, stored as SHA-256 hashes — disable an operator and every key revokes in the same transaction. The legacy config-file `api_key` continues to work as a fallback for backward compatibility.
+- **API keys.** Per-operator, stored as SHA-256 hashes — disable an operator and every key revokes in the same transaction. All admin authentication runs through DB-backed operator_api_keys (SHA-256 hashed).
 - **CA key material.** Stored encrypted at rest in SQLite under a process-wide AES-256-GCM master key (`NEBULA_MGMT_MASTER_KEY`), supplied at startup and never persisted. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the threat-model discussion and [ADR 0003](docs/adr/0003-ca-encryption-model.md) for the operator-derived-KEK / zero-knowledge alternatives we evaluated and deferred.
 - **Transport.** Always run the management server behind TLS — set `tls_cert` + `tls_key`, or front with nginx/caddy/traefik.
 - **Disclosure.** Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).

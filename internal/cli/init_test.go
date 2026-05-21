@@ -3,9 +3,15 @@ package cli
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/juev/nebula-mesh/internal/store"
 )
@@ -21,7 +27,6 @@ func TestInit_RejectsWithoutMaster(t *testing.T) {
 	cfgContent := `listen: ":8080"
 data_dir: "` + tmpDir + `"
 db_path: "` + filepath.Join(tmpDir, "nebula.db") + `"
-api_key: "test-key"
 log_level: "info"
 master_key: ""
 `
@@ -60,7 +65,6 @@ func TestInit_AcceptsWithMasterEnv(t *testing.T) {
 	cfgContent := `listen: ":8080"
 data_dir: "` + tmpDir + `"
 db_path: "` + filepath.Join(tmpDir, "nebula.db") + `"
-api_key: "test-key"
 log_level: "info"
 `
 	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0o644); err != nil {
@@ -93,7 +97,6 @@ func TestInit_MintsAdminDefaultCA(t *testing.T) {
 	cfgContent := `listen: ":8080"
 data_dir: "` + tmpDir + `"
 db_path: "` + dbPath + `"
-api_key: "test-key"
 log_level: "info"
 `
 	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0o644); err != nil {
@@ -135,6 +138,19 @@ log_level: "info"
 	if cas[0].OwnerOperatorID != adminOp.ID {
 		t.Errorf("expected owner %q, got %q", adminOp.ID, cas[0].OwnerOperatorID)
 	}
+
+	// Assert that admin operator has exactly 1 API key with the correct name
+	keys, err := s.ListOperatorAPIKeys(ctx, adminOp.ID)
+	if err != nil {
+		t.Fatalf("list admin API keys: %v", err)
+	}
+
+	if len(keys) != 1 {
+		t.Errorf("expected admin to have 1 API key, got %d", len(keys))
+	}
+	if len(keys) > 0 && keys[0].Name != "initial-admin-key" {
+		t.Errorf("expected API key name 'initial-admin-key', got %q", keys[0].Name)
+	}
 }
 
 func TestInit_DoesNotCreateOnDiskCA(t *testing.T) {
@@ -155,7 +171,6 @@ func TestInit_DoesNotCreateOnDiskCA(t *testing.T) {
 	cfgContent := `listen: ":8080"
 data_dir: "` + tmpDir + `"
 db_path: "` + filepath.Join(tmpDir, "nebula.db") + `"
-api_key: "test-key"
 log_level: "info"
 `
 	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0o644); err != nil {
@@ -187,4 +202,93 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestInit_PrintsAdminAPIKeyOnce(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Generate valid base64 master key (32 bytes)
+	masterKey := make([]byte, 32)
+	for i := range masterKey {
+		masterKey[i] = byte(i % 256)
+	}
+	masterB64 := base64.StdEncoding.EncodeToString(masterKey)
+
+	// Set master key via env
+	t.Setenv("NEBULA_MGMT_MASTER_KEY", masterB64)
+
+	// Create config WITHOUT api_key and WITHOUT ui_password
+	// (to test that init generates and prints fresh plaintext)
+	cfgPath := filepath.Join(tmpDir, "server.yaml")
+	dbPath := filepath.Join(tmpDir, "nebula.db")
+	cfgContent := `listen: ":8080"
+data_dir: "` + tmpDir + `"
+db_path: "` + dbPath + `"
+log_level: "info"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	// Capture stdout
+	rOut, wOut, _ := os.Pipe()
+	oldStdout := os.Stdout
+	os.Stdout = wOut
+
+	err := Init(cfgPath)
+
+	wOut.Close()
+	os.Stdout = oldStdout
+	output, _ := io.ReadAll(rOut)
+
+	require.NoError(t, err)
+
+	outputStr := string(output)
+	t.Logf("Init stdout:\n%s", outputStr)
+
+	// Assert: stdout contains the "capture now" block
+	assert.Contains(t, outputStr, "Admin API key (capture now, will not be shown again)", "stdout should contain admin key message")
+
+	// Extract the printed key from the output (between the delimiters)
+	lines := strings.Split(outputStr, "\n")
+	var printedKey string
+	for i, line := range lines {
+		if strings.Contains(line, "Admin API key") {
+			// Next line should be the key
+			if i+1 < len(lines) {
+				printedKey = strings.TrimSpace(lines[i+1])
+				break
+			}
+		}
+	}
+	require.NotEmpty(t, printedKey, "should have extracted printed API key from stdout")
+
+	// Verify printed key is 64-char hex (32 bytes)
+	assert.Len(t, printedKey, 64, "API key should be 64 hex characters")
+	_, err = hex.DecodeString(printedKey)
+	require.NoError(t, err, "printed key should be valid hex")
+
+	// Assert: config file does NOT contain api_key after init
+	configBytes, err := os.ReadFile(cfgPath)
+	require.NoError(t, err, "should read config file")
+	assert.NotContains(t, string(configBytes), "api_key:", "config file should not contain 'api_key:' field")
+
+	// Assert: admin operator exists in DB with exactly 1 API key
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := store.NewSQLiteStore(dbPath)
+	require.NoError(t, err, "open store")
+	defer s.Close()
+
+	adminOp, err := s.GetOperatorByUsername(ctx, DefaultAdminUsername)
+	require.NoError(t, err, "get admin operator")
+
+	keys, err := s.ListOperatorAPIKeys(ctx, adminOp.ID)
+	require.NoError(t, err, "list admin's API keys")
+
+	assert.Len(t, keys, 1, "admin should have exactly 1 API key")
+	if len(keys) > 0 {
+		assert.Equal(t, "initial-admin-key", keys[0].Name, "first admin key should be named 'initial-admin-key'")
+	}
 }

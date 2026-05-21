@@ -66,6 +66,11 @@ func Serve(configPath string) error {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
+	// Warn if legacy api_key: field was detected in the YAML.
+	if cfg.HasLegacyAPIKey() {
+		logger.Warn("config field 'api_key' is deprecated and ignored; use 'nebula-mgmt ops mint-admin-key' to recover an admin key", "config", configPath)
+	}
+
 	// Open database
 	s, err := store.NewSQLiteStore(cfg.DBPath)
 	if err != nil {
@@ -84,11 +89,10 @@ func Serve(configPath string) error {
 	}
 
 	// Seed an admin operator if the operators table is still empty (idempotent).
-	uiPassword := cfg.UIPassword
-	if uiPassword == "" {
-		uiPassword = cfg.APIKey
-	}
-	if seeded, err := SeedAdminOperator(migrateCtx, s, uiPassword, cfg.APIKey); err != nil {
+	// No API key is passed to serve-time seed — the initial key is generated
+	// and printed during 'nebula-mgmt init'. This call is defensive: in most
+	// cases the operator already exists from init; seed is a no-op.
+	if seeded, err := SeedAdminOperator(migrateCtx, s, cfg.UIPassword, ""); err != nil {
 		return fmt.Errorf("seed admin operator: %w", err)
 	} else if seeded {
 		logger.Info("seeded initial admin operator", "username", DefaultAdminUsername)

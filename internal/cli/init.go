@@ -47,19 +47,14 @@ func Init(configPath string) error {
 		return fmt.Errorf("parse master key: %w", err)
 	}
 
-	// Generate API key if not set
-	if cfg.APIKey == "" {
-		keyBytes := make([]byte, 32)
-		if _, err := rand.Read(keyBytes); err != nil {
-			return fmt.Errorf("generate API key: %w", err)
-		}
-		cfg.APIKey = hex.EncodeToString(keyBytes)
-		if err := config.SaveServerConfig(configPath, cfg); err != nil {
-			return fmt.Errorf("save config with API key: %w", err)
-		}
-		fmt.Printf("API key: %s\n", cfg.APIKey)
-		fmt.Printf("Saved to: %s\n", configPath)
+	// Generate admin API key plaintext (32 random bytes).
+	// This key is NOT saved to the config file; it is printed once to stdout
+	// and passed directly to SeedAdminOperator for immediate seeding in the DB.
+	keyBytes := make([]byte, 32)
+	if _, err := rand.Read(keyBytes); err != nil {
+		return fmt.Errorf("generate API key: %w", err)
 	}
+	plaintext := hex.EncodeToString(keyBytes)
 
 	// Initialize database
 	s, err := store.NewSQLiteStore(cfg.DBPath)
@@ -78,14 +73,19 @@ func Init(configPath string) error {
 		return fmt.Errorf("migrate database: %w", err)
 	}
 
-	uiPassword := cfg.UIPassword
-	if uiPassword == "" {
-		uiPassword = cfg.APIKey
-	}
-	if seeded, err := SeedAdminOperator(migrateCtx, s, uiPassword, cfg.APIKey); err != nil {
+	// Seed admin operator with the generated plaintext key.
+	// If ui_password is empty, the seed operation is a no-op (no admin password).
+	// This is intentional: an admin with no UI password cannot log in via the web UI,
+	// and may use API keys for programmatic access, or rely on external auth (e.g., OIDC).
+	if seeded, err := SeedAdminOperator(migrateCtx, s, cfg.UIPassword, plaintext); err != nil {
 		return fmt.Errorf("seed admin operator: %w", err)
 	} else if seeded {
-		fmt.Printf("Admin operator created: %s (password = ui_password from config; api_key seeded as their key)\n", DefaultAdminUsername)
+		// Print the generated admin API key with a prominent notice.
+		fmt.Println()
+		fmt.Println("=== Admin API key (capture now, will not be shown again) ===")
+		fmt.Println(plaintext)
+		fmt.Println("=================================================")
+		fmt.Println()
 	}
 
 	// Mint admin default CA

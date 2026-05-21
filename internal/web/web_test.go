@@ -117,6 +117,7 @@ func TestSession_CookieSecureFlag(t *testing.T) {
 	}
 	if live == nil {
 		t.Fatal("session cookie not set after login")
+		return
 	}
 	if !live.Secure {
 		t.Error("session cookie missing Secure attribute")
@@ -143,6 +144,7 @@ func TestSession_CookieSecureFlag(t *testing.T) {
 	}
 	if del == nil {
 		t.Fatal("logout did not emit a session-cookie delete")
+		return
 	}
 	if !del.Secure || !del.HttpOnly || del.SameSite != http.SameSiteLaxMode {
 		t.Errorf("logout cookie attribute drift: Secure=%v HttpOnly=%v SameSite=%v",

@@ -22,6 +22,9 @@ func TestAdminCreatesUser_AutoProvisions(t *testing.T) {
 	// Create admin session.
 	adminCookie := mintSession(t, s, "alice-admin", "admin")
 
+	// Get CSRF token for operator creation form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{adminCookie})
+
 	// POST /ui/operators with role=user.
 	form := url.Values{
 		"username":         {"bob"},
@@ -29,10 +32,13 @@ func TestAdminCreatesUser_AutoProvisions(t *testing.T) {
 		"password":         {"SecurePass123!@#"},
 		"password_confirm": {"SecurePass123!@#"},
 		"role":             {"user"},
+		"_csrf":            {csrfToken},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(adminCookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 
 	w.ServeHTTP(rec, req)
@@ -81,6 +87,9 @@ func TestAdminCreatesAdmin_AutoProvisions(t *testing.T) {
 	// Create admin session.
 	adminCookie := mintSession(t, s, "alice-admin", "admin")
 
+	// Get CSRF token for operator creation form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{adminCookie})
+
 	// POST /ui/operators with role=admin.
 	form := url.Values{
 		"username":         {"charlie"},
@@ -88,10 +97,13 @@ func TestAdminCreatesAdmin_AutoProvisions(t *testing.T) {
 		"password":         {"SecurePass123!@#"},
 		"password_confirm": {"SecurePass123!@#"},
 		"role":             {"admin"},
+		"_csrf":            {csrfToken},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(adminCookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 
 	w.ServeHTTP(rec, req)
@@ -155,6 +167,9 @@ func TestAdminCreatesUser_SkipsAutoProvisionWhenNoMaster(t *testing.T) {
 	// Create admin session.
 	adminCookie := mintSession(t, s, "delta-admin", "admin")
 
+	// Get CSRF token for operator creation form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{adminCookie})
+
 	// POST /ui/operators with role=user.
 	form := url.Values{
 		"username":         {"eve"},
@@ -162,10 +177,13 @@ func TestAdminCreatesUser_SkipsAutoProvisionWhenNoMaster(t *testing.T) {
 		"password":         {"SecurePass123!@#"},
 		"password_confirm": {"SecurePass123!@#"},
 		"role":             {"user"},
+		"_csrf":            {csrfToken},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(adminCookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 
 	w.ServeHTTP(rec, req)

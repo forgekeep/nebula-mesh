@@ -67,6 +67,7 @@
         <h1>Nebula Mesh</h1>
         {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
         <form method="POST" action="/ui/login">
+            {{ csrfField }}
             <div class="form-group">
                 <label>Username</label>
                 <input type="text" name="username" class="form-control" value="admin" autocomplete="username" autofocus required>

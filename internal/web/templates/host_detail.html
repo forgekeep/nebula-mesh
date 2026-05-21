@@ -29,6 +29,7 @@
     <p class="help-text">Generate a self-contained Nebula YAML config + QR code for this device.
     Each generation creates a new certificate. The private key is shown only once — save the bundle immediately.</p>
     <form method="post" action="/ui/hosts/{{.Host.ID}}/mobile-bundle/generate">
+        {{ csrfField }}
         <button type="submit" class="btn btn-primary">
             {{if eq (printf "%s" .Host.Status) "pending"}}Generate Mobile Bundle{{else}}Regenerate Bundle (Rotate Cert){{end}}
         </button>

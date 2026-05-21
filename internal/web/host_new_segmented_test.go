@@ -78,15 +78,17 @@ func TestHostCreate_FriendlyNebulaIPInline(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", cookies)
 	form := url.Values{
 		"network_id": {"n-friendly"},
 		"name":       {"bad-ip"},
 		"nebula_ips": {"10.42.0.22.333"},
 		"role":       {"host"},
+		"_csrf":      {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -114,6 +116,7 @@ func TestHostCreate_FriendlyPublicIPInline(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", cookies)
 	form := url.Values{
 		"network_id":  {"n-pub"},
 		"name":        {"lh"},
@@ -121,10 +124,11 @@ func TestHostCreate_FriendlyPublicIPInline(t *testing.T) {
 		"role":        {"lighthouse"},
 		"public_ip":   {"203.0.113.999"},
 		"listen_port": {"4242"},
+		"_csrf":       {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -153,16 +157,18 @@ func TestHostCreate_FriendlyAdvancedListenHostInline(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", cookies)
 	form := url.Values{
 		"network_id":      {"n-adv"},
 		"name":            {"adv"},
 		"nebula_ips":      {"10.0.0.5"},
 		"role":            {"host"},
 		"adv_listen_host": {"not-an-ip"},
+		"_csrf":           {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -249,6 +255,7 @@ func TestHandleHostNew_PreservesKindOnError(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", cookies)
 	form := url.Values{
 		"network_id": {"n-test"},
 		"name":       {"invalid-host"},
@@ -256,11 +263,12 @@ func TestHandleHostNew_PreservesKindOnError(t *testing.T) {
 		"kind":       {"mobile"},
 		"variant":    {"ios"},
 		"role":       {"lighthouse"},
+		"_csrf":      {csrfToken},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()

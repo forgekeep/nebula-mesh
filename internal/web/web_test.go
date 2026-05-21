@@ -58,12 +58,74 @@ func newTestWeb(t *testing.T) (*Web, *store.SQLiteStore) {
 
 func loginSession(t *testing.T, w *Web) []*http.Cookie {
 	t.Helper()
-	form := url.Values{"username": {testUsername}, "password": {testPassword}}
+
+	// Step 1: GET /ui/login to obtain CSRF cookie
+	getReq := httptest.NewRequest(http.MethodGet, "/ui/login", nil)
+	getRec := httptest.NewRecorder()
+	w.ServeHTTP(getRec, getReq)
+
+	var csrfCookie *http.Cookie
+	for _, c := range getRec.Result().Cookies() {
+		if c.Name == csrfCookieName {
+			csrfCookie = c
+			break
+		}
+	}
+	if csrfCookie == nil {
+		t.Fatal("expected CSRF cookie from GET /ui/login")
+	}
+
+	// Step 2: POST /ui/login with credentials and CSRF token
+	form := url.Values{
+		"username": {testUsername},
+		"password": {testPassword},
+		"_csrf":    {csrfCookie.Value},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(csrfCookie)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	return rec.Result().Cookies()
+}
+
+// getCSRFTokenFromCookies extracts CSRF token from a GET request and returns updated cookies with CSRF cookie.
+func getCSRFTokenFromCookies(t *testing.T, w *Web, path string, cookies []*http.Cookie) (string, []*http.Cookie) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	// Extract CSRF token from form
+	body := rec.Body.String()
+	start := strings.Index(body, `<input type="hidden" name="_csrf" value="`)
+	if start < 0 {
+		t.Fatal("CSRF token not found in form")
+	}
+	start += len(`<input type="hidden" name="_csrf" value="`)
+	end := strings.Index(body[start:], `"`)
+	if end < 0 {
+		t.Fatal("CSRF token closing quote not found")
+	}
+	token := body[start : start+end]
+
+	// Get CSRF cookie from response
+	var csrfCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == csrfCookieName {
+			csrfCookie = c
+			break
+		}
+	}
+	if csrfCookie != nil {
+		// Add CSRF cookie to cookies list
+		cookies = append(cookies, csrfCookie)
+	}
+
+	return token, cookies
 }
 
 func TestLoginPage(t *testing.T) {
@@ -133,8 +195,13 @@ func TestSession_CookieSecureFlag(t *testing.T) {
 	// Re-issuing the logout cookie with mismatched attributes leaves
 	// browsers holding the original — assert the delete cookie matches
 	// the live cookie's fingerprint.
-	logoutReq := httptest.NewRequest(http.MethodGet, "/ui/logout", nil)
-	logoutReq.AddCookie(live)
+	csrfToken, logoutCookies := getCSRFTokenFromCookies(t, w, "/ui/login", []*http.Cookie{live})
+	logoutForm := url.Values{"_csrf": {csrfToken}}
+	logoutReq := httptest.NewRequest(http.MethodPost, "/ui/logout", strings.NewReader(logoutForm.Encode()))
+	logoutReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range logoutCookies {
+		logoutReq.AddCookie(c)
+	}
 	logoutRec := httptest.NewRecorder()
 	w.ServeHTTP(logoutRec, logoutReq)
 	var del *http.Cookie
@@ -167,9 +234,13 @@ func TestSession_CookieSecureDefault(t *testing.T) {
 
 func TestLogin_WrongPassword(t *testing.T) {
 	w, _ := newTestWeb(t)
-	form := url.Values{"username": {testUsername}, "password": {"wrong"}}
+	csrfToken, csrfCookies := getCSRFTokenFromCookies(t, w, "/ui/login", nil)
+	form := url.Values{"username": {testUsername}, "password": {"wrong"}, "_csrf": {csrfToken}}
 	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range csrfCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -187,9 +258,13 @@ func TestLogin_DisabledOperator(t *testing.T) {
 	if err := s.DisableOperator(ctx, "admin-test-id"); err != nil {
 		t.Fatal(err)
 	}
-	form := url.Values{"username": {testUsername}, "password": {testPassword}}
+	csrfToken, csrfCookies := getCSRFTokenFromCookies(t, w, "/ui/login", nil)
+	form := url.Values{"username": {testUsername}, "password": {testPassword}, "_csrf": {csrfToken}}
 	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range csrfCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -317,15 +392,19 @@ func TestCreateHostViaUI(t *testing.T) {
 	ctx := context.Background()
 	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "test", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now()})
 
+	// Get CSRF token
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", cookies)
+
 	form := url.Values{
 		"network_id": {"net1"},
 		"name":       {"new-host"},
 		"nebula_ips": {"10.0.0.5"},
 		"role":       {"host"},
+		"_csrf":      {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -351,15 +430,19 @@ func TestCreateHostViaUI_InvalidPort(t *testing.T) {
 	ctx := context.Background()
 	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "test", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now()})
 
+	// Get CSRF token
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", cookies)
+
 	form := url.Values{
 		"network_id":  {"net1"},
 		"name":        {"bad-port-host"},
 		"nebula_ips":  {"10.0.0.5"},
 		"listen_port": {"70000"},
+		"_csrf":       {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -374,7 +457,22 @@ func TestLogout(t *testing.T) {
 	w, _ := newTestWeb(t)
 	cookies := loginSession(t, w)
 
-	req := httptest.NewRequest(http.MethodGet, "/ui/logout", nil)
+	// Extract CSRF cookie from login response
+	var csrfToken string
+	for _, c := range cookies {
+		if c.Name == csrfCookieName {
+			csrfToken = c.Value
+			break
+		}
+	}
+	if csrfToken == "" {
+		t.Fatal("expected CSRF cookie after login")
+	}
+
+	// POST /ui/logout with CSRF token
+	form := url.Values{"_csrf": {csrfToken}}
+	req := httptest.NewRequest(http.MethodPost, "/ui/logout", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -382,7 +480,7 @@ func TestLogout(t *testing.T) {
 	w.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
-		t.Errorf("status = %d, want 303", rec.Code)
+		t.Errorf("logout: status = %d, want 303", rec.Code)
 	}
 
 	// After logout, dashboard should redirect to login
@@ -602,5 +700,71 @@ func TestParseTemplates_IncludesHostEdit(t *testing.T) {
 	// Verify host_edit.html template was successfully registered.
 	if w.templates["host_edit.html"] == nil {
 		t.Error("host_edit.html template not registered")
+	}
+}
+
+func TestRenderInjectsCSRFToken(t *testing.T) {
+	w, _ := newTestWeb(t)
+	cookies := loginSession(t, w)
+
+	// GET /ui/hosts (authenticated, uses layout.html)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+	// Assert <meta name="csrf-token" content="..."> is present
+	if !strings.Contains(body, `<meta name="csrf-token" content="`) {
+		t.Error("response does not contain <meta name=\"csrf-token\">")
+	}
+	// Extract and validate non-empty token value
+	start := strings.Index(body, `<meta name="csrf-token" content="`)
+	if start >= 0 {
+		start += len(`<meta name="csrf-token" content="`)
+		end := strings.Index(body[start:], `"`)
+		if end > 0 {
+			token := body[start : start+end]
+			if token == "" {
+				t.Error("csrf-token meta tag has empty content")
+			}
+		}
+	}
+}
+
+func TestRenderInjectsCSRFTokenPreAuth(t *testing.T) {
+	w, _ := newTestWeb(t)
+
+	// GET /ui/login (pre-auth, does not use layout.html, but csrf token should still be in response)
+	req := httptest.NewRequest(http.MethodGet, "/ui/login", nil)
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+	// Assert csrf token is present in form as hidden input
+	if !strings.Contains(body, `<input type="hidden" name="_csrf"`) {
+		t.Error("response does not contain csrf hidden input")
+	}
+	// Verify the token value is non-empty
+	startIdx := strings.Index(body, `<input type="hidden" name="_csrf" value="`)
+	if startIdx >= 0 {
+		startIdx += len(`<input type="hidden" name="_csrf" value="`)
+		endIdx := strings.Index(body[startIdx:], `"`)
+		if endIdx > 0 {
+			token := body[startIdx : startIdx+endIdx]
+			if token == "" {
+				t.Error("csrf token value is empty")
+			}
+		}
 	}
 }

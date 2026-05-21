@@ -19,6 +19,7 @@
     <h2>Create Network</h2>
     {{if .Error}}<div class="error" role="alert" style="color: var(--danger); margin-bottom: 16px;">{{.Error}}</div>{{end}}
     <form method="POST" action="/ui/networks">
+        {{ csrfField }}
         <div class="form-group">
             <label>Name</label>
             <input type="text" name="name" class="form-control" placeholder="production" value="{{.Form.Name}}" required>

@@ -108,9 +108,13 @@ func TestCAs_Retire_FlipsStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/cas/"+ca.ID, []*http.Cookie{cookie})
 	req := httptest.NewRequest(http.MethodPost, "/ui/cas/"+ca.ID+"/retire", strings.NewReader(""))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	req.Header.Set("X-CSRF-Token", csrfToken)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -130,10 +134,13 @@ func TestCAs_New_WithoutMaster_InlineError(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "bob", "user")
 
-	form := url.Values{"name": {"new-ca"}, "duration": {"8760h"}}
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/cas", []*http.Cookie{cookie})
+	form := url.Values{"name": {"new-ca"}, "duration": {"8760h"}, "_csrf": {csrfToken}}
 	req := httptest.NewRequest(http.MethodPost, "/ui/cas", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -239,9 +246,13 @@ func TestCAs_Rotate_CreatesSuccessor(t *testing.T) {
 	}
 
 	// POST /ui/cas/{id}/rotate
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/cas/"+oldCA.ID, []*http.Cookie{cookie})
 	req := httptest.NewRequest(http.MethodPost, "/ui/cas/"+oldCA.ID+"/rotate", strings.NewReader(""))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	req.Header.Set("X-CSRF-Token", csrfToken)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {

@@ -78,6 +78,9 @@ func TestSettings_Admin_FlipsAndPersists(t *testing.T) {
 	w, s := newSettingsWeb(t)
 	cookie := authedSession(t, s, "root", "admin")
 
+	// Get CSRF token for settings form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/settings", []*http.Cookie{cookie})
+
 	form := url.Values{
 		"enforce_2fa":              {"1"},
 		"allow_self_registration":  {"1"},
@@ -86,10 +89,13 @@ func TestSettings_Admin_FlipsAndPersists(t *testing.T) {
 		"password_min_length":      {"16"},
 		"password_require_classes": {"4"},
 		"log_level":                {"warn"},
+		"_csrf":                    {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/settings", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -130,9 +136,17 @@ func TestSettings_Unchecked_CheckboxSetsFalse(t *testing.T) {
 	}
 	cookie := authedSession(t, s, "root", "admin")
 
-	req := httptest.NewRequest(http.MethodPost, "/ui/settings", strings.NewReader(""))
+	// Get CSRF token for settings form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/settings", []*http.Cookie{cookie})
+
+	form := url.Values{
+		"_csrf": {csrfToken},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/ui/settings", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -196,6 +210,9 @@ func TestSettings_SaveShowsFlashSuccess(t *testing.T) {
 	w, s := newSettingsWeb(t)
 	cookie := authedSession(t, s, "root", "admin")
 
+	// Get CSRF token for settings form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/settings", []*http.Cookie{cookie})
+
 	form := url.Values{
 		"enforce_2fa":              {"1"},
 		"allow_self_registration":  {"1"},
@@ -204,10 +221,13 @@ func TestSettings_SaveShowsFlashSuccess(t *testing.T) {
 		"password_min_length":      {"16"},
 		"password_require_classes": {"4"},
 		"log_level":                {"warn"},
+		"_csrf":                    {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/settings", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -247,5 +267,35 @@ func TestSettings_NoOrphanMutedParagraph(t *testing.T) {
 	// For simplicity, check that if the muted paragraph exists, it should be wrapped.
 	if strings.Contains(body, `<p class="muted">`) {
 		t.Errorf("found orphan <p class=\"muted\"> — should be wrapped inside card or removed")
+	}
+}
+
+func TestSettings_FormIncludesCSRFToken(t *testing.T) {
+	w, s := newSettingsWeb(t)
+	cookie := authedSession(t, s, "root", "admin")
+
+	req := httptest.NewRequest(http.MethodGet, "/ui/settings", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// Verify CSRF token is present in the settings form specifically.
+	// The template uses {{ csrfField }} which expands to a hidden input with
+	// a token value when CSRF middleware is active.
+	settingsFormStart := strings.Index(body, `<form method="POST" action="/ui/settings"`)
+	settingsFormEnd := strings.Index(body[settingsFormStart:], `</form>`)
+	if settingsFormStart == -1 || settingsFormEnd == -1 {
+		t.Fatal("could not find settings form in response")
+	}
+
+	settingsForm := body[settingsFormStart : settingsFormStart+settingsFormEnd+7]
+	if !strings.Contains(settingsForm, `name="_csrf"`) {
+		t.Errorf("expected CSRF token input in settings form; form=%s", settingsForm[:300])
 	}
 }

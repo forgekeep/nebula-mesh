@@ -65,9 +65,19 @@ func seedLocalOperator(t *testing.T, s store.Store, username, password string, o
 
 func loginOperator(t *testing.T, w *Web, username, password string) *http.Cookie {
 	t.Helper()
-	form := url.Values{"username": {username}, "password": {password}}
+	// Get CSRF token from login page
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/login", nil)
+
+	form := url.Values{
+		"username": {username},
+		"password": {password},
+		"_csrf":    {csrfToken},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	for _, c := range rec.Result().Cookies() {
@@ -160,10 +170,18 @@ func TestEnforce2FA_On_DisableBlocked(t *testing.T) {
 	if err := s.PromoteOperatorSession(context.Background(), cookie.Value, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	form := url.Values{"password": {strongPassword}}
+	// Get CSRF token from /ui/2fa page (which displays the disable form on the page).
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/2fa", []*http.Cookie{cookie})
+
+	form := url.Values{
+		"password": {strongPassword},
+		"_csrf":    {csrfToken},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/2fa/disable", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {

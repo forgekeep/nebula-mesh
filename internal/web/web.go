@@ -190,6 +190,10 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 			}
 			return *p
 		},
+		// Stub functions for CSRF token injection; overridden per-request in renderWithStatus.
+		// Render helper (renderWithStatus) clones the template and replaces these with per-request closures.
+		"csrfToken": func() string { return "" },
+		"csrfField": func() template.HTML { return "" },
 	}
 
 	for _, page := range pages {
@@ -245,70 +249,77 @@ func (w *Web) setupRoutes() {
 		http.Redirect(rw, req, "/ui/", http.StatusFound)
 	})
 
-	// Login (public). Auth-group rate limit only on the form submissions
-	// — GET pages render the form and a 429 there would just confuse
-	// legitimate users who haven't yet pressed Submit.
-	r.Get("/ui/login", w.handleLoginPage)
-	r.With(w.rateLimitMiddleware("auth")).Post("/ui/login", w.handleLogin)
-	r.Get("/ui/login/totp", w.handleTOTPLoginPage)
-	r.With(w.rateLimitMiddleware("auth")).Post("/ui/login/totp", w.handleTOTPLogin)
-	r.Get("/ui/register", w.handleRegisterPage)
-	r.With(w.rateLimitMiddleware("auth")).Post("/ui/register", w.handleRegister)
-
-	// Protected routes
+	// CSRF middleware wraps all /ui/* endpoints (including pre-auth endpoints)
+	// to validate mutating requests. Double-submit cookie pattern: GET requests
+	// set the _csrf cookie; mutating requests validate token from cookie vs form/header.
 	r.Group(func(r chi.Router) {
-		r.Use(w.rateLimitMiddleware("ui"))
-		r.Use(w.requireAuth)
-		r.Use(w.noStore)
-		r.Get("/ui/", w.handleDashboard)
-		r.Get("/ui/hosts", w.handleHosts)
-		r.Get("/ui/hosts/new", w.handleHostNew)
-		r.Post("/ui/hosts", w.handleHostCreate)
-		r.Get("/ui/hosts/{id}", w.handleHostDetail)
-		r.Get("/ui/hosts/{id}/edit", w.handleHostEdit)
-		r.Post("/ui/hosts/{id}/edit", w.handleHostUpdate)
-		r.Post("/ui/hosts/{id}/mobile-bundle/generate", w.handleGenerateMobileBundle)
-		r.Post("/ui/hosts/{id}/block", w.handleHostBlock)
-		r.Delete("/ui/hosts/{id}", w.handleHostDelete)
-		r.Get("/ui/networks", w.handleNetworks)
-		r.Post("/ui/networks", w.handleNetworkCreate)
-		r.Get("/ui/profile", w.handleProfilePage)
-		r.Get("/ui/2fa", w.handleTwoFAPage)
-		r.Get("/ui/2fa/required", w.handleTwoFARequired)
-		r.Get("/ui/settings", w.handleSettingsPage)
-		r.Post("/ui/settings", w.handleSettingsSave)
+		r.Use(w.csrfMiddleware)
 
-		// Admin-only operator + API-key management (issue #45).
+		// Login (public). Auth-group rate limit only on the form submissions
+		// — GET pages render the form and a 429 there would just confuse
+		// legitimate users who haven't yet pressed Submit.
+		r.Get("/ui/login", w.handleLoginPage)
+		r.With(w.rateLimitMiddleware("auth")).Post("/ui/login", w.handleLogin)
+		r.Get("/ui/login/totp", w.handleTOTPLoginPage)
+		r.With(w.rateLimitMiddleware("auth")).Post("/ui/login/totp", w.handleTOTPLogin)
+		r.Get("/ui/register", w.handleRegisterPage)
+		r.With(w.rateLimitMiddleware("auth")).Post("/ui/register", w.handleRegister)
+
+		// Protected routes
 		r.Group(func(r chi.Router) {
-			r.Use(w.requireAdmin)
-			r.Get("/ui/operators", w.handleOperatorsList)
-			r.Get("/ui/operators/new", w.handleOperatorNewPage)
-			r.Post("/ui/operators", w.handleOperatorCreate)
-			r.Get("/ui/operators/{id}", w.handleOperatorDetail)
-			r.Post("/ui/operators/{id}/disable", w.handleOperatorDisable)
-			r.Post("/ui/operators/{id}/enable", w.handleOperatorEnable)
-			r.Post("/ui/operators/{id}/reset-password", w.handleOperatorResetPassword)
-			r.Post("/ui/operators/{id}/api-keys", w.handleOperatorCreateAPIKey)
-			r.Post("/ui/operators/{id}/api-keys/{kid}/revoke", w.handleOperatorRevokeAPIKey)
-		})
+			r.Use(w.rateLimitMiddleware("ui"))
+			r.Use(w.requireAuth)
+			r.Use(w.noStore)
+			r.Get("/ui/", w.handleDashboard)
+			r.Get("/ui/hosts", w.handleHosts)
+			r.Get("/ui/hosts/new", w.handleHostNew)
+			r.Post("/ui/hosts", w.handleHostCreate)
+			r.Get("/ui/hosts/{id}", w.handleHostDetail)
+			r.Get("/ui/hosts/{id}/edit", w.handleHostEdit)
+			r.Post("/ui/hosts/{id}/edit", w.handleHostUpdate)
+			r.Post("/ui/hosts/{id}/mobile-bundle/generate", w.handleGenerateMobileBundle)
+			r.Post("/ui/hosts/{id}/block", w.handleHostBlock)
+			r.Delete("/ui/hosts/{id}", w.handleHostDelete)
+			r.Get("/ui/networks", w.handleNetworks)
+			r.Post("/ui/networks", w.handleNetworkCreate)
+			r.Get("/ui/profile", w.handleProfilePage)
+			r.Get("/ui/2fa", w.handleTwoFAPage)
+			r.Get("/ui/2fa/required", w.handleTwoFARequired)
+			r.Get("/ui/settings", w.handleSettingsPage)
+			r.Post("/ui/settings", w.handleSettingsSave)
 
-		// Per-operator CA management (issue #46). Available to every
-		// authenticated operator; non-admins only see / act on the CAs
-		// they own — enforced server-side by loadAccessibleCA.
-		r.Get("/ui/cas", w.handleCAsList)
-		r.Get("/ui/cas/new", w.handleCANewPage)
-		r.Post("/ui/cas", w.handleCACreate)
-		r.Get("/ui/cas/{id}", w.handleCADetail)
-		r.Post("/ui/cas/{id}/retire", w.handleCARetire)
-		r.Post("/ui/cas/{id}/rotate", w.handleCARotate)
-		r.Post("/ui/cas/{id}/delete", w.handleCADelete)
-		r.Post("/ui/2fa/setup", w.handleTwoFASetup)
-		r.Post("/ui/2fa/enable", w.handleTwoFAEnable)
-		r.Post("/ui/2fa/disable", w.handleTwoFADisable)
-		r.Post("/ui/2fa/recovery-codes", w.handleTwoFARegenCodes)
-		r.Get("/ui/partials/stats", w.handlePartialStats)
-		r.Get("/ui/events", w.handleHostEvents)
-		r.Get("/ui/logout", w.handleLogout)
+			// Admin-only operator + API-key management (issue #45).
+			r.Group(func(r chi.Router) {
+				r.Use(w.requireAdmin)
+				r.Get("/ui/operators", w.handleOperatorsList)
+				r.Get("/ui/operators/new", w.handleOperatorNewPage)
+				r.Post("/ui/operators", w.handleOperatorCreate)
+				r.Get("/ui/operators/{id}", w.handleOperatorDetail)
+				r.Post("/ui/operators/{id}/disable", w.handleOperatorDisable)
+				r.Post("/ui/operators/{id}/enable", w.handleOperatorEnable)
+				r.Post("/ui/operators/{id}/reset-password", w.handleOperatorResetPassword)
+				r.Post("/ui/operators/{id}/api-keys", w.handleOperatorCreateAPIKey)
+				r.Post("/ui/operators/{id}/api-keys/{kid}/revoke", w.handleOperatorRevokeAPIKey)
+			})
+
+			// Per-operator CA management (issue #46). Available to every
+			// authenticated operator; non-admins only see / act on the CAs
+			// they own — enforced server-side by loadAccessibleCA.
+			r.Get("/ui/cas", w.handleCAsList)
+			r.Get("/ui/cas/new", w.handleCANewPage)
+			r.Post("/ui/cas", w.handleCACreate)
+			r.Get("/ui/cas/{id}", w.handleCADetail)
+			r.Post("/ui/cas/{id}/retire", w.handleCARetire)
+			r.Post("/ui/cas/{id}/rotate", w.handleCARotate)
+			r.Post("/ui/cas/{id}/delete", w.handleCADelete)
+			r.Post("/ui/2fa/setup", w.handleTwoFASetup)
+			r.Post("/ui/2fa/enable", w.handleTwoFAEnable)
+			r.Post("/ui/2fa/disable", w.handleTwoFADisable)
+			r.Post("/ui/2fa/recovery-codes", w.handleTwoFARegenCodes)
+			r.Get("/ui/partials/stats", w.handlePartialStats)
+			r.Get("/ui/events", w.handleHostEvents)
+			r.Post("/ui/logout", w.handleLogout)
+		})
 	})
 
 	w.router = r
@@ -343,10 +354,10 @@ func (w *Web) renderForRequestWithStatus(rw http.ResponseWriter, r *http.Request
 	if _, present := data["CurrentUser"]; !present {
 		data["CurrentUser"] = w.session.CurrentOperator(r)
 	}
-	w.renderWithStatus(rw, status, name, data)
+	w.renderWithStatus(r.Context(), rw, status, name, data)
 }
 
-func (w *Web) renderWithStatus(rw http.ResponseWriter, status int, name string, data map[string]any) {
+func (w *Web) renderWithStatus(ctx context.Context, rw http.ResponseWriter, status int, name string, data map[string]any) {
 	tmpl, ok := w.templates[name]
 	if !ok {
 		w.logger.Error("template not found", "template", name)
@@ -362,7 +373,24 @@ func (w *Web) renderWithStatus(rw http.ResponseWriter, status int, name string, 
 		execName = "stats"
 	}
 	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, execName, data); err != nil {
+
+	// Clone template and inject per-request CSRF token closures.
+	// The closures capture the current request context to retrieve the token set by csrfMiddleware.
+	clonedTmpl, err := tmpl.Clone()
+	if err != nil {
+		w.logger.Error("clone template", "template", name, "error", err)
+		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Register per-request FuncMap closures that capture the token from the request context.
+	token := tokenFromContext(ctx)
+	clonedTmpl.Funcs(template.FuncMap{
+		"csrfToken": func() string { return token },
+		"csrfField": func() template.HTML { return csrfFieldHTML(token) },
+	})
+
+	if err := clonedTmpl.ExecuteTemplate(&buf, execName, data); err != nil {
 		w.logger.Error("render template", "template", name, "error", err)
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
 		return

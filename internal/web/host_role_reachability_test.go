@@ -75,6 +75,7 @@ func TestCreateHostViaUI_RoleReachability(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", cookies)
 			form := url.Values{
 				"network_id":  {"net-rr"},
 				"name":        {"h-" + strings.ReplaceAll(tc.name, " ", "-")},
@@ -82,10 +83,11 @@ func TestCreateHostViaUI_RoleReachability(t *testing.T) {
 				"role":        {tc.role},
 				"public_ip":   {tc.publicIP},
 				"listen_port": {tc.listenPort},
+				"_csrf":       {csrfToken},
 			}
 			req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			for _, c := range cookies {
+			for _, c := range updatedCookies {
 				req.AddCookie(c)
 			}
 			rec := httptest.NewRecorder()

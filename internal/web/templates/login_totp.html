@@ -45,6 +45,7 @@
         <p>Enter the 6-digit code from your authenticator app, or use a recovery code.</p>
         {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
         <form method="POST" action="/ui/login/totp">
+            {{ csrfField }}
             <div class="form-group">
                 <label>Authenticator code</label>
                 <input type="text" name="code" class="form-control" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" autofocus>

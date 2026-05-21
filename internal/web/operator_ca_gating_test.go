@@ -47,10 +47,13 @@ func TestNetworkCreate_RejectsUserWithoutCA(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "alice", "user")
 
-	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}}
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/networks", []*http.Cookie{cookie})
+	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}, "_csrf": {csrfToken}}
 	req := httptest.NewRequest(http.MethodPost, "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -83,10 +86,13 @@ func TestNetworkCreate_UserWithSingleCA(t *testing.T) {
 	cookie := mintSession(t, s, "alice", "user")
 	ca := seedActiveCA(t, s, "ca-alice", "op-alice", "alice-ca")
 
-	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}}
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/networks", []*http.Cookie{cookie})
+	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}, "_csrf": {csrfToken}}
 	req := httptest.NewRequest(http.MethodPost, "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -114,10 +120,13 @@ func TestNetworkCreate_UserMustPickWhenMultipleCAs(t *testing.T) {
 	seedActiveCA(t, s, "ca-1", "op-alice", "ca-one")
 	seedActiveCA(t, s, "ca-2", "op-alice", "ca-two")
 
-	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}}
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/networks", []*http.Cookie{cookie})
+	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}, "_csrf": {csrfToken}}
 	req := httptest.NewRequest(http.MethodPost, "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -138,10 +147,13 @@ func TestNetworkCreate_UserCannotPickForeignCA(t *testing.T) {
 	seedActiveCA(t, s, "ca-alice", "op-alice", "alice-ca")
 	seedActiveCA(t, s, "ca-bob", "op-bob", "bob-ca")
 
-	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}, "ca_id": {"ca-bob"}}
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/networks", []*http.Cookie{cookie})
+	form := url.Values{"name": {"alice-net"}, "cidrs": {"10.0.0.0/24"}, "ca_id": {"ca-bob"}, "_csrf": {csrfToken}}
 	req := httptest.NewRequest(http.MethodPost, "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -167,15 +179,19 @@ func TestHostCreate_UserCannotCreateInForeignNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", []*http.Cookie{cookie})
 	form := url.Values{
 		"network_id": {bobNet.ID},
 		"name":       {"sneaky-host"},
 		"nebula_ips": {"10.10.0.10"},
 		"role":       {"host"},
+		"_csrf":      {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -208,15 +224,19 @@ func TestHostCreate_UserOwnedNetworkInheritsCAID(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", []*http.Cookie{cookie})
 	form := url.Values{
 		"network_id": {net.ID},
 		"name":       {"alice-host"},
 		"nebula_ips": {"10.20.0.5"},
 		"role":       {"host"},
+		"_csrf":      {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 

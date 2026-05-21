@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -357,10 +358,13 @@ func TestHandleCACreate_StillWorks(t *testing.T) {
 	w, s := newOperatorsWebWithMaster(t)
 	cookie := mintSession(t, s, "frank", "user")
 
-	form := "name=frank-ca&duration=8760h"
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/cas", []*http.Cookie{cookie})
+	form := "name=frank-ca&duration=8760h&_csrf=" + url.QueryEscape(csrfToken)
 	req := httptest.NewRequest(http.MethodPost, "/ui/cas", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 

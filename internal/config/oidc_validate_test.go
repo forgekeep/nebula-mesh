@@ -58,6 +58,7 @@ func TestOIDCConfig_Validate(t *testing.T) {
 			}
 			if err == nil {
 				t.Fatalf("Validate() = nil, want error containing %q", tc.wantError)
+				return
 			}
 			if !strings.Contains(err.Error(), tc.wantError) {
 				t.Errorf("Validate() = %v, want error containing %q", err, tc.wantError)
@@ -74,6 +75,7 @@ func TestOIDCConfig_Validate_ErrorMessageNamesFields(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	msg := err.Error()
 	for _, want := range []string{"default_role", "allowed_groups", "allowed_emails"} {

@@ -226,6 +226,7 @@ func TestEnrollSubcommand_RefusesWhenAlreadyEnrolled(t *testing.T) {
 	}, &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected error; pre-seeded host.crt should block enroll without --force")
+		return
 	}
 	if !strings.Contains(err.Error(), "already enrolled") {
 		t.Errorf("error message should mention 'already enrolled'; got %v", err)

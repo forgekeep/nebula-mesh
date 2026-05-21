@@ -64,6 +64,7 @@ func TestValidateHostAdvanced_FriendlyListenHost(t *testing.T) {
 	err := ValidateHostAdvanced(&HostAdvanced{ListenHost: "not-an-ip"})
 	if err == nil {
 		t.Fatal("expected error for invalid listen_host")
+		return
 	}
 	if strings.Contains(err.Error(), "ParseAddr") {
 		t.Errorf("listen_host error must not contain ParseAddr text; got %v", err)
@@ -79,6 +80,7 @@ func TestValidateHostAdvanced_FriendlyUnsafeRoutes(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid route CIDR")
+		return
 	}
 	if strings.Contains(err.Error(), "ParsePrefix") {
 		t.Errorf("route error must not contain ParsePrefix text; got %v", err)
@@ -89,6 +91,7 @@ func TestValidateHostAdvanced_FriendlyUnsafeRoutes(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid via IP")
+		return
 	}
 	if strings.Contains(err.Error(), "ParseAddr") {
 		t.Errorf("via error must not contain ParseAddr text; got %v", err)

@@ -343,7 +343,7 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 // SaveServerConfig writes the config to path atomically (temp file + rename).
 // Existing comments and unknown fields in the file are not preserved.
 func SaveServerConfig(path string, cfg *ServerConfig) error {
-	data, err := yaml.Marshal(cfg) // #nosec G117
+	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}

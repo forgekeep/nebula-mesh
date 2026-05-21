@@ -72,6 +72,98 @@ func (s *SQLiteStore) CreateOperator(ctx context.Context, op *models.Operator) e
 	return nil
 }
 
+// SeedInitialAdminOperator atomically inserts op (and key, if non-nil) only
+// when the operators table is empty. The check-then-write is wrapped in a
+// single transaction whose INSERT is guarded by `WHERE NOT EXISTS (SELECT 1
+// FROM operators)`, so two concurrent first-boot seed calls cannot both
+// succeed: the loser sees `RowsAffected() == 0` and returns (false, nil)
+// without touching the API-key table.
+//
+// Returns (true, nil) if this call performed the seed; (false, nil) if the
+// operators table already had at least one row (either because the caller
+// ran a second time on a populated DB, or because a concurrent boot won
+// the race). Any non-nil error indicates a real failure.
+func (s *SQLiteStore) SeedInitialAdminOperator(ctx context.Context, op *models.Operator, key *models.OperatorAPIKey) (bool, error) {
+	if op == nil {
+		return false, fmt.Errorf("operator is required")
+	}
+	if op.ID == "" || op.Username == "" || op.PasswordHash == "" {
+		return false, fmt.Errorf("operator id, username, password_hash are required")
+	}
+	now := time.Now()
+	if op.CreatedAt.IsZero() {
+		op.CreatedAt = now
+	}
+	if op.UpdatedAt.IsZero() {
+		op.UpdatedAt = now
+	}
+	if op.AuthProvider == "" {
+		op.AuthProvider = models.OperatorAuthLocal
+	}
+	if op.Status == "" {
+		op.Status = models.OperatorStatusActive
+	}
+	if op.Role == "" {
+		op.Role = "admin"
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	// Conditional insert: succeeds (RowsAffected == 1) only on an empty
+	// operators table. The race-loser's INSERT sees a non-empty table and
+	// produces RowsAffected == 0 — no error, no row written.
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO operators (id, username, display_name, password_hash, auth_provider, status, role, oidc_issuer, oidc_subject, created_at, updated_at)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		 WHERE NOT EXISTS (SELECT 1 FROM operators)`,
+		op.ID, op.Username, op.DisplayName, op.PasswordHash,
+		op.AuthProvider, op.Status, op.Role,
+		op.OIDCIssuer, op.OIDCSubject,
+		op.CreatedAt, op.UpdatedAt,
+	)
+	if err != nil {
+		return false, fmt.Errorf("insert operator: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("seed admin operator rows: %w", err)
+	}
+	if rows == 0 {
+		// Another caller already populated the operators table; nothing
+		// to do, and we must NOT insert the API key under this op.ID
+		// because that operator row does not exist.
+		return false, nil
+	}
+
+	if key != nil {
+		if key.ID == "" || key.OperatorID == "" || key.KeyHash == "" {
+			return false, fmt.Errorf("api key id, operator_id, key_hash are required")
+		}
+		if key.CreatedAt.IsZero() {
+			key.CreatedAt = now
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO operator_api_keys (id, operator_id, name, key_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
+			key.ID, key.OperatorID, key.Name, key.KeyHash, key.CreatedAt,
+		); err != nil {
+			return false, fmt.Errorf("insert api key: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit seed admin operator: %w", err)
+	}
+	return true, nil
+}
+
 // GetOperatorByOIDC returns the operator matching the issuer+subject pair, if
 // any. Used to look up federated operators after a successful OIDC callback.
 func (s *SQLiteStore) GetOperatorByOIDC(ctx context.Context, issuer, subject string) (*models.Operator, error) {

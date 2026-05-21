@@ -57,7 +57,7 @@ func TestAuditSink_WritesEntry(t *testing.T) {
 
 func TestWebhookSink_PostsSignedPayload(t *testing.T) {
 	var (
-		mu     sync.Mutex
+		mu      sync.Mutex
 		gotBody []byte
 		gotSig  string
 	)

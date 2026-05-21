@@ -11,9 +11,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // requireAdmin gates a route group to admins only — non-admin sessions

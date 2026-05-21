@@ -7,13 +7,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/pki"
-	apipop "github.com/juev/nebula-mesh/internal/api/pop"
-	corepop "github.com/juev/nebula-mesh/internal/pop"
-	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/google/uuid"
 	"github.com/slackhq/nebula/cert"
+
+	apipop "github.com/juev/nebula-mesh/internal/api/pop"
+	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/juev/nebula-mesh/internal/pki"
+	corepop "github.com/juev/nebula-mesh/internal/pop"
+	"github.com/juev/nebula-mesh/internal/store"
 )
 
 type agentUpdatesResponse struct {

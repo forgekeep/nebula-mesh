@@ -9,7 +9,7 @@ import (
 
 func TestProfilePage_RequiresLogin(t *testing.T) {
 	w, _ := newTestWeb(t)
-	req := httptest.NewRequest("GET", "/ui/profile", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/profile", nil)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -20,7 +20,7 @@ func TestProfilePage_RequiresLogin(t *testing.T) {
 func TestProfilePage_ShowsOperatorDetailsAndLogoutButton(t *testing.T) {
 	w, _ := newTestWeb(t)
 	cookies := loginSession(t, w)
-	req := httptest.NewRequest("GET", "/ui/profile", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/profile", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -41,7 +41,7 @@ func TestProfilePage_ShowsOperatorDetailsAndLogoutButton(t *testing.T) {
 func TestDashboard_HasProfileChipAndNoLogoutInSidebar(t *testing.T) {
 	w, _ := newTestWeb(t)
 	cookies := loginSession(t, w)
-	req := httptest.NewRequest("GET", "/ui/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}

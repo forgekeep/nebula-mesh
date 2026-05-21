@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,11 +21,11 @@ func HostCreate(serverURL, apiKey, networkID, name, nebulaIP, role string, group
 	}
 
 	body := map[string]any{
-		"network_id":  networkID,
-		"name":        name,
-		"nebula_ips":  nebullaIPs,
-		"role":        role,
-		"groups":      groups,
+		"network_id": networkID,
+		"name":       name,
+		"nebula_ips": nebullaIPs,
+		"role":       role,
+		"groups":     groups,
 	}
 	if publicIP != "" {
 		body["public_ip"] = publicIP
@@ -37,7 +38,7 @@ func HostCreate(serverURL, apiKey, networkID, name, nebulaIP, role string, group
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
-	req, err := http.NewRequest("POST", serverURL+"/api/v1/hosts", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, serverURL+"/api/v1/hosts", bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -102,7 +103,7 @@ func doHostAction(serverURL, apiKey, method, path string, wantStatus int, verb s
 		return fmt.Errorf("--server is required")
 	}
 
-	req, err := http.NewRequest(method, serverURL+path, nil)
+	req, err := http.NewRequestWithContext(context.Background(), method, serverURL+path, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -134,7 +135,7 @@ func HostList(serverURL, apiKey, networkID string) error {
 		u += "?network_id=" + url.QueryEscape(networkID)
 	}
 
-	req, err := http.NewRequest("GET", u, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, u, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

@@ -35,7 +35,6 @@ func newHostIPValidationError(msg string) error {
 	return &hostIPValidationError{msg: msg}
 }
 
-
 var _ = models.HostStatusBlocked
 
 // forbiddenIPv4Reserved reports whether addr is the network or broadcast

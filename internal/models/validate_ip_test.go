@@ -134,7 +134,7 @@ func TestValidateHostAdvanced_TunDeviceInjection(t *testing.T) {
 		{"colon_separator", "tun:value"},
 		{"open_brace", "nebula{"},
 		{"open_bracket", "nebula["},
-		{"too_long_16", "0123456789abcdef"},     // 16 chars > IFNAMSIZ-1
+		{"too_long_16", "0123456789abcdef"},      // 16 chars > IFNAMSIZ-1
 		{"too_long_32", strings.Repeat("a", 32)}, // previous limit
 		{"original_space", "nebula 0"},
 		{"original_tab", "nebula\t0"},

@@ -21,11 +21,11 @@ func TestPoll_ReturnsRevocationErrorOn403(t *testing.T) {
 	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
 	p, err := NewPoller(PollerConfig{
-		ServerURL:   server.URL,
-		Fingerprint: "test-fp",
-		DataDir:     dir,
+		ServerURL:      server.URL,
+		Fingerprint:    "test-fp",
+		DataDir:        dir,
 		SigningKeyPath: filepath.Join(dir, "host.signing.key"),
-		Interval:    time.Hour,
+		Interval:       time.Hour,
 	}, slog.Default())
 	if err != nil {
 		t.Fatal(err)
@@ -58,11 +58,11 @@ func TestPoll_ReturnsRevocationErrorOn410(t *testing.T) {
 	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
 	p, err := NewPoller(PollerConfig{
-		ServerURL:   server.URL,
-		Fingerprint: "test-fp",
-		DataDir:     dir,
+		ServerURL:      server.URL,
+		Fingerprint:    "test-fp",
+		DataDir:        dir,
 		SigningKeyPath: filepath.Join(dir, "host.signing.key"),
-		Interval:    time.Hour,
+		Interval:       time.Hour,
 	}, slog.Default())
 	if err != nil {
 		t.Fatal(err)
@@ -84,12 +84,12 @@ func TestRun_StopsOnRevocation(t *testing.T) {
 
 	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
-	p := newPoller(t, PollerConfig{
-		ServerURL:   server.URL,
-		Fingerprint: "test-fp",
-		DataDir:     dir,
+	p := newTestPoller(t, PollerConfig{
+		ServerURL:      server.URL,
+		Fingerprint:    "test-fp",
+		DataDir:        dir,
 		SigningKeyPath: filepath.Join(dir, "host.signing.key"),
-		Interval:    20 * time.Millisecond,
+		Interval:       20 * time.Millisecond,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)

@@ -12,7 +12,7 @@ func TestCanonicalString_Format(t *testing.T) {
 
 func TestCanonicalString_FieldsAreLineSeparated(t *testing.T) {
 	// Embedded newlines in any field would let an attacker hide bytes from
-	// the verifier. We don't sanitise the input here — the API layer feeds
+	// the verifier. We don't sanitize the input here — the API layer feeds
 	// trusted, fixed-shape values — but the canonical helper must still
 	// produce exactly four \n separators.
 	got := CanonicalString("GET", "/p", "h", "t", "n")

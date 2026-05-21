@@ -11,16 +11,16 @@ import (
 // field carries both the current value and a "source" tag so admins can
 // see whether a value comes from the database or the YAML defaults.
 type settingsView struct {
-	EnforceTOTP             bool
-	AllowSelfRegistration   bool
-	PasswordMinLength       int
-	PasswordRequireClasses  int
-	PasswordBlockCommon     bool
-	PasswordBlockUsername   bool
-	LogLevel                string
-	OIDCEnabled             bool
-	Saved                   bool
-	Error                   string
+	EnforceTOTP            bool
+	AllowSelfRegistration  bool
+	PasswordMinLength      int
+	PasswordRequireClasses int
+	PasswordBlockCommon    bool
+	PasswordBlockUsername  bool
+	LogLevel               string
+	OIDCEnabled            bool
+	Saved                  bool
+	Error                  string
 }
 
 func (w *Web) currentSettings(ctx context.Context) settingsView {
@@ -99,7 +99,7 @@ func (w *Web) handleSettingsSave(rw http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// One audit-log line summarising the change set — easier to grep
+	// One audit-log line summarizing the change set — easier to grep
 	// than one per knob and still captures who pressed Save.
 	after := w.currentSettings(r.Context())
 	_ = w.store.AddAuditEntry(r.Context(), op.Username, "settings.update", "settings",

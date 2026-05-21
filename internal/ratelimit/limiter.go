@@ -177,8 +177,8 @@ type entry struct {
 	lim *rate.Limiter
 }
 
-func newShard(max int) *shard {
-	return &shard{max: max, lookup: make(map[string]*list.Element), lru: list.New()}
+func newShard(maxEntries int) *shard {
+	return &shard{max: maxEntries, lookup: make(map[string]*list.Element), lru: list.New()}
 }
 
 func (s *shard) get(key string, gc GroupConfig) *rate.Limiter {

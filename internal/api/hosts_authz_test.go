@@ -39,7 +39,7 @@ func TestCreateHost_RequiresNetworkOwnership(t *testing.T) {
 		NebulaIPs: []string{"10.0.0.5"},
 	}
 	body, _ := json.Marshal(reqBody)
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -77,7 +77,7 @@ func TestCreateHost_OwnerSucceeds(t *testing.T) {
 		NebulaIPs: []string{"10.0.0.5"},
 	}
 	body, _ := json.Marshal(reqBody)
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+opKey)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -116,7 +116,7 @@ func TestRotateCert_RequiresOwnership(t *testing.T) {
 	require.NoError(t, testDB.CreateHost(context.Background(), host1))
 
 	// new_key=true (pending_rekey path)
-	reqPending := httptest.NewRequest("POST",
+	reqPending := httptest.NewRequest(http.MethodPost,
 		fmt.Sprintf("/api/v1/hosts/%s/rotate-cert?new_key=true", host1.ID), nil)
 	reqPending.Header.Set("Authorization", "Bearer "+op2Key)
 	wPending := httptest.NewRecorder()
@@ -125,7 +125,7 @@ func TestRotateCert_RequiresOwnership(t *testing.T) {
 		"non-owner should not set pending_rekey on foreign host")
 
 	// new_key=false (immediate re-sign path)
-	reqResign := httptest.NewRequest("POST",
+	reqResign := httptest.NewRequest(http.MethodPost,
 		fmt.Sprintf("/api/v1/hosts/%s/rotate-cert?new_key=false", host1.ID), nil)
 	reqResign.Header.Set("Authorization", "Bearer "+op2Key)
 	wResign := httptest.NewRecorder()
@@ -159,7 +159,7 @@ func TestGetHost_OwnerSucceeds(t *testing.T) {
 	}
 	require.NoError(t, testDB.CreateHost(context.Background(), host1))
 
-	req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/hosts/%s", host1.ID), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/hosts/%s", host1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op1Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -194,7 +194,7 @@ func TestGetHost_RequiresOwnership(t *testing.T) {
 	require.NoError(t, testDB.CreateHost(context.Background(), host1))
 
 	// op2 tries to GET op1's host → should fail with 403
-	req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/hosts/%s", host1.ID), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/hosts/%s", host1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -233,7 +233,7 @@ func TestUpdateHost_RequiresOwnership(t *testing.T) {
 	name := "renamed"
 	reqBody := updateHostRequest{Name: &name}
 	body, _ := json.Marshal(reqBody)
-	req := httptest.NewRequest("PATCH", fmt.Sprintf("/api/v1/hosts/%s", host1.ID), bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/v1/hosts/%s", host1.ID), bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -270,7 +270,7 @@ func TestDeleteHost_RequiresOwnership(t *testing.T) {
 	require.NoError(t, testDB.CreateHost(context.Background(), host1))
 
 	// op2 tries to DELETE op1's host → should fail with 403
-	req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/v1/hosts/%s", host1.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/hosts/%s", host1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -306,7 +306,7 @@ func TestBlockHost_RequiresOwnership(t *testing.T) {
 	require.NoError(t, testDB.CreateHost(context.Background(), host1))
 
 	// op2 tries to BLOCK op1's host → should fail with 403
-	req := httptest.NewRequest("POST", fmt.Sprintf("/api/v1/hosts/%s/block", host1.ID), nil)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/hosts/%s/block", host1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -343,7 +343,7 @@ func TestUnblockHost_RequiresOwnership(t *testing.T) {
 	require.NoError(t, testDB.CreateHost(context.Background(), host1))
 
 	// op2 tries to UNBLOCK op1's host → should fail with 403
-	req := httptest.NewRequest("POST", fmt.Sprintf("/api/v1/hosts/%s/unblock", host1.ID), nil)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/hosts/%s/unblock", host1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -380,7 +380,7 @@ func TestReenroll_OwnershipAuthz(t *testing.T) {
 	require.NoError(t, testDB.CreateHost(context.Background(), host1))
 
 	// op2 tries to REENROLL op1's host → should fail with 403
-	req := httptest.NewRequest("POST", fmt.Sprintf("/api/v1/hosts/%s/reenroll", host1.ID), nil)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/hosts/%s/reenroll", host1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -416,7 +416,7 @@ func TestRegenerateEnrollmentToken_OwnershipAuthz(t *testing.T) {
 	require.NoError(t, testDB.CreateHost(context.Background(), host1))
 
 	// op2 tries to REGENERATE enrollment token for op1's host → should fail with 403
-	req := httptest.NewRequest("POST", fmt.Sprintf("/api/v1/hosts/%s/enrollment-token", host1.ID), nil)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/hosts/%s/enrollment-token", host1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -472,7 +472,7 @@ func TestListHosts_ScopedToOwnedCAs(t *testing.T) {
 	require.NoError(t, testDB.CreateHost(context.Background(), hostB))
 
 	// Operator A lists hosts with their token
-	req := httptest.NewRequest("GET", "/api/v1/hosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/hosts", nil)
 	req.Header.Set("Authorization", "Bearer "+opAKey)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -494,7 +494,7 @@ func TestListHosts_ScopedToOwnedCAs(t *testing.T) {
 	assert.NotContains(t, hostIDs, hostB.ID, "operator A should not see operator B's host")
 
 	// Operator B lists hosts with their token
-	req = httptest.NewRequest("GET", "/api/v1/hosts", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/hosts", nil)
 	req.Header.Set("Authorization", "Bearer "+opBKey)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

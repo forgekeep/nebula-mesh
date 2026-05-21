@@ -9,9 +9,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/juev/nebula-mesh/internal/models"
 )
 
 // TestGetFirewall_RequiresOwnership verifies that a non-owner cannot read
@@ -30,7 +31,7 @@ func TestGetFirewall_RequiresOwnership(t *testing.T) {
 	}
 	require.NoError(t, testDB.CreateNetwork(context.Background(), net1))
 
-	req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/networks/%s/firewall", net1.ID), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/networks/%s/firewall", net1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -62,7 +63,7 @@ func TestUpdateFirewall_RequiresOwnership(t *testing.T) {
 			{"port": "any", "proto": "any", "group": "any"},
 		},
 	})
-	req := httptest.NewRequest("PUT", fmt.Sprintf("/api/v1/networks/%s/firewall", net1.ID), bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/networks/%s/firewall", net1.ID), bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -85,7 +86,7 @@ func TestGetFirewall_OwnerSucceeds(t *testing.T) {
 	}
 	require.NoError(t, testDB.CreateNetwork(context.Background(), net1))
 
-	req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/networks/%s/firewall", net1.ID), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/networks/%s/firewall", net1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op1Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -115,7 +116,7 @@ func TestUpdateFirewall_OwnerSucceeds(t *testing.T) {
 			{"port": "any", "proto": "any", "group": "any"},
 		},
 	})
-	req := httptest.NewRequest("PUT", fmt.Sprintf("/api/v1/networks/%s/firewall", net1.ID), bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/networks/%s/firewall", net1.ID), bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+op1Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

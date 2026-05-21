@@ -39,7 +39,7 @@ func scanOperator(scanner interface {
 }
 
 // CreateOperator inserts a new operator. Caller fills in PasswordHash.
-func (s *SQLiteStore) CreateOperator(_ context.Context, op *models.Operator) error {
+func (s *SQLiteStore) CreateOperator(ctx context.Context, op *models.Operator) error {
 	if op.ID == "" || op.Username == "" || op.PasswordHash == "" {
 		return fmt.Errorf("operator id, username, password_hash are required")
 	}
@@ -59,7 +59,7 @@ func (s *SQLiteStore) CreateOperator(_ context.Context, op *models.Operator) err
 	if op.Role == "" {
 		op.Role = "admin"
 	}
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO operators (id, username, display_name, password_hash, auth_provider, status, role, oidc_issuer, oidc_subject, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		op.ID, op.Username, op.DisplayName, op.PasswordHash,
 		op.AuthProvider, op.Status, op.Role,
@@ -74,8 +74,8 @@ func (s *SQLiteStore) CreateOperator(_ context.Context, op *models.Operator) err
 
 // GetOperatorByOIDC returns the operator matching the issuer+subject pair, if
 // any. Used to look up federated operators after a successful OIDC callback.
-func (s *SQLiteStore) GetOperatorByOIDC(_ context.Context, issuer, subject string) (*models.Operator, error) {
-	row := s.db.QueryRow(
+func (s *SQLiteStore) GetOperatorByOIDC(ctx context.Context, issuer, subject string) (*models.Operator, error) {
+	row := s.db.QueryRowContext(ctx,
 		`SELECT `+operatorColumns+` FROM operators WHERE oidc_issuer = ? AND oidc_subject = ?`,
 		issuer, subject,
 	)
@@ -89,8 +89,8 @@ func (s *SQLiteStore) GetOperatorByOIDC(_ context.Context, issuer, subject strin
 	return op, nil
 }
 
-func (s *SQLiteStore) GetOperator(_ context.Context, id string) (*models.Operator, error) {
-	row := s.db.QueryRow(`SELECT `+operatorColumns+` FROM operators WHERE id = ?`, id)
+func (s *SQLiteStore) GetOperator(ctx context.Context, id string) (*models.Operator, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+operatorColumns+` FROM operators WHERE id = ?`, id)
 	op, err := scanOperator(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -101,8 +101,8 @@ func (s *SQLiteStore) GetOperator(_ context.Context, id string) (*models.Operato
 	return op, nil
 }
 
-func (s *SQLiteStore) GetOperatorByUsername(_ context.Context, username string) (*models.Operator, error) {
-	row := s.db.QueryRow(`SELECT `+operatorColumns+` FROM operators WHERE username = ?`, username)
+func (s *SQLiteStore) GetOperatorByUsername(ctx context.Context, username string) (*models.Operator, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+operatorColumns+` FROM operators WHERE username = ?`, username)
 	op, err := scanOperator(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -113,8 +113,8 @@ func (s *SQLiteStore) GetOperatorByUsername(_ context.Context, username string) 
 	return op, nil
 }
 
-func (s *SQLiteStore) ListOperators(_ context.Context) ([]*models.Operator, error) {
-	rows, err := s.db.Query(`SELECT ` + operatorColumns + ` FROM operators ORDER BY username`)
+func (s *SQLiteStore) ListOperators(ctx context.Context) ([]*models.Operator, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+operatorColumns+` FROM operators ORDER BY username`)
 	if err != nil {
 		return nil, fmt.Errorf("list operators: %w", err)
 	}
@@ -134,8 +134,8 @@ func (s *SQLiteStore) ListOperators(_ context.Context) ([]*models.Operator, erro
 	return out, rows.Err()
 }
 
-func (s *SQLiteStore) UpdateOperatorPassword(_ context.Context, id, passwordHash string) error {
-	result, err := s.db.Exec(
+func (s *SQLiteStore) UpdateOperatorPassword(ctx context.Context, id, passwordHash string) error {
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE operators SET password_hash=?, updated_at=? WHERE id=?`,
 		passwordHash, time.Now(), id,
 	)
@@ -152,8 +152,8 @@ func (s *SQLiteStore) UpdateOperatorPassword(_ context.Context, id, passwordHash
 	return nil
 }
 
-func (s *SQLiteStore) UpdateOperatorLastLogin(_ context.Context, id string, t time.Time) error {
-	_, err := s.db.Exec(`UPDATE operators SET last_login_at=?, updated_at=? WHERE id=?`, t, t, id)
+func (s *SQLiteStore) UpdateOperatorLastLogin(ctx context.Context, id string, t time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE operators SET last_login_at=?, updated_at=? WHERE id=?`, t, t, id)
 	if err != nil {
 		return fmt.Errorf("update last_login_at: %w", err)
 	}
@@ -162,8 +162,8 @@ func (s *SQLiteStore) UpdateOperatorLastLogin(_ context.Context, id string, t ti
 
 // DisableOperator marks operator as disabled and atomically deletes their
 // sessions and revokes all of their non-revoked API keys.
-func (s *SQLiteStore) DisableOperator(_ context.Context, id string) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) DisableOperator(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -174,7 +174,7 @@ func (s *SQLiteStore) DisableOperator(_ context.Context, id string) error {
 	}()
 
 	now := time.Now()
-	result, err := tx.Exec(
+	result, err := tx.ExecContext(ctx,
 		`UPDATE operators SET status=?, updated_at=? WHERE id=?`,
 		models.OperatorStatusDisabled, now, id,
 	)
@@ -189,10 +189,10 @@ func (s *SQLiteStore) DisableOperator(_ context.Context, id string) error {
 		return ErrNotFound
 	}
 
-	if _, err := tx.Exec(`DELETE FROM operator_sessions WHERE operator_id=?`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE operator_id=?`, id); err != nil {
 		return fmt.Errorf("delete operator sessions: %w", err)
 	}
-	if _, err := tx.Exec(
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE operator_api_keys SET revoked_at=? WHERE operator_id=? AND revoked_at IS NULL`,
 		now, id,
 	); err != nil {
@@ -202,8 +202,8 @@ func (s *SQLiteStore) DisableOperator(_ context.Context, id string) error {
 	return tx.Commit()
 }
 
-func (s *SQLiteStore) EnableOperator(_ context.Context, id string) error {
-	result, err := s.db.Exec(
+func (s *SQLiteStore) EnableOperator(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE operators SET status=?, updated_at=? WHERE id=?`,
 		models.OperatorStatusActive, time.Now(), id,
 	)
@@ -224,8 +224,8 @@ func (s *SQLiteStore) EnableOperator(_ context.Context, id string) error {
 
 // SetOperatorTOTP records the operator's TOTP secret and enabled flag.
 // Passing enabled=false with secret="" clears 2FA entirely.
-func (s *SQLiteStore) SetOperatorTOTP(_ context.Context, id, secret string, enabled bool) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) SetOperatorTOTP(ctx context.Context, id, secret string, enabled bool) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -238,7 +238,7 @@ func (s *SQLiteStore) SetOperatorTOTP(_ context.Context, id, secret string, enab
 	if enabled {
 		enabledInt = 1
 	}
-	result, err := tx.Exec(
+	result, err := tx.ExecContext(ctx,
 		`UPDATE operators SET totp_secret=?, totp_enabled=?, updated_at=? WHERE id=?`,
 		secret, enabledInt, time.Now(), id,
 	)
@@ -253,7 +253,7 @@ func (s *SQLiteStore) SetOperatorTOTP(_ context.Context, id, secret string, enab
 		return ErrNotFound
 	}
 	if !enabled {
-		if _, err := tx.Exec(`DELETE FROM operator_recovery_codes WHERE operator_id=?`, id); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM operator_recovery_codes WHERE operator_id=?`, id); err != nil {
 			return fmt.Errorf("clear recovery codes: %w", err)
 		}
 	}
@@ -262,8 +262,8 @@ func (s *SQLiteStore) SetOperatorTOTP(_ context.Context, id, secret string, enab
 
 // ReplaceOperatorRecoveryCodes deletes any existing codes for the operator
 // and inserts the provided list of hashes (atomic).
-func (s *SQLiteStore) ReplaceOperatorRecoveryCodes(_ context.Context, id string, codeHashes []string) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) ReplaceOperatorRecoveryCodes(ctx context.Context, id string, codeHashes []string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -272,11 +272,11 @@ func (s *SQLiteStore) ReplaceOperatorRecoveryCodes(_ context.Context, id string,
 			slog.Error("rollback", "error", err)
 		}
 	}()
-	if _, err := tx.Exec(`DELETE FROM operator_recovery_codes WHERE operator_id=?`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM operator_recovery_codes WHERE operator_id=?`, id); err != nil {
 		return fmt.Errorf("delete recovery codes: %w", err)
 	}
 	for _, h := range codeHashes {
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO operator_recovery_codes (operator_id, code_hash) VALUES (?, ?)`,
 			id, h,
 		); err != nil {
@@ -288,8 +288,8 @@ func (s *SQLiteStore) ReplaceOperatorRecoveryCodes(_ context.Context, id string,
 
 // ConsumeOperatorRecoveryCode marks the given hash as consumed if it exists
 // and is unused. Returns ErrNotFound otherwise.
-func (s *SQLiteStore) ConsumeOperatorRecoveryCode(_ context.Context, id, codeHash string) error {
-	result, err := s.db.Exec(
+func (s *SQLiteStore) ConsumeOperatorRecoveryCode(ctx context.Context, id, codeHash string) error {
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE operator_recovery_codes SET consumed_at=? WHERE operator_id=? AND code_hash=? AND consumed_at IS NULL`,
 		time.Now(), id, codeHash,
 	)
@@ -308,8 +308,8 @@ func (s *SQLiteStore) ConsumeOperatorRecoveryCode(_ context.Context, id, codeHas
 
 // ListOperatorRecoveryCodes returns the hashes of all non-consumed recovery
 // codes for the operator. Used by tests and integrity checks.
-func (s *SQLiteStore) ListOperatorRecoveryCodes(_ context.Context, id string) ([]string, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) ListOperatorRecoveryCodes(ctx context.Context, id string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT code_hash FROM operator_recovery_codes WHERE operator_id=? AND consumed_at IS NULL`,
 		id,
 	)
@@ -334,14 +334,14 @@ func (s *SQLiteStore) ListOperatorRecoveryCodes(_ context.Context, id string) ([
 
 // --- API keys ---
 
-func (s *SQLiteStore) CreateOperatorAPIKey(_ context.Context, k *models.OperatorAPIKey) error {
+func (s *SQLiteStore) CreateOperatorAPIKey(ctx context.Context, k *models.OperatorAPIKey) error {
 	if k.ID == "" || k.OperatorID == "" || k.KeyHash == "" {
 		return fmt.Errorf("api key id, operator_id, key_hash are required")
 	}
 	if k.CreatedAt.IsZero() {
 		k.CreatedAt = time.Now()
 	}
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO operator_api_keys (id, operator_id, name, key_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
 		k.ID, k.OperatorID, k.Name, k.KeyHash, k.CreatedAt,
 	)
@@ -353,13 +353,13 @@ func (s *SQLiteStore) CreateOperatorAPIKey(_ context.Context, k *models.Operator
 
 // GetOperatorByAPIKeyHash returns the operator associated with a non-revoked
 // API key, ensuring the operator is active.
-func (s *SQLiteStore) GetOperatorByAPIKeyHash(_ context.Context, keyHash string) (*models.Operator, *models.OperatorAPIKey, error) {
+func (s *SQLiteStore) GetOperatorByAPIKeyHash(ctx context.Context, keyHash string) (*models.Operator, *models.OperatorAPIKey, error) {
 	var (
-		k          models.OperatorAPIKey
-		lastUsed   sql.NullTime
-		revokedAt  sql.NullTime
+		k         models.OperatorAPIKey
+		lastUsed  sql.NullTime
+		revokedAt sql.NullTime
 	)
-	row := s.db.QueryRow(
+	row := s.db.QueryRowContext(ctx,
 		`SELECT id, operator_id, name, key_hash, created_at, last_used_at, revoked_at FROM operator_api_keys WHERE key_hash=? AND revoked_at IS NULL`,
 		keyHash,
 	)
@@ -374,7 +374,7 @@ func (s *SQLiteStore) GetOperatorByAPIKeyHash(_ context.Context, keyHash string)
 		k.LastUsedAt = &t
 	}
 
-	opRow := s.db.QueryRow(`SELECT `+operatorColumns+` FROM operators WHERE id = ?`, k.OperatorID)
+	opRow := s.db.QueryRowContext(ctx, `SELECT `+operatorColumns+` FROM operators WHERE id = ?`, k.OperatorID)
 	op, err := scanOperator(opRow)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
@@ -388,8 +388,8 @@ func (s *SQLiteStore) GetOperatorByAPIKeyHash(_ context.Context, keyHash string)
 	return op, &k, nil
 }
 
-func (s *SQLiteStore) ListOperatorAPIKeys(_ context.Context, operatorID string) ([]*models.OperatorAPIKey, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) ListOperatorAPIKeys(ctx context.Context, operatorID string) ([]*models.OperatorAPIKey, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, operator_id, name, key_hash, created_at, last_used_at, revoked_at FROM operator_api_keys WHERE operator_id=? ORDER BY created_at DESC`,
 		operatorID,
 	)
@@ -424,8 +424,8 @@ func (s *SQLiteStore) ListOperatorAPIKeys(_ context.Context, operatorID string) 
 	return out, rows.Err()
 }
 
-func (s *SQLiteStore) RevokeOperatorAPIKey(_ context.Context, keyID string) error {
-	result, err := s.db.Exec(
+func (s *SQLiteStore) RevokeOperatorAPIKey(ctx context.Context, keyID string) error {
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE operator_api_keys SET revoked_at=? WHERE id=? AND revoked_at IS NULL`,
 		time.Now(), keyID,
 	)
@@ -442,8 +442,8 @@ func (s *SQLiteStore) RevokeOperatorAPIKey(_ context.Context, keyID string) erro
 	return nil
 }
 
-func (s *SQLiteStore) TouchOperatorAPIKey(_ context.Context, keyID string, t time.Time) error {
-	_, err := s.db.Exec(`UPDATE operator_api_keys SET last_used_at=? WHERE id=?`, t, keyID)
+func (s *SQLiteStore) TouchOperatorAPIKey(ctx context.Context, keyID string, t time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE operator_api_keys SET last_used_at=? WHERE id=?`, t, keyID)
 	if err != nil {
 		return fmt.Errorf("touch api key: %w", err)
 	}
@@ -452,7 +452,7 @@ func (s *SQLiteStore) TouchOperatorAPIKey(_ context.Context, keyID string, t tim
 
 // --- Sessions ---
 
-func (s *SQLiteStore) CreateOperatorSession(_ context.Context, sess *models.OperatorSession) error {
+func (s *SQLiteStore) CreateOperatorSession(ctx context.Context, sess *models.OperatorSession) error {
 	if sess.Token == "" || sess.OperatorID == "" {
 		return fmt.Errorf("session token and operator_id are required")
 	}
@@ -463,7 +463,7 @@ func (s *SQLiteStore) CreateOperatorSession(_ context.Context, sess *models.Oper
 	if state == "" {
 		state = models.SessionStateAuthenticated
 	}
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO operator_sessions (token, operator_id, expires_at, created_at, state) VALUES (?, ?, ?, ?, ?)`,
 		sess.Token, sess.OperatorID, sess.ExpiresAt, sess.CreatedAt, state,
 	)
@@ -476,8 +476,8 @@ func (s *SQLiteStore) CreateOperatorSession(_ context.Context, sess *models.Oper
 // GetOperatorBySession returns the operator associated with a non-expired,
 // fully-authenticated session whose operator is still active. Sessions in
 // pending_totp state are NOT returned here.
-func (s *SQLiteStore) GetOperatorBySession(_ context.Context, token string) (*models.Operator, error) {
-	row := s.db.QueryRow(
+func (s *SQLiteStore) GetOperatorBySession(ctx context.Context, token string) (*models.Operator, error) {
+	row := s.db.QueryRowContext(ctx,
 		`SELECT operator_id, expires_at, state FROM operator_sessions WHERE token=?`,
 		token,
 	)
@@ -498,7 +498,7 @@ func (s *SQLiteStore) GetOperatorBySession(_ context.Context, token string) (*mo
 	if time.Now().After(expiresAt) {
 		return nil, ErrNotFound
 	}
-	opRow := s.db.QueryRow(`SELECT `+operatorColumns+` FROM operators WHERE id=?`, operatorID)
+	opRow := s.db.QueryRowContext(ctx, `SELECT `+operatorColumns+` FROM operators WHERE id=?`, operatorID)
 	op, err := scanOperator(opRow)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -515,8 +515,8 @@ func (s *SQLiteStore) GetOperatorBySession(_ context.Context, token string) (*mo
 // GetPendingTwoFactorOperator returns the operator associated with a session
 // that is awaiting a second factor (`pending_totp`). The operator must still
 // be active. Sessions already authenticated are not returned.
-func (s *SQLiteStore) GetPendingTwoFactorOperator(_ context.Context, token string) (*models.Operator, error) {
-	row := s.db.QueryRow(
+func (s *SQLiteStore) GetPendingTwoFactorOperator(ctx context.Context, token string) (*models.Operator, error) {
+	row := s.db.QueryRowContext(ctx,
 		`SELECT operator_id, expires_at, state FROM operator_sessions WHERE token=?`,
 		token,
 	)
@@ -537,7 +537,7 @@ func (s *SQLiteStore) GetPendingTwoFactorOperator(_ context.Context, token strin
 	if time.Now().After(expiresAt) {
 		return nil, ErrNotFound
 	}
-	opRow := s.db.QueryRow(`SELECT `+operatorColumns+` FROM operators WHERE id=?`, operatorID)
+	opRow := s.db.QueryRowContext(ctx, `SELECT `+operatorColumns+` FROM operators WHERE id=?`, operatorID)
 	op, err := scanOperator(opRow)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -554,8 +554,8 @@ func (s *SQLiteStore) GetPendingTwoFactorOperator(_ context.Context, token strin
 // PromoteOperatorSession upgrades a pending_totp session to authenticated and
 // resets the expiry to a fresh 24h window. Returns ErrNotFound if the session
 // does not exist or is not pending.
-func (s *SQLiteStore) PromoteOperatorSession(_ context.Context, token string, newExpiry time.Time) error {
-	result, err := s.db.Exec(
+func (s *SQLiteStore) PromoteOperatorSession(ctx context.Context, token string, newExpiry time.Time) error {
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE operator_sessions SET state=?, expires_at=? WHERE token=? AND state=?`,
 		models.SessionStateAuthenticated, newExpiry, token, models.SessionStatePendingTOTP,
 	)
@@ -572,24 +572,24 @@ func (s *SQLiteStore) PromoteOperatorSession(_ context.Context, token string, ne
 	return nil
 }
 
-func (s *SQLiteStore) DeleteOperatorSession(_ context.Context, token string) error {
-	_, err := s.db.Exec(`DELETE FROM operator_sessions WHERE token=?`, token)
+func (s *SQLiteStore) DeleteOperatorSession(ctx context.Context, token string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE token=?`, token)
 	if err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}
 	return nil
 }
 
-func (s *SQLiteStore) DeleteOperatorSessionsByOperator(_ context.Context, operatorID string) error {
-	_, err := s.db.Exec(`DELETE FROM operator_sessions WHERE operator_id=?`, operatorID)
+func (s *SQLiteStore) DeleteOperatorSessionsByOperator(ctx context.Context, operatorID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE operator_id=?`, operatorID)
 	if err != nil {
 		return fmt.Errorf("delete sessions by operator: %w", err)
 	}
 	return nil
 }
 
-func (s *SQLiteStore) DeleteExpiredOperatorSessions(_ context.Context, before time.Time) error {
-	_, err := s.db.Exec(`DELETE FROM operator_sessions WHERE expires_at < ?`, before)
+func (s *SQLiteStore) DeleteExpiredOperatorSessions(ctx context.Context, before time.Time) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE expires_at < ?`, before)
 	if err != nil {
 		return fmt.Errorf("delete expired sessions: %w", err)
 	}

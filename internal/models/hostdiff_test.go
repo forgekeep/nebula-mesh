@@ -81,10 +81,10 @@ func TestHostDiff_NameChanged(t *testing.T) {
 	}
 
 	nameChange := result["name"]
-	if before_val, ok := nameChange["before"]; !ok || before_val != "web-1" {
+	if beforeVal, ok := nameChange["before"]; !ok || beforeVal != "web-1" {
 		t.Fatalf("expected before='web-1', got %v", nameChange)
 	}
-	if after_val, ok := nameChange["after"]; !ok || after_val != "web-2" {
+	if afterVal, ok := nameChange["after"]; !ok || afterVal != "web-2" {
 		t.Fatalf("expected after='web-2', got %v", nameChange)
 	}
 }
@@ -290,19 +290,19 @@ func TestHostDiff_DeterministicKeyOrder(t *testing.T) {
 func TestHostDiff_PunchyTriState(t *testing.T) {
 	falseVal := false
 	before := &Host{
-		Name:       "web-1",
-		NebulaIPs:  []string{"192.168.100.1"},
-		Groups:     []string{},
-		Role:       HostRoleHost,
+		Name:      "web-1",
+		NebulaIPs: []string{"192.168.100.1"},
+		Groups:    []string{},
+		Role:      HostRoleHost,
 		Advanced: &HostAdvanced{
 			Punchy: nil,
 		},
 	}
 	after := &Host{
-		Name:       "web-1",
-		NebulaIPs:  []string{"192.168.100.1"},
-		Groups:     []string{},
-		Role:       HostRoleHost,
+		Name:      "web-1",
+		NebulaIPs: []string{"192.168.100.1"},
+		Groups:    []string{},
+		Role:      HostRoleHost,
 		Advanced: &HostAdvanced{
 			Punchy: &falseVal,
 		},
@@ -326,7 +326,7 @@ func TestHostDiff_PunchyTriState(t *testing.T) {
 	}
 	punchyChange := result["advanced.punchy"]
 	// nil → false
-	if punchyChange["after"] != false {
+	if got, _ := punchyChange["after"].(bool); got {
 		t.Fatalf("expected after=false, got %v", punchyChange["after"])
 	}
 }
@@ -335,20 +335,20 @@ func TestHostDiff_PunchyTriState(t *testing.T) {
 func TestHostDiff_MultipleAdvancedChanges(t *testing.T) {
 	trueVal := true
 	before := &Host{
-		Name:       "web-1",
-		NebulaIPs:  []string{"192.168.100.1"},
-		Groups:     []string{},
-		Role:       HostRoleHost,
+		Name:      "web-1",
+		NebulaIPs: []string{"192.168.100.1"},
+		Groups:    []string{},
+		Role:      HostRoleHost,
 		Advanced: &HostAdvanced{
 			MTU:    1300,
 			Punchy: &trueVal,
 		},
 	}
 	after := &Host{
-		Name:       "web-1",
-		NebulaIPs:  []string{"192.168.100.1"},
-		Groups:     []string{},
-		Role:       HostRoleHost,
+		Name:      "web-1",
+		NebulaIPs: []string{"192.168.100.1"},
+		Groups:    []string{},
+		Role:      HostRoleHost,
 		Advanced: &HostAdvanced{
 			MTU:    1280,
 			Punchy: &trueVal,

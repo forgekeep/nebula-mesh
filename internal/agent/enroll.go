@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -39,8 +40,8 @@ type EnrollResponse struct {
 // fresh (rekey) or bound to an unenrolled host (initial enroll), so the
 // agent path is identical. Exposed separately so the cmd-side rekey loop
 // reads cleanly.
-func Reenroll(serverURL, token, dataDir, signingKeyPath string) error {
-	return Enroll(serverURL, token, dataDir, signingKeyPath)
+func Reenroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath string) error {
+	return Enroll(ctx, serverURL, token, dataDir, signingKeyPath)
 }
 
 // Enroll performs the enrollment flow: generates keypair, sends public key
@@ -52,7 +53,7 @@ func Reenroll(serverURL, token, dataDir, signingKeyPath string) error {
 // while the agent's PoP signing key (ADR 0004) is the agent's concern and
 // lives next to agent.yml (default /etc/nebula-agent/host.signing.key). The
 // parent directory of signingKeyPath is created with mode 0o755 if missing.
-func Enroll(serverURL, token, dataDir, signingKeyPath string) error {
+func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath string) error {
 	if signingKeyPath == "" {
 		return fmt.Errorf("signingKeyPath is required")
 	}
@@ -94,7 +95,12 @@ func Enroll(serverURL, token, dataDir, signingKeyPath string) error {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	resp, err := http.Post(serverURL+"/api/v1/enroll", "application/json", bytes.NewReader(reqBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/api/v1/enroll", bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("build enrollment request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("enrollment request: %w", err)
 	}

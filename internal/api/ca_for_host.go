@@ -20,4 +20,3 @@ func (s *Server) caForHost(ctx context.Context, host *models.Host) (*pki.CAManag
 	}
 	return s.caResolver.LoadByID(ctx, host.CAID)
 }
-

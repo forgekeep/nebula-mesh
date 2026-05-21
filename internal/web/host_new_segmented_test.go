@@ -32,7 +32,7 @@ func TestHostNewForm_SegmentedWidgetHooks(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/new", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/new", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -81,10 +81,10 @@ func TestHostCreate_FriendlyNebulaIPInline(t *testing.T) {
 	form := url.Values{
 		"network_id": {"n-friendly"},
 		"name":       {"bad-ip"},
-		"nebula_ips":  {"10.42.0.22.333"},
+		"nebula_ips": {"10.42.0.22.333"},
 		"role":       {"host"},
 	}
-	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -117,12 +117,12 @@ func TestHostCreate_FriendlyPublicIPInline(t *testing.T) {
 	form := url.Values{
 		"network_id":  {"n-pub"},
 		"name":        {"lh"},
-		"nebula_ips":   {"10.0.0.5"},
+		"nebula_ips":  {"10.0.0.5"},
 		"role":        {"lighthouse"},
 		"public_ip":   {"203.0.113.999"},
 		"listen_port": {"4242"},
 	}
-	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -156,11 +156,11 @@ func TestHostCreate_FriendlyAdvancedListenHostInline(t *testing.T) {
 	form := url.Values{
 		"network_id":      {"n-adv"},
 		"name":            {"adv"},
-		"nebula_ips":       {"10.0.0.5"},
+		"nebula_ips":      {"10.0.0.5"},
 		"role":            {"host"},
 		"adv_listen_host": {"not-an-ip"},
 	}
-	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -187,17 +187,17 @@ func TestHandleHostNew_FormHasKindFields(t *testing.T) {
 
 	ctx := context.Background()
 	network := &models.Network{
-		ID:    "n-form-test",
-		Name:  "form-test",
-		CIDRs: []string{"10.0.0.0/24"},
-		CAID:  "ca-test",
+		ID:        "n-form-test",
+		Name:      "form-test",
+		CIDRs:     []string{"10.0.0.0/24"},
+		CAID:      "ca-test",
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/hosts/new", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts/new", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -239,10 +239,10 @@ func TestHandleHostNew_PreservesKindOnError(t *testing.T) {
 
 	ctx := context.Background()
 	network := &models.Network{
-		ID:    "n-test",
-		Name:  "test-net",
-		CIDRs: []string{"10.0.0.0/24"},
-		CAID:  "ca-test",
+		ID:        "n-test",
+		Name:      "test-net",
+		CIDRs:     []string{"10.0.0.0/24"},
+		CAID:      "ca-test",
 		CreatedAt: time.Now(),
 	}
 	if err := s.CreateNetwork(ctx, network); err != nil {
@@ -252,13 +252,13 @@ func TestHandleHostNew_PreservesKindOnError(t *testing.T) {
 	form := url.Values{
 		"network_id": {"n-test"},
 		"name":       {"invalid-host"},
-		"nebula_ips":  {"10.0.0.5"},
+		"nebula_ips": {"10.0.0.5"},
 		"kind":       {"mobile"},
 		"variant":    {"ios"},
 		"role":       {"lighthouse"},
 	}
 
-	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)

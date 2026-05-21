@@ -61,9 +61,9 @@ func TestFindHostsForRenewal(t *testing.T) {
 	now := time.Now()
 
 	hosts := []HostCertInfo{
-		{HostID: "h1", NotBefore: now.Add(-17 * 24 * time.Hour), NotAfter: now.Add(3 * 24 * time.Hour)},  // 15% — renew
-		{HostID: "h2", NotBefore: now.Add(-5 * 24 * time.Hour), NotAfter: now.Add(5 * 24 * time.Hour)},    // 50% — skip
-		{HostID: "h3", NotBefore: now.Add(-19 * 24 * time.Hour), NotAfter: now.Add(1 * 24 * time.Hour)},   // 5% — renew
+		{HostID: "h1", NotBefore: now.Add(-17 * 24 * time.Hour), NotAfter: now.Add(3 * 24 * time.Hour)}, // 15% — renew
+		{HostID: "h2", NotBefore: now.Add(-5 * 24 * time.Hour), NotAfter: now.Add(5 * 24 * time.Hour)},  // 50% — skip
+		{HostID: "h3", NotBefore: now.Add(-19 * 24 * time.Hour), NotAfter: now.Add(1 * 24 * time.Hour)}, // 5% — renew
 	}
 
 	needRenewal := FindHostsForRenewal(hosts)

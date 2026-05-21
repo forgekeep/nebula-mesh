@@ -25,7 +25,7 @@ func TestRotateCert_SameKey(t *testing.T) {
 	}
 	beforeFP := host.CertFingerprint
 
-	req := httptest.NewRequest("POST", "/api/v1/hosts/"+host.ID+"/rotate-cert?new_key=false", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+host.ID+"/rotate-cert?new_key=false", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -57,7 +57,7 @@ func TestRotateCert_NewKey_SetsPending(t *testing.T) {
 	agent := enrolledFixture(t, srv)
 	host, _ := st.GetHostByFingerprint(context.Background(), agent.fingerprint)
 
-	req := httptest.NewRequest("POST", "/api/v1/hosts/"+host.ID+"/rotate-cert?new_key=true", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+host.ID+"/rotate-cert?new_key=true", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -77,7 +77,7 @@ func TestRotateCert_NewKey_ConflictOnSecond(t *testing.T) {
 	host, _ := st.GetHostByFingerprint(context.Background(), agent.fingerprint)
 
 	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest("POST", "/api/v1/hosts/"+host.ID+"/rotate-cert?new_key=true", nil)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+host.ID+"/rotate-cert?new_key=true", nil)
 		authRequest(req)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
@@ -92,7 +92,7 @@ func TestRotateCert_NewKey_ConflictOnSecond(t *testing.T) {
 
 func TestRotateCert_HostNotFound(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/v1/hosts/missing/rotate-cert", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/missing/rotate-cert", nil)
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -103,7 +103,7 @@ func TestRotateCert_HostNotFound(t *testing.T) {
 
 func TestRotateCert_RequiresAuth(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/v1/hosts/anything/rotate-cert", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/anything/rotate-cert", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
@@ -119,7 +119,7 @@ func TestPoll_EmitsRekeyToken_WhenPending(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	signPoll(t, req, agent)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

@@ -10,7 +10,7 @@ func TestGetAuditLog_RequiresAdminRole(t *testing.T) {
 	srv, _ := newTestServer(t)
 	userKey := createUserWithAPIKey(t, srv, "user")
 
-	req := httptest.NewRequest("GET", "/api/v1/audit-log", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit-log", nil)
 	req.Header.Set("Authorization", "Bearer "+userKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -23,7 +23,7 @@ func TestGetAuditLog_AdminSucceeds(t *testing.T) {
 	srv, _ := newTestServer(t)
 	adminKey := createUserWithAPIKey(t, srv, "admin")
 
-	req := httptest.NewRequest("GET", "/api/v1/audit-log", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit-log", nil)
 	req.Header.Set("Authorization", "Bearer "+adminKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)

@@ -5,8 +5,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/juev/nebula-mesh/internal/store"
 )
 
 // Result labels for counters whose terminal outcome falls into one of three
@@ -45,7 +46,7 @@ const (
 )
 
 // Audit action labels: stable identifiers for the audit log entries the API
-// writes. Centralised here so the Prometheus counter, the audit log, and any
+// writes. Centralized here so the Prometheus counter, the audit log, and any
 // future RBAC tooling can share the same vocabulary instead of duplicating
 // string literals.
 const (
@@ -94,14 +95,14 @@ const hostStatusNone = "none"
 // at /metrics. The registry is private to the server instance so test runs
 // don't fight over Prometheus's default registerer global state.
 type metrics struct {
-	reg                *prometheus.Registry
-	httpRequests       *prometheus.CounterVec
-	httpDuration       *prometheus.HistogramVec
-	enrollments        *prometheus.CounterVec
-	certRenewals       *prometheus.CounterVec
-	auditEntries       *prometheus.CounterVec
-	operatorLogins     *prometheus.CounterVec
-	caSignatures       *prometheus.CounterVec
+	reg            *prometheus.Registry
+	httpRequests   *prometheus.CounterVec
+	httpDuration   *prometheus.HistogramVec
+	enrollments    *prometheus.CounterVec
+	certRenewals   *prometheus.CounterVec
+	auditEntries   *prometheus.CounterVec
+	operatorLogins *prometheus.CounterVec
+	caSignatures   *prometheus.CounterVec
 }
 
 // newMetrics builds a fresh metrics bundle bound to an isolated registry and
@@ -252,10 +253,10 @@ func (m *metrics) recordSignature(caID string) {
 // The collector is queried on every Prometheus scrape, so the work is bounded
 // by the scrape cadence (typically 15-60s) and the host/cert table sizes.
 type storeCollector struct {
-	store    store.Store
-	hosts    *prometheus.Desc
-	exp      *prometheus.Desc
-	perHost  *prometheus.Desc
+	store   store.Store
+	hosts   *prometheus.Desc
+	exp     *prometheus.Desc
+	perHost *prometheus.Desc
 }
 
 func newStoreCollector(s store.Store) *storeCollector {

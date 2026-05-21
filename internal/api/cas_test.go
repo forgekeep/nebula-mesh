@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
 	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
@@ -61,7 +62,7 @@ func TestCreateCA_OperatorCanCreate(t *testing.T) {
 	srv, opKey := newServerWithMaster(t)
 
 	body, _ := json.Marshal(map[string]string{"name": "tenant-a"})
-	req := httptest.NewRequest("POST", "/api/v1/cas", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+opKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -87,7 +88,7 @@ func TestCreateCA_PrivateKeyEncryptedAtRest(t *testing.T) {
 	srv, opKey := newServerWithMaster(t)
 
 	body, _ := json.Marshal(map[string]string{"name": "rest-check"})
-	req := httptest.NewRequest("POST", "/api/v1/cas", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+opKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -149,7 +150,7 @@ func TestListCAs_ScopedToOwner(t *testing.T) {
 
 	// A creates a CA
 	body, _ := json.Marshal(map[string]string{"name": "tenant-a"})
-	req := httptest.NewRequest("POST", "/api/v1/cas", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+keyA)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -160,7 +161,7 @@ func TestListCAs_ScopedToOwner(t *testing.T) {
 	_ = json.NewDecoder(rec.Body).Decode(&caA)
 
 	// B lists — should not see A's CA
-	req = httptest.NewRequest("GET", "/api/v1/cas", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/cas", nil)
 	req.Header.Set("Authorization", "Bearer "+keyB)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -176,7 +177,7 @@ func TestListCAs_ScopedToOwner(t *testing.T) {
 	}
 
 	// B GETs A's CA by id — 403
-	req = httptest.NewRequest("GET", "/api/v1/cas/"+caA.ID, nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/cas/"+caA.ID, nil)
 	req.Header.Set("Authorization", "Bearer "+keyB)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -185,7 +186,7 @@ func TestListCAs_ScopedToOwner(t *testing.T) {
 	}
 
 	// B DELETEs A's CA — 403
-	req = httptest.NewRequest("DELETE", "/api/v1/cas/"+caA.ID, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/cas/"+caA.ID, nil)
 	req.Header.Set("Authorization", "Bearer "+keyB)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -198,7 +199,7 @@ func TestAuditLog_RecordsCACreate(t *testing.T) {
 	srv, opKey := newServerWithMaster(t)
 
 	body, _ := json.Marshal(map[string]string{"name": "audited"})
-	req := httptest.NewRequest("POST", "/api/v1/cas", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+opKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -226,7 +227,7 @@ func TestRotateCA_Success(t *testing.T) {
 
 	// Create initial CA
 	body, _ := json.Marshal(map[string]string{"name": "test-ca"})
-	req := httptest.NewRequest("POST", "/api/v1/cas", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+opKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -241,7 +242,7 @@ func TestRotateCA_Success(t *testing.T) {
 	ca1ID := ca1.ID
 
 	// Rotate the CA
-	req = httptest.NewRequest("POST", "/api/v1/cas/"+ca1ID+"/rotate", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/cas/"+ca1ID+"/rotate", nil)
 	req.Header.Set("Authorization", "Bearer "+opKey)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -297,7 +298,7 @@ func TestRotateCA_Forbidden_NonOwner(t *testing.T) {
 	// Create CA with admin key
 	adminKey := createAdminKey(t, srv)
 	body, _ := json.Marshal(map[string]string{"name": "test-ca"})
-	req := httptest.NewRequest("POST", "/api/v1/cas", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+adminKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -329,7 +330,7 @@ func TestRotateCA_Forbidden_NonOwner(t *testing.T) {
 	}
 
 	// Non-owner tries to rotate
-	req = httptest.NewRequest("POST", "/api/v1/cas/"+ca.ID+"/rotate", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/cas/"+ca.ID+"/rotate", nil)
 	req.Header.Set("Authorization", "Bearer "+nonAdminKey)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -341,7 +342,7 @@ func TestRotateCA_Forbidden_NonOwner(t *testing.T) {
 func TestRotateCA_NotFound(t *testing.T) {
 	srv, opKey := newServerWithMaster(t)
 
-	req := httptest.NewRequest("POST", "/api/v1/cas/nonexistent/rotate", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/nonexistent/rotate", nil)
 	req.Header.Set("Authorization", "Bearer "+opKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -355,7 +356,7 @@ func TestRotateCA_Idempotent_ReturnsExistingSuccessor(t *testing.T) {
 
 	// Create initial CA
 	body, _ := json.Marshal(map[string]string{"name": "test-ca"})
-	req := httptest.NewRequest("POST", "/api/v1/cas", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+opKey)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -369,7 +370,7 @@ func TestRotateCA_Idempotent_ReturnsExistingSuccessor(t *testing.T) {
 	}
 
 	// Rotate first time
-	req = httptest.NewRequest("POST", "/api/v1/cas/"+ca1.ID+"/rotate", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/cas/"+ca1.ID+"/rotate", nil)
 	req.Header.Set("Authorization", "Bearer "+opKey)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -384,7 +385,7 @@ func TestRotateCA_Idempotent_ReturnsExistingSuccessor(t *testing.T) {
 	ca2ID := ca2.ID
 
 	// Rotate second time (should return same successor)
-	req = httptest.NewRequest("POST", "/api/v1/cas/"+ca1.ID+"/rotate", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/cas/"+ca1.ID+"/rotate", nil)
 	req.Header.Set("Authorization", "Bearer "+opKey)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)

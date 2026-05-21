@@ -13,11 +13,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/juev/nebula-mesh/internal/mobilebundle"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // isEnrolmentPath reports whether a path is one of the routes a
@@ -71,8 +72,8 @@ func (w *Web) requireAuth(next http.Handler) http.Handler {
 
 func (w *Web) handleLoginPage(rw http.ResponseWriter, r *http.Request) {
 	w.renderForRequest(rw, r, "login.html", map[string]any{
-		"Error":                "",
-		"OIDCEnabled":          w.oidc.Enabled(),
+		"Error":                 "",
+		"OIDCEnabled":           w.oidc.Enabled(),
 		"AllowSelfRegistration": w.allowSelfRegistrationEffective(r.Context()),
 	})
 }
@@ -312,9 +313,9 @@ func (w *Web) handleTwoFARequired(rw http.ResponseWriter, r *http.Request) {
 }
 
 type totpSetup struct {
-	OTPURL       string
-	SecretGroup  string
-	SecretRaw    string
+	OTPURL      string
+	SecretGroup string
+	SecretRaw   string
 }
 
 func (w *Web) handleTwoFASetup(rw http.ResponseWriter, r *http.Request) {
@@ -1231,12 +1232,11 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 
 	caID := form.CAID
 	if caID == "" && op.Role != "admin" {
-		if len(cas) == 1 {
-			caID = cas[0].ID
-		} else {
+		if len(cas) != 1 {
 			w.renderNetworksError(rw, r, form, cas, "pick a CA to sign certificates for this network")
 			return
 		}
+		caID = cas[0].ID
 	}
 	if caID != "" && !containsCAID(cas, caID) {
 		w.renderNetworksError(rw, r, form, cas, "selected CA is not accessible to you")
@@ -1317,12 +1317,15 @@ func (w *Web) renderMobileBundle(rw http.ResponseWriter, r *http.Request, host *
 	qrSVG, qrErr := renderQRSVG(string(bundle))
 	downloadHref := "data:application/yaml;base64," + base64.StdEncoding.EncodeToString(bundle)
 	rw.Header().Set("Cache-Control", "no-store")
+	// QRSVG is server-rendered from the QR encoder library; DownloadHref is a
+	// server-built data: URL of base64-encoded server bundle. Neither carries
+	// user-controlled input.
 	w.renderForRequest(rw, r, "host_mobile_bundle.html", map[string]any{
 		"Host":         host,
 		"YAML":         string(bundle),
-		"QRSVG":        template.HTML(qrSVG),
+		"QRSVG":        template.HTML(qrSVG), //nolint:gosec // G203: server-generated SVG
 		"QRError":      qrErr,
-		"DownloadHref": template.URL(downloadHref),
+		"DownloadHref": template.URL(downloadHref), //nolint:gosec // G203: server-built data URL
 		"Active":       "hosts",
 	})
 }

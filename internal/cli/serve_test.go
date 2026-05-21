@@ -65,7 +65,7 @@ func TestBuildMux_RoutesPerIssue69(t *testing.T) {
 }
 
 func TestBuildMux_UnknownApiPathDoesNotFallThroughToUI(t *testing.T) {
-	// API stub mimics chi's NotFound behaviour: returns 404 with a distinctive body.
+	// API stub mimics chi's NotFound behavior: returns 404 with a distinctive body.
 	apiSrv := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte("api-not-found"))

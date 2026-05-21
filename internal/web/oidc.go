@@ -14,10 +14,11 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/google/uuid"
+	"golang.org/x/oauth2"
+
 	"github.com/juev/nebula-mesh/internal/config"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
-	"golang.org/x/oauth2"
 )
 
 const (

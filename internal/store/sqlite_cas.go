@@ -33,7 +33,7 @@ func scanCA(scanner interface {
 	return &c, nil
 }
 
-func (s *SQLiteStore) CreateCA(_ context.Context, c *models.CA) error {
+func (s *SQLiteStore) CreateCA(ctx context.Context, c *models.CA) error {
 	if c.ID == "" || c.Name == "" || c.OwnerOperatorID == "" || c.Fingerprint == "" {
 		return fmt.Errorf("CA id, name, owner_operator_id, fingerprint are required")
 	}
@@ -47,7 +47,7 @@ func (s *SQLiteStore) CreateCA(_ context.Context, c *models.CA) error {
 	if c.UpdatedAt.IsZero() {
 		c.UpdatedAt = now
 	}
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO cas (`+caColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.Name, c.OwnerOperatorID, c.CertPEM, c.Fingerprint,
 		c.NotBefore, c.NotAfter, c.Status, c.PredecessorID,
@@ -61,8 +61,8 @@ func (s *SQLiteStore) CreateCA(_ context.Context, c *models.CA) error {
 	return nil
 }
 
-func (s *SQLiteStore) GetCA(_ context.Context, id string) (*models.CA, error) {
-	row := s.db.QueryRow(`SELECT `+caColumns+` FROM cas WHERE id = ?`, id)
+func (s *SQLiteStore) GetCA(ctx context.Context, id string) (*models.CA, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+caColumns+` FROM cas WHERE id = ?`, id)
 	c, err := scanCA(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -73,8 +73,8 @@ func (s *SQLiteStore) GetCA(_ context.Context, id string) (*models.CA, error) {
 	return c, nil
 }
 
-func (s *SQLiteStore) GetCAByFingerprint(_ context.Context, fp string) (*models.CA, error) {
-	row := s.db.QueryRow(`SELECT `+caColumns+` FROM cas WHERE fingerprint = ?`, fp)
+func (s *SQLiteStore) GetCAByFingerprint(ctx context.Context, fp string) (*models.CA, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+caColumns+` FROM cas WHERE fingerprint = ?`, fp)
 	c, err := scanCA(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -85,8 +85,8 @@ func (s *SQLiteStore) GetCAByFingerprint(_ context.Context, fp string) (*models.
 	return c, nil
 }
 
-func (s *SQLiteStore) ListCAs(_ context.Context) ([]*models.CA, error) {
-	rows, err := s.db.Query(`SELECT ` + caColumns + ` FROM cas ORDER BY name`)
+func (s *SQLiteStore) ListCAs(ctx context.Context) ([]*models.CA, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+caColumns+` FROM cas ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list CAs: %w", err)
 	}
@@ -106,8 +106,8 @@ func (s *SQLiteStore) ListCAs(_ context.Context) ([]*models.CA, error) {
 	return out, rows.Err()
 }
 
-func (s *SQLiteStore) ListCAsByOwner(_ context.Context, ownerID string) ([]*models.CA, error) {
-	rows, err := s.db.Query(`SELECT `+caColumns+` FROM cas WHERE owner_operator_id = ? ORDER BY name`, ownerID)
+func (s *SQLiteStore) ListCAsByOwner(ctx context.Context, ownerID string) ([]*models.CA, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+caColumns+` FROM cas WHERE owner_operator_id = ? ORDER BY name`, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("list CAs by owner: %w", err)
 	}
@@ -127,12 +127,12 @@ func (s *SQLiteStore) ListCAsByOwner(_ context.Context, ownerID string) ([]*mode
 	return out, rows.Err()
 }
 
-func (s *SQLiteStore) ListCAsApproachingExpiry(_ context.Context, thresholdRatio float64) ([]*models.CA, error) {
+func (s *SQLiteStore) ListCAsApproachingExpiry(ctx context.Context, thresholdRatio float64) ([]*models.CA, error) {
 	// Query for active CAs where remaining lifetime <= threshold * total lifetime.
 	// SQLite stores times as RFC3339 strings, so we extract just the date portion (YYYY-MM-DD)
 	// and use julianday() for date arithmetic.
 	// Calculation: (not_after_days - now_days) / (not_after_days - not_before_days) <= threshold
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+caColumns+` FROM cas
 		WHERE status = ?
 		  AND (julianday(SUBSTR(not_after, 1, 10)) - julianday(SUBSTR(datetime('now'), 1, 10))) /
@@ -158,8 +158,8 @@ func (s *SQLiteStore) ListCAsApproachingExpiry(_ context.Context, thresholdRatio
 	return out, rows.Err()
 }
 
-func (s *SQLiteStore) FindCAByPredecessor(_ context.Context, predecessorID string) (*models.CA, error) {
-	row := s.db.QueryRow(`SELECT `+caColumns+` FROM cas WHERE predecessor_id = ? AND status = ? LIMIT 1`, predecessorID, models.CAStatusActive)
+func (s *SQLiteStore) FindCAByPredecessor(ctx context.Context, predecessorID string) (*models.CA, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+caColumns+` FROM cas WHERE predecessor_id = ? AND status = ? LIMIT 1`, predecessorID, models.CAStatusActive)
 	c, err := scanCA(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -170,8 +170,8 @@ func (s *SQLiteStore) FindCAByPredecessor(_ context.Context, predecessorID strin
 	return c, nil
 }
 
-func (s *SQLiteStore) UpdateCAStatus(_ context.Context, id string, status models.CAStatus) error {
-	result, err := s.db.Exec(`UPDATE cas SET status=?, updated_at=? WHERE id=?`, status, time.Now(), id)
+func (s *SQLiteStore) UpdateCAStatus(ctx context.Context, id string, status models.CAStatus) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE cas SET status=?, updated_at=? WHERE id=?`, status, time.Now(), id)
 	if err != nil {
 		return fmt.Errorf("update CA status: %w", err)
 	}
@@ -190,7 +190,7 @@ func (s *SQLiteStore) UpdateCAStatus(_ context.Context, id string, status models
 // the call returns an error if networks still reference the CA, so the
 // operator must retire / move networks first.
 func (s *SQLiteStore) DeleteCA(ctx context.Context, id string) error {
-	row := s.db.QueryRow(`SELECT COUNT(1) FROM networks WHERE ca_id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM networks WHERE ca_id = ?`, id)
 	var n int
 	if err := row.Scan(&n); err != nil {
 		return fmt.Errorf("check CA references: %w", err)
@@ -198,7 +198,7 @@ func (s *SQLiteStore) DeleteCA(ctx context.Context, id string) error {
 	if n > 0 {
 		return fmt.Errorf("CA still has %d network(s); detach them first", n)
 	}
-	result, err := s.db.Exec(`DELETE FROM cas WHERE id = ?`, id)
+	result, err := s.db.ExecContext(ctx, `DELETE FROM cas WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete CA: %w", err)
 	}

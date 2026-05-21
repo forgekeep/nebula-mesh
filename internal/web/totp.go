@@ -20,7 +20,7 @@ const (
 // generateTOTPSecret creates a new TOTP secret keyed for the operator's
 // username. It returns the otpauth:// URL (for QR rendering) and the raw
 // base32-encoded secret to persist.
-func generateTOTPSecret(username string) (string, string, error) {
+func generateTOTPSecret(username string) (otpauthURL, secret string, err error) {
 	key, err := totp.Generate(totp.GenerateOpts{
 		Issuer:      totpIssuer,
 		AccountName: username,

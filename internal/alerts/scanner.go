@@ -40,7 +40,7 @@ type Sink interface {
 
 // Scanner is a periodic cert-expiry watchdog. Wire one up at server start,
 // call StartLoop with a cancellable context, and it ticks every Interval
-// until the context is cancelled.
+// until the context is canceled.
 type Scanner struct {
 	Store     store.Store
 	Threshold time.Duration
@@ -85,7 +85,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 			s.logger().Error("get host for alert", "host", ci.HostID, "error", hostErr)
 			continue
 		}
-		// Defence in depth: ListEnrolledHostCerts already filters by
+		// Defense in depth: ListEnrolledHostCerts already filters by
 		// status=enrolled, but a host may have been blocked/deleted
 		// between that query and this loop iteration.
 		if host.Status != models.HostStatusEnrolled {
@@ -116,7 +116,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 }
 
 // StartLoop runs Scan immediately, then on every Interval tick until ctx is
-// cancelled. Returns once the loop exits.
+// canceled. Returns once the loop exits.
 func (s *Scanner) StartLoop(ctx context.Context) {
 	interval := s.Interval
 	if interval <= 0 {

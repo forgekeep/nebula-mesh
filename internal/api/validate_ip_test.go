@@ -19,7 +19,7 @@ func TestCreateHost_FriendlyNebulaIPError(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "garbage", NebulaIPs: []string{"10.42.0.22.333"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -43,7 +43,7 @@ func TestCreateHost_FriendlyPublicIPError(t *testing.T) {
 		NetworkID: netID, Name: "lh", NebulaIPs: []string{"192.168.100.10"},
 		Role: "lighthouse", PublicIP: "203.0.113.999", ListenPort: 4242,
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -62,7 +62,7 @@ func TestCreateHost_FriendlyPublicIPError(t *testing.T) {
 func TestCreateNetwork_FriendlyCIDRError(t *testing.T) {
 	srv, _ := newTestServer(t)
 	body := []byte(`{"name":"n","cidrs":["not-a-cidr"]}`)
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -86,7 +86,7 @@ func TestCreateHost_FriendlyAdvancedListenHostError(t *testing.T) {
 		NetworkID: netID, Name: "adv", NebulaIPs: []string{"192.168.100.20"},
 		Advanced: &models.HostAdvanced{ListenHost: "not-an-ip"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -112,7 +112,7 @@ func TestCreateHost_FriendlyUnsafeRouteError(t *testing.T) {
 			UnsafeRoutes: []models.UnsafeRoute{{Route: "bad/cidr", Via: "10.0.0.1"}},
 		},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -135,7 +135,7 @@ func TestCreateHost_RejectsIPOutsideCIDR(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "wrong-net", NebulaIPs: []string{"10.0.0.1"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -151,7 +151,7 @@ func TestCreateHost_RejectsDuplicateIPInSameNetwork(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "h1", NebulaIPs: []string{"192.168.100.10"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -162,7 +162,7 @@ func TestCreateHost_RejectsDuplicateIPInSameNetwork(t *testing.T) {
 	body, _ = json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "h2", NebulaIPs: []string{"192.168.100.10"},
 	})
-	req = httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -178,7 +178,7 @@ func TestCreateHost_RejectsIPv4NetworkAddress(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "net-addr", NebulaIPs: []string{"192.168.100.0"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -194,7 +194,7 @@ func TestCreateHost_RejectsIPv4BroadcastAddress(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "broadcast", NebulaIPs: []string{"192.168.100.255"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -217,7 +217,7 @@ func TestCreateHost_AllowsDuplicateIPAcrossDifferentNetworks(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: net1, Name: "h1", NebulaIPs: []string{"192.168.100.10"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -228,7 +228,7 @@ func TestCreateHost_AllowsDuplicateIPAcrossDifferentNetworks(t *testing.T) {
 	body, _ = json.Marshal(createHostRequest{
 		NetworkID: "net-other", Name: "h2", NebulaIPs: []string{"10.20.0.10"},
 	})
-	req = httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -244,7 +244,7 @@ func TestValidateHostIP_BlockedHostStillHoldsItsAddress(t *testing.T) {
 	body, _ := json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "h1", NebulaIPs: []string{"192.168.100.10"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -266,7 +266,7 @@ func TestValidateHostIP_BlockedHostStillHoldsItsAddress(t *testing.T) {
 	body, _ = json.Marshal(createHostRequest{
 		NetworkID: netID, Name: "h2", NebulaIPs: []string{"192.168.100.10"},
 	})
-	req = httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

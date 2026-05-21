@@ -10,9 +10,10 @@ import (
 	"net/http"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -41,8 +42,8 @@ func (sm *SessionManager) SetCookieSecure(secure bool) {
 
 // LoginResult is the outcome of the first authentication step.
 type LoginResult struct {
-	Operator   *models.Operator
-	NeedsTOTP  bool
+	Operator  *models.Operator
+	NeedsTOTP bool
 }
 
 // Login looks up the operator by username, verifies the password (bcrypt),
@@ -65,7 +66,9 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 		return LoginResult{}, false, nil
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(password)); err != nil {
-		return LoginResult{}, false, nil
+		// Wrong password is a normal auth failure (bool=false), not a system
+		// error to surface to the caller.
+		return LoginResult{}, false, nil //nolint:nilerr
 	}
 
 	token, err := generateToken()
@@ -223,7 +226,7 @@ func (sm *SessionManager) IsAuthenticated(r *http.Request) bool {
 }
 
 // StartCleanup runs a background goroutine that periodically deletes expired
-// sessions from the store. It stops when ctx is cancelled.
+// sessions from the store. It stops when ctx is canceled.
 func (sm *SessionManager) StartCleanup(ctx context.Context, interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)

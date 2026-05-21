@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -58,7 +59,7 @@ func newTestWeb(t *testing.T) (*Web, *store.SQLiteStore) {
 func loginSession(t *testing.T, w *Web) []*http.Cookie {
 	t.Helper()
 	form := url.Values{"username": {testUsername}, "password": {testPassword}}
-	req := httptest.NewRequest("POST", "/ui/login", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -67,7 +68,7 @@ func loginSession(t *testing.T, w *Web) []*http.Cookie {
 
 func TestLoginPage(t *testing.T) {
 	w, _ := newTestWeb(t)
-	req := httptest.NewRequest("GET", "/ui/login", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/login", nil)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -132,7 +133,7 @@ func TestSession_CookieSecureFlag(t *testing.T) {
 	// Re-issuing the logout cookie with mismatched attributes leaves
 	// browsers holding the original — assert the delete cookie matches
 	// the live cookie's fingerprint.
-	logoutReq := httptest.NewRequest("GET", "/ui/logout", nil)
+	logoutReq := httptest.NewRequest(http.MethodGet, "/ui/logout", nil)
 	logoutReq.AddCookie(live)
 	logoutRec := httptest.NewRecorder()
 	w.ServeHTTP(logoutRec, logoutReq)
@@ -167,7 +168,7 @@ func TestSession_CookieSecureDefault(t *testing.T) {
 func TestLogin_WrongPassword(t *testing.T) {
 	w, _ := newTestWeb(t)
 	form := url.Values{"username": {testUsername}, "password": {"wrong"}}
-	req := httptest.NewRequest("POST", "/ui/login", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -187,7 +188,7 @@ func TestLogin_DisabledOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 	form := url.Values{"username": {testUsername}, "password": {testPassword}}
-	req := httptest.NewRequest("POST", "/ui/login", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -199,7 +200,7 @@ func TestLogin_DisabledOperator(t *testing.T) {
 
 func TestProtectedRouteRedirect(t *testing.T) {
 	w, _ := newTestWeb(t)
-	req := httptest.NewRequest("GET", "/ui/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -220,14 +221,14 @@ func TestDashboard_Authenticated(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.CreateHost(ctx, &models.Host{
-		ID: "h1", NetworkID: "net1", Name: "web-1", NebulaIPs:  []string{"10.0.0.1"},
+		ID: "h1", NetworkID: "net1", Name: "web-1", NebulaIPs: []string{"10.0.0.1"},
 		Groups: []string{"web"}, Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/ui/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -257,12 +258,12 @@ func TestHostsPage(t *testing.T) {
 	ctx := context.Background()
 	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "test", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now()})
 	s.CreateHost(ctx, &models.Host{
-		ID: "h1", NetworkID: "net1", Name: "web-1", NebulaIPs:  []string{"10.0.0.1"},
+		ID: "h1", NetworkID: "net1", Name: "web-1", NebulaIPs: []string{"10.0.0.1"},
 		Groups: []string{"web"}, Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	})
 
-	req := httptest.NewRequest("GET", "/ui/hosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/hosts", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -294,7 +295,7 @@ func TestNetworksPage(t *testing.T) {
 	ctx := context.Background()
 	s.CreateNetwork(ctx, &models.Network{ID: "net1", Name: "prod", CIDRs: []string{"10.0.0.0/24"}, CreatedAt: time.Now()})
 
-	req := httptest.NewRequest("GET", "/ui/networks", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/networks", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -319,10 +320,10 @@ func TestCreateHostViaUI(t *testing.T) {
 	form := url.Values{
 		"network_id": {"net1"},
 		"name":       {"new-host"},
-		"nebula_ips":  {"10.0.0.5"},
+		"nebula_ips": {"10.0.0.5"},
 		"role":       {"host"},
 	}
-	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -353,10 +354,10 @@ func TestCreateHostViaUI_InvalidPort(t *testing.T) {
 	form := url.Values{
 		"network_id":  {"net1"},
 		"name":        {"bad-port-host"},
-		"nebula_ips":   {"10.0.0.5"},
+		"nebula_ips":  {"10.0.0.5"},
 		"listen_port": {"70000"},
 	}
-	req := httptest.NewRequest("POST", "/ui/hosts", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -373,7 +374,7 @@ func TestLogout(t *testing.T) {
 	w, _ := newTestWeb(t)
 	cookies := loginSession(t, w)
 
-	req := httptest.NewRequest("GET", "/ui/logout", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/logout", nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -385,7 +386,7 @@ func TestLogout(t *testing.T) {
 	}
 
 	// After logout, dashboard should redirect to login
-	req = httptest.NewRequest("GET", "/ui/", nil)
+	req = httptest.NewRequest(http.MethodGet, "/ui/", nil)
 	for _, c := range rec.Result().Cookies() {
 		req.AddCookie(c)
 	}
@@ -408,7 +409,7 @@ func TestIsAuthenticated_ExpiredSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
 
 	if sm.IsAuthenticated(req) {
@@ -427,7 +428,7 @@ func TestIsAuthenticated_ValidSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
 
 	if !sm.IsAuthenticated(req) {
@@ -438,7 +439,7 @@ func TestIsAuthenticated_ValidSession(t *testing.T) {
 func TestIsAuthenticated_NoCookie(t *testing.T) {
 	_, s := newTestWeb(t)
 	sm := NewSessionManager(s)
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	if sm.IsAuthenticated(req) {
 		t.Error("request without cookie should not be authenticated")
@@ -459,7 +460,7 @@ func TestIsAuthenticated_DisabledOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
 
 	if sm.IsAuthenticated(req) {
@@ -566,7 +567,7 @@ func TestBuildHostViews(t *testing.T) {
 
 func TestFavicon(t *testing.T) {
 	w, _ := newTestWeb(t)
-	req := httptest.NewRequest("GET", "/favicon.ico", nil)
+	req := httptest.NewRequest(http.MethodGet, "/favicon.ico", nil)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -583,7 +584,7 @@ func TestFavicon(t *testing.T) {
 
 func TestStaticFiles(t *testing.T) {
 	w, _ := newTestWeb(t)
-	req := httptest.NewRequest("GET", "/static/htmx.min.js", nil)
+	req := httptest.NewRequest(http.MethodGet, "/static/htmx.min.js", nil)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 

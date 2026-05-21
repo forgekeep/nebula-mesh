@@ -14,10 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
-	corepop "github.com/juev/nebula-mesh/internal/pop"
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
+
+	"github.com/juev/nebula-mesh/internal/models"
+	corepop "github.com/juev/nebula-mesh/internal/pop"
 )
 
 // enrolledAgent represents a fully enrolled host fixture in the
@@ -41,7 +42,7 @@ func enrolledFixture(t *testing.T, srv *Server) enrolledAgent {
 		Name:      "signed-host",
 		NebulaIPs: []string{"192.168.100.30"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -74,7 +75,7 @@ func enrolledFixture(t *testing.T, srv *Server) enrolledAgent {
 		PublicKeyPEM:  string(pubKeyPEM),
 		SigningPubPEM: string(signingPubPEM),
 	})
-	er := httptest.NewRequest("POST", "/api/v1/enroll", bytes.NewBuffer(enrollBody))
+	er := httptest.NewRequest(http.MethodPost, "/api/v1/enroll", bytes.NewBuffer(enrollBody))
 	ew := httptest.NewRecorder()
 	srv.ServeHTTP(ew, er)
 	if ew.Code != http.StatusOK {
@@ -157,7 +158,7 @@ func errBody(t *testing.T, resp *http.Response) string {
 
 func TestPoll_RejectsMissingHeaders(t *testing.T) {
 	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -173,7 +174,7 @@ func TestPoll_RejectsUnknownFingerprint(t *testing.T) {
 	agent := enrolledFixture(t, srv)
 	// Swap fingerprint to an unknown value.
 	bogus := enrolledAgent{fingerprint: "deadbeef", signingPub: agent.signingPub, signingPriv: agent.signingPriv}
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	signPoll(t, req, bogus)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -190,7 +191,7 @@ func TestPoll_RejectsBadSignature(t *testing.T) {
 	agent := enrolledFixture(t, srv)
 	// Sign with a different keypair.
 	_, otherPriv, _ := ed25519.GenerateKey(rand.Reader)
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	signPoll(t, req, agent, withPrivateKey(otherPriv))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -207,7 +208,7 @@ func TestPoll_RejectsSkewedTimestamp(t *testing.T) {
 	agent := enrolledFixture(t, srv)
 	// 10 minutes in the past — outside ±5 min window.
 	past := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	signPoll(t, req, agent, withTimestamp(past))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -225,7 +226,7 @@ func TestPoll_RejectsReplayedNonce(t *testing.T) {
 
 	nonce := "fixed-nonce-12345678"
 	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 		signPoll(t, req, agent, withNonce(nonce))
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
@@ -246,7 +247,7 @@ func TestPoll_RejectsReplayedNonce(t *testing.T) {
 func TestPoll_HappyPath(t *testing.T) {
 	srv, _ := newTestServer(t)
 	agent := enrolledFixture(t, srv)
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	signPoll(t, req, agent)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

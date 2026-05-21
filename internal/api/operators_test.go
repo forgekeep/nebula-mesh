@@ -19,7 +19,7 @@ func TestOperatorLifecycle_CreateListDisable(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{
 		"username": "bob", "password": "supersecret", "display_name": "Bob",
 	})
-	req := httptest.NewRequest("POST", "/api/v1/operators", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operators", bytes.NewBuffer(body))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -35,7 +35,7 @@ func TestOperatorLifecycle_CreateListDisable(t *testing.T) {
 	}
 
 	// List should include bob
-	req = httptest.NewRequest("GET", "/api/v1/operators", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/operators", nil)
 	authRequest(req)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -57,7 +57,7 @@ func TestOperatorLifecycle_CreateListDisable(t *testing.T) {
 	}
 
 	// Disable bob
-	req = httptest.NewRequest("POST", "/api/v1/operators/"+created.ID+"/disable", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/operators/"+created.ID+"/disable", nil)
 	authRequest(req)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -76,7 +76,7 @@ func TestOperatorAPIKey_CreateAndUse(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{
 		"username": "carol", "password": "secret123",
 	})
-	req := httptest.NewRequest("POST", "/api/v1/operators", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operators", bytes.NewBuffer(body))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -89,7 +89,7 @@ func TestOperatorAPIKey_CreateAndUse(t *testing.T) {
 	}
 
 	// Create API key
-	req = httptest.NewRequest("POST", "/api/v1/operators/"+op.ID+"/api-keys", bytes.NewBufferString(`{"name":"cli"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/operators/"+op.ID+"/api-keys", bytes.NewBufferString(`{"name":"cli"}`))
 	authRequest(req)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -109,7 +109,7 @@ func TestOperatorAPIKey_CreateAndUse(t *testing.T) {
 	}
 
 	// Use the new key to access a protected endpoint
-	req = httptest.NewRequest("GET", "/api/v1/operators", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/operators", nil)
 	req.Header.Set("Authorization", "Bearer "+keyResp.Key)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -118,7 +118,7 @@ func TestOperatorAPIKey_CreateAndUse(t *testing.T) {
 	}
 
 	// Revoke it
-	req = httptest.NewRequest("DELETE", "/api/v1/operators/"+op.ID+"/api-keys/"+keyResp.Entry.ID, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/operators/"+op.ID+"/api-keys/"+keyResp.Entry.ID, nil)
 	authRequest(req)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -127,7 +127,7 @@ func TestOperatorAPIKey_CreateAndUse(t *testing.T) {
 	}
 
 	// Now the key should not authenticate
-	req = httptest.NewRequest("GET", "/api/v1/operators", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/operators", nil)
 	req.Header.Set("Authorization", "Bearer "+keyResp.Key)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -141,14 +141,14 @@ func TestDisableOperator_InvalidatesAPIKey(t *testing.T) {
 
 	// Create operator
 	body, _ := json.Marshal(map[string]string{"username": "dan", "password": "p"})
-	req := httptest.NewRequest("POST", "/api/v1/operators", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operators", bytes.NewBuffer(body))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	var op models.Operator
 	_ = json.NewDecoder(rec.Body).Decode(&op)
 
-	req = httptest.NewRequest("POST", "/api/v1/operators/"+op.ID+"/api-keys", bytes.NewBufferString(`{}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/operators/"+op.ID+"/api-keys", bytes.NewBufferString(`{}`))
 	authRequest(req)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -161,7 +161,7 @@ func TestDisableOperator_InvalidatesAPIKey(t *testing.T) {
 	}
 
 	// Key should no longer authenticate
-	req = httptest.NewRequest("GET", "/api/v1/operators", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/operators", nil)
 	req.Header.Set("Authorization", "Bearer "+keyResp.Key)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -174,7 +174,7 @@ func TestAuditLogActorIsRecorded(t *testing.T) {
 	srv, st := newTestServer(t)
 
 	body, _ := json.Marshal(map[string]string{"username": "eve", "password": "p"})
-	req := httptest.NewRequest("POST", "/api/v1/operators", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operators", bytes.NewBuffer(body))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)

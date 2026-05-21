@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/juev/nebula-mesh/internal/store"
 )
 
 // TestMobileBundle_RequiresOwnership verifies that non-owners cannot request
@@ -45,7 +46,7 @@ func TestMobileBundle_RequiresOwnership(t *testing.T) {
 	require.NoError(t, testDB.CreateHost(context.Background(), host1))
 
 	// op2 tries to request mobile bundle for op1's host → 403
-	req := httptest.NewRequest("POST", fmt.Sprintf("/api/v1/hosts/%s/mobile-bundle", host1.ID), nil)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/hosts/%s/mobile-bundle", host1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -106,7 +107,7 @@ func TestMobileBundle_AdminCanAccessForeignHost(t *testing.T) {
 	}
 	require.NoError(t, testDB.CreateHost(context.Background(), host))
 
-	req := httptest.NewRequest("POST", fmt.Sprintf("/api/v1/hosts/%s/mobile-bundle", host.ID), nil)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/hosts/%s/mobile-bundle", host.ID), nil)
 	authRequest(req) // admin (testAPIKey)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -161,7 +162,7 @@ func TestMobileBundle_OwningNonAdminCanAccess(t *testing.T) {
 	}
 	require.NoError(t, testDB.CreateHost(context.Background(), host))
 
-	req := httptest.NewRequest("POST", fmt.Sprintf("/api/v1/hosts/%s/mobile-bundle", host.ID), nil)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/hosts/%s/mobile-bundle", host.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+opKey)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

@@ -9,9 +9,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/juev/nebula-mesh/internal/models"
 )
 
 // TestCreateNetwork_RequiresAdmin verifies that handleCreateNetwork is
@@ -25,7 +26,7 @@ func TestCreateNetwork_RequiresAdmin(t *testing.T) {
 		"name":  "n",
 		"cidrs": []string{"10.0.0.0/8"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+userKey)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -49,7 +50,7 @@ func TestGetNetwork_RequiresOwnership(t *testing.T) {
 	}
 	require.NoError(t, testDB.CreateNetwork(context.Background(), net1))
 
-	req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/networks/%s", net1.ID), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/networks/%s", net1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op2Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -72,7 +73,7 @@ func TestGetNetwork_OwnerSucceeds(t *testing.T) {
 	}
 	require.NoError(t, testDB.CreateNetwork(context.Background(), net1))
 
-	req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/networks/%s", net1.ID), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/networks/%s", net1.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+op1Key)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -90,7 +91,7 @@ func TestCreateNetwork_AdminSucceeds(t *testing.T) {
 		"name":  "admin-created-net",
 		"cidrs": []string{"10.99.0.0/16"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+adminKey)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -121,7 +122,7 @@ func TestListNetworks_ScopedToOwnedCAs(t *testing.T) {
 	require.NoError(t, testDB.CreateNetwork(context.Background(), netA))
 	require.NoError(t, testDB.CreateNetwork(context.Background(), netB))
 
-	req := httptest.NewRequest("GET", "/api/v1/networks", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/networks", nil)
 	req.Header.Set("Authorization", "Bearer "+keyA)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

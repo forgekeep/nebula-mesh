@@ -23,7 +23,7 @@ func TestPoll_RespondsForbidden_WhenHostBlocked(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	signPoll(t, req, agent)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -57,7 +57,7 @@ func TestPoll_RespondsGone_WhenHostDeletedButBlocklisted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	signPoll(t, req, agent)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -89,7 +89,7 @@ func TestPoll_UnknownStatusStillSucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/v1/agent/updates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
 	signPoll(t, req, agent)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

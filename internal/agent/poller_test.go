@@ -35,7 +35,7 @@ func writeSigningKey(t *testing.T, path string) ed25519.PublicKey {
 	return pub
 }
 
-func newPoller(t *testing.T, cfg PollerConfig) *Poller {
+func newTestPoller(t *testing.T, cfg PollerConfig) *Poller {
 	t.Helper()
 	if cfg.SigningKeyPath == "" {
 		// Default: put the signing key in a sibling dir to DataDir so tests
@@ -55,7 +55,7 @@ func newPoller(t *testing.T, cfg PollerConfig) *Poller {
 
 // seedSigningKeyAt is a convenience helper for tests that don't care where
 // the signing key lives — it writes one into the given DataDir's
-// host.signing.key (consistent with the default chosen by newPoller above).
+// host.signing.key (consistent with the default chosen by newTestPoller above).
 func seedSigningKeyAt(t *testing.T, dataDir string) {
 	t.Helper()
 	writeSigningKey(t, filepath.Join(dataDir, "host.signing.key"))
@@ -75,16 +75,16 @@ func TestPoller_NoUpdates(t *testing.T) {
 
 	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
-	p := newPoller(t, PollerConfig{
+	p := newTestPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",
 		DataDir:     dir,
 		Interval:    50 * time.Millisecond,
 	})
 
-	var signalled atomic.Bool
+	var signaled atomic.Bool
 	p.signalFunc = func() error {
-		signalled.Store(true)
+		signaled.Store(true)
 		return nil
 	}
 
@@ -92,7 +92,7 @@ func TestPoller_NoUpdates(t *testing.T) {
 	defer cancel()
 	_ = p.Run(ctx)
 
-	if signalled.Load() {
+	if signaled.Load() {
 		t.Error("should not signal nebula when no updates")
 	}
 }
@@ -110,16 +110,16 @@ func TestPoller_WithCertUpdate(t *testing.T) {
 
 	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
-	p := newPoller(t, PollerConfig{
+	p := newTestPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",
 		DataDir:     dir,
 		Interval:    50 * time.Millisecond,
 	})
 
-	var signalled atomic.Bool
+	var signaled atomic.Bool
 	p.signalFunc = func() error {
-		signalled.Store(true)
+		signaled.Store(true)
 		return nil
 	}
 
@@ -135,7 +135,7 @@ func TestPoller_WithCertUpdate(t *testing.T) {
 		t.Errorf("cert = %q, want %q", string(data), certPEM)
 	}
 
-	if !signalled.Load() {
+	if !signaled.Load() {
 		t.Error("should signal nebula after cert update")
 	}
 }
@@ -153,16 +153,16 @@ func TestPoller_WithCACertUpdate(t *testing.T) {
 
 	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
-	p := newPoller(t, PollerConfig{
+	p := newTestPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",
 		DataDir:     dir,
 		Interval:    50 * time.Millisecond,
 	})
 
-	var signalled atomic.Bool
+	var signaled atomic.Bool
 	p.signalFunc = func() error {
-		signalled.Store(true)
+		signaled.Store(true)
 		return nil
 	}
 
@@ -178,7 +178,7 @@ func TestPoller_WithCACertUpdate(t *testing.T) {
 		t.Errorf("CA cert = %q, want %q", string(data), caCertPEM)
 	}
 
-	if !signalled.Load() {
+	if !signaled.Load() {
 		t.Error("should signal nebula after CA cert update")
 	}
 }
@@ -196,7 +196,7 @@ func TestPoller_WithConfigUpdate(t *testing.T) {
 
 	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
-	p := newPoller(t, PollerConfig{
+	p := newTestPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",
 		DataDir:     dir,
@@ -239,7 +239,7 @@ func TestPoller_SignsRequest(t *testing.T) {
 
 	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
-	p := newPoller(t, PollerConfig{
+	p := newTestPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "fp-123",
 		DataDir:     dir,
@@ -272,7 +272,7 @@ func TestPoll_RespectsContext(t *testing.T) {
 
 	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
-	p := newPoller(t, PollerConfig{
+	p := newTestPoller(t, PollerConfig{
 		ServerURL:   server.URL,
 		Fingerprint: "test-fp",
 		DataDir:     dir,
@@ -287,7 +287,7 @@ func TestPoll_RespectsContext(t *testing.T) {
 
 	err := p.poll(ctx)
 	if err == nil {
-		t.Error("expected error when context is cancelled")
+		t.Error("expected error when context is canceled")
 	}
 }
 

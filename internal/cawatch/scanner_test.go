@@ -3,6 +3,7 @@ package cawatch
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -70,7 +71,7 @@ func TestScanner_Run_RotatesApproachingExpiry(t *testing.T) {
 		OwnerOperatorID:      opID,
 		Fingerprint:          "fp_approaching",
 		Status:               models.CAStatusActive,
-		NotBefore:            now.AddDate(-10, 0, 0),           // 10 years old
+		NotBefore:            now.AddDate(-10, 0, 0),            // 10 years old
 		NotAfter:             now.Add(365 * 24 * time.Hour * 2), // ~2 years left = 20% of 10-year lifetime
 		CertPEM:              "-----BEGIN NEBULA CERTIFICATE-----\napproaching\n-----END NEBULA CERTIFICATE-----\n",
 		EncryptedKeyDEK:      []byte("key"),
@@ -117,7 +118,7 @@ func TestScanner_Run_RotatesApproachingExpiry(t *testing.T) {
 
 	// Verify fresh CA was NOT rotated (no successor)
 	freshSuccessor, err := st.FindCAByPredecessor(ctx, fresh.ID)
-	if err != store.ErrNotFound {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("fresh CA should have no successor, got err=%v", err)
 	}
 	if freshSuccessor != nil {

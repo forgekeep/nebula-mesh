@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
 	"github.com/juev/nebula-mesh/internal/mobilebundle"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
@@ -84,7 +85,9 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(bundle); err != nil {
+	// Bundle is application/yaml from a trusted server-side builder; XSS is
+	// not a concern on a non-HTML response.
+	if _, err := w.Write(bundle); err != nil { //nolint:gosec // G705: not an HTML response
 		s.logger.Error("write mobile bundle response", "error", err)
 	}
 }

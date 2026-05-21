@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -53,7 +54,7 @@ func TestGetOperatorByUsername(t *testing.T) {
 		t.Errorf("id = %q, want %q", got.ID, op.ID)
 	}
 
-	if _, err := s.GetOperatorByUsername(context.Background(), "nobody"); err != ErrNotFound {
+	if _, err := s.GetOperatorByUsername(context.Background(), "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -86,7 +87,7 @@ func TestDisableOperator_CascadesSessionsAndAPIKeys(t *testing.T) {
 	}
 
 	// Sessions gone
-	if _, err := s.GetOperatorBySession(ctx, "tok1"); err != ErrNotFound {
+	if _, err := s.GetOperatorBySession(ctx, "tok1"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("session still valid after disable: %v", err)
 	}
 
@@ -100,7 +101,7 @@ func TestDisableOperator_CascadesSessionsAndAPIKeys(t *testing.T) {
 	}
 
 	// Lookup by hash returns nothing (revoked + operator disabled)
-	if _, _, err := s.GetOperatorByAPIKeyHash(ctx, "hash1"); err != ErrNotFound {
+	if _, _, err := s.GetOperatorByAPIKeyHash(ctx, "hash1"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("disabled operator's key still resolves: %v", err)
 	}
 }
@@ -126,7 +127,7 @@ func TestGetOperatorByAPIKeyHash_Lookup(t *testing.T) {
 		t.Errorf("key name = %q, want main", gotKey.Name)
 	}
 
-	if _, _, err := s.GetOperatorByAPIKeyHash(ctx, "nonexistent"); err != ErrNotFound {
+	if _, _, err := s.GetOperatorByAPIKeyHash(ctx, "nonexistent"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -145,11 +146,11 @@ func TestRevokeOperatorAPIKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := s.GetOperatorByAPIKeyHash(ctx, "eve-hash"); err != ErrNotFound {
+	if _, _, err := s.GetOperatorByAPIKeyHash(ctx, "eve-hash"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("revoked key still resolves: %v", err)
 	}
 
-	if err := s.RevokeOperatorAPIKey(ctx, "k-eve"); err != ErrNotFound {
+	if err := s.RevokeOperatorAPIKey(ctx, "k-eve"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound on second revoke", err)
 	}
 }
@@ -177,7 +178,7 @@ func TestSessionLifecycle(t *testing.T) {
 	if err := s.DeleteOperatorSession(ctx, "frank-tok"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetOperatorBySession(ctx, "frank-tok"); err != ErrNotFound {
+	if _, err := s.GetOperatorBySession(ctx, "frank-tok"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("session still valid after delete: %v", err)
 	}
 }
@@ -205,7 +206,7 @@ func TestDeleteExpiredOperatorSessions(t *testing.T) {
 	if _, err := s.GetOperatorBySession(ctx, "fresh"); err != nil {
 		t.Errorf("fresh session removed: %v", err)
 	}
-	if _, err := s.GetOperatorBySession(ctx, "old"); err != ErrNotFound {
+	if _, err := s.GetOperatorBySession(ctx, "old"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("old session still present: %v", err)
 	}
 }

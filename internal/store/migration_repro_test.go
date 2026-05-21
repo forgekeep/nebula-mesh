@@ -43,7 +43,7 @@ func TestMigration_StableAcrossRestarts(t *testing.T) {
 }
 
 // TestMigration_HealsLegacyMissingCAID exercises the repair path for
-// databases that were initialised by the pre-#37 loader and ended up
+// databases that were initialized by the pre-#37 loader and ended up
 // without `blocklist.ca_id`. After Migrate(), the column and its index
 // must be back.
 func TestMigration_HealsLegacyMissingCAID(t *testing.T) {

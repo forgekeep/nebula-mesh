@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+
 	"github.com/juev/nebula-mesh/internal/keystore"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
@@ -240,10 +241,10 @@ func (w *Web) handleCADetail(rw http.ResponseWriter, r *http.Request) {
 	}
 	isExpiringSoon := pki.ShouldRenew(c.NotBefore, c.NotAfter)
 	w.renderForRequest(rw, r, "ca_detail.html", map[string]any{
-		"Active":            "cas",
-		"CA":                c,
-		"IsExpiringSoon":    isExpiringSoon,
-		"Error":             r.URL.Query().Get("error"),
+		"Active":         "cas",
+		"CA":             c,
+		"IsExpiringSoon": isExpiringSoon,
+		"Error":          r.URL.Query().Get("error"),
 	})
 }
 

@@ -6,21 +6,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/slackhq/nebula/cert"
 	"gopkg.in/yaml.v3"
+
+	"github.com/juev/nebula-mesh/internal/pki"
 )
 
 func TestGenerate_RegularHost(t *testing.T) {
 	input := GeneratorInput{
-		HostName:    "web-1",
-		NebulaIPs:   []string{"192.168.100.10"},
+		HostName:     "web-1",
+		NebulaIPs:    []string{"192.168.100.10"},
 		IsLighthouse: false,
-		IsRelay:     false,
-		CACertPath:  "/etc/nebula/ca.crt",
-		CertPath:    "/etc/nebula/host.crt",
-		KeyPath:     "/etc/nebula/host.key",
-		ListenPort:  0,
+		IsRelay:      false,
+		CACertPath:   "/etc/nebula/ca.crt",
+		CertPath:     "/etc/nebula/host.crt",
+		KeyPath:      "/etc/nebula/host.key",
+		ListenPort:   0,
 		Lighthouses: []LighthouseInfo{
 			{NebulaIPs: []string{"192.168.100.1"}, PublicAddr: "203.0.113.10:4242"},
 		},
@@ -99,13 +100,13 @@ func TestGenerate_Lighthouse(t *testing.T) {
 
 func TestGenerate_Relay(t *testing.T) {
 	input := GeneratorInput{
-		HostName:    "relay-1",
-		NebulaIPs:   []string{"192.168.100.2"},
-		IsRelay:     true,
-		CACertPath:  "/etc/nebula/ca.crt",
-		CertPath:    "/etc/nebula/host.crt",
-		KeyPath:     "/etc/nebula/host.key",
-		ListenPort:  4242,
+		HostName:   "relay-1",
+		NebulaIPs:  []string{"192.168.100.2"},
+		IsRelay:    true,
+		CACertPath: "/etc/nebula/ca.crt",
+		CertPath:   "/etc/nebula/host.crt",
+		KeyPath:    "/etc/nebula/host.key",
+		ListenPort: 4242,
 		Lighthouses: []LighthouseInfo{
 			{NebulaIPs: []string{"192.168.100.1"}, PublicAddr: "203.0.113.10:4242"},
 		},
@@ -256,14 +257,14 @@ KEY...KEY...KEY
 
 func TestGenerate_StaticHostMap_PerAddress(t *testing.T) {
 	input := GeneratorInput{
-		HostName:    "web-1",
-		NebulaIPs:   []string{"10.0.0.5", "fd00::5"},
+		HostName:     "web-1",
+		NebulaIPs:    []string{"10.0.0.5", "fd00::5"},
 		IsLighthouse: false,
-		IsRelay:     false,
-		CACertPath:  "/etc/nebula/ca.crt",
-		CertPath:    "/etc/nebula/host.crt",
-		KeyPath:     "/etc/nebula/host.key",
-		ListenPort:  0,
+		IsRelay:      false,
+		CACertPath:   "/etc/nebula/ca.crt",
+		CertPath:     "/etc/nebula/host.crt",
+		KeyPath:      "/etc/nebula/host.key",
+		ListenPort:   0,
 		Lighthouses: []LighthouseInfo{
 			{NebulaIPs: []string{"10.0.0.1", "fd00::1"}, PublicAddr: "1.2.3.4:4242"},
 		},
@@ -292,14 +293,14 @@ func TestGenerate_StaticHostMap_PerAddress(t *testing.T) {
 
 func TestGenerate_LighthouseHosts_AllAddresses(t *testing.T) {
 	input := GeneratorInput{
-		HostName:    "web-1",
-		NebulaIPs:   []string{"10.0.0.5"},
+		HostName:     "web-1",
+		NebulaIPs:    []string{"10.0.0.5"},
 		IsLighthouse: false,
-		IsRelay:     false,
-		CACertPath:  "/etc/nebula/ca.crt",
-		CertPath:    "/etc/nebula/host.crt",
-		KeyPath:     "/etc/nebula/host.key",
-		ListenPort:  0,
+		IsRelay:      false,
+		CACertPath:   "/etc/nebula/ca.crt",
+		CertPath:     "/etc/nebula/host.crt",
+		KeyPath:      "/etc/nebula/host.key",
+		ListenPort:   0,
 		Lighthouses: []LighthouseInfo{
 			{NebulaIPs: []string{"10.0.0.1", "fd00::1"}, PublicAddr: "1.2.3.4:4242"},
 		},
@@ -328,14 +329,14 @@ func TestGenerate_LighthouseHosts_AllAddresses(t *testing.T) {
 
 func TestGenerate_MultipleLighthousesEachMulti(t *testing.T) {
 	input := GeneratorInput{
-		HostName:    "web-1",
-		NebulaIPs:   []string{"10.0.0.5"},
+		HostName:     "web-1",
+		NebulaIPs:    []string{"10.0.0.5"},
 		IsLighthouse: false,
-		IsRelay:     false,
-		CACertPath:  "/etc/nebula/ca.crt",
-		CertPath:    "/etc/nebula/host.crt",
-		KeyPath:     "/etc/nebula/host.key",
-		ListenPort:  0,
+		IsRelay:      false,
+		CACertPath:   "/etc/nebula/ca.crt",
+		CertPath:     "/etc/nebula/host.crt",
+		KeyPath:      "/etc/nebula/host.key",
+		ListenPort:   0,
 		Lighthouses: []LighthouseInfo{
 			{NebulaIPs: []string{"10.0.0.1", "fd00::1"}, PublicAddr: "1.2.3.4:4242"},
 			{NebulaIPs: []string{"10.0.0.2", "fd00::2"}, PublicAddr: "5.6.7.8:4242"},

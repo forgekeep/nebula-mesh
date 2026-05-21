@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,13 +30,15 @@ func UserCreate(serverURL, apiKey, username, password, displayName, role string)
 	if username == "" || password == "" {
 		return fmt.Errorf("--username and --password are required")
 	}
-	body, err := json.Marshal(userCreateRequest{
+	// userCreateRequest intentionally carries the plaintext password to the
+	// server, which hashes it before storage.
+	body, err := json.Marshal(userCreateRequest{ //nolint:gosec // G117: intentional secret in transport DTO
 		Username: username, Password: password, DisplayName: displayName, Role: role,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
-	req, err := http.NewRequest("POST", serverURL+"/api/v1/operators", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, serverURL+"/api/v1/operators", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -65,7 +68,7 @@ func UserCreate(serverURL, apiKey, username, password, displayName, role string)
 
 // UserList lists operators via the API.
 func UserList(serverURL, apiKey string) error {
-	req, err := http.NewRequest("GET", serverURL+"/api/v1/operators", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, serverURL+"/api/v1/operators", http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -118,7 +121,7 @@ type apiKeyCreateResponse struct {
 // printed once.
 func APIKeyCreate(serverURL, apiKey, operatorID, name string) error {
 	body, _ := json.Marshal(map[string]string{"name": name})
-	req, err := http.NewRequest("POST", serverURL+"/api/v1/operators/"+operatorID+"/api-keys", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, serverURL+"/api/v1/operators/"+operatorID+"/api-keys", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

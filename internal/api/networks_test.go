@@ -18,7 +18,7 @@ func TestCreateNetwork_AcceptsCIDRs(t *testing.T) {
 		"name":  "dual-stack-net",
 		"cidrs": []string{"10.0.0.0/24", "fd00::/64"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -47,7 +47,7 @@ func TestCreateNetwork_RejectsSingularCIDR(t *testing.T) {
 	srv, _ := newTestServer(t)
 
 	body := `{"name":"test-net","cidr":"10.0.0.0/24"}`
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBufferString(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -81,7 +81,7 @@ func TestCreateNetwork_EmptyCIDRs(t *testing.T) {
 		"name":  "empty-net",
 		"cidrs": []string{},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -98,7 +98,7 @@ func TestCreateNetwork_RejectsOverlappingCIDRs(t *testing.T) {
 		"name":  "overlap-net",
 		"cidrs": []string{"10.0.0.0/16", "10.0.0.0/24"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -118,7 +118,7 @@ func TestCreateNetwork_RejectsDuplicateCIDRs(t *testing.T) {
 		"name":  "dup-net",
 		"cidrs": []string{"10.0.0.0/24", "10.0.0.0/24"},
 	})
-	req := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBuffer(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

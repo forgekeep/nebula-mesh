@@ -159,7 +159,7 @@ func TestRun_StandbyWhenConfigMissing(t *testing.T) {
 }
 
 // TestRun_StandbyWhenCertMissing — config exists, but host.crt/signing-key
-// are not on disk yet. Same standby behaviour as TestRun_StandbyWhenConfigMissing.
+// are not on disk yet. Same standby behavior as TestRun_StandbyWhenConfigMissing.
 func TestRun_StandbyWhenCertMissing(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "agent.yml")

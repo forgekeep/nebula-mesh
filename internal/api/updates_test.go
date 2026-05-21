@@ -6,6 +6,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -88,11 +89,10 @@ func TestTrustBundleLogic_NoSuccessor(t *testing.T) {
 
 	// Test: FindCAByPredecessor returns ErrNotFound for CA without successor
 	found, err := st.FindCAByPredecessor(ctx, ca.ID)
-	if err != store.ErrNotFound {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("FindCAByPredecessor err = %v, want ErrNotFound", err)
 	}
 	if found != nil {
 		t.Errorf("FindCAByPredecessor returned CA=%+v, want nil", found)
 	}
 }
-

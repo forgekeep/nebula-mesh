@@ -37,11 +37,11 @@ func TestSign(t *testing.T) {
 	pub, _ := generateHostKeypair(t)
 
 	req := SignRequest{
-		Name:     "host1",
+		Name:      "host1",
 		PublicKey: pub,
-		Networks: []netip.Prefix{netip.MustParsePrefix("192.168.100.5/24")},
-		Groups:   []string{"web", "workers"},
-		Duration: 8 * time.Hour,
+		Networks:  []netip.Prefix{netip.MustParsePrefix("192.168.100.5/24")},
+		Groups:    []string{"web", "workers"},
+		Duration:  8 * time.Hour,
 	}
 
 	hostCert, err := ca.Sign(req)

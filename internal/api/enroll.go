@@ -8,11 +8,12 @@ import (
 	"net/http"
 	"net/netip"
 
+	"github.com/slackhq/nebula/cert"
+
 	"github.com/juev/nebula-mesh/internal/configgen"
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/pki"
 	"github.com/juev/nebula-mesh/internal/store"
-	"github.com/slackhq/nebula/cert"
 )
 
 type enrollRequest struct {

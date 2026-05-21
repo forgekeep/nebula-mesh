@@ -42,11 +42,11 @@ type GeneratorInput struct {
 	FirewallOutbound []FirewallRule
 
 	// Optional per-host overrides. Zero values mean "use the default".
-	PunchyOverride   *bool
-	ListenHost       string
-	MTU              int
-	TunDevice        string
-	UnsafeRoutes     []AdvancedUnsafeRoute
+	PunchyOverride *bool
+	ListenHost     string
+	MTU            int
+	TunDevice      string
+	UnsafeRoutes   []AdvancedUnsafeRoute
 
 	// Optional: if set, override the path-based pki section with inline PEM blocks.
 	// Used for Mobile Nebula clients which import a self-contained YAML config.

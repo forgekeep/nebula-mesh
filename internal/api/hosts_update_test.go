@@ -8,9 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
-	"github.com/stretchr/testify/require"
 )
 
 func TestUpdateHost_RouteRegistered(t *testing.T) {
@@ -25,7 +26,7 @@ func TestUpdateHost_RouteRegistered(t *testing.T) {
 		Groups:    []string{"test"},
 		Role:      "host",
 	})
-	hostReq := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(hostBody))
+	hostReq := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(hostBody))
 	authRequest(hostReq)
 	hostRec := httptest.NewRecorder()
 	srv.ServeHTTP(hostRec, hostReq)
@@ -46,7 +47,7 @@ func TestUpdateHost_RouteRegistered(t *testing.T) {
 		"name": "updated-name",
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+hostID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+hostID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 
@@ -72,7 +73,7 @@ func createHostHelper(t *testing.T, srv *Server, netID string, name, nebulaIP st
 		Role:      "host",
 		Advanced:  adv,
 	})
-	hostReq := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(hostBody))
+	hostReq := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(hostBody))
 	authRequest(hostReq)
 	hostRec := httptest.NewRecorder()
 	srv.ServeHTTP(hostRec, hostReq)
@@ -106,7 +107,7 @@ func TestUpdateHost_HappyPath_Advanced(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -144,7 +145,7 @@ func TestUpdateHost_HappyPath_Rename(t *testing.T) {
 		Name: &newName,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -185,7 +186,7 @@ func TestUpdateHost_NoChanges_NoAudit_NoRepublish(t *testing.T) {
 		Name: &host.Name,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -219,7 +220,7 @@ func TestUpdateHost_SameIPNotDuplicate(t *testing.T) {
 		NebulaIPs: &sameIPList,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -241,7 +242,7 @@ func TestUpdateHost_DuplicateIPRejected(t *testing.T) {
 		NebulaIPs: &dupIPList,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host2.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host2.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -262,7 +263,7 @@ func TestUpdateHost_NebulaIPOutsideCIDR(t *testing.T) {
 		NebulaIPs: &outsideIPList,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -283,7 +284,7 @@ func TestUpdateHost_EmptyName(t *testing.T) {
 		Name: &emptyName,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -305,7 +306,7 @@ func TestUpdateHost_InvalidMTU(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -326,7 +327,7 @@ func TestUpdateHost_InvalidRole(t *testing.T) {
 		Role: &invalidRole,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -347,7 +348,7 @@ func TestUpdateHost_LighthouseWithoutPublicIP(t *testing.T) {
 		Role: &lighthouseRole,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -363,7 +364,7 @@ func TestUpdateHost_HostNotFound(t *testing.T) {
 		Name: stringPtr("newname"),
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/non-existent-id", bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/non-existent-id", bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -381,7 +382,7 @@ func TestUpdateHost_NetworkIDIgnored(t *testing.T) {
 	// Try to send network_id in the body (should be ignored)
 	reqBody := []byte(`{"network_id":"other-network","name":"web-2"}`)
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -422,7 +423,7 @@ func TestUpdateHost_RepublishHostConfig(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -461,7 +462,7 @@ func TestUpdateHost_RoleFlipToLighthouse_BumpsNetwork(t *testing.T) {
 		ListenPort: &listenPort,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -489,13 +490,13 @@ func TestUpdateHost_RoleFlipFromLighthouse_BumpsNetwork(t *testing.T) {
 	hostBody, _ := json.Marshal(createHostRequest{
 		NetworkID:  netID,
 		Name:       "lighthouse-1",
-		NebulaIPs: []string{"192.168.100.1"},
+		NebulaIPs:  []string{"192.168.100.1"},
 		Groups:     []string{},
 		Role:       "lighthouse",
 		PublicIP:   publicIP,
 		ListenPort: listenPort,
 	})
-	hostReq := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(hostBody))
+	hostReq := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(hostBody))
 	authRequest(hostReq)
 	hostRec := httptest.NewRecorder()
 	srv.ServeHTTP(hostRec, hostReq)
@@ -515,7 +516,7 @@ func TestUpdateHost_RoleFlipFromLighthouse_BumpsNetwork(t *testing.T) {
 		Role: &hostRole,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -550,7 +551,7 @@ func TestUpdateHost_NoRepublishNetworkOnAdvancedChange(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -581,7 +582,7 @@ func TestUpdateHost_RenameSetsPendingRekey(t *testing.T) {
 		Name: &newName,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -617,7 +618,7 @@ func TestUpdateHost_ChangeIPSetsPendingRekey(t *testing.T) {
 		NebulaIPs: &newIPList,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -654,7 +655,7 @@ func TestUpdateHost_AdvancedOnlyNoPendingRekey(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -693,7 +694,7 @@ func TestUpdateHost_IdempotentRekey(t *testing.T) {
 		Name: &newName,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -737,7 +738,7 @@ func TestUpdateHost_HappyPath_RoleFlip(t *testing.T) {
 		ListenPort: &listenPort,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -767,7 +768,7 @@ func TestUpdateHost_HappyPath_ChangeIP(t *testing.T) {
 		NebulaIPs: &newIPList,
 	})
 
-	req := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(reqBody))
 	authRequest(req)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -790,7 +791,7 @@ func TestCreateHost_AcceptsNebulaIPs(t *testing.T) {
 		"name":  "dual-net",
 		"cidrs": []string{"10.0.0.0/24", "fd00::/64"},
 	})
-	netReq := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(body))
+	netReq := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBuffer(body))
 	authRequest(netReq)
 	netRec := httptest.NewRecorder()
 	srv.ServeHTTP(netRec, netReq)
@@ -805,7 +806,7 @@ func TestCreateHost_AcceptsNebulaIPs(t *testing.T) {
 		"nebula_ips": []string{"10.0.0.5", "fd00::5"},
 		"role":       "host",
 	})
-	hostReq := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(hostBody))
+	hostReq := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(hostBody))
 	authRequest(hostReq)
 	hostRec := httptest.NewRecorder()
 	srv.ServeHTTP(hostRec, hostReq)
@@ -827,7 +828,7 @@ func TestCreateHost_RejectsSingularNebulaIP(t *testing.T) {
 
 	// Try to create with old singular field
 	body := `{"network_id":"` + netID + `","name":"bad-host","nebula_ip":"192.168.100.5","role":"host"}`
-	req := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBufferString(body))
 	authRequest(req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -852,7 +853,7 @@ func TestUpdateHost_NebulaIPs_ReplacesList(t *testing.T) {
 		"name":  "dual-net",
 		"cidrs": []string{"10.0.0.0/24", "fd00::/64"},
 	})
-	netReq := httptest.NewRequest("POST", "/api/v1/networks", bytes.NewBuffer(netBody))
+	netReq := httptest.NewRequest(http.MethodPost, "/api/v1/networks", bytes.NewBuffer(netBody))
 	authRequest(netReq)
 	netRec := httptest.NewRecorder()
 	srv.ServeHTTP(netRec, netReq)
@@ -867,7 +868,7 @@ func TestUpdateHost_NebulaIPs_ReplacesList(t *testing.T) {
 		"nebula_ips": []string{"10.0.0.5", "fd00::5"},
 		"role":       "host",
 	})
-	hostReq := httptest.NewRequest("POST", "/api/v1/hosts", bytes.NewBuffer(hostBody))
+	hostReq := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewBuffer(hostBody))
 	authRequest(hostReq)
 	hostRec := httptest.NewRecorder()
 	srv.ServeHTTP(hostRec, hostReq)
@@ -881,7 +882,7 @@ func TestUpdateHost_NebulaIPs_ReplacesList(t *testing.T) {
 	patchBody, _ := json.Marshal(map[string]interface{}{
 		"nebula_ips": newIPs,
 	})
-	patchReq := httptest.NewRequest("PATCH", "/api/v1/hosts/"+hostID, bytes.NewBuffer(patchBody))
+	patchReq := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+hostID, bytes.NewBuffer(patchBody))
 	authRequest(patchReq)
 	patchRec := httptest.NewRecorder()
 	srv.ServeHTTP(patchRec, patchReq)
@@ -909,7 +910,7 @@ func TestUpdateHost_OmittedNebulaIPs_Untouched(t *testing.T) {
 	patchBody, _ := json.Marshal(map[string]interface{}{
 		"groups": newGroups,
 	})
-	patchReq := httptest.NewRequest("PATCH", "/api/v1/hosts/"+host.ID, bytes.NewBuffer(patchBody))
+	patchReq := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+host.ID, bytes.NewBuffer(patchBody))
 	authRequest(patchReq)
 	patchRec := httptest.NewRecorder()
 	srv.ServeHTTP(patchRec, patchReq)

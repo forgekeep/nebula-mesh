@@ -14,7 +14,7 @@ func TestSidebarNav_NoCAsLink_UserRole(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "alice", "user")
 
-	req := httptest.NewRequest("GET", "/ui/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
@@ -52,7 +52,7 @@ func TestSidebarNav_NoCAsLink_AdminRole(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "bob", "admin")
 
-	req := httptest.NewRequest("GET", "/ui/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)

@@ -16,7 +16,7 @@ func TestValidRole(t *testing.T) {
 		{HostRoleHost, true},
 		{HostRoleLighthouse, true},
 		{HostRoleRelay, true},
-		{"", true},       // empty = use default in handler
+		{"", true}, // empty = use default in handler
 		{"invalid", false},
 		{"admin", false},
 		{"HOST", false}, // case-sensitive
@@ -90,8 +90,8 @@ func TestValidKind(t *testing.T) {
 
 func TestValidVariant(t *testing.T) {
 	tests := []struct {
-		name    string
-		variant HostVariant
+		name     string
+		variant  HostVariant
 		expected bool
 	}{
 		{name: "none (empty)", variant: HostVariantNone, expected: true},

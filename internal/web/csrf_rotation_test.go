@@ -77,6 +77,10 @@ func TestCSRF_RotateOnLogin(t *testing.T) {
 	assert.Len(t, newCSRFValue, 64, "CSRF token should be 32 bytes hex-encoded")
 	// Verify rotation: new token should differ from initial
 	assert.NotEqual(t, initialCSRF, newCSRFValue, "Login should rotate CSRF token")
+
+	// Rotation invariant: a form rendered before Login (carrying initialCSRF)
+	// must not validate against the post-rotation cookie.
+	assertPreRotationTokenRejected(t, w, initialCSRF, newCSRFValue)
 }
 
 // TestCSRF_RotateOnOIDCSession verifies that StartAuthenticatedSession
@@ -100,6 +104,20 @@ func TestCSRF_RotateOnOIDCSession(t *testing.T) {
 	}
 	require.NoError(t, err)
 
+	// Establish a pre-rotation CSRF cookie via GET (simulates the browser
+	// having visited the login page before bouncing through OIDC).
+	getReq := httptest.NewRequest(http.MethodGet, "/ui/login", nil)
+	getRec := httptest.NewRecorder()
+	w.ServeHTTP(getRec, getReq)
+	var initialCSRF string
+	for _, cookie := range getRec.Result().Cookies() {
+		if cookie.Name == csrfCookieName {
+			initialCSRF = cookie.Value
+			break
+		}
+	}
+	require.NotEmpty(t, initialCSRF, "GET /ui/login should set CSRF cookie")
+
 	// Simulate OIDC callback by calling StartAuthenticatedSession directly
 	sessionReq := httptest.NewRequest(http.MethodGet, "/ui/callback", nil)
 	sessionRec := httptest.NewRecorder()
@@ -117,6 +135,11 @@ func TestCSRF_RotateOnOIDCSession(t *testing.T) {
 
 	assert.NotEmpty(t, newCSRF, "StartAuthenticatedSession should set CSRF cookie")
 	assert.Len(t, newCSRF, 64, "CSRF token should be 32 bytes hex-encoded")
+	assert.NotEqual(t, initialCSRF, newCSRF, "StartAuthenticatedSession should rotate CSRF token")
+
+	// Rotation invariant: a form rendered before OIDC completion (carrying
+	// initialCSRF) must not validate against the post-rotation cookie.
+	assertPreRotationTokenRejected(t, w, initialCSRF, newCSRF)
 }
 
 // TestCSRF_RotateOnTOTP verifies that CompleteTwoFactor generates a fresh
@@ -185,6 +208,11 @@ func TestCSRF_RotateOnTOTP(t *testing.T) {
 	// Verify rotation: tokens should differ (very likely with random generation)
 	if preTOTPCSRF != "" {
 		assert.NotEqual(t, preTOTPCSRF, postTOTPCSRF, "TOTP completion should rotate CSRF token")
+
+		// Rotation invariant: a form rendered before TOTP completion
+		// (carrying preTOTPCSRF) must not validate against the
+		// post-rotation cookie.
+		assertPreRotationTokenRejected(t, w, preTOTPCSRF, postTOTPCSRF)
 	}
 }
 
@@ -226,4 +254,24 @@ func TestCSRF_ClearOnLogout(t *testing.T) {
 
 	assert.NotNil(t, logoutCSRF, "Logout should clear CSRF cookie")
 	assert.Equal(t, -1, logoutCSRF.MaxAge, "Logout should set CSRF cookie MaxAge=-1")
+}
+
+// assertPreRotationTokenRejected verifies that a form-token issued before
+// rotation no longer validates against the post-rotation cookie. Pins the
+// rotation invariant from both sides: just observing that the new cookie
+// differs from the old is not enough — a regression that emitted a new
+// cookie while still accepting the pre-rotation form-token would pass.
+func assertPreRotationTokenRejected(t *testing.T, w *Web, preRotationToken, postRotationCookie string) {
+	t.Helper()
+	form := url.Values{csrfFormField: {preRotationToken}}
+	req := httptest.NewRequest(http.MethodPost, "/ui/cas/ca-id/delete",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: postRotationCookie})
+	rec := httptest.NewRecorder()
+	w.csrfMiddleware(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code,
+		"pre-rotation form token must not validate against post-rotation cookie")
 }

@@ -33,8 +33,8 @@ func TestProfilePage_ShowsOperatorDetailsAndLogoutButton(t *testing.T) {
 	if !strings.Contains(body, testUsername) {
 		t.Error("profile page should display the username")
 	}
-	if !strings.Contains(body, `href="/ui/logout"`) {
-		t.Error("profile page should expose the logout link")
+	if !strings.Contains(body, `action="/ui/logout"`) {
+		t.Error("profile page should expose the logout form")
 	}
 }
 

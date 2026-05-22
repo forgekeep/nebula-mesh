@@ -111,7 +111,7 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 	// Rotate CSRF token on privilege transition
 	csrfToken, err := generateCSRFToken()
 	if err != nil {
-		slog.Debug("generate CSRF token", "error", err)
+		slog.Warn("generate CSRF token", "error", err)
 	} else {
 		setCSRFCookie(w, csrfToken, sm.cookieSecure)
 	}

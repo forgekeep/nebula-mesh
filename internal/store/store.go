@@ -142,6 +142,7 @@ type Store interface {
 
 	// Operator API keys
 	CreateOperatorAPIKey(ctx context.Context, k *models.OperatorAPIKey) error
+	GetOperatorAPIKey(ctx context.Context, keyID string) (*models.OperatorAPIKey, error)
 	GetOperatorByAPIKeyHash(ctx context.Context, keyHash string) (*models.Operator, *models.OperatorAPIKey, error)
 	ListOperatorAPIKeys(ctx context.Context, operatorID string) ([]*models.OperatorAPIKey, error)
 	RevokeOperatorAPIKey(ctx context.Context, keyID string) error

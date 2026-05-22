@@ -480,6 +480,36 @@ func (s *SQLiteStore) GetOperatorByAPIKeyHash(ctx context.Context, keyHash strin
 	return op, &k, nil
 }
 
+// GetOperatorAPIKey returns the API key by its ID regardless of revoked
+// state. Callers that need ownership verification compare the returned
+// .OperatorID against the expected operator.
+func (s *SQLiteStore) GetOperatorAPIKey(ctx context.Context, keyID string) (*models.OperatorAPIKey, error) {
+	var (
+		k         models.OperatorAPIKey
+		lastUsed  sql.NullTime
+		revokedAt sql.NullTime
+	)
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, operator_id, name, key_hash, created_at, last_used_at, revoked_at FROM operator_api_keys WHERE id=?`,
+		keyID,
+	)
+	if err := row.Scan(&k.ID, &k.OperatorID, &k.Name, &k.KeyHash, &k.CreatedAt, &lastUsed, &revokedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get api key: %w", err)
+	}
+	if lastUsed.Valid {
+		t := lastUsed.Time
+		k.LastUsedAt = &t
+	}
+	if revokedAt.Valid {
+		t := revokedAt.Time
+		k.RevokedAt = &t
+	}
+	return &k, nil
+}
+
 func (s *SQLiteStore) ListOperatorAPIKeys(ctx context.Context, operatorID string) ([]*models.OperatorAPIKey, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, operator_id, name, key_hash, created_at, last_used_at, revoked_at FROM operator_api_keys WHERE operator_id=? ORDER BY created_at DESC`,

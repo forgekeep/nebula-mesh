@@ -178,9 +178,46 @@ func (s *Server) handleRevokeOperatorAPIKey(w http.ResponseWriter, r *http.Reque
 	}
 	id := chi.URLParam(r, "id")
 	kid := chi.URLParam(r, "kid")
-	if err := s.store.RevokeOperatorAPIKey(r.Context(), kid); err != nil {
+	if _, err := s.store.GetOperator(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "operator not found")
+			return
+		}
+		s.logger.Error("get operator", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up operator")
+		return
+	}
+	// Verify the API key belongs to this operator before revoking, so the
+	// audit row reflects the key's real owner — not whichever {id} the
+	// caller supplied in the URL.
+	key, err := s.store.GetOperatorAPIKey(r.Context(), kid)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "api key not found")
+			return
+		}
+		s.logger.Error("get api key", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up api key")
+		return
+	}
+	if key.OperatorID != id {
+		writeError(w, http.StatusNotFound, "api key not found")
+		return
+	}
+	if key.RevokedAt != nil {
+		// Already revoked. API stays idempotent — 204 with no new audit row.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err := s.store.RevokeOperatorAPIKey(r.Context(), kid); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			// Concurrent revoke (another admin, or a DisableOperator
+			// cascade) won the CAS between the GetOperatorAPIKey
+			// snapshot above and this UPDATE. Already revoked — mirror
+			// the RevokedAt != nil idempotent branch above (204, no
+			// audit row, since this actor's call did not cause the
+			// state change).
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		s.logger.Error("revoke api key", "error", err)

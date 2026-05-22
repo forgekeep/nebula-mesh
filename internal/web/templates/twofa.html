@@ -21,6 +21,7 @@
     {{if .TOTPEnabled}}
     <p>Two-factor authentication is <strong>enabled</strong> for <code>{{.Operator.Username}}</code>.</p>
     <form method="POST" action="/ui/2fa/disable" style="margin-top:16px">
+        {{ csrfField }}
         <div class="form-group">
             <label>Confirm with current password to disable</label>
             <input type="password" name="password" class="form-control" required>
@@ -28,6 +29,7 @@
         <button type="submit" class="btn btn-danger">Disable 2FA</button>
     </form>
     <form method="POST" action="/ui/2fa/recovery-codes" style="margin-top:16px">
+        {{ csrfField }}
         <button type="submit" class="btn">Regenerate recovery codes</button>
     </form>
     {{else if .Setup}}
@@ -35,6 +37,7 @@
     <div class="token-display">{{.Setup.OTPURL}}</div>
     <p>Secret: <code>{{.Setup.SecretGroup}}</code></p>
     <form method="POST" action="/ui/2fa/enable" style="margin-top:16px">
+        {{ csrfField }}
         <div class="form-group">
             <label>Enter the 6-digit code from your app to confirm</label>
             <input type="text" name="code" class="form-control" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus>
@@ -44,6 +47,7 @@
     {{else}}
     <p>Two-factor authentication is <strong>not enabled</strong>.</p>
     <form method="POST" action="/ui/2fa/setup" style="margin-top:16px">
+        {{ csrfField }}
         <button type="submit" class="btn btn-primary">Enable 2FA</button>
     </form>
     {{end}}

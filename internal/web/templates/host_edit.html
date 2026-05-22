@@ -12,6 +12,7 @@
 
 <div class="card">
     <form id="host-form" method="POST" action="/ui/hosts/{{.Host.ID}}/edit">
+        {{ csrfField }}
         <div class="form-group">
             <label>Network</label>
             <input type="text" class="form-control" value="{{.NetworkName}}" disabled>

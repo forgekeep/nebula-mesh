@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -37,10 +38,15 @@ func TestRateLimit_BlocksAfterBurst(t *testing.T) {
 		Groups:  map[string]ratelimit.GroupConfig{"auth": {Rate: 1, Burst: 2}},
 	}))
 
+	csrfToken, csrfCookies := getCSRFTokenFromCookies(t, w, "/ui/login", nil)
 	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader("username=x&password=y"))
+		form := "username=x&password=y&_csrf=" + url.QueryEscape(csrfToken)
+		req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.RemoteAddr = "10.1.1.1:1234"
+		for _, c := range csrfCookies {
+			req.AddCookie(c)
+		}
 		rec := httptest.NewRecorder()
 		w.ServeHTTP(rec, req)
 		if rec.Code == http.StatusTooManyRequests {
@@ -48,9 +54,13 @@ func TestRateLimit_BlocksAfterBurst(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader("username=x&password=y"))
+	form := "username=x&password=y&_csrf=" + url.QueryEscape(csrfToken)
+	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.RemoteAddr = "10.1.1.1:1234"
+	for _, c := range csrfCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusTooManyRequests {
@@ -84,16 +94,23 @@ func TestRateLimit_AuditEntryOnBlock(t *testing.T) {
 		Groups:  map[string]ratelimit.GroupConfig{"auth": {Rate: 1, Burst: 1}},
 	}))
 
+	csrfToken, csrfCookies := getCSRFTokenFromCookies(t, w, "/ui/login", nil)
 	// Burn the burst.
-	r1 := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader("u=a&p=b"))
+	r1 := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader("u=a&p=b&_csrf="+url.QueryEscape(csrfToken)))
 	r1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r1.RemoteAddr = "203.0.113.42:1000"
+	for _, c := range csrfCookies {
+		r1.AddCookie(c)
+	}
 	w.ServeHTTP(httptest.NewRecorder(), r1)
 
 	// 2nd is rate-limited.
-	r2 := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader("u=a&p=b"))
+	r2 := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader("u=a&p=b&_csrf="+url.QueryEscape(csrfToken)))
 	r2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r2.RemoteAddr = "203.0.113.42:1000"
+	for _, c := range csrfCookies {
+		r2.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, r2)
 	if rec.Code != http.StatusTooManyRequests {

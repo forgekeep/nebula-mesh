@@ -7,6 +7,7 @@
 </div>
 
 <form method="POST" action="/ui/operators" class="card">
+    {{ csrfField }}
     {{with index $.Form.Errors "_general"}}<div class="error" role="alert">{{.}}</div>{{end}}
     <div class="form-group">
         <label>Username

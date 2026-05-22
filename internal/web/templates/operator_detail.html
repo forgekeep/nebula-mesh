@@ -25,6 +25,7 @@
     </dl>
 
     <form method="POST" action="/ui/operators/{{.Operator.ID}}/reset-password" class="row" style="margin-top:1em">
+        {{ csrfField }}
         <input type="password" name="password" placeholder="New password" required>
         <button type="submit" class="btn btn-warning"
                 onclick="return confirm('Set a new password for {{.Operator.Username}}?')">Reset password</button>
@@ -32,11 +33,13 @@
 
     {{if eq (printf "%s" .Operator.Status) "active"}}
     <form method="POST" action="/ui/operators/{{.Operator.ID}}/disable" style="display:inline-block">
+        {{ csrfField }}
         <button type="submit" class="btn btn-danger"
                 onclick="return confirm('Disable {{.Operator.Username}}? Their sessions and API keys are invalidated.')">Disable</button>
     </form>
     {{else}}
     <form method="POST" action="/ui/operators/{{.Operator.ID}}/enable" style="display:inline-block">
+        {{ csrfField }}
         <button type="submit" class="btn btn-primary">Enable</button>
     </form>
     {{end}}
@@ -57,6 +60,7 @@
             <td>
                 {{if not .RevokedAt}}
                 <form method="POST" action="/ui/operators/{{$.Operator.ID}}/api-keys/{{.ID}}/revoke" style="display:inline">
+                    {{ csrfField }}
                     <button type="submit" class="btn btn-sm btn-danger"
                             onclick="return confirm('Revoke this key?')">Revoke</button>
                 </form>
@@ -71,6 +75,7 @@
     {{end}}
 
     <form method="POST" action="/ui/operators/{{.Operator.ID}}/api-keys" class="row">
+        {{ csrfField }}
         <input type="text" name="name" placeholder="Key name" required>
         <button type="submit" class="btn btn-primary">Create key</button>
     </form>

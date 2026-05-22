@@ -160,8 +160,10 @@ func TestHandleGenerateMobileBundle_AgentHostRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", cookies)
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-agent/mobile-bundle/generate", nil)
-	for _, c := range cookies {
+	req.Header.Set("X-CSRF-Token", csrfToken)
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -183,8 +185,10 @@ func TestHandleGenerateMobileBundle_NotFound(t *testing.T) {
 	w, _ := newTestWeb(t)
 	cookies := loginSession(t, w)
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", cookies)
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-nonexistent/mobile-bundle/generate", nil)
-	for _, c := range cookies {
+	req.Header.Set("X-CSRF-Token", csrfToken)
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -227,8 +231,13 @@ func TestHandleGenerateMobileBundle_RequiresAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	csrfToken, csrfCookies := getCSRFTokenFromCookies(t, w, "/ui/login", nil)
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-mobile-2/mobile-bundle/generate", nil)
-	// No session cookie.
+	req.Header.Set("X-CSRF-Token", csrfToken)
+	// No session cookie, but CSRF is present.
+	for _, c := range csrfCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 

@@ -38,6 +38,7 @@ func TestHostCreate_InlineErrorPreservesForm(t *testing.T) {
 	// Submit a duplicate-IP / out-of-CIDR error to exercise the
 	// nebula_ips branch. 10.99.99.99 is outside 10.0.0.0/24,
 	// which trips validateHostIPForNetwork.
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", cookies)
 	form := url.Values{
 		"network_id":      {"net-inline"},
 		"name":            {"preserved-name"},
@@ -45,10 +46,11 @@ func TestHostCreate_InlineErrorPreservesForm(t *testing.T) {
 		"role":            {"host"},
 		"groups":          {"web, prod"},
 		"adv_listen_host": {"0.0.0.0"},
+		"_csrf":           {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -95,15 +97,17 @@ func TestHostCreate_InlineErrorPreservesRole(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", cookies)
 	form := url.Values{
 		"network_id": {"net-role"},
 		"name":       {"lh-1"},
 		"nebula_ips": {"10.0.0.5"},
 		"role":       {"lighthouse"}, // requires public_ip + listen_port → fails
+		"_csrf":      {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -127,13 +131,15 @@ func TestNetworkCreate_InlineErrorPreservesForm(t *testing.T) {
 	w, _ := newTestWeb(t)
 	cookies := loginSession(t, w)
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/networks", cookies)
 	form := url.Values{
 		"name":  {"prod-net"},
 		"cidrs": {"not-a-cidr"},
+		"_csrf": {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -169,13 +175,15 @@ func TestNetworkCreate_InlineErrorRequiredFields(t *testing.T) {
 	w, _ := newTestWeb(t)
 	cookies := loginSession(t, w)
 
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/networks", cookies)
 	form := url.Values{
-		"name": {""},
+		"name":  {""},
+		"_csrf": {csrfToken},
 		// cidrs is empty array, which is required error
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/networks", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()

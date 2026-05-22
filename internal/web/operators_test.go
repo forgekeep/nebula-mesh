@@ -83,16 +83,22 @@ func TestOperators_AdminLifecycle(t *testing.T) {
 	cookie := mintSession(t, s, "root", "admin")
 
 	// 1. Create.
+	// Get CSRF token for operator creation form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{cookie})
+
 	form := url.Values{
 		"username":         {"bob"},
 		"display_name":     {"Bob"},
 		"password":         {strongPassword},
 		"password_confirm": {strongPassword},
 		"role":             {"user"},
+		"_csrf":            {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -114,10 +120,18 @@ func TestOperators_AdminLifecycle(t *testing.T) {
 	}
 
 	// 3. Create an API key.
-	form = url.Values{"name": {"ci-token"}}
+	// Get CSRF token for API key creation form
+	csrfToken, updatedCookies = getCSRFTokenFromCookies(t, w, "/ui/operators/"+op.ID, []*http.Cookie{cookie})
+
+	form = url.Values{
+		"name":  {"ci-token"},
+		"_csrf": {csrfToken},
+	}
 	req = httptest.NewRequest(http.MethodPost, "/ui/operators/"+op.ID+"/api-keys", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec = httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -132,10 +146,18 @@ func TestOperators_AdminLifecycle(t *testing.T) {
 	}
 
 	// 4. Reset password.
-	form = url.Values{"password": {strongPassword + "X"}}
+	// Get CSRF token for reset password form
+	csrfToken, updatedCookies = getCSRFTokenFromCookies(t, w, "/ui/operators/"+op.ID, []*http.Cookie{cookie})
+
+	form = url.Values{
+		"password": {strongPassword + "X"},
+		"_csrf":    {csrfToken},
+	}
 	req = httptest.NewRequest(http.MethodPost, "/ui/operators/"+op.ID+"/reset-password", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec = httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -143,8 +165,14 @@ func TestOperators_AdminLifecycle(t *testing.T) {
 	}
 
 	// 5. Disable.
+	// Get CSRF token for disable handler
+	csrfToken, updatedCookies = getCSRFTokenFromCookies(t, w, "/ui/operators/"+op.ID, []*http.Cookie{cookie})
+
 	req = httptest.NewRequest(http.MethodPost, "/ui/operators/"+op.ID+"/disable", nil)
-	req.AddCookie(cookie)
+	req.Header.Set("X-CSRF-Token", csrfToken)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec = httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -156,9 +184,15 @@ func TestOperators_AdminLifecycle(t *testing.T) {
 	}
 
 	// 6. Revoke API key.
+	// Get CSRF token for revoke handler
+	csrfToken, updatedCookies = getCSRFTokenFromCookies(t, w, "/ui/operators/"+op.ID, []*http.Cookie{cookie})
+
 	req = httptest.NewRequest(http.MethodPost,
 		"/ui/operators/"+op.ID+"/api-keys/"+keys[0].ID+"/revoke", nil)
-	req.AddCookie(cookie)
+	req.Header.Set("X-CSRF-Token", csrfToken)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec = httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -170,14 +204,20 @@ func TestOperators_CreateRejectsWeakPassword(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "root", "admin")
 
+	// Get CSRF token for operator creation form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{cookie})
+
 	form := url.Values{
 		"username":         {"bob"},
 		"password":         {"short"},
 		"password_confirm": {"short"},
+		"_csrf":            {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if !strings.Contains(rec.Body.String(), "at least 10") {
@@ -191,14 +231,20 @@ func TestOperators_CreateInlineErrors_PerField(t *testing.T) {
 
 	// Scenario 1: POST without password returns 400 with "Required" error.
 	t.Run("missing_password_returns_400", func(t *testing.T) {
+		// Get CSRF token for operator creation form
+		csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{cookie})
+
 		form := url.Values{
 			"username":     {"alice"},
 			"display_name": {"Alice"},
 			"role":         {"admin"},
+			"_csrf":        {csrfToken},
 		}
 		req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.AddCookie(cookie)
+		for _, c := range updatedCookies {
+			req.AddCookie(c)
+		}
 		rec := httptest.NewRecorder()
 		w.ServeHTTP(rec, req)
 
@@ -218,16 +264,22 @@ func TestOperators_CreateInlineErrors_PerField(t *testing.T) {
 
 	// Scenario 2: POST with weak password returns 400 with policy error.
 	t.Run("weak_password_returns_400", func(t *testing.T) {
+		// Get CSRF token for operator creation form
+		csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{cookie})
+
 		form := url.Values{
 			"username":         {"bob"},
 			"display_name":     {"Bob"},
 			"password":         {"short"},
 			"password_confirm": {"short"},
 			"role":             {"user"},
+			"_csrf":            {csrfToken},
 		}
 		req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.AddCookie(cookie)
+		for _, c := range updatedCookies {
+			req.AddCookie(c)
+		}
 		rec := httptest.NewRecorder()
 		w.ServeHTTP(rec, req)
 
@@ -262,16 +314,22 @@ func TestOperators_CreateInlineErrors_PerField(t *testing.T) {
 			t.Fatalf("failed to pre-create operator: %v", err)
 		}
 
+		// Get CSRF token for operator creation form
+		csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{cookie})
+
 		form := url.Values{
 			"username":         {"charlie"},
 			"display_name":     {"Charlie"},
 			"password":         {strongPassword},
 			"password_confirm": {strongPassword},
 			"role":             {"user"},
+			"_csrf":            {csrfToken},
 		}
 		req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.AddCookie(cookie)
+		for _, c := range updatedCookies {
+			req.AddCookie(c)
+		}
 		rec := httptest.NewRecorder()
 		w.ServeHTTP(rec, req)
 
@@ -290,12 +348,18 @@ func TestOperators_CreateInlineErrors_PerField(t *testing.T) {
 
 	// Scenario 4: POST without both username and password returns 400 with both required errors.
 	t.Run("missing_both_username_and_password_returns_400", func(t *testing.T) {
+		// Get CSRF token for operator creation form
+		csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{cookie})
+
 		form := url.Values{
 			"display_name": {"Test"},
+			"_csrf":        {csrfToken},
 		}
 		req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.AddCookie(cookie)
+		for _, c := range updatedCookies {
+			req.AddCookie(c)
+		}
 		rec := httptest.NewRecorder()
 		w.ServeHTTP(rec, req)
 
@@ -339,10 +403,18 @@ func TestOperators_APIKeyFlash(t *testing.T) {
 	}
 
 	// 1. Mint a key. Location must not carry the secret.
-	form := url.Values{"name": {"ci-token"}}
+	// Get CSRF token for API key creation form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators/"+op.ID, []*http.Cookie{cookie})
+
+	form := url.Values{
+		"name":  {"ci-token"},
+		"_csrf": {csrfToken},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/operators/"+op.ID+"/api-keys", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -409,10 +481,18 @@ func TestOperators_APIKeyFlash_PerSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	form := url.Values{"name": {"shared-token"}}
+	// Get CSRF token for API key creation form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators/"+op.ID, []*http.Cookie{root})
+
+	form := url.Values{
+		"name":  {"shared-token"},
+		"_csrf": {csrfToken},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/operators/"+op.ID+"/api-keys", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(root)
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {

@@ -107,6 +107,15 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   cookieMaxAge,
 	})
+
+	// Rotate CSRF token on privilege transition
+	csrfToken, err := generateCSRFToken()
+	if err != nil {
+		slog.Warn("generate CSRF token", "error", err)
+	} else {
+		setCSRFCookie(w, csrfToken, sm.cookieSecure)
+	}
+
 	return LoginResult{Operator: op, NeedsTOTP: op.TOTPEnabled}, true, nil
 }
 
@@ -139,6 +148,15 @@ func (sm *SessionManager) StartAuthenticatedSession(w http.ResponseWriter, r *ht
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
+
+	// Rotate CSRF token on privilege transition
+	csrfToken, err := generateCSRFToken()
+	if err != nil {
+		slog.Warn("generate CSRF token", "error", err)
+	} else {
+		setCSRFCookie(w, csrfToken, sm.cookieSecure)
+	}
+
 	return nil
 }
 
@@ -179,6 +197,15 @@ func (sm *SessionManager) CompleteTwoFactor(w http.ResponseWriter, r *http.Reque
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
+
+	// Rotate CSRF token on privilege transition
+	csrfToken, err := generateCSRFToken()
+	if err != nil {
+		slog.Warn("generate CSRF token", "error", err)
+	} else {
+		setCSRFCookie(w, csrfToken, sm.cookieSecure)
+	}
+
 	return nil
 }
 
@@ -203,6 +230,9 @@ func (sm *SessionManager) Logout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
+
+	// Clear CSRF cookie on logout
+	clearCSRFCookie(w, sm.cookieSecure)
 }
 
 // CurrentOperator returns the operator owning the request's session cookie,

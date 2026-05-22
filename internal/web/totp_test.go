@@ -77,9 +77,19 @@ func TestLogin_TOTPFlow(t *testing.T) {
 	_, code := enableTOTPForAdmin(t, w)
 
 	// Step 1: password
-	form := url.Values{"username": {testUsername}, "password": {testPassword}}
+	// Get CSRF token for login form
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/login", nil)
+
+	form := url.Values{
+		"username": {testUsername},
+		"password": {testPassword},
+		"_csrf":    {csrfToken},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -88,7 +98,7 @@ func TestLogin_TOTPFlow(t *testing.T) {
 	if loc := rec.Header().Get("Location"); loc != "/ui/login/totp" {
 		t.Errorf("step1 redirect = %q, want /ui/login/totp", loc)
 	}
-	cookies := rec.Result().Cookies()
+	cookies = append(cookies, rec.Result().Cookies()...)
 
 	// Visiting /ui/ should still redirect to login because session is pending_totp
 	req = httptest.NewRequest(http.MethodGet, "/ui/", nil)
@@ -102,10 +112,16 @@ func TestLogin_TOTPFlow(t *testing.T) {
 	}
 
 	// Step 2: TOTP code
-	form = url.Values{"code": {code}}
+	// Get CSRF token for TOTP login form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/login/totp", cookies)
+
+	form = url.Values{
+		"code":  {code},
+		"_csrf": {csrfToken},
+	}
 	req = httptest.NewRequest(http.MethodPost, "/ui/login/totp", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec = httptest.NewRecorder()
@@ -119,7 +135,7 @@ func TestLogin_TOTPFlow(t *testing.T) {
 
 	// Now session should be fully authenticated
 	req = httptest.NewRequest(http.MethodGet, "/ui/", nil)
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec = httptest.NewRecorder()
@@ -133,14 +149,30 @@ func TestLogin_TOTPInvalidCode(t *testing.T) {
 	w, _ := newTestWeb(t)
 	_, _ = enableTOTPForAdmin(t, w)
 
-	form := url.Values{"username": {testUsername}, "password": {testPassword}}
+	// Get CSRF token for login form
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/login", nil)
+
+	form := url.Values{
+		"username": {testUsername},
+		"password": {testPassword},
+		"_csrf":    {csrfToken},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
-	cookies := rec.Result().Cookies()
+	cookies = append(cookies, rec.Result().Cookies()...)
 
-	form = url.Values{"code": {"000000"}}
+	// Get CSRF token for TOTP form
+	csrfToken, cookies = getCSRFTokenFromCookies(t, w, "/ui/login/totp", cookies)
+
+	form = url.Values{
+		"code":  {"000000"},
+		"_csrf": {csrfToken},
+	}
 	req = httptest.NewRequest(http.MethodPost, "/ui/login/totp", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
@@ -163,14 +195,30 @@ func TestLogin_TOTPRecoveryCode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	form := url.Values{"username": {testUsername}, "password": {testPassword}}
+	// Get CSRF token for login form
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/login", nil)
+
+	form := url.Values{
+		"username": {testUsername},
+		"password": {testPassword},
+		"_csrf":    {csrfToken},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
-	cookies := rec.Result().Cookies()
+	cookies = append(cookies, rec.Result().Cookies()...)
 
-	form = url.Values{"recovery_code": {plainCode}}
+	// Get CSRF token for TOTP form
+	csrfToken, cookies = getCSRFTokenFromCookies(t, w, "/ui/login/totp", cookies)
+
+	form = url.Values{
+		"recovery_code": {plainCode},
+		"_csrf":         {csrfToken},
+	}
 	req = httptest.NewRequest(http.MethodPost, "/ui/login/totp", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
@@ -183,14 +231,30 @@ func TestLogin_TOTPRecoveryCode(t *testing.T) {
 	}
 
 	// Second attempt with same code should fail (single-use)
-	form = url.Values{"username": {testUsername}, "password": {testPassword}}
+	// Get CSRF token for login form
+	csrfToken, cookies = getCSRFTokenFromCookies(t, w, "/ui/login", nil)
+
+	form = url.Values{
+		"username": {testUsername},
+		"password": {testPassword},
+		"_csrf":    {csrfToken},
+	}
 	req = httptest.NewRequest(http.MethodPost, "/ui/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec = httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
-	cookies = rec.Result().Cookies()
+	cookies = append(cookies, rec.Result().Cookies()...)
 
-	form = url.Values{"recovery_code": {plainCode}}
+	// Get CSRF token for TOTP form
+	csrfToken, cookies = getCSRFTokenFromCookies(t, w, "/ui/login/totp", cookies)
+
+	form = url.Values{
+		"recovery_code": {plainCode},
+		"_csrf":         {csrfToken},
+	}
 	req = httptest.NewRequest(http.MethodPost, "/ui/login/totp", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for _, c := range cookies {
@@ -208,8 +272,10 @@ func TestTwoFASetupAndEnable(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	// Setup
+	csrfToken, updatedSetupCookies := getCSRFTokenFromCookies(t, w, "/ui/2fa", cookies)
 	req := httptest.NewRequest(http.MethodPost, "/ui/2fa/setup", nil)
-	for _, c := range cookies {
+	req.Header.Set("X-CSRF-Token", csrfToken)
+	for _, c := range updatedSetupCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -217,6 +283,8 @@ func TestTwoFASetupAndEnable(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("setup status = %d", rec.Code)
 	}
+	// Use updated cookies for subsequent requests
+	cookies = updatedSetupCookies
 	body := rec.Body.String()
 	if !strings.Contains(body, "otpauth://") {
 		t.Errorf("setup page should contain otpauth URL; body=%s", body)
@@ -236,10 +304,16 @@ func TestTwoFASetupAndEnable(t *testing.T) {
 	}
 
 	// Enable
-	form := url.Values{"code": {code}}
+	// Get CSRF token for 2FA enable form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/2fa", cookies)
+
+	form := url.Values{
+		"code":  {code},
+		"_csrf": {csrfToken},
+	}
 	req = httptest.NewRequest(http.MethodPost, "/ui/2fa/enable", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec = httptest.NewRecorder()
@@ -278,10 +352,16 @@ func TestTwoFADisable_RequiresPassword(t *testing.T) {
 	_, _ = enableTOTPForAdmin(t, w)
 
 	// Wrong password — should fail
-	form := url.Values{"password": {"wrong"}}
+	// Get CSRF token for 2FA disable form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/2fa", cookies)
+
+	form := url.Values{
+		"password": {"wrong"},
+		"_csrf":    {csrfToken},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/2fa/disable", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -295,10 +375,16 @@ func TestTwoFADisable_RequiresPassword(t *testing.T) {
 	}
 
 	// Correct password — should succeed
-	form = url.Values{"password": {testPassword}}
+	// Get CSRF token for 2FA disable form
+	csrfToken, updatedCookies = getCSRFTokenFromCookies(t, w, "/ui/2fa", cookies)
+
+	form = url.Values{
+		"password": {testPassword},
+		"_csrf":    {csrfToken},
+	}
 	req = httptest.NewRequest(http.MethodPost, "/ui/2fa/disable", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec = httptest.NewRecorder()
@@ -323,10 +409,16 @@ func TestTwoFAAuditEntries(t *testing.T) {
 	_, _ = enableTOTPForAdmin(t, w)
 
 	// Trigger failed disable
-	form := url.Values{"password": {"wrong"}}
+	// Get CSRF token for 2FA disable form
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/2fa", cookies)
+
+	form := url.Values{
+		"password": {"wrong"},
+		"_csrf":    {csrfToken},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/2fa/disable", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -354,4 +446,59 @@ func TestTwoFAAuditEntries(t *testing.T) {
 	}
 	_ = op
 	_ = models.OperatorStatusActive
+}
+
+func TestTwoFA_PageIncludesCSRFTokenInForms(t *testing.T) {
+	w, s := newTestWeb(t)
+
+	// Create an authenticated session.
+	op := &models.Operator{
+		ID:           "alice-id",
+		Username:     "alice",
+		PasswordHash: "x",
+		Status:       models.OperatorStatusActive,
+		Role:         "user",
+		AuthProvider: models.OperatorAuthLocal,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+	if err := s.CreateOperator(context.Background(), op); err != nil {
+		t.Fatal(err)
+	}
+	tok := "session-alice"
+	if err := s.CreateOperatorSession(context.Background(), &models.OperatorSession{
+		Token:      tok,
+		OperatorID: op.ID,
+		State:      models.SessionStateAuthenticated,
+		ExpiresAt:  time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := &http.Cookie{Name: "nebula_session", Value: tok}
+
+	// GET /ui/2fa to view the page.
+	req := httptest.NewRequest(http.MethodGet, "/ui/2fa", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// Verify CSRF token is present in all forms.
+	// There are multiple forms on the 2FA page depending on state, but each should have {{ csrfField }}.
+	formCount := strings.Count(body, `<form method="POST"`)
+	csrfCount := strings.Count(body, `name="_csrf"`)
+	if formCount == 0 {
+		t.Errorf("expected at least 1 POST form in 2FA page")
+	}
+	if csrfCount == 0 {
+		t.Errorf("expected CSRF token input in 2FA page forms; body=%s", body)
+	}
+	if csrfCount < formCount {
+		t.Errorf("not all forms have CSRF tokens: forms=%d, csrf=%d", formCount, csrfCount)
+	}
 }

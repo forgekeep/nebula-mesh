@@ -13,13 +13,20 @@ func TestSelfRegister_AutoProvisionsDefaultCA(t *testing.T) {
 	w, s := newOperatorsWebWithMaster(t)
 	w.AllowSelfRegistration(true)
 
+	// Get CSRF token for register form
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/register", nil)
+
 	form := url.Values{
 		"username":         {"alice"},
 		"password":         {strongPassword},
 		"password_confirm": {strongPassword},
+		"_csrf":            {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 
@@ -63,13 +70,20 @@ func TestSelfRegister_SkipsAutoProvisionWhenNoMaster(t *testing.T) {
 	w, s := newTestWeb(t)
 	w.AllowSelfRegistration(true)
 
+	// Get CSRF token for register form
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/register", nil)
+
 	form := url.Values{
 		"username":         {"bob"},
 		"password":         {strongPassword},
 		"password_confirm": {strongPassword},
+		"_csrf":            {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 

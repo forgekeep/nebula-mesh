@@ -36,6 +36,7 @@
         <h1>Create an account</h1>
         {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
         <form method="POST" action="/ui/register">
+            {{ csrfField }}
             <div class="form-group">
                 <label>Username</label>
                 <input type="text" name="username" class="form-control" autocomplete="username" autofocus required>

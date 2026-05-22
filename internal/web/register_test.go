@@ -41,14 +41,21 @@ func TestRegister_Enabled_CreatesOperator(t *testing.T) {
 	w, s := newTestWeb(t)
 	w.AllowSelfRegistration(true)
 
+	// Get CSRF token for register form
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/register", nil)
+
 	form := url.Values{
 		"username":         {"alice"},
 		"display_name":     {"Alice"},
 		"password":         {strongPassword},
 		"password_confirm": {strongPassword},
+		"_csrf":            {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -68,13 +75,20 @@ func TestRegister_RejectsDuplicateUsername(t *testing.T) {
 	w, _ := newTestWeb(t)
 	w.AllowSelfRegistration(true)
 
+	// Get CSRF token for register form
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/register", nil)
+
 	form := url.Values{
 		"username":         {testUsername}, // admin from newTestWeb seed
 		"password":         {strongPassword},
 		"password_confirm": {strongPassword},
+		"_csrf":            {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if !strings.Contains(rec.Body.String(), "Username already taken") {
@@ -86,9 +100,20 @@ func TestRegister_RejectsShortPassword(t *testing.T) {
 	w, _ := newTestWeb(t)
 	w.AllowSelfRegistration(true)
 
-	form := url.Values{"username": {"bob"}, "password": {"short"}, "password_confirm": {"short"}}
+	// Get CSRF token for register form
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/register", nil)
+
+	form := url.Values{
+		"username":         {"bob"},
+		"password":         {"short"},
+		"password_confirm": {"short"},
+		"_csrf":            {csrfToken},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if !strings.Contains(rec.Body.String(), "at least 10") {
@@ -101,9 +126,20 @@ func TestRegister_RejectsMismatchedConfirmation(t *testing.T) {
 	w, _ := newTestWeb(t)
 	w.AllowSelfRegistration(true)
 
-	form := url.Values{"username": {"carol"}, "password": {strongPassword}, "password_confirm": {strongPassword + "X"}}
+	// Get CSRF token for register form
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/register", nil)
+
+	form := url.Values{
+		"username":         {"carol"},
+		"password":         {strongPassword},
+		"password_confirm": {strongPassword + "X"},
+		"_csrf":            {csrfToken},
+	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 	if !strings.Contains(rec.Body.String(), "confirmation does not match") {

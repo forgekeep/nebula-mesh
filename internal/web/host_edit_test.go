@@ -134,6 +134,9 @@ func TestHostUpdate_POST_HappyPath_Advanced(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Get CSRF token
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts/h-1/edit", cookies)
+
 	// POST with MTU changed
 	form := url.Values{
 		"network_id": {"n-1"},
@@ -141,10 +144,11 @@ func TestHostUpdate_POST_HappyPath_Advanced(t *testing.T) {
 		"nebula_ips": {"192.168.100.10"},
 		"role":       {"host"},
 		"adv_mtu":    {"1280"},
+		"_csrf":      {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-1/edit", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -219,16 +223,20 @@ func TestHostUpdate_POST_HappyPath_Rename(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Get CSRF token
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts/h-1/edit", cookies)
+
 	// POST with name changed
 	form := url.Values{
 		"network_id": {"n-1"},
 		"name":       {"web-2"},
 		"nebula_ips": {"192.168.100.10"},
 		"role":       {"host"},
+		"_csrf":      {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-1/edit", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -283,6 +291,9 @@ func TestHostUpdate_POST_InvalidMTU(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Get CSRF token
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts/h-1/edit", cookies)
+
 	// POST with invalid MTU
 	form := url.Values{
 		"network_id": {"n-1"},
@@ -290,10 +301,11 @@ func TestHostUpdate_POST_InvalidMTU(t *testing.T) {
 		"nebula_ips": {"192.168.100.10"},
 		"role":       {"host"},
 		"adv_mtu":    {"99999"},
+		"_csrf":      {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-1/edit", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -343,6 +355,9 @@ func TestHostUpdate_POST_RoleFlipToLighthouse_BumpsNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Get CSRF token
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts/h-1/edit", cookies)
+
 	// POST with role changed to lighthouse
 	form := url.Values{
 		"network_id":  {"n-1"},
@@ -351,10 +366,11 @@ func TestHostUpdate_POST_RoleFlipToLighthouse_BumpsNetwork(t *testing.T) {
 		"role":        {"lighthouse"},
 		"public_ip":   {"203.0.113.1"},
 		"listen_port": {"4242"},
+		"_csrf":       {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-1/edit", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -404,16 +420,20 @@ func TestHostUpdate_POST_NoChanges_NoAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Get CSRF token
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts/h-1/edit", cookies)
+
 	// POST with no changes
 	form := url.Values{
 		"network_id": {"n-1"},
 		"name":       {"web-1"},
 		"nebula_ips": {"192.168.100.10"},
 		"role":       {"host"},
+		"_csrf":      {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-1/edit", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()
@@ -484,16 +504,20 @@ func TestHostUpdate_POST_DuplicateIP(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Get CSRF token
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts/h-2/edit", cookies)
+
 	// POST host2 with IP from host1 (duplicate)
 	form := url.Values{
 		"network_id": {"n-1"},
 		"name":       {"web-2"},
 		"nebula_ips": {"192.168.100.10"},
 		"role":       {"host"},
+		"_csrf":      {csrfToken},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/h-2/edit", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, c := range cookies {
+	for _, c := range updatedCookies {
 		req.AddCookie(c)
 	}
 	rec := httptest.NewRecorder()

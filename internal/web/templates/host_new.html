@@ -14,6 +14,7 @@
 {{else}}
 <div class="card">
     <form id="host-form" method="POST" action="/ui/hosts">
+        {{ csrfField }}
         <div class="form-group">
             <label>Network</label>
             <select id="network-select" name="network_id" class="form-control" required onchange="onNetworkChange()">

@@ -3,9 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrfToken }}">
     <title>{{block "title" .}}Nebula Mesh{{end}}</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.ico">
     <script src="/static/htmx.min.js"></script>
+    <script>
+    document.body.addEventListener('htmx:configRequest', function(evt) {
+        var m = document.querySelector('meta[name="csrf-token"]');
+        if (m) { evt.detail.headers['X-CSRF-Token'] = m.content; }
+    });
+    </script>
     <style>
         :root {
             --bg: #0f1117;
@@ -231,6 +238,14 @@
                 <a href="/ui/settings"  {{if eq .Active "settings"}}class="active"{{end}}>Settings</a>
                 {{end}}
             </div>
+            {{if .CurrentUser}}
+            <div style="padding: 20px; margin-top: auto; border-top: 1px solid var(--border);">
+                <form method="POST" action="/ui/logout" style="display:inline">
+                    {{ csrfField }}
+                    <button type="submit" class="btn btn-danger" style="width: 100%; text-align: center;">Sign out</button>
+                </form>
+            </div>
+            {{end}}
         </nav>
         <main class="main">
             {{block "content" .}}{{end}}

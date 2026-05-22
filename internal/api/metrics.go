@@ -69,6 +69,7 @@ const (
 	auditOperatorEnable            = "operator.enable"
 	auditOperatorAPIKeyCreate      = "operator.api_key.create"
 	auditOperatorAPIKeyRevoke      = "operator.api_key.revoke"
+	auditSettingsEnforce2FA        = "settings.enforce_2fa"
 )
 
 // Audit reason codes used in the `details` field of host.auth.failed audit
@@ -192,6 +193,7 @@ func newMetrics(s store.Store) *metrics {
 		auditCACreated, auditCADeleted, auditCARotated,
 		auditOperatorCreate, auditOperatorDisable, auditOperatorEnable,
 		auditOperatorAPIKeyCreate, auditOperatorAPIKeyRevoke,
+		auditSettingsEnforce2FA,
 	} {
 		m.auditEntries.WithLabelValues(action).Add(0)
 	}

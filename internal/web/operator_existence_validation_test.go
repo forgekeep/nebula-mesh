@@ -15,6 +15,25 @@ import (
 	"github.com/juev/nebula-mesh/internal/store"
 )
 
+// postCSRF builds and executes an authenticated POST against `path` with a
+// valid CSRF token+cookie pair (minted via GET /ui/operators). Mirrors the
+// inline 4-line dance used in operators_test.go, kept local so the tests
+// here stay readable. The csrfMiddleware on /ui/* mutating routes (added in
+// #139) rejects requests missing either piece with 403, so every POST in
+// this file must go through this helper.
+func postCSRF(t *testing.T, w *Web, path string, sessionCookie *http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	token, cookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{sessionCookie})
+	req := httptest.NewRequest(http.MethodPost, path, nil)
+	req.Header.Set(csrfHeaderName, token)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+	return rec
+}
+
 // concurrentRevokeStore wraps store.Store and injects exactly one CAS-race
 // on the first GetOperatorAPIKey of a non-revoked key by revoking the row
 // directly before the snapshot is returned. The handler's *models.OperatorAPIKey
@@ -48,11 +67,7 @@ func TestHandleOperatorDisable_NonExistent_Returns404(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "root", "admin")
 
-	req := httptest.NewRequest(http.MethodPost, "/ui/operators/op-does-not-exist/disable", nil)
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	w.ServeHTTP(rec, req)
-
+	rec := postCSRF(t, w, "/ui/operators/op-does-not-exist/disable", cookie)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
@@ -76,11 +91,7 @@ func TestHandleOperatorCreateAPIKey_NonExistent_Returns404(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "root", "admin")
 
-	req := httptest.NewRequest(http.MethodPost, "/ui/operators/op-does-not-exist/api-keys", nil)
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	w.ServeHTTP(rec, req)
-
+	rec := postCSRF(t, w, "/ui/operators/op-does-not-exist/api-keys", cookie)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
@@ -92,11 +103,7 @@ func TestHandleOperatorEnable_NonExistent_Returns404(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "root", "admin")
 
-	req := httptest.NewRequest(http.MethodPost, "/ui/operators/op-does-not-exist/enable", nil)
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	w.ServeHTTP(rec, req)
-
+	rec := postCSRF(t, w, "/ui/operators/op-does-not-exist/enable", cookie)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
@@ -120,12 +127,7 @@ func TestHandleOperatorRevokeAPIKey_NonExistentOperator_Returns404(t *testing.T)
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "root", "admin")
 
-	req := httptest.NewRequest(http.MethodPost,
-		"/ui/operators/op-does-not-exist/api-keys/kid-anything/revoke", nil)
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	w.ServeHTTP(rec, req)
-
+	rec := postCSRF(t, w, "/ui/operators/op-does-not-exist/api-keys/kid-anything/revoke", cookie)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
@@ -180,12 +182,7 @@ func TestHandleOperatorRevokeAPIKey_KidBelongsToDifferentOperator_Returns404(t *
 	}
 
 	// Admin attempts to revoke beta's key via alpha's URL namespace.
-	req := httptest.NewRequest(http.MethodPost,
-		"/ui/operators/op-alpha/api-keys/key-belongs-to-beta/revoke", nil)
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	w.ServeHTTP(rec, req)
-
+	rec := postCSRF(t, w, "/ui/operators/op-alpha/api-keys/key-belongs-to-beta/revoke", cookie)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
@@ -247,11 +244,7 @@ func TestHandleOperatorRevokeAPIKey_AlreadyRevoked_Idempotent(t *testing.T) {
 	}
 
 	post := func() *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost, "/ui/operators/op-gamma/api-keys/key-gamma/revoke", nil)
-		req.AddCookie(cookie)
-		rec := httptest.NewRecorder()
-		w.ServeHTTP(rec, req)
-		return rec
+		return postCSRF(t, w, "/ui/operators/op-gamma/api-keys/key-gamma/revoke", cookie)
 	}
 
 	// First revoke: 303, writes one audit row.
@@ -309,11 +302,7 @@ func TestHandleOperatorRevokeAPIKey_AfterDisableCascade_Idempotent(t *testing.T)
 		t.Fatalf("disable: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/ui/operators/op-epsilon/api-keys/key-epsilon/revoke", nil)
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	w.ServeHTTP(rec, req)
-
+	rec := postCSRF(t, w, "/ui/operators/op-epsilon/api-keys/key-epsilon/revoke", cookie)
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want 303 (idempotent after cascade revoke)", rec.Code)
 	}
@@ -356,22 +345,19 @@ func TestHandleOperator_HappyPath_AuditRowsCorrect(t *testing.T) {
 		t.Fatalf("create delta key: %v", err)
 	}
 
-	exec := func(method, path string) {
-		req := httptest.NewRequest(method, path, nil)
-		req.AddCookie(cookie)
-		rec := httptest.NewRecorder()
-		w.ServeHTTP(rec, req)
+	exec := func(path string) {
+		rec := postCSRF(t, w, path, cookie)
 		if rec.Code != http.StatusSeeOther {
-			t.Fatalf("%s %s: status = %d, want 303; body=%s", method, path, rec.Code, rec.Body.String())
+			t.Fatalf("POST %s: status = %d, want 303; body=%s", path, rec.Code, rec.Body.String())
 		}
 	}
 
 	// Revoke before Disable: DisableOperator cascades a revoke, which would
 	// make the explicit revoke take the idempotent early-return branch and
 	// skip the audit row this test is checking for.
-	exec(http.MethodPost, "/ui/operators/op-delta/api-keys/key-delta/revoke")
-	exec(http.MethodPost, "/ui/operators/op-delta/disable")
-	exec(http.MethodPost, "/ui/operators/op-delta/enable")
+	exec("/ui/operators/op-delta/api-keys/key-delta/revoke")
+	exec("/ui/operators/op-delta/disable")
+	exec("/ui/operators/op-delta/enable")
 
 	cases := []struct {
 		action, resource, details string
@@ -431,13 +417,22 @@ func TestHandleOperatorRevokeAPIKey_ConcurrentRevokeRace_Idempotent(t *testing.T
 		t.Fatalf("create race key: %v", err)
 	}
 
+	// Mint the CSRF token+cookie BEFORE swapping the store, so the GET to
+	// /ui/operators (which goes through w.ServeHTTP and thus the wrapped
+	// store if swapped) doesn't risk burning the race injection on an
+	// unrelated lookup.
+	token, allCookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{cookie})
+
 	// Swap the web's store to one that races a concurrent revoke into the
 	// gap between GetOperatorAPIKey and RevokeOperatorAPIKey. Done after
 	// seeding so the seed path uses the real store directly.
 	w.store = &concurrentRevokeStore{Store: w.store}
 
 	req := httptest.NewRequest(http.MethodPost, "/ui/operators/op-race/api-keys/key-race/revoke", nil)
-	req.AddCookie(cookie)
+	req.Header.Set(csrfHeaderName, token)
+	for _, c := range allCookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
 

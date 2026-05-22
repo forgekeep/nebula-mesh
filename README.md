@@ -36,7 +36,7 @@ On a fresh Debian / Ubuntu VM (`amd64`):
 
 ```sh
 # 1. Install the server.
-VERSION=0.3.2
+VERSION=0.3.3
 curl -fsSLO "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_amd64.deb"
 sudo apt install -y "./nebula-mgmt_${VERSION}_linux_amd64.deb"
 
@@ -120,12 +120,12 @@ nebula-mesh ships **two** static binaries. Install whichever you need on each ma
 | `nebula-mgmt` | one server (the control plane) |
 | `nebula-agent` | every Nebula host, next to `nebula` |
 
-Pick an install method below. The examples assume `VERSION=0.3.2` — replace with the latest from the [releases page](https://github.com/juev/nebula-mesh/releases/latest). Each release ships a `checksums.txt` (SHA-256).
+Pick an install method below. The examples assume `VERSION=0.3.3` — replace with the latest from the [releases page](https://github.com/juev/nebula-mesh/releases/latest). Each release ships a `checksums.txt` (SHA-256).
 
 ### Debian / Ubuntu (`.deb`)
 
 ```sh
-VERSION=0.3.2
+VERSION=0.3.3
 ARCH=$(dpkg --print-architecture)   # amd64 | arm64 | armhf (agent only)
 
 # Server (control plane):
@@ -140,7 +140,7 @@ sudo apt install -y "./nebula-agent_${VERSION}_linux_${ARCH}.deb"
 ### RHEL / Fedora / Rocky / Alma (`.rpm`)
 
 ```sh
-VERSION=0.3.2
+VERSION=0.3.3
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
 sudo rpm -i "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_${ARCH}.rpm"
@@ -154,7 +154,7 @@ sudo rpm -i "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/n
 Download a tarball from the [releases page](https://github.com/juev/nebula-mesh/releases/latest) and extract:
 
 ```sh
-VERSION=0.3.2
+VERSION=0.3.3
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 

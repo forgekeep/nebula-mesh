@@ -29,11 +29,11 @@ package web
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 )
 
@@ -52,8 +52,9 @@ func (w *Web) csrfMiddleware(next http.Handler) http.Handler {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 			cookieToken := getCookie(r, csrfCookieName)
 			if cookieToken == "" {
-				// Generate new token
-				token, err := generateCSRFToken()
+				// Generate new token from the session manager's entropy
+				// source so production and tests share one injection point.
+				token, err := generateCSRFToken(w.session.csrfRand)
 				if err != nil {
 					http.Error(rw, "Internal server error", http.StatusInternalServerError)
 					return
@@ -180,10 +181,13 @@ func csrfFieldHTML(token string) template.HTML {
 	return template.HTML(fmt.Sprintf(`<input type="hidden" name="_csrf" value="%s">`, escaped))
 }
 
-// generateCSRFToken generates a new 32-byte CSRF token (hex-encoded).
-func generateCSRFToken() (string, error) {
+// generateCSRFToken generates a new 32-byte CSRF token (hex-encoded) from
+// the given entropy source. Production callers pass rand.Reader; tests
+// pass a failing reader via SessionManager.csrfRand to exercise the
+// fail-closed rotation paths in session.go (see csrf_failclosed_test.go).
+func generateCSRFToken(r io.Reader) (string, error) {
 	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := io.ReadFull(r, b); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil

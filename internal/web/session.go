@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -26,11 +27,25 @@ const (
 type SessionManager struct {
 	store        store.Store
 	cookieSecure bool
+
+	// csrfRand is the entropy source for CSRF token rotation. Production
+	// callers leave it at the default (rand.Reader). Tests substitute a
+	// failing reader via SetCSRFRandForTest to exercise the fail-closed
+	// rotation paths without a package-level var swap (no parallel-test
+	// race when other web tests adopt t.Parallel()).
+	csrfRand io.Reader
 }
 
 // NewSessionManager creates a new session manager backed by the given store.
 func NewSessionManager(s store.Store) *SessionManager {
-	return &SessionManager{store: s}
+	return &SessionManager{store: s, csrfRand: rand.Reader}
+}
+
+// SetCSRFRandForTest swaps the CSRF entropy source on this SessionManager
+// instance. Tests use this to inject a failing reader and pin the
+// fail-closed rotation behavior; production callers never need it.
+func (sm *SessionManager) SetCSRFRandForTest(r io.Reader) {
+	sm.csrfRand = r
 }
 
 // SetCookieSecure controls the Secure attribute on session cookies. Called
@@ -71,15 +86,25 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 		return LoginResult{}, false, nil //nolint:nilerr
 	}
 
+	// Generate both tokens BEFORE any DB write or response mutation.
+	// A crypto/rand failure here must not leave a half-built session in
+	// the DB or a stale CSRF cookie on the browser — see #144.
 	token, err := generateToken()
 	if err != nil {
-		return LoginResult{}, false, err
+		return LoginResult{}, false, fmt.Errorf("generate session token: %w", err)
 	}
+	csrfToken, err := generateCSRFToken(sm.csrfRand)
+	if err != nil {
+		return LoginResult{}, false, fmt.Errorf("generate csrf token: %w", err)
+	}
+
 	state := models.SessionStateAuthenticated
 	expires := time.Now().Add(sessionDuration)
+	cookieMaxAge := int(sessionDuration.Seconds())
 	if op.TOTPEnabled {
 		state = models.SessionStatePendingTOTP
 		expires = time.Now().Add(pendingTOTPMaxLife)
+		cookieMaxAge = int(pendingTOTPMaxLife.Seconds())
 	}
 	if err := sm.store.CreateOperatorSession(r.Context(), &models.OperatorSession{
 		Token:      token,
@@ -89,15 +114,10 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 	}); err != nil {
 		return LoginResult{}, false, fmt.Errorf("create session: %w", err)
 	}
-	cookieMaxAge := int(sessionDuration.Seconds())
-	if op.TOTPEnabled {
-		cookieMaxAge = int(pendingTOTPMaxLife.Seconds())
-	} else {
-		if err := sm.store.UpdateOperatorLastLogin(r.Context(), op.ID, time.Now()); err != nil {
-			slog.Debug("update last login", "error", err)
-		}
-	}
 
+	// Both tokens already generated above; only commit to the response
+	// and the secondary last_login_at write now that the session row
+	// is durable.
 	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure gated by sm.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
 		Name:     sessionCookieName,
 		Value:    token,
@@ -107,13 +127,11 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   cookieMaxAge,
 	})
-
-	// Rotate CSRF token on privilege transition
-	csrfToken, err := generateCSRFToken()
-	if err != nil {
-		slog.Warn("generate CSRF token", "error", err)
-	} else {
-		setCSRFCookie(w, csrfToken, sm.cookieSecure)
+	setCSRFCookie(w, csrfToken, sm.cookieSecure)
+	if !op.TOTPEnabled {
+		if err := sm.store.UpdateOperatorLastLogin(r.Context(), op.ID, time.Now()); err != nil {
+			slog.Debug("update last login", "error", err)
+		}
 	}
 
 	return LoginResult{Operator: op, NeedsTOTP: op.TOTPEnabled}, true, nil
@@ -123,10 +141,18 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 // given operator and sets the session cookie. Used by external login flows
 // (e.g. OIDC) that have already verified the operator's identity.
 func (sm *SessionManager) StartAuthenticatedSession(w http.ResponseWriter, r *http.Request, op *models.Operator) error {
+	// Generate both tokens BEFORE any DB write or response mutation
+	// so an entropy failure surfaces without partial side effects.
+	// See Login for the rationale (#144).
 	token, err := generateToken()
 	if err != nil {
-		return err
+		return fmt.Errorf("generate session token: %w", err)
 	}
+	csrfToken, err := generateCSRFToken(sm.csrfRand)
+	if err != nil {
+		return fmt.Errorf("generate csrf token: %w", err)
+	}
+
 	expires := time.Now().Add(sessionDuration)
 	if err := sm.store.CreateOperatorSession(r.Context(), &models.OperatorSession{
 		Token:      token,
@@ -136,9 +162,7 @@ func (sm *SessionManager) StartAuthenticatedSession(w http.ResponseWriter, r *ht
 	}); err != nil {
 		return fmt.Errorf("create session: %w", err)
 	}
-	if err := sm.store.UpdateOperatorLastLogin(r.Context(), op.ID, time.Now()); err != nil {
-		slog.Debug("update last login", "error", err)
-	}
+
 	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure gated by sm.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
 		Name:     sessionCookieName,
 		Value:    token,
@@ -148,13 +172,9 @@ func (sm *SessionManager) StartAuthenticatedSession(w http.ResponseWriter, r *ht
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
-
-	// Rotate CSRF token on privilege transition
-	csrfToken, err := generateCSRFToken()
-	if err != nil {
-		slog.Warn("generate CSRF token", "error", err)
-	} else {
-		setCSRFCookie(w, csrfToken, sm.cookieSecure)
+	setCSRFCookie(w, csrfToken, sm.cookieSecure)
+	if err := sm.store.UpdateOperatorLastLogin(r.Context(), op.ID, time.Now()); err != nil {
+		slog.Debug("update last login", "error", err)
 	}
 
 	return nil
@@ -176,18 +196,30 @@ func (sm *SessionManager) PendingOperator(r *http.Request) *models.Operator {
 
 // CompleteTwoFactor promotes the current pending session to fully
 // authenticated, refreshes the cookie expiry, and updates last_login_at.
+//
+// On CSRF rotation entropy failure (#144), CompleteTwoFactor returns
+// without promoting the session — the pending_totp row stays alive
+// for its remaining TTL so the user can retry the second factor
+// without re-entering the password.
 func (sm *SessionManager) CompleteTwoFactor(w http.ResponseWriter, r *http.Request, operatorID string) error {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
 		return fmt.Errorf("missing session cookie: %w", err)
 	}
+
+	// Generate the rotated CSRF token BEFORE promoting. An entropy
+	// failure here must leave the pending session intact so the user
+	// can retry the second factor — see #144 and the doc comment above.
+	csrfToken, err := generateCSRFToken(sm.csrfRand)
+	if err != nil {
+		return fmt.Errorf("generate csrf token: %w", err)
+	}
+
 	newExpiry := time.Now().Add(sessionDuration)
 	if err := sm.store.PromoteOperatorSession(r.Context(), cookie.Value, newExpiry); err != nil {
 		return fmt.Errorf("promote session: %w", err)
 	}
-	if err := sm.store.UpdateOperatorLastLogin(r.Context(), operatorID, time.Now()); err != nil {
-		slog.Debug("update last login", "error", err)
-	}
+
 	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure gated by sm.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
 		Name:     sessionCookieName,
 		Value:    cookie.Value,
@@ -197,13 +229,9 @@ func (sm *SessionManager) CompleteTwoFactor(w http.ResponseWriter, r *http.Reque
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
-
-	// Rotate CSRF token on privilege transition
-	csrfToken, err := generateCSRFToken()
-	if err != nil {
-		slog.Warn("generate CSRF token", "error", err)
-	} else {
-		setCSRFCookie(w, csrfToken, sm.cookieSecure)
+	setCSRFCookie(w, csrfToken, sm.cookieSecure)
+	if err := sm.store.UpdateOperatorLastLogin(r.Context(), operatorID, time.Now()); err != nil {
+		slog.Debug("update last login", "error", err)
 	}
 
 	return nil

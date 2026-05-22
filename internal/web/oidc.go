@@ -261,6 +261,10 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Compute details once so the failure-branch audit row carries
+	// the same `email_unverified_accepted=true` marker as the success
+	// row — forensics for bypass-logins shouldn't drop a request just
+	// because the session step errored.
 	details := issuer
 	if emailUnverifiedAccepted {
 		// Append rather than replace so existing queries against the
@@ -270,13 +274,18 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 		// shape used elsewhere in the audit log.
 		details = fmt.Sprintf("%s email_unverified_accepted=true", issuer)
 	}
-	_ = o.store.AddAuditEntry(r.Context(), op.Username, "operator.oidc.login", op.ID, details)
 
 	if err := o.session.StartAuthenticatedSession(rw, r, op); err != nil {
+		// Audit the failure so forensics can distinguish a rejected
+		// or errored OIDC login from a verified-and-promoted one;
+		// the success-side `operator.oidc.login` row is only written
+		// below, after the session has actually been promoted.
+		_ = o.store.AddAuditEntry(r.Context(), op.Username, "operator.oidc.session_failed", op.ID, details)
 		o.logger.Error("oidc session", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	_ = o.store.AddAuditEntry(r.Context(), op.Username, "operator.oidc.login", op.ID, details)
 	http.Redirect(rw, r, "/ui/", http.StatusSeeOther)
 }
 

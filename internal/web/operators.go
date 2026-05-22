@@ -321,6 +321,16 @@ func (w *Web) handleOperatorRevokeAPIKey(rw http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := w.store.RevokeOperatorAPIKey(r.Context(), kid); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			// Concurrent revoke (another admin in another session, or a
+			// DisableOperator cascade) won the CAS between the
+			// GetOperatorAPIKey snapshot above and this UPDATE. Already
+			// revoked — mirror the RevokedAt != nil idempotent branch
+			// above (303 redirect, no audit row, since this actor's call
+			// did not cause the state change).
+			http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: hardcoded /ui/operators/ prefix ensures Location stays on the current host regardless of id contents
+			return
+		}
 		w.logger.Error("revoke api key", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return

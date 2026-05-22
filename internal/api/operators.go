@@ -210,6 +210,16 @@ func (s *Server) handleRevokeOperatorAPIKey(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := s.store.RevokeOperatorAPIKey(r.Context(), kid); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			// Concurrent revoke (another admin, or a DisableOperator
+			// cascade) won the CAS between the GetOperatorAPIKey
+			// snapshot above and this UPDATE. Already revoked — mirror
+			// the RevokedAt != nil idempotent branch above (204, no
+			// audit row, since this actor's call did not cause the
+			// state change).
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		s.logger.Error("revoke api key", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to revoke api key")
 		return

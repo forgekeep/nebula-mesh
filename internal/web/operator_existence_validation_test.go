@@ -7,12 +7,36 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
 )
+
+// concurrentRevokeStore wraps store.Store and injects exactly one CAS-race
+// on the first GetOperatorAPIKey of a non-revoked key by revoking the row
+// directly before the snapshot is returned. The handler's *models.OperatorAPIKey
+// pointer still reflects RevokedAt == nil (unmarshalled before the
+// wrapper's intervening UPDATE), so the handler falls past the
+// RevokedAt != nil early-return and into RevokeOperatorAPIKey, which now
+// returns store.ErrNotFound from the WHERE revoked_at IS NULL CAS clause.
+// Exercises the TOCTOU window between GetOperatorAPIKey and the atomic CAS.
+type concurrentRevokeStore struct {
+	store.Store
+	raceOnce sync.Once
+}
+
+func (r *concurrentRevokeStore) GetOperatorAPIKey(ctx context.Context, kid string) (*models.OperatorAPIKey, error) {
+	key, err := r.Store.GetOperatorAPIKey(ctx, kid)
+	if err == nil && key != nil && key.RevokedAt == nil {
+		r.raceOnce.Do(func() {
+			_ = r.RevokeOperatorAPIKey(ctx, kid)
+		})
+	}
+	return key, err
+}
 
 // TestHandleOperatorDisable_NonExistent_Returns404 verifies that
 // POST /ui/operators/{id}/disable with a non-existent {id} returns 404
@@ -372,5 +396,70 @@ func TestHandleOperator_HappyPath_AuditRowsCorrect(t *testing.T) {
 			t.Errorf("missing audit entry for action=%q resource=%q details=%q actor=root; got %d entries: %+v",
 				c.action, c.resource, c.details, len(entries), entries)
 		}
+	}
+}
+
+// TestHandleOperatorRevokeAPIKey_ConcurrentRevokeRace_Idempotent verifies
+// the TOCTOU branch on the UI surface: if a concurrent revoke (another
+// admin or a DisableOperator cascade) wins the CAS between the
+// GetOperatorAPIKey snapshot and the RevokeOperatorAPIKey UPDATE, the
+// second actor's POST must still return 303 with no new audit row,
+// mirroring the RevokedAt != nil early-return path. Before the fix the
+// race-loser surfaced as a 500 because store.ErrNotFound from the CAS
+// clause fell into the default error branch.
+func TestHandleOperatorRevokeAPIKey_ConcurrentRevokeRace_Idempotent(t *testing.T) {
+	w, s := newOperatorsWeb(t)
+	cookie := mintSession(t, s, "root", "admin")
+	ctx := context.Background()
+
+	if err := s.CreateOperator(ctx, &models.Operator{
+		ID:           "op-race",
+		Username:     "race",
+		PasswordHash: "x",
+		Status:       models.OperatorStatusActive,
+		Role:         "user",
+		AuthProvider: models.OperatorAuthLocal,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}); err != nil {
+		t.Fatalf("seed race: %v", err)
+	}
+	sum := sha256.Sum256([]byte("race-token"))
+	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
+		ID: "key-race", OperatorID: "op-race", Name: "r", KeyHash: hex.EncodeToString(sum[:]), CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("create race key: %v", err)
+	}
+
+	// Swap the web's store to one that races a concurrent revoke into the
+	// gap between GetOperatorAPIKey and RevokeOperatorAPIKey. Done after
+	// seeding so the seed path uses the real store directly.
+	w.store = &concurrentRevokeStore{Store: w.store}
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/operators/op-race/api-keys/key-race/revoke", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303 (idempotent on CAS-loss race)", rec.Code)
+	}
+
+	// Race-loser writes no audit row.
+	entries, err := s.ListAuditEntries(ctx, store.AuditFilter{Action: "operator.api_key.revoke", Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("got %d revoke audit entries from race-loser, want 0", len(entries))
+	}
+
+	// Key is in fact revoked (by the race injection).
+	got, err := s.GetOperatorAPIKey(ctx, "key-race")
+	if err != nil {
+		t.Fatalf("get key: %v", err)
+	}
+	if got.RevokedAt == nil {
+		t.Error("key should be revoked after concurrent-revoke race injection")
 	}
 }

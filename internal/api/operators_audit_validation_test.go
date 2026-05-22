@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -13,6 +14,29 @@ import (
 	"github.com/juev/nebula-mesh/internal/models"
 	"github.com/juev/nebula-mesh/internal/store"
 )
+
+// concurrentRevokeStore wraps store.Store and injects exactly one CAS-race
+// on the first GetOperatorAPIKey of a non-revoked key by revoking the row
+// directly before the snapshot is returned. The handler's *models.OperatorAPIKey
+// pointer still reflects RevokedAt == nil (since it was unmarshalled before
+// the wrapper's intervening UPDATE), so the handler falls through past the
+// RevokedAt != nil early-return and into RevokeOperatorAPIKey, which now
+// returns store.ErrNotFound from the WHERE revoked_at IS NULL CAS clause.
+// Exercises the TOCTOU window between GetOperatorAPIKey and the atomic CAS.
+type concurrentRevokeStore struct {
+	store.Store
+	raceOnce sync.Once
+}
+
+func (r *concurrentRevokeStore) GetOperatorAPIKey(ctx context.Context, kid string) (*models.OperatorAPIKey, error) {
+	key, err := r.Store.GetOperatorAPIKey(ctx, kid)
+	if err == nil && key != nil && key.RevokedAt == nil {
+		r.raceOnce.Do(func() {
+			_ = r.RevokeOperatorAPIKey(ctx, kid)
+		})
+	}
+	return key, err
+}
 
 // seedOperatorWithKey seeds an operator + one API key and returns both ids
 // plus the raw token (caller usually only needs the ids). Distinct from
@@ -180,5 +204,54 @@ func TestAPI_HandleRevokeOperatorAPIKey_AlreadyRevoked_Idempotent(t *testing.T) 
 	}
 	if len(second) != 1 {
 		t.Errorf("after second revoke: %d audit entries, want 1 (no new row for idempotent re-revoke)", len(second))
+	}
+}
+
+// TestAPI_HandleRevokeOperatorAPIKey_ConcurrentRevokeRace_Idempotent
+// verifies the TOCTOU branch added on top of the GetOperatorAPIKey →
+// RevokeOperatorAPIKey sequence: if a concurrent revoke (another admin or
+// a DisableOperator cascade) wins the CAS between the lookup and the
+// UPDATE, the second actor's call must still return 204 with no new
+// audit row, mirroring the RevokedAt != nil early-return path. Before
+// the fix the race-loser surfaced as a 500 because store.ErrNotFound
+// from the CAS clause fell into the default error branch.
+func TestAPI_HandleRevokeOperatorAPIKey_ConcurrentRevokeRace_Idempotent(t *testing.T) {
+	srv, base := newTestServer(t)
+	adminKey := createUserWithAPIKey(t, srv, "admin")
+	opID, keyID, _ := seedOperatorWithKey(t, srv, "race", "user")
+
+	// Swap the server's store to one that races a concurrent revoke into
+	// the gap between GetOperatorAPIKey and RevokeOperatorAPIKey. Done
+	// after seeding so the seed path uses the real store directly.
+	srv.store = &concurrentRevokeStore{Store: srv.store}
+
+	req := httptest.NewRequest(http.MethodDelete,
+		"/api/v1/operators/"+opID+"/api-keys/"+keyID, nil)
+	req.Header.Set("Authorization", "Bearer "+adminKey)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204 (idempotent on CAS-loss race)", rec.Code)
+	}
+
+	// Race-loser writes no audit row — only the race-winning revoke (which
+	// in this test was the wrapper's direct store call, intentionally
+	// bypassing audit) caused the state change.
+	entries, err := base.ListAuditEntries(context.Background(), store.AuditFilter{Action: auditOperatorAPIKeyRevoke, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("got %d revoke audit entries from race-loser, want 0", len(entries))
+	}
+
+	// Key is in fact revoked (by the race injection).
+	got, err := base.GetOperatorAPIKey(context.Background(), keyID)
+	if err != nil {
+		t.Fatalf("get key: %v", err)
+	}
+	if got.RevokedAt == nil {
+		t.Error("key should be revoked after concurrent-revoke race injection")
 	}
 }

@@ -345,3 +345,22 @@ func TestCSRF_GenerateToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, token1, token2, "expected different tokens on each call")
 }
+
+// TestCSRF_PreAuthPOST_RequiresToken verifies that the pre-auth POST routes
+// (/ui/login, /ui/login/totp, /ui/register) reject submissions without a
+// CSRF cookie+token. These are the routes that justify keeping csrfMiddleware
+// outside requireAuth (login-CSRF defense).
+func TestCSRF_PreAuthPOST_RequiresToken(t *testing.T) {
+	for _, path := range []string{"/ui/login", "/ui/login/totp", "/ui/register"} {
+		t.Run(path, func(t *testing.T) {
+			w, _ := newTestWeb(t)
+			form := url.Values{"username": {"x"}, "password": {"y"}}
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			rec := httptest.NewRecorder()
+			w.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusForbidden, rec.Code,
+				"expected 403 for pre-auth POST %s without CSRF", path)
+		})
+	}
+}

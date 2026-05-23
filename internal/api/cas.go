@@ -37,7 +37,7 @@ func (s *Server) handleListCAs(w http.ResponseWriter, r *http.Request) {
 		cas []*models.CA
 		err error
 	)
-	if actorIsAdmin(r.Context()) {
+	if s.isActiveAdmin(r.Context()) {
 		cas, err = s.store.ListCAs(r.Context())
 	} else {
 		cas, err = s.store.ListCAsByOwner(r.Context(), ActorOf(r.Context()).ID)
@@ -183,7 +183,7 @@ func (s *Server) handleDeleteCA(w http.ResponseWriter, r *http.Request) {
 
 // canAccessCA checks ownership. Admins bypass.
 func (s *Server) canAccessCA(r *http.Request, c *models.CA) bool {
-	if actorIsAdmin(r.Context()) {
+	if s.isActiveAdmin(r.Context()) {
 		return true
 	}
 	return ActorOf(r.Context()).ID == c.OwnerOperatorID

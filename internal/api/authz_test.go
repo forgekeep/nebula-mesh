@@ -74,7 +74,7 @@ func TestActorOwnsCA_Admin(t *testing.T) {
 	srv, st := newTestServer(t)
 	ctx := context.Background()
 
-	// Admin operator
+	// seed: actorOwnsCA now re-fetches via isActiveAdmin.
 	adminOp := &models.Operator{
 		ID:           "admin-op",
 		Username:     "admin-test",
@@ -82,6 +82,9 @@ func TestActorOwnsCA_Admin(t *testing.T) {
 		Role:         "admin",
 		Status:       models.OperatorStatusActive,
 		AuthProvider: models.OperatorAuthLocal,
+	}
+	if err := st.CreateOperator(ctx, adminOp); err != nil {
+		t.Fatalf("seed admin op: %v", err)
 	}
 	ctx = context.WithValue(ctx, actorContextKey, adminOp)
 

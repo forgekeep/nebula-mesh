@@ -188,7 +188,7 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// For non-admin, scope to owned CAs
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		actor := ActorOf(r.Context())
 		if actor == nil {
 			writeJSON(w, http.StatusOK, []*models.Host{})
@@ -354,7 +354,7 @@ func (s *Server) handleUnblockHost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetBlocklist(w http.ResponseWriter, r *http.Request) {
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		writeError(w, http.StatusForbidden, "blocklist access requires the admin role")
 		return
 	}

@@ -22,7 +22,7 @@ type settingsResponse struct {
 // Admin-only because exposing the surface to non-admins gives them a
 // view of the deployment's security posture.
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		writeError(w, http.StatusForbidden, "admin role required")
 		return
 	}
@@ -33,7 +33,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 // handlePatchSettings updates one or more admin-tunable settings.
 // Currently exposes only enforce_2fa; will grow with the rest of #47.
 func (s *Server) handlePatchSettings(w http.ResponseWriter, r *http.Request) {
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		writeError(w, http.StatusForbidden, "admin role required")
 		return
 	}

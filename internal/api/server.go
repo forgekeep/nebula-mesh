@@ -12,7 +12,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	poppkg "github.com/juev/nebula-mesh/internal/api/pop"
 	"github.com/juev/nebula-mesh/internal/auth"
 	"github.com/juev/nebula-mesh/internal/configgen"
 	"github.com/juev/nebula-mesh/internal/keystore"
@@ -35,7 +34,6 @@ type Server struct {
 	limiter            *ratelimit.Limiter
 	passwordPolicy     auth.Policy
 	enrollmentTokenTTL time.Duration
-	nonceCache         *poppkg.NonceCache
 }
 
 // NewServer creates a new API server.
@@ -47,14 +45,10 @@ func NewServer(s store.Store, logger *slog.Logger) *Server {
 		metricsEnabled:     true,
 		passwordPolicy:     auth.Default(),
 		enrollmentTokenTTL: 24 * time.Hour,
-		nonceCache:         poppkg.NewNonceCache(poppkg.NonceCacheConfig{}),
 	}
 	srv.setupRoutes()
 	return srv
 }
-
-// nonces returns the per-server replay-protection cache.
-func (s *Server) nonces() *poppkg.NonceCache { return s.nonceCache }
 
 // WithEnrollmentTokenTTL sets the default enrollment-token TTL applied when
 // the per-network override is unset. Default is 24h (ADR 0004 §7.1).

@@ -23,6 +23,7 @@ var (
 	ErrTokenExpired        = errors.New("token expired")
 	ErrDuplicateEntry      = errors.New("duplicate entry")
 	ErrRekeyAlreadyPending = errors.New("rekey already pending")
+	ErrReplayedNonce       = errors.New("replayed nonce")
 )
 
 // SQLiteStore implements Store using SQLite.
@@ -115,6 +116,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"014_multi_address.up.sql",
 		"015_ca_predecessor.up.sql",
 		"016_enrollment_token_hash.up.sql",
+		"017_pop_nonces.up.sql",
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.

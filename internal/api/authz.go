@@ -8,10 +8,29 @@ import (
 	"github.com/juev/nebula-mesh/internal/store"
 )
 
+// isActiveAdmin re-fetches the captured-ctx actor and reports whether
+// they are still an active admin. Round-trips the operators table per
+// call. Closes the stale-snapshot gap but not the residual TOCTOU
+// between this check and the handler's subsequent mutating SQL.
+func (s *Server) isActiveAdmin(ctx context.Context) bool {
+	captured := ActorOf(ctx)
+	if captured == nil {
+		return false
+	}
+	fresh, err := s.store.GetOperator(ctx, captured.ID)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			s.logger.Error("isActiveAdmin: store lookup", "operator", captured.ID, "error", err)
+		}
+		return false
+	}
+	return fresh.Status == models.OperatorStatusActive && fresh.Role == "admin"
+}
+
 // actorOwnsCA returns true if the actor in ctx is admin, or owns the CA with caID.
 // Returns (false, nil) for empty caID or ErrNotFound. Errors only for unexpected DB errors.
 func (s *Server) actorOwnsCA(ctx context.Context, caID string) (bool, error) {
-	if actorIsAdmin(ctx) {
+	if s.isActiveAdmin(ctx) {
 		return true, nil
 	}
 	if caID == "" {

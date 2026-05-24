@@ -25,7 +25,7 @@ type createOperatorRequest struct {
 }
 
 func (s *Server) handleCreateOperator(w http.ResponseWriter, r *http.Request) {
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		writeError(w, http.StatusForbidden, "operator management requires the admin role")
 		return
 	}
@@ -65,7 +65,7 @@ func (s *Server) handleCreateOperator(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListOperators(w http.ResponseWriter, r *http.Request) {
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		writeError(w, http.StatusForbidden, "operator management requires the admin role")
 		return
 	}
@@ -82,7 +82,7 @@ func (s *Server) handleListOperators(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDisableOperator(w http.ResponseWriter, r *http.Request) {
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		writeError(w, http.StatusForbidden, "operator management requires the admin role")
 		return
 	}
@@ -101,7 +101,7 @@ func (s *Server) handleDisableOperator(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEnableOperator(w http.ResponseWriter, r *http.Request) {
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		writeError(w, http.StatusForbidden, "operator management requires the admin role")
 		return
 	}
@@ -129,7 +129,7 @@ type createAPIKeyResponse struct {
 }
 
 func (s *Server) handleCreateOperatorAPIKey(w http.ResponseWriter, r *http.Request) {
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		writeError(w, http.StatusForbidden, "operator management requires the admin role")
 		return
 	}
@@ -172,7 +172,7 @@ func (s *Server) handleCreateOperatorAPIKey(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleRevokeOperatorAPIKey(w http.ResponseWriter, r *http.Request) {
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		writeError(w, http.StatusForbidden, "operator management requires the admin role")
 		return
 	}
@@ -229,7 +229,7 @@ func (s *Server) handleRevokeOperatorAPIKey(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleListOperatorAPIKeys(w http.ResponseWriter, r *http.Request) {
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		writeError(w, http.StatusForbidden, "operator management requires the admin role")
 		return
 	}

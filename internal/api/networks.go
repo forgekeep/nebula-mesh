@@ -18,7 +18,7 @@ type createNetworkRequest struct {
 }
 
 func (s *Server) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		writeError(w, http.StatusForbidden, "network creation requires the admin role")
 		return
 	}
@@ -60,7 +60,7 @@ func (s *Server) handleListNetworks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list networks")
 		return
 	}
-	if !actorIsAdmin(r.Context()) {
+	if !s.isActiveAdmin(r.Context()) {
 		actor := ActorOf(r.Context())
 		if actor == nil {
 			writeJSON(w, http.StatusOK, []*models.Network{})

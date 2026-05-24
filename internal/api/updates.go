@@ -111,10 +111,17 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Replay protection.
-	if !s.nonces().SeenOrAdd(host.ID, nonce) {
-		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonReplayedNonce)
-		writeError(w, http.StatusUnauthorized, "replayed_nonce")
+	// Replay protection — persist (host, nonce) for the skew window so a
+	// replay survives restart and can't be evicted by a noisy neighbor.
+	// GHSA-v2jf-442r-6mjh. Fail closed on store error.
+	if err := s.store.AddPopNonce(r.Context(), host.ID, nonce, ts.Add(pollClockSkew)); err != nil {
+		if errors.Is(err, store.ErrReplayedNonce) {
+			s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonReplayedNonce)
+			writeError(w, http.StatusUnauthorized, "replayed_nonce")
+			return
+		}
+		s.logger.Error("record poll nonce", "host", host.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to check replay")
 		return
 	}
 

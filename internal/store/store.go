@@ -70,6 +70,13 @@ type Store interface {
 	ClearPendingRekey(ctx context.Context, hostID string) error
 	UpdateHostSigningPub(ctx context.Context, hostID, signingPubPEM string) error
 
+	// AddPopNonce records a (hostID, nonce) pair valid until expiresAt.
+	// Returns nil when the row was freshly inserted (or replaced an expired
+	// duplicate); returns ErrReplayedNonce when a live duplicate exists.
+	// Rows past expiresAt are pruned lazily on the next call; callers must
+	// not infer freshness from the row's age alone. GHSA-v2jf-442r-6mjh.
+	AddPopNonce(ctx context.Context, hostID, nonce string, expiresAt time.Time) error
+
 	// Enrollment tokens
 	CreateHostAndToken(ctx context.Context, h *models.Host, t *models.EnrollmentToken) error
 	CreateToken(ctx context.Context, t *models.EnrollmentToken) error

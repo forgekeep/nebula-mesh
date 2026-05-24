@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
@@ -329,7 +330,7 @@ func TestCSRF_TokenFromContext(t *testing.T) {
 // TestCSRF_GenerateToken verifies generateCSRFToken produces valid hex-encoded
 // 32-byte tokens with reasonable randomness.
 func TestCSRF_GenerateToken(t *testing.T) {
-	token1, err := generateCSRFToken()
+	token1, err := generateCSRFToken(rand.Reader)
 	require.NoError(t, err)
 	require.NotEmpty(t, token1)
 	// 32 bytes * 2 (hex encoding) = 64 chars
@@ -341,7 +342,7 @@ func TestCSRF_GenerateToken(t *testing.T) {
 	require.Equal(t, 32, len(decoded), "expected 32-byte decoded token")
 
 	// Verify randomness (two calls should differ)
-	token2, err := generateCSRFToken()
+	token2, err := generateCSRFToken(rand.Reader)
 	require.NoError(t, err)
 	assert.NotEqual(t, token1, token2, "expected different tokens on each call")
 }

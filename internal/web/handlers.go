@@ -131,6 +131,15 @@ func (w *Web) handleTOTPLogin(rw http.ResponseWriter, r *http.Request) {
 	if code != "" && verifyTOTP(op.TOTPSecret, code) {
 		ok = true
 	} else if recovery != "" {
+		// Consume atomically: the single UPDATE both verifies and
+		// marks-used in one statement, which is the one-time
+		// guarantee recovery codes need. The trade-off (see #144
+		// follow-up) is that a CompleteTwoFactor failure below
+		// will have already burned the code; the user must use a
+		// different code on retry. That cost is bounded — the user
+		// can regenerate codes from /ui/2fa — and is preferred over
+		// a verify-then-consume split that opens a TOCTOU window
+		// allowing N concurrent sessions from one one-time code.
 		if err := w.store.ConsumeOperatorRecoveryCode(r.Context(), op.ID, hashRecoveryCode(recovery)); err == nil {
 			ok = true
 			usedRecovery = true

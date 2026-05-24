@@ -160,6 +160,14 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: now,
 	}
 	if err := s.store.CreateHostAndToken(r.Context(), host, token); err != nil {
+		// Reachable only via a TOCTOU race between concurrent host writes: the
+		// validateHostIPs fast-path above returns 400 for any collision visible
+		// at request time, so reaching the store's UNIQUE(network_id, address)
+		// guard means another writer claimed the IP in between.
+		if errors.Is(err, store.ErrIPTaken) {
+			writeError(w, http.StatusConflict, "one or more nebula_ips are already assigned to another host in this network")
+			return
+		}
 		s.logger.Error("create host and token", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to create host")
 		return
@@ -655,6 +663,14 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	// Update timestamp and persist
 	host.UpdatedAt = time.Now()
 	if err := s.store.UpdateHost(r.Context(), host); err != nil {
+		// Reachable only via a TOCTOU race between concurrent host writes: the
+		// validateHostIPs fast-path above returns 400 for any collision visible
+		// at request time, so reaching the store's UNIQUE(network_id, address)
+		// guard means another writer claimed the IP in between.
+		if errors.Is(err, store.ErrIPTaken) {
+			writeError(w, http.StatusConflict, "one or more nebula_ips are already assigned to another host in this network")
+			return
+		}
 		s.logger.Error("update host", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to update host")
 		return

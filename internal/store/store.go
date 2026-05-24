@@ -82,10 +82,12 @@ type Store interface {
 	CreateToken(ctx context.Context, t *models.EnrollmentToken) error
 	CreateTokenForHost(ctx context.Context, hostID, token string, expiresAt time.Time) error
 	ConsumeToken(ctx context.Context, token string) (*models.EnrollmentToken, error)
+	GetEnrollmentToken(ctx context.Context, token string) (*models.EnrollmentToken, error)
 
 	// Certificates
 	SaveCertificate(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	SaveCertificateAndEnrollHost(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
+	ConsumeTokenAndEnrollHost(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	SaveCertificateAndUpdateHostCert(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	GetCurrentCertificate(ctx context.Context, hostID string) ([]byte, error)
 	GetCertificateInfo(ctx context.Context, hostID string) (*models.CertificateInfo, error)

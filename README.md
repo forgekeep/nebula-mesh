@@ -416,7 +416,7 @@ Ops endpoints (`/healthz`, `/readyz`, `/metrics`, `/debug/`, `/favicon.ico`, `/s
 
 ## Contributing
 
-Issues, PRs, and discussions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and `make test && make lint` before opening a PR.
+Issues, PRs, and [Discussions](https://github.com/juev/nebula-mesh/discussions) welcome — ask setup questions in [Q&A](https://github.com/juev/nebula-mesh/discussions/categories/q-a) or share how you run it in [Show and tell](https://github.com/juev/nebula-mesh/discussions/categories/show-and-tell). See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and `make test && make lint` before opening a PR.
 
 ## License
 

@@ -206,13 +206,20 @@ func (w *Web) renderHostNewError(rw http.ResponseWriter, r *http.Request, form h
 // empty the template hides the create form and shows the "create a CA
 // first" alert instead.
 func (w *Web) renderNetworksError(rw http.ResponseWriter, r *http.Request, form networkFormState, cas []*models.CA, errMsg string) {
-	networks, err := w.store.ListNetworks(r.Context())
-	if err != nil {
-		w.logger.Error("list networks", "error", err)
-		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
-		return
-	}
 	op := w.session.CurrentOperator(r)
+	// Scope the network list to what the operator may see — admins see all,
+	// non-admins only networks under CAs they own. Without this the create-form
+	// error re-render leaks every tenant's network names and CIDRs.
+	var networks []*models.Network
+	if op != nil {
+		var err error
+		networks, err = w.accessibleNetworks(r.Context(), op)
+		if err != nil {
+			w.logger.Error("list networks", "error", err)
+			http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
+			return
+		}
+	}
 	isAdmin := op != nil && op.Role == "admin"
 	w.renderForRequestWithStatus(rw, r, http.StatusBadRequest, "networks.html", map[string]any{
 		"Active":     "networks",

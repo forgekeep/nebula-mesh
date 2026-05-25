@@ -89,6 +89,33 @@ func (w *Web) handleHostEvents(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Scope the stream to the operator's own hosts. Admins receive every
+	// event; a non-admin only receives events for networks they own — the
+	// event carries the host's network_id (api/updates.go), matched against
+	// the operator's accessible networks. Fail closed: an event whose network
+	// the operator doesn't own (or a blank network_id) is dropped. Networks
+	// created after the stream opens need a page reload to appear, which is
+	// acceptable for a live-update convenience view.
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	isAdmin := op.Role == "admin"
+	var ownedNetworks map[string]struct{}
+	if !isAdmin {
+		nets, err := w.accessibleNetworks(r.Context(), op)
+		if err != nil {
+			w.logger.Error("list networks for event scope", "error", err)
+			http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		ownedNetworks = make(map[string]struct{}, len(nets))
+		for _, n := range nets {
+			ownedNetworks[n.ID] = struct{}{}
+		}
+	}
+
 	rw.Header().Set("Content-Type", "text/event-stream")
 	rw.Header().Set("Cache-Control", "no-cache")
 	rw.Header().Set("Connection", "keep-alive")
@@ -121,6 +148,11 @@ func (w *Web) handleHostEvents(rw http.ResponseWriter, r *http.Request) {
 		case ev, ok := <-ch:
 			if !ok {
 				return
+			}
+			if !isAdmin {
+				if _, owned := ownedNetworks[ev.NetworkID]; ev.NetworkID == "" || !owned {
+					continue // not this operator's host — drop
+				}
 			}
 			payload, err := json.Marshal(ev)
 			if err != nil {

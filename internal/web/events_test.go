@@ -65,12 +65,14 @@ func TestEventBus_SlowSubscriberDropped(t *testing.T) {
 }
 
 func TestHandleHostEvents_StreamsEvent(t *testing.T) {
+	w, s := newSettingsWeb(t)
 	bus := NewEventBus()
-	w := &Web{events: bus}
+	w.WithEventBus(bus)
+	// An admin operator receives every event (no per-tenant filtering).
+	cookie := authedSession(t, s, "root", "admin")
 
-	// Standalone request: bypass the auth middleware since we just want
-	// to test the SSE producer.
 	r := httptest.NewRequest(http.MethodGet, "/ui/events", nil)
+	r.AddCookie(cookie)
 	ctx, cancel := context.WithCancel(r.Context())
 	r = r.WithContext(ctx)
 	rec := httptest.NewRecorder()
@@ -110,5 +112,46 @@ func TestHandleHostEvents_NoBus_NotFound(t *testing.T) {
 	w.handleHostEvents(rec, r)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 when event bus is unset", rec.Code)
+	}
+}
+
+// TestHandleHostEvents_ScopedToOwner pins that a non-admin's SSE stream only
+// carries events for networks they own — events for another tenant's network
+// are dropped (fail-closed on network ownership).
+func TestHandleHostEvents_ScopedToOwner(t *testing.T) {
+	w, s := newSettingsWeb(t)
+	bus := NewEventBus()
+	w.WithEventBus(bus)
+	cookie := authedSession(t, s, "bob", "user")
+	authedSession(t, s, "alice", "user")
+	_, foreignNet, _ := seedTenant(t, s, "op-alice", "a")
+	_, ownNet, _ := seedTenant(t, s, "op-bob", "b")
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/events", nil)
+	r.AddCookie(cookie)
+	ctx, cancel := context.WithCancel(r.Context())
+	r = r.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		w.handleHostEvents(rec, r)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	bus.Publish(HostSeenEvent{HostID: "hf", LastSeen: time.Now(), NetworkID: foreignNet})
+	bus.Publish(HostSeenEvent{HostID: "ho", LastSeen: time.Now(), NetworkID: ownNet})
+	time.Sleep(50 * time.Millisecond)
+
+	cancel()
+	<-done
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"host_id":"ho"`) {
+		t.Errorf("bob should receive events for his own network:\n%s", body)
+	}
+	if strings.Contains(body, `"host_id":"hf"`) {
+		t.Errorf("bob must not receive events for alice's network:\n%s", body)
 	}
 }

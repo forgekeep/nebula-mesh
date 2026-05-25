@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -561,14 +562,53 @@ func computeStats(hosts []*models.Host, networkCount int) dashboardStats {
 	return stats
 }
 
+// accessibleHosts returns the hosts an operator may see: admins see every
+// host; non-admins see only hosts under CAs they own. Mirrors
+// accessibleNetworks (a blank ca_id is a legacy pre-multi-CA row, hidden from
+// non-admins per issue #93). The owned-CA filter runs in Go after the store
+// query; once HostFilter.CAIDs lands (the API handleListHosts fix, work-yzu3)
+// this should scope in SQL so the row cap can't undercount.
+func (w *Web) accessibleHosts(ctx context.Context, op *models.Operator) ([]*models.Host, error) {
+	hosts, err := w.store.ListHosts(ctx, store.HostFilter{Limit: 1000})
+	if err != nil {
+		return nil, err
+	}
+	if op.Role == "admin" {
+		return hosts, nil
+	}
+	cas, err := w.store.ListCAsByOwner(ctx, op.ID)
+	if err != nil {
+		return nil, err
+	}
+	owned := make(map[string]struct{}, len(cas))
+	for _, c := range cas {
+		owned[c.ID] = struct{}{}
+	}
+	out := make([]*models.Host, 0, len(hosts))
+	for _, h := range hosts {
+		if h.CAID == "" {
+			continue
+		}
+		if _, ok := owned[h.CAID]; ok {
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}
+
 func (w *Web) handleDashboard(rw http.ResponseWriter, r *http.Request) {
-	networks, err := w.store.ListNetworks(r.Context())
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	networks, err := w.accessibleNetworks(r.Context(), op)
 	if err != nil {
 		w.logger.Error("list networks", "error", err)
 		http.Error(rw, "Failed to load dashboard", http.StatusInternalServerError)
 		return
 	}
-	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{Limit: 1000})
+	hosts, err := w.accessibleHosts(r.Context(), op)
 	if err != nil {
 		w.logger.Error("list hosts", "error", err)
 		http.Error(rw, "Failed to load dashboard", http.StatusInternalServerError)
@@ -590,13 +630,18 @@ func (w *Web) handleDashboard(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handlePartialStats(rw http.ResponseWriter, r *http.Request) {
-	networks, err := w.store.ListNetworks(r.Context())
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	networks, err := w.accessibleNetworks(r.Context(), op)
 	if err != nil {
 		w.logger.Error("list networks", "error", err)
 		http.Error(rw, "Failed to load stats", http.StatusInternalServerError)
 		return
 	}
-	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{Limit: 1000})
+	hosts, err := w.accessibleHosts(r.Context(), op)
 	if err != nil {
 		w.logger.Error("list hosts", "error", err)
 		http.Error(rw, "Failed to load stats", http.StatusInternalServerError)
@@ -611,13 +656,18 @@ func (w *Web) handlePartialStats(rw http.ResponseWriter, r *http.Request) {
 // --- Hosts ---
 
 func (w *Web) handleHosts(rw http.ResponseWriter, r *http.Request) {
-	networks, err := w.store.ListNetworks(r.Context())
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	networks, err := w.accessibleNetworks(r.Context(), op)
 	if err != nil {
 		w.logger.Error("list networks", "error", err)
 		http.Error(rw, "Failed to load hosts", http.StatusInternalServerError)
 		return
 	}
-	hosts, err := w.store.ListHosts(r.Context(), store.HostFilter{Limit: 1000})
+	hosts, err := w.accessibleHosts(r.Context(), op)
 	if err != nil {
 		w.logger.Error("list hosts", "error", err)
 		http.Error(rw, "Failed to load hosts", http.StatusInternalServerError)
@@ -851,16 +901,54 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (w *Web) handleHostDetail(rw http.ResponseWriter, r *http.Request) {
+// loadAccessibleHost loads the host named by the {id} URL param and enforces
+// that the session operator may act on it: admins may access any host; a
+// non-admin must own the host's CA. On any failure it writes the response
+// (404 / 403 / login redirect / 500) and returns ok=false. Without this gate
+// the host read/block/delete handlers operated on the raw URL id, letting any
+// authenticated operator reach another operator's hosts.
+//
+// Ownership keys on host.CAID — the host's own ca_id column, which signs its
+// cert and drives CA resolution. This is the authoritative anchor the API's
+// canAccessHost uses; the web create path sets host.CAID = network.CAID, so it
+// agrees with the network-CA check handleHostEdit/handleHostUpdate perform
+// while avoiding the extra network lookup. A blank ca_id is a legacy
+// pre-multi-CA row, hidden from non-admins (issue #93).
+func (w *Web) loadAccessibleHost(rw http.ResponseWriter, r *http.Request) (*models.Host, bool) {
 	id := chi.URLParam(r, "id")
 	host, err := w.store.GetHost(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(rw, r)
-		return
+		return nil, false
 	}
 	if err != nil {
 		w.logger.Error("get host", "error", err)
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		return nil, false
+	}
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return nil, false
+	}
+	if op.Role == "admin" {
+		return host, true
+	}
+	if host.CAID == "" {
+		http.Error(rw, "Forbidden", http.StatusForbidden)
+		return nil, false
+	}
+	ca, err := w.store.GetCA(r.Context(), host.CAID)
+	if err != nil || ca.OwnerOperatorID != op.ID {
+		http.Error(rw, "Forbidden", http.StatusForbidden)
+		return nil, false
+	}
+	return host, true
+}
+
+func (w *Web) handleHostDetail(rw http.ResponseWriter, r *http.Request) {
+	host, ok := w.loadAccessibleHost(rw, r)
+	if !ok {
 		return
 	}
 
@@ -1121,13 +1209,15 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	_, err := w.store.BlockHostAndAddToBlocklist(r.Context(), id, "blocked via UI")
-	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(rw, r)
+	host, ok := w.loadAccessibleHost(rw, r)
+	if !ok {
 		return
 	}
-	if err != nil {
+	if _, err := w.store.BlockHostAndAddToBlocklist(r.Context(), host.ID, "blocked via UI"); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(rw, r)
+			return
+		}
 		w.logger.Error("block host", "error", err)
 		http.Error(rw, "Failed to block host", http.StatusInternalServerError)
 		return
@@ -1138,8 +1228,11 @@ func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleHostDelete(rw http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if err := w.store.DeleteHostAndBlockCert(r.Context(), id, "deleted via UI"); err != nil {
+	host, ok := w.loadAccessibleHost(rw, r)
+	if !ok {
+		return
+	}
+	if err := w.store.DeleteHostAndBlockCert(r.Context(), host.ID, "deleted via UI"); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			http.NotFound(rw, r)
 			return
@@ -1171,7 +1264,7 @@ func (w *Web) handleNetworks(rw http.ResponseWriter, r *http.Request) {
 		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 		return
 	}
-	networks, err := w.store.ListNetworks(r.Context())
+	networks, err := w.accessibleNetworks(r.Context(), op)
 	if err != nil {
 		w.logger.Error("list networks", "error", err)
 		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)

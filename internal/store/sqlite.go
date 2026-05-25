@@ -24,6 +24,7 @@ var (
 	ErrDuplicateEntry      = errors.New("duplicate entry")
 	ErrRekeyAlreadyPending = errors.New("rekey already pending")
 	ErrReplayedNonce       = errors.New("replayed nonce")
+	ErrIPTaken             = errors.New("nebula ip already assigned in network")
 )
 
 // SQLiteStore implements Store using SQLite.
@@ -117,6 +118,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"015_ca_predecessor.up.sql",
 		"016_enrollment_token_hash.up.sql",
 		"017_pop_nonces.up.sql",
+		"018_host_address_network_uniqueness.up.sql",
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.
@@ -463,19 +465,37 @@ func (s *SQLiteStore) ListNetworks(ctx context.Context) ([]*models.Network, erro
 
 // --- Hosts ---
 
-// setHostAddresses replaces all addresses for a host in a transaction.
-// Deletes existing rows and inserts new ones with position-based ordering.
-func (s *SQLiteStore) setHostAddresses(ctx context.Context, tx *sql.Tx, hostID string, addrs []string) error {
+// setHostAddresses replaces a host's overlay addresses. Each row carries the
+// host's network_id so the UNIQUE(network_id, address) index (migration 018)
+// enforces that an overlay IP belongs to at most one host per network. The
+// ON CONFLICT(network_id, address) DO NOTHING clause turns a cross-host
+// collision into a RowsAffected==0 signal (mapped to ErrIPTaken) instead of a
+// raw constraint error, while any *other* violation (PRIMARY KEY, NOT NULL)
+// still surfaces normally rather than being silently swallowed. This is the
+// authoritative guard against the create/update TOCTOU; validateHostIPs in the
+// API layer is a friendly fast-path that returns a 400 naming the conflicting
+// host before the write is attempted.
+func (s *SQLiteStore) setHostAddresses(ctx context.Context, tx *sql.Tx, hostID, networkID string, addrs []string) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM host_addresses WHERE host_id = ?", hostID); err != nil {
 		return fmt.Errorf("delete host addresses: %w", err)
 	}
 
 	for position, addr := range addrs {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO host_addresses (host_id, position, address) VALUES (?, ?, ?)`,
-			hostID, position, addr,
-		); err != nil {
+		res, err := tx.ExecContext(ctx,
+			`INSERT INTO host_addresses (host_id, position, address, network_id)
+			 VALUES (?, ?, ?, ?)
+			 ON CONFLICT(network_id, address) DO NOTHING`,
+			hostID, position, addr, networkID,
+		)
+		if err != nil {
 			return fmt.Errorf("insert host address at position %d: %w", position, err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("host address rows affected at position %d: %w", position, err)
+		}
+		if n == 0 {
+			return fmt.Errorf("nebula_ip %s: %w", addr, ErrIPTaken)
 		}
 	}
 	return nil
@@ -546,7 +566,7 @@ func (s *SQLiteStore) CreateHost(ctx context.Context, h *models.Host) error {
 		return fmt.Errorf("insert host: %w", err)
 	}
 
-	if err := s.setHostAddresses(ctx, tx, h.ID, h.NebulaIPs); err != nil {
+	if err := s.setHostAddresses(ctx, tx, h.ID, h.NetworkID, h.NebulaIPs); err != nil {
 		return err
 	}
 
@@ -797,7 +817,7 @@ func (s *SQLiteStore) UpdateHost(ctx context.Context, h *models.Host) error {
 		return ErrNotFound
 	}
 
-	if err := s.setHostAddresses(ctx, tx, h.ID, h.NebulaIPs); err != nil {
+	if err := s.setHostAddresses(ctx, tx, h.ID, h.NetworkID, h.NebulaIPs); err != nil {
 		return err
 	}
 
@@ -1210,7 +1230,7 @@ func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t 
 		return fmt.Errorf("insert host: %w", err)
 	}
 
-	if err := s.setHostAddresses(ctx, tx, h.ID, h.NebulaIPs); err != nil {
+	if err := s.setHostAddresses(ctx, tx, h.ID, h.NetworkID, h.NebulaIPs); err != nil {
 		return err
 	}
 

@@ -778,8 +778,8 @@ func TestEnroll_HostDeletedAfterTokenCreated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Delete host bypassing FK cascade (simulates race condition:
-	// concurrent delete between ConsumeToken and GetHost)
+	// Delete host bypassing FK cascade (simulates the host being removed after
+	// its enrollment token was issued).
 	if _, err := st.DB().Exec("PRAGMA foreign_keys=OFF"); err != nil {
 		t.Fatal(err)
 	}
@@ -790,7 +790,8 @@ func TestEnroll_HostDeletedAfterTokenCreated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Try enrollment — token is consumed OK, but GetHost returns ErrNotFound
+	// Try enrollment — the peek resolves the token but GetHost returns
+	// ErrNotFound, so enrollment fails before anything is consumed.
 	_, _, signingPEM := generateSigningKeypair(t)
 	enrollBody, _ := json.Marshal(enrollRequest{
 		Token:         resp.EnrollmentToken,

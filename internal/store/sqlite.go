@@ -1272,6 +1272,33 @@ func (s *SQLiteStore) CreateTokenForHost(ctx context.Context, hostID, token stri
 	return nil
 }
 
+// GetEnrollmentToken resolves a raw enrollment token to its row by SHA-256 hex
+// WITHOUT consuming it, applying the same validity checks as ConsumeToken
+// (ErrNotFound / ErrTokenUsed / ErrTokenExpired). It lets the enrollment handler
+// resolve the target host and fail fast before the expensive CA signature; the
+// actual single-use consume then happens atomically with the certificate save
+// in ConsumeTokenAndEnrollHost. Tokens are hashed at rest (GHSA-ghmh-jhmj-wcmf).
+func (s *SQLiteStore) GetEnrollmentToken(ctx context.Context, token string) (*models.EnrollmentToken, error) {
+	t := &models.EnrollmentToken{}
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, host_id, token_hash, used, expires_at, created_at FROM enrollment_tokens WHERE token_hash = ?`,
+		models.HashEnrollmentToken(token),
+	).Scan(&t.ID, &t.HostID, &t.TokenHash, &t.Used, &t.ExpiresAt, &t.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get enrollment token: %w", err)
+	}
+	if t.Used {
+		return nil, ErrTokenUsed
+	}
+	if time.Now().After(t.ExpiresAt) {
+		return nil, ErrTokenExpired
+	}
+	return t, nil
+}
+
 // ConsumeToken accepts the raw token from the caller, hashes it, and
 // looks up by SHA-256 hex. Marks the row used on success. GHSA-ghmh-jhmj-wcmf.
 func (s *SQLiteStore) ConsumeToken(ctx context.Context, token string) (*models.EnrollmentToken, error) {
@@ -1342,9 +1369,10 @@ func (s *SQLiteStore) SaveCertificate(ctx context.Context, hostID string, certPE
 	return nil
 }
 
-// SaveCertificateAndEnrollHost atomically saves a certificate and marks the host as enrolled.
-// If the host has role=lighthouse, the network's config_version is bumped so peer
-// agents pick up the new lighthouse on their next poll.
+// SaveCertificateAndEnrollHost atomically saves a certificate and marks the host
+// as enrolled. Used by token-less enrollment paths (e.g. mobile-bundle
+// generation). The agent token flow uses ConsumeTokenAndEnrollHost, which folds
+// the single-use token consume into the same transaction.
 func (s *SQLiteStore) SaveCertificateAndEnrollHost(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1356,9 +1384,26 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(ctx context.Context, hostID s
 		}
 	}()
 
+	if err := s.enrollHostInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit enroll host: %w", err)
+	}
+	return nil
+}
+
+// enrollHostInTx saves a freshly-signed certificate and flips the host to
+// enrolled within an existing transaction. If the host has role=lighthouse, the
+// network's config_version is bumped so peer agents pick up the new lighthouse
+// on their next poll. Shared by SaveCertificateAndEnrollHost (token-less paths)
+// and ConsumeTokenAndEnrollHost (agent enrollment, which also consumes the
+// enrollment token in the same transaction).
+func (s *SQLiteStore) enrollHostInTx(ctx context.Context, tx *sql.Tx, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
 	var isLighthouse bool
 	var networkID string
-	err = tx.QueryRowContext(ctx,
+	err := tx.QueryRowContext(ctx,
 		`SELECT is_lighthouse, network_id FROM hosts WHERE id = ?`, hostID,
 	).Scan(&isLighthouse, &networkID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1396,9 +1441,51 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(ctx context.Context, hostID s
 			return fmt.Errorf("bump config version: %w", err)
 		}
 	}
+	return nil
+}
+
+// ConsumeTokenAndEnrollHost atomically consumes the single-use enrollment token
+// and enrolls the host with its freshly-signed certificate in one transaction,
+// so the token is marked used IFF the certificate is persisted and the host
+// enrolled. A transient failure anywhere in the caller before this call (CA
+// signing error, DB blip) therefore leaves the token usable for a clean retry,
+// while a concurrent second enrollment racing the same token loses the used=0
+// CAS and receives ErrTokenUsed -- preserving single-use. This closes the
+// burn-on-failure window left by consuming the token up front in its own
+// transaction. The caller is expected to have validated the token via
+// GetEnrollmentToken first, so a zero-row CAS here means the race was lost.
+func (s *SQLiteStore) ConsumeTokenAndEnrollHost(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	res, err := tx.ExecContext(ctx,
+		`UPDATE enrollment_tokens SET used = 1, used_at = ? WHERE token_hash = ? AND used = 0`,
+		time.Now(), models.HashEnrollmentToken(token),
+	)
+	if err != nil {
+		return fmt.Errorf("consume token: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("consume token rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrTokenUsed
+	}
+
+	if err := s.enrollHostInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter); err != nil {
+		return err
+	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit enroll host: %w", err)
+		return fmt.Errorf("commit consume and enroll: %w", err)
 	}
 	return nil
 }

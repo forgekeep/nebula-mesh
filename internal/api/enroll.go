@@ -45,8 +45,11 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Consume token (validates one-time use and expiry)
-	tok, err := s.store.ConsumeToken(r.Context(), req.Token)
+	// Resolve + validate the token (one-time use, expiry) WITHOUT consuming it
+	// yet. The single-use consume happens atomically with the cert save in
+	// ConsumeTokenAndEnrollHost below, so a failure mid-enrollment does not burn
+	// the token (#8c enrollment-token rollback atomicity).
+	tok, err := s.store.GetEnrollmentToken(r.Context(), req.Token)
 	if errors.Is(err, store.ErrNotFound) {
 		s.metrics.recordEnrollment(resultDenied)
 		writeError(w, http.StatusUnauthorized, "invalid enrollment token")
@@ -164,10 +167,18 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save certificate and enroll host atomically
-	if err := s.store.SaveCertificateAndEnrollHost(r.Context(), host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
+	// Atomically consume the single-use token and enroll the host with its
+	// freshly-signed cert. Consuming here (rather than up front) means a
+	// transient failure during signing leaves the token usable for retry; a
+	// concurrent enrollment that already consumed it loses the CAS and gets 409.
+	if err := s.store.ConsumeTokenAndEnrollHost(r.Context(), host.ID, req.Token, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
+		if errors.Is(err, store.ErrTokenUsed) {
+			s.metrics.recordEnrollment(resultDenied)
+			writeError(w, http.StatusConflict, "enrollment token already used")
+			return
+		}
 		s.metrics.recordEnrollment(resultError)
-		s.logger.Error("save certificate and enroll host", "error", err)
+		s.logger.Error("consume token and enroll host", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}

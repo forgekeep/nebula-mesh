@@ -559,3 +559,62 @@ func TestGenerate_InlinePEM_RoundTrip(t *testing.T) {
 		t.Error("key does not contain X25519 private key PEM header")
 	}
 }
+
+// TestGenerate_InlinePEM_NonLiteralSafeRoundTrips is a regression test for the
+// FuzzGenerate finding: inline PEM content that is not literal-block-safe (a
+// tab, a leading/trailing space, a CR) was emitted as a forced literal-block
+// scalar the YAML parser — and the Nebula config loader — could not read back
+// ("found a tab character where an indentation space is expected"). The
+// generator must emit a representation that round-trips for any content.
+func TestGenerate_InlinePEM_NonLiteralSafeRoundTrips(t *testing.T) {
+	cases := map[string]string{
+		"lone tab":            "\t",
+		"leading tab line":    "-----BEGIN-----\n\tdata\n-----END-----",
+		"leading space line":  "-----BEGIN-----\n data\n-----END-----",
+		"trailing space line": "-----BEGIN-----\ndata \n-----END-----",
+		"carriage return":     "-----BEGIN-----\r\ndata\r\n-----END-----",
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			data, err := Generate(GeneratorInput{
+				HostName:  "mobile-x",
+				NebulaIPs: []string{"10.0.0.2"},
+				CACertPEM: content,
+				CertPEM:   content,
+				KeyPEM:    content,
+			})
+			if err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+			var parsed struct {
+				PKI struct {
+					CA   string `yaml:"ca"`
+					Cert string `yaml:"cert"`
+					Key  string `yaml:"key"`
+				} `yaml:"pki"`
+			}
+			if err := yaml.Unmarshal(data, &parsed); err != nil {
+				t.Fatalf("generated config does not round-trip: %v\n--- config ---\n%s", err, data)
+			}
+			if parsed.PKI.CA != content {
+				t.Errorf("ca did not round-trip: got %q want %q", parsed.PKI.CA, content)
+			}
+		})
+	}
+}
+
+func TestLiteralBlockSafe(t *testing.T) {
+	realPEM := "-----BEGIN NEBULA CERTIFICATE-----\nCACA...CA...CACA\n-----END NEBULA CERTIFICATE-----"
+	safe := []string{realPEM, realPEM + "\n", "single-line", "a\nb\nc"}
+	unsafe := []string{"", "\t", " leading", "trailing ", "a\n\nb", "ctrl\x01here", "ünïcode"}
+	for _, s := range safe {
+		if !literalBlockSafe(s) {
+			t.Errorf("expected literal-safe: %q", s)
+		}
+	}
+	for _, s := range unsafe {
+		if literalBlockSafe(s) {
+			t.Errorf("expected NOT literal-safe: %q", s)
+		}
+	}
+}

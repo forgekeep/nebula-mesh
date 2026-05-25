@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // TestHandleMobileBundle_Success verifies the handler generates a mobile bundle

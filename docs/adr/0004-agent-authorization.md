@@ -1,9 +1,9 @@
 # ADR 0004 — Agent authorization model: TTL, proof-of-possession, rotation, revocation
 
 - **Status**: Accepted (2026-05-13); amended (2026-05-13) to introduce a separate Ed25519 signing keypair — see §7.1 and §6.1 row 1.
-- **Tracking issue**: [#70](https://github.com/juev/nebula-mesh/issues/70)
-- **Implementation issue**: [#75](https://github.com/juev/nebula-mesh/issues/75)
-- **Sibling**: [ADR 0003 — CA key encryption model](0003-ca-encryption-model.md) ([#68](https://github.com/juev/nebula-mesh/issues/68))
+- **Tracking issue**: [#70](https://github.com/forgekeep/nebula-mesh/issues/70)
+- **Implementation issue**: [#75](https://github.com/forgekeep/nebula-mesh/issues/75)
+- **Sibling**: [ADR 0003 — CA key encryption model](0003-ca-encryption-model.md) ([#68](https://github.com/forgekeep/nebula-mesh/issues/68))
 
 ## 1. Context
 
@@ -243,7 +243,7 @@ Operators stuck on N agents during N+2 server can downgrade the flag to `signatu
 
 ## 11. References
 
-- Issue: <https://github.com/juev/nebula-mesh/issues/70>
+- Issue: <https://github.com/forgekeep/nebula-mesh/issues/70>
 - [ADR 0002 — Per-operator CAs](0002-per-operator-cas.md)
 - [ADR 0003 — CA key encryption model](0003-ca-encryption-model.md)
 - `internal/api/enroll.go` — current enrollment handler

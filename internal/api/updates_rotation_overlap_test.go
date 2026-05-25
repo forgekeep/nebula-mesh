@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // TestPoll_AcceptsPrevFingerprintDuringOverlap simulates auto-renew: the

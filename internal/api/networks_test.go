@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 func TestCreateNetwork_AcceptsCIDRs(t *testing.T) {

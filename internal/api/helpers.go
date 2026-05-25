@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // buildHostPrefix parses hostIP and networkCIDR, validates they belong to the same

@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"testing"
 
-	corepop "github.com/juev/nebula-mesh/internal/pop"
+	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
 )
 
 func TestSign_RoundTrip(t *testing.T) {

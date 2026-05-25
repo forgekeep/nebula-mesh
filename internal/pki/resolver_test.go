@@ -14,10 +14,10 @@ import (
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
 
-	"github.com/juev/nebula-mesh/internal/keystore"
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/pki"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // resolver.go had no test file, yet LoadByID is the key-decryption path: it

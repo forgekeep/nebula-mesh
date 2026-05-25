@@ -14,8 +14,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // Alert is the structured event a Sink receives.

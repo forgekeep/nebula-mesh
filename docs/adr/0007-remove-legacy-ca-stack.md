@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-05-15
-- **Context**: Issue [#114](https://github.com/juev/nebula-mesh/issues/114) — *Consolidate CA mint logic and remove legacy on-disk CA stack*.
+- **Context**: Issue [#114](https://github.com/forgekeep/nebula-mesh/issues/114) — *Consolidate CA mint logic and remove legacy on-disk CA stack*.
 
 ## Context
 
@@ -149,6 +149,6 @@ If you have a database with hosts/networks and want to preserve them, you must:
 
 ## References
 
-- Issue: <https://github.com/juev/nebula-mesh/issues/114>
-- Related PRs: [#113](https://github.com/juev/nebula-mesh/pull/113), [#111](https://github.com/juev/nebula-mesh/pull/111) (admin auto-provision, incorporated into init).
+- Issue: <https://github.com/forgekeep/nebula-mesh/issues/114>
+- Related PRs: [#113](https://github.com/forgekeep/nebula-mesh/pull/113), [#111](https://github.com/forgekeep/nebula-mesh/pull/111) (admin auto-provision, incorporated into init).
 - Code: `internal/pki/autoprovision.go`, `internal/api/cas.go`, `internal/web/cas.go`, `internal/cli/init.go`.

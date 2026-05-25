@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/agent"
-	"github.com/juev/nebula-mesh/internal/config"
-	"github.com/juev/nebula-mesh/internal/version"
+	"github.com/forgekeep/nebula-mesh/internal/agent"
+	"github.com/forgekeep/nebula-mesh/internal/config"
+	"github.com/forgekeep/nebula-mesh/internal/version"
 )
 
 // Populated at build time via -ldflags (see .goreleaser.yml).

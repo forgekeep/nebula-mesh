@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/juev/nebula-mesh/internal/cli"
-	"github.com/juev/nebula-mesh/internal/version"
+	"github.com/forgekeep/nebula-mesh/internal/cli"
+	"github.com/forgekeep/nebula-mesh/internal/version"
 )
 
 // Populated at build time via -ldflags (see .goreleaser.yml).

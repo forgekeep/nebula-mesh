@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/config"
+	"github.com/forgekeep/nebula-mesh/internal/config"
 )
 
 func TestResolveConfig_FileExists_FlagsIgnored(t *testing.T) {

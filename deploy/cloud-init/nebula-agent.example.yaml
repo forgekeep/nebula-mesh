@@ -21,7 +21,7 @@ runcmd:
     arch=$(dpkg --print-architecture)
     pkg=$(mktemp --suffix=.deb)
     curl -fsSL -o "$pkg" \
-      "https://github.com/juev/nebula-mesh/releases/download/$${version}/nebula-agent_$${version#v}_linux_$${arch}.deb"
+      "https://github.com/forgekeep/nebula-mesh/releases/download/$${version}/nebula-agent_$${version#v}_linux_$${arch}.deb"
     apt-get install -y "$pkg" || (apt-get update && apt-get install -y "$pkg")
     systemctl daemon-reload
     if [ ! -f /etc/nebula/.fingerprint ]; then

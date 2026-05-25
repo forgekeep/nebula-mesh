@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // TestConsumeToken_AtomicUnderConcurrency fires N goroutines at the

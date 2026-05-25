@@ -9,7 +9,7 @@ import (
 	"github.com/slackhq/nebula/cert"
 	"gopkg.in/yaml.v3"
 
-	"github.com/juev/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/pki"
 )
 
 func TestGenerate_RegularHost(t *testing.T) {

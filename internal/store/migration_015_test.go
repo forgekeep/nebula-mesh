@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/store/migrations"
+	"github.com/forgekeep/nebula-mesh/internal/store/migrations"
 
 	_ "modernc.org/sqlite"
 )

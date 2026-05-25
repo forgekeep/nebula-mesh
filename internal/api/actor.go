@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // actorContextKey scopes the authenticated operator on the request context.

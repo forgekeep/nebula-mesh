@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // seedTenant creates a CA owned by opID, a network under it, and a host under

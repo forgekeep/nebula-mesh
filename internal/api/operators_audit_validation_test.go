@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // concurrentRevokeStore wraps store.Store and injects exactly one CAS-race

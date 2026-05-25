@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // Audit action emitted by the cert-expiry alerter. Kept here as a constant

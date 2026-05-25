@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 const caColumns = `id, name, owner_operator_id, cert_pem, fingerprint, not_before, not_after, status, predecessor_id, encrypted_key_dek, nonce_dek, encrypted_key_material, nonce_key, created_at, updated_at`

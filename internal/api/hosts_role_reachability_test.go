@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // TestCreateHost_RoleReachability mirrors issue #94 — a host created with

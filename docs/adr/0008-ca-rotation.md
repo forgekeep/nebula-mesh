@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-05-15
-- **Context**: Issue [#110](https://github.com/juev/nebula-mesh/issues/110) — *CA rotation flow for auto-provisioned CAs*.
+- **Context**: Issue [#110](https://github.com/forgekeep/nebula-mesh/issues/110) — *CA rotation flow for auto-provisioned CAs*.
 
 ## Context
 
@@ -182,6 +182,6 @@ Every code path (Web UI, REST API, CLI, auto-rotate worker) calls this shared he
 
 ## References
 
-- Issue: <https://github.com/juev/nebula-mesh/issues/110>
-- Related issues: [#102](https://github.com/juev/nebula-mesh/issues/102) (10-year CA lifetime), [#114](https://github.com/juev/nebula-mesh/issues/114) (consolidate CA mint).
-- Related PR: [#113](https://github.com/juev/nebula-mesh/pull/113) (admin auto-provision CA).
+- Issue: <https://github.com/forgekeep/nebula-mesh/issues/110>
+- Related issues: [#102](https://github.com/forgekeep/nebula-mesh/issues/102) (10-year CA lifetime), [#114](https://github.com/forgekeep/nebula-mesh/issues/114) (consolidate CA mint).
+- Related PR: [#113](https://github.com/forgekeep/nebula-mesh/pull/113) (admin auto-provision CA).

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // TestHostNewForm_SegmentedWidgetHooks asserts that the rendered host_new

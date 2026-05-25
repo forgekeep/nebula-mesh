@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // TestListHosts_CAIDsScopeBeforeLimit pins that the CAIDs filter is applied in

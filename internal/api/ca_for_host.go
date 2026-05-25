@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/pki"
 )
 
 // caForHost returns the CAManager that should sign certificates for the

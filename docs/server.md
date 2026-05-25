@@ -31,15 +31,15 @@ Each tagged release publishes `.deb` and `.rpm` packages for `amd64` and
 `arm64` alongside the agent package:
 
 ```sh
-TAG=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
+TAG=$(curl -fsSL https://api.github.com/repos/forgekeep/nebula-mesh/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
 # Debian / Ubuntu
-curl -fsSL -O "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-mgmt_${TAG#v}_linux_${ARCH}.deb"
+curl -fsSL -O "https://github.com/forgekeep/nebula-mesh/releases/download/${TAG}/nebula-mgmt_${TAG#v}_linux_${ARCH}.deb"
 sudo apt install -y "./nebula-mgmt_${TAG#v}_linux_${ARCH}.deb"
 
 # RHEL / Rocky / Alma / Fedora
-sudo rpm -i "https://github.com/juev/nebula-mesh/releases/download/${TAG}/nebula-mgmt_${TAG#v}_linux_${ARCH}.rpm"
+sudo rpm -i "https://github.com/forgekeep/nebula-mesh/releases/download/${TAG}/nebula-mgmt_${TAG#v}_linux_${ARCH}.rpm"
 ```
 
 The package installs:

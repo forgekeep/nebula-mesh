@@ -1,7 +1,7 @@
 # ADR 0005 — Pre-auth keys: reusable, ephemeral, tag-bound enrollment tokens
 
 - **Status**: Accepted, **implementation deferred** until a trigger materialises (see §10). The design is recorded now so it does not have to be invented under pressure when the trigger arrives.
-- **Tracking issue**: [#76](https://github.com/juev/nebula-mesh/issues/76)
+- **Tracking issue**: [#76](https://github.com/forgekeep/nebula-mesh/issues/76)
 - **Depends on**: [ADR 0004 — Agent authorization model](0004-agent-authorization.md) — configurable token TTL + the `enrollment_tokens` schema this ADR extends.
 - **Sibling**: [ADR 0002 — Per-operator CAs](0002-per-operator-cas.md) — token ownership is scoped to the operator who minted it.
 
@@ -228,10 +228,10 @@ Until then this ADR is a parked decision: when the trigger fires, the design is 
 
 ## 11. References
 
-- Tracking issue: <https://github.com/juev/nebula-mesh/issues/76>
+- Tracking issue: <https://github.com/forgekeep/nebula-mesh/issues/76>
 - [ADR 0002 — Per-operator CAs](0002-per-operator-cas.md)
 - [ADR 0004 — Agent authorization model](0004-agent-authorization.md) — §7.2 lists this work as deferred
-- ADR 0004 implementation issue: [#75](https://github.com/juev/nebula-mesh/issues/75)
+- ADR 0004 implementation issue: [#75](https://github.com/forgekeep/nebula-mesh/issues/75)
 - Tailscale auth keys: <https://tailscale.com/kb/1085/auth-keys>
 - Tailscale tags + ACL: <https://tailscale.com/kb/1068/tags>
 - Headscale (open-source coordination server): <https://github.com/juanfont/headscale>

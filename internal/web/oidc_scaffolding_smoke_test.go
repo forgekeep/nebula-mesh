@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/juev/nebula-mesh/internal/config"
+	"github.com/forgekeep/nebula-mesh/internal/config"
 )
 
 // TestOIDC_MockIDP_HappyPath is the scaffolding smoke test: it drives the

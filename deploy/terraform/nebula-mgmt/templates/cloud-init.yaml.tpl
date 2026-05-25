@@ -42,12 +42,12 @@ runcmd:
 
     version="${release_version}"
     if [ "$version" = "latest" ]; then
-      version=$(curl -fsSL https://api.github.com/repos/juev/nebula-mesh/releases/latest | sed -n 's/.*"tag_name": *"\(v[^"]*\)".*/\1/p')
+      version=$(curl -fsSL https://api.github.com/repos/forgekeep/nebula-mesh/releases/latest | sed -n 's/.*"tag_name": *"\(v[^"]*\)".*/\1/p')
     fi
 
     pkg=$(mktemp --suffix=.deb)
     curl -fsSL -o "$pkg" \
-      "https://github.com/juev/nebula-mesh/releases/download/$${version}/nebula-mgmt_$${version#v}_linux_$${goarch}.deb"
+      "https://github.com/forgekeep/nebula-mesh/releases/download/$${version}/nebula-mgmt_$${version#v}_linux_$${goarch}.deb"
     apt-get install -y "$pkg" || (apt-get update && apt-get install -y "$pkg")
 
     systemctl daemon-reload

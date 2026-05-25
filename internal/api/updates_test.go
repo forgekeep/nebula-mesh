@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juev/nebula-mesh/internal/keystore"
-	"github.com/juev/nebula-mesh/internal/pki"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
+	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // TestTrustBundleLogic_FindsSuccessor verifies trust bundle creation logic.

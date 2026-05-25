@@ -12,8 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/juev/nebula-mesh/internal/ratelimit"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // maxBodySize returns middleware that limits the size of request bodies.

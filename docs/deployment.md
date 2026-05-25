@@ -29,7 +29,7 @@ Quickstart:
 
 ```hcl
 module "nebula_mgmt" {
-  source              = "github.com/juev/nebula-mesh//deploy/terraform/nebula-mgmt?ref=v0.3.5"
+  source              = "github.com/forgekeep/nebula-mesh//deploy/terraform/nebula-mgmt?ref=v0.3.5"
   release_version     = "v0.3.5"
   fqdn                = "mgmt.internal.example.com"
   instance_id         = aws_instance.nebula_mgmt.id

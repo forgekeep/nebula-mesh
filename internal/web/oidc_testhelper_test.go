@@ -19,8 +19,8 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 
-	"github.com/juev/nebula-mesh/internal/config"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/config"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // mockIDP is an httptest-backed OpenID Connect identity provider that lets

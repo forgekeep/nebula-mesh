@@ -1,7 +1,7 @@
 package api
 
 import (
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // validateHostAdvanced delegates to models.ValidateHostAdvanced so the

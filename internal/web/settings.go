@@ -4,7 +4,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // Server-wide setting keys, mirrored as exported constants so callers

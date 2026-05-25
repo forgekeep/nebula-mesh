@@ -5,8 +5,8 @@ import (
 	"crypto/ed25519"
 	"fmt"
 
-	"github.com/juev/nebula-mesh/internal/keystore"
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // CAStore is the subset of the application store interface required by

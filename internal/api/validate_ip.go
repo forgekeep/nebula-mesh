@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/netip"
 
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // hostIPValidationError is the typed error the API layer surfaces as 400

@@ -2,7 +2,7 @@
 
 - **Status**: Superseded by [ADR 0007](0007-remove-legacy-ca-stack.md) (2026-05-15)
 - **Decision**: keep CA private key material in encrypted files outside the SQLite database.
-- **Context**: issue [#11](https://github.com/juev/nebula-mesh/issues/11) — *Evaluate storing CA key material in the database*.
+- **Context**: issue [#11](https://github.com/forgekeep/nebula-mesh/issues/11) — *Evaluate storing CA key material in the database*.
 
 ## 1. Background — current model
 
@@ -69,7 +69,7 @@ Rationale:
 
 ## 5. Concrete consequences
 
-- No schema migration is needed for issue [#11](https://github.com/juev/nebula-mesh/issues/11).
+- No schema migration is needed for issue [#11](https://github.com/forgekeep/nebula-mesh/issues/11).
 - `nebula-mgmt init` continues to write `ca.crt` and `ca.key` into `data_dir`.
 - `nebula-mgmt serve` continues to require `NEBULA_MGMT_CA_PASSPHRASE` (or interactive prompt).
 - Operator documentation must clearly call out **two** things to back up: `data_dir` and `db_path`. Updated in `README.md` together with this ADR.
@@ -94,6 +94,6 @@ Restoring is the inverse: stop the service, extract over `data_dir`, restart, su
 
 ## 8. References
 
-- Issue: <https://github.com/juev/nebula-mesh/issues/11>
+- Issue: <https://github.com/forgekeep/nebula-mesh/issues/11>
 - Current code: `internal/pki/ca.go`, `internal/cli/init.go`, `internal/cli/serve.go`
 - Nebula docs on CA generation: <https://nebula.defined.net/docs/guides/quick-start/>

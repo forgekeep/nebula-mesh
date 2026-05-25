@@ -563,37 +563,30 @@ func computeStats(hosts []*models.Host, networkCount int) dashboardStats {
 }
 
 // accessibleHosts returns the hosts an operator may see: admins see every
-// host; non-admins see only hosts under CAs they own. Mirrors
-// accessibleNetworks (a blank ca_id is a legacy pre-multi-CA row, hidden from
-// non-admins per issue #93). The owned-CA filter runs in Go after the store
-// query; once HostFilter.CAIDs lands (the API handleListHosts fix, work-yzu3)
-// this should scope in SQL so the row cap can't undercount.
+// host; non-admins see only hosts under CAs they own. The owned-CA scope is
+// pushed into the query via HostFilter.CAIDs so it applies before ORDER BY /
+// LIMIT — a global LIMIT applied before the ownership filter could drop an
+// operator's own hosts out of the window, silently undercounting once the
+// deployment exceeds the cap (#157, mirrors the API handleListHosts fix in
+// #154). A blank ca_id is a legacy pre-multi-CA row: it matches no owned CA
+// id, so the SQL scope hides it from non-admins per issue #93.
 func (w *Web) accessibleHosts(ctx context.Context, op *models.Operator) ([]*models.Host, error) {
-	hosts, err := w.store.ListHosts(ctx, store.HostFilter{Limit: 1000})
-	if err != nil {
-		return nil, err
-	}
-	if op.Role == "admin" {
-		return hosts, nil
-	}
-	cas, err := w.store.ListCAsByOwner(ctx, op.ID)
-	if err != nil {
-		return nil, err
-	}
-	owned := make(map[string]struct{}, len(cas))
-	for _, c := range cas {
-		owned[c.ID] = struct{}{}
-	}
-	out := make([]*models.Host, 0, len(hosts))
-	for _, h := range hosts {
-		if h.CAID == "" {
-			continue
+	filter := store.HostFilter{Limit: 1000}
+	if op.Role != "admin" {
+		cas, err := w.store.ListCAsByOwner(ctx, op.ID)
+		if err != nil {
+			return nil, err
 		}
-		if _, ok := owned[h.CAID]; ok {
-			out = append(out, h)
+		if len(cas) == 0 {
+			return []*models.Host{}, nil
 		}
+		caIDs := make([]string, len(cas))
+		for i, c := range cas {
+			caIDs[i] = c.ID
+		}
+		filter.CAIDs = caIDs
 	}
-	return out, nil
+	return w.store.ListHosts(ctx, filter)
 }
 
 func (w *Web) handleDashboard(rw http.ResponseWriter, r *http.Request) {

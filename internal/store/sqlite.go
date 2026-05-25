@@ -701,6 +701,17 @@ func (s *SQLiteStore) ListHosts(ctx context.Context, filter HostFilter) ([]*mode
 		query += ` AND groups_json LIKE ? ESCAPE '\'`
 		args = append(args, `%"`+escaped+`"%`)
 	}
+	if len(filter.CAIDs) > 0 {
+		// Bind the CA-id set as a single JSON-array parameter and expand it via
+		// json_each, so the query string stays constant (no dynamic SQL
+		// concatenation) while the ids remain fully parameterized.
+		idsJSON, err := json.Marshal(filter.CAIDs)
+		if err != nil {
+			return nil, fmt.Errorf("marshal ca id filter: %w", err)
+		}
+		query += ` AND ca_id IN (SELECT value FROM json_each(?))`
+		args = append(args, string(idsJSON))
+	}
 	query += ` ORDER BY name`
 	if filter.Limit > 0 {
 		query += ` LIMIT ?`

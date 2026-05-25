@@ -180,14 +180,10 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 		Limit:     1000,
 	}
 
-	hosts, err := s.store.ListHosts(r.Context(), filter)
-	if err != nil {
-		s.logger.Error("list hosts", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list hosts")
-		return
-	}
-
-	// For non-admin, scope to owned CAs
+	// Non-admins are scoped to hosts under CAs they own. Push that scope into
+	// the query rather than filtering the result in Go: a global LIMIT applied
+	// before the ownership filter could drop an operator's own hosts out of the
+	// window, silently undercounting once the deployment exceeds the limit.
 	if !s.isActiveAdmin(r.Context()) {
 		actor := ActorOf(r.Context())
 		if actor == nil {
@@ -200,18 +196,22 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to check permissions")
 			return
 		}
-		ownedCAIDs := make(map[string]struct{}, len(cas))
-		for _, ca := range cas {
-			ownedCAIDs[ca.ID] = struct{}{}
+		if len(cas) == 0 {
+			writeJSON(w, http.StatusOK, []*models.Host{})
+			return
 		}
-		// Filter hosts to only those under owned CAs
-		filtered := hosts[:0]
-		for _, h := range hosts {
-			if _, ok := ownedCAIDs[h.CAID]; ok {
-				filtered = append(filtered, h)
-			}
+		caIDs := make([]string, len(cas))
+		for i, ca := range cas {
+			caIDs[i] = ca.ID
 		}
-		hosts = filtered
+		filter.CAIDs = caIDs
+	}
+
+	hosts, err := s.store.ListHosts(r.Context(), filter)
+	if err != nil {
+		s.logger.Error("list hosts", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list hosts")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, hosts)

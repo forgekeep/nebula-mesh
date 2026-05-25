@@ -445,7 +445,7 @@ func (s *Server) handleRotateCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "no current cert to re-sign")
 		return
 	}
-	signed, err := s.signHostCert(r.Context(), host, certInfo)
+	signed, err := s.signHostCert(r.Context(), host, certInfo, s.now())
 	if err != nil {
 		s.logger.Error("sign cert for rotate-cert", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to sign new cert")

@@ -34,6 +34,21 @@ type Server struct {
 	limiter            *ratelimit.Limiter
 	passwordPolicy     auth.Policy
 	enrollmentTokenTTL time.Duration
+	clock              func() time.Time // nil => time.Now; injectable for tests
+}
+
+// WithClock overrides the server's wall clock. The default (nil) uses
+// time.Now. Tests inject a controllable clock to exercise time-dependent paths
+// (cert renewal, the rotation overlap window, poll timestamp skew) without
+// real waits. Behavior is unchanged when unset.
+func (s *Server) WithClock(fn func() time.Time) { s.clock = fn }
+
+// now returns the current time from the injected clock, or time.Now.
+func (s *Server) now() time.Time {
+	if s.clock != nil {
+		return s.clock()
+	}
+	return time.Now()
 }
 
 // NewServer creates a new API server.

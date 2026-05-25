@@ -12,7 +12,11 @@ type HostFilter struct {
 	NetworkID string
 	Group     string
 	Status    models.HostStatus
-	Limit     int // 0 = no limit
+	// CAIDs scopes results to hosts under these CA ids. When non-empty the
+	// scope is applied in SQL, so it composes correctly with Limit — the
+	// limit applies after scoping, not before. Empty means no CA scoping.
+	CAIDs []string
+	Limit int // 0 = no limit
 }
 
 // AuditFilter specifies filters for audit log queries.

@@ -6,6 +6,8 @@
     <meta name="csrf-token" content="{{ csrfToken }}">
     <title>{{block "title" .}}Nebula Mesh{{end}}</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.ico">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="manifest" href="/static/manifest.json">
     <script src="/static/htmx.min.js"></script>
     <script>
     document.body.addEventListener('htmx:configRequest', function(evt) {

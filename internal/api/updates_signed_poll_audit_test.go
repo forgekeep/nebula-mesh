@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	corepop "github.com/juev/nebula-mesh/internal/pop"
-	"github.com/juev/nebula-mesh/internal/store"
+	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // TestSignedPoll_AuditRowPerBranch drives each failure branch of

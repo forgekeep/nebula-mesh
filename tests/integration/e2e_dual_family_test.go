@@ -12,7 +12,7 @@ import (
 	"golang.org/x/crypto/curve25519"
 	"gopkg.in/yaml.v3"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // TestE2E_DualFamilyNetwork verifies that dual-stack (IPv4 + IPv6) networks work

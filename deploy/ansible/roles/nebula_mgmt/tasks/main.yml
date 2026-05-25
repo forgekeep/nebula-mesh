@@ -13,7 +13,7 @@
 
 - name: Resolve `latest` release tag from GitHub
   ansible.builtin.uri:
-    url: https://api.github.com/repos/juev/nebula-mesh/releases/latest
+    url: https://api.github.com/repos/forgekeep/nebula-mesh/releases/latest
     return_content: true
   register: nebula_mgmt_latest_release
   when: nebula_mgmt_release == "latest"

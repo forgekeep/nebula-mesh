@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/keystore"
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/pki"
 )
 
 // TestHandleGenerateMobileBundle_Success verifies that generating a mobile

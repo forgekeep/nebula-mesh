@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-05-14
-- **Tracking issue**: [#108](https://github.com/juev/nebula-mesh/issues/108)
+- **Tracking issue**: [#108](https://github.com/forgekeep/nebula-mesh/issues/108)
 - **Depends on**: [ADR 0004 — Agent authorization model](0004-agent-authorization.md)
 - **Related**: [ADR 0001 — CA key storage](0001-ca-key-storage.md), [ADR 0005 — Pre-auth keys](0005-pre-auth-keys.md)
 
@@ -175,8 +175,8 @@ For operators running this system in production:
 
 ## 5. References
 
-- Tracking issue: [#108](https://github.com/juev/nebula-mesh/issues/108)
-- Related issue (constrained-input widget): [#100](https://github.com/juev/nebula-mesh/issues/100)
+- Tracking issue: [#108](https://github.com/forgekeep/nebula-mesh/issues/108)
+- Related issue (constrained-input widget): [#100](https://github.com/forgekeep/nebula-mesh/issues/100)
 - Mobile bundle feature (issue #107) — reference for multi-IP cert flow integration.
 - Nebula certificate format: `github.com/slackhq/nebula/cert` — `certificate.TBSCertificate{Version: cert.Version2, Networks: []netip.Prefix}`.
 - Implementation files:

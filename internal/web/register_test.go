@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juev/nebula-mesh/internal/auth"
+	"github.com/forgekeep/nebula-mesh/internal/auth"
 )
 
 // strongPassword is the value used by registration tests that exercise

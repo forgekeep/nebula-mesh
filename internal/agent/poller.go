@@ -19,8 +19,8 @@ import (
 	"syscall"
 	"time"
 
-	agentpop "github.com/juev/nebula-mesh/internal/agent/pop"
-	corepop "github.com/juev/nebula-mesh/internal/pop"
+	agentpop "github.com/forgekeep/nebula-mesh/internal/agent/pop"
+	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
 )
 
 // UpdatesResponse is the response from the agent updates endpoint.

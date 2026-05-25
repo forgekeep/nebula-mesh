@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // enrollLighthouse persists a lighthouse host directly in the store so peer

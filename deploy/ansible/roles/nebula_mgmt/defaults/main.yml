@@ -27,4 +27,4 @@ nebula_mgmt_alerts_webhook_hmac_secret: ""
 nebula_mgmt_admin_username: admin
 
 # Where to fetch release artifacts. Override to mirror in restricted networks.
-nebula_mgmt_release_base_url: "https://github.com/juev/nebula-mesh/releases/download"
+nebula_mgmt_release_base_url: "https://github.com/forgekeep/nebula-mesh/releases/download"

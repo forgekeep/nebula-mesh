@@ -12,12 +12,12 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/juev/nebula-mesh/internal/auth"
-	"github.com/juev/nebula-mesh/internal/configgen"
-	"github.com/juev/nebula-mesh/internal/keystore"
-	"github.com/juev/nebula-mesh/internal/pki"
-	"github.com/juev/nebula-mesh/internal/ratelimit"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/auth"
+	"github.com/forgekeep/nebula-mesh/internal/configgen"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
+	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // Server is the HTTP API server.

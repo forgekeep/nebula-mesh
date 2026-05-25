@@ -10,16 +10,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/alerts"
-	"github.com/juev/nebula-mesh/internal/api"
-	"github.com/juev/nebula-mesh/internal/auth"
-	"github.com/juev/nebula-mesh/internal/cawatch"
-	"github.com/juev/nebula-mesh/internal/config"
-	"github.com/juev/nebula-mesh/internal/keystore"
-	"github.com/juev/nebula-mesh/internal/pki"
-	"github.com/juev/nebula-mesh/internal/ratelimit"
-	"github.com/juev/nebula-mesh/internal/store"
-	"github.com/juev/nebula-mesh/internal/web"
+	"github.com/forgekeep/nebula-mesh/internal/alerts"
+	"github.com/forgekeep/nebula-mesh/internal/api"
+	"github.com/forgekeep/nebula-mesh/internal/auth"
+	"github.com/forgekeep/nebula-mesh/internal/cawatch"
+	"github.com/forgekeep/nebula-mesh/internal/config"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
+	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
+	"github.com/forgekeep/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/web"
 )
 
 // buildMux assembles the top-level routing per issue #69.

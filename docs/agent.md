@@ -79,11 +79,11 @@ Each tagged release publishes `.deb` and `.rpm` packages for `amd64` and `arm64`
 
 ```sh
 # Debian / Ubuntu
-curl -fsSL -O https://github.com/juev/nebula-mesh/releases/download/<version>/nebula-agent_<version>_linux_amd64.deb
+curl -fsSL -O https://github.com/forgekeep/nebula-mesh/releases/download/<version>/nebula-agent_<version>_linux_amd64.deb
 sudo apt install ./nebula-agent_<version>_linux_amd64.deb
 
 # RHEL / Fedora / CentOS Stream / Rocky / Alma
-sudo rpm -i https://github.com/juev/nebula-mesh/releases/download/<version>/nebula-agent_<version>_linux_amd64.rpm
+sudo rpm -i https://github.com/forgekeep/nebula-mesh/releases/download/<version>/nebula-agent_<version>_linux_amd64.rpm
 ```
 
 The package:
@@ -112,7 +112,7 @@ replace `<version>` and `<platform>` as needed:
 
 ```sh
 curl -fsSL -o nebula-agent.tar.gz \
-  https://github.com/juev/nebula-mesh/releases/download/<version>/nebula-agent_<platform>.tar.gz
+  https://github.com/forgekeep/nebula-mesh/releases/download/<version>/nebula-agent_<platform>.tar.gz
 tar -xzf nebula-agent.tar.gz
 sudo install -m 0755 nebula-agent /usr/local/bin/
 ```
@@ -157,7 +157,7 @@ services:
     network_mode: host
     cap_add: [NET_ADMIN]
   nebula-agent:
-    image: ghcr.io/juev/nebula-mesh:latest
+    image: ghcr.io/forgekeep/nebula-mesh:latest
     entrypoint: ["/usr/local/bin/nebula-agent"]
     command: ["--config", "/etc/nebula-agent/agent.yml"]
     volumes:

@@ -9,10 +9,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/config"
-	"github.com/juev/nebula-mesh/internal/keystore"
-	"github.com/juev/nebula-mesh/internal/pki"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/config"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
+	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // Init initializes the management server: creates CA, generates API key, and initializes the database.

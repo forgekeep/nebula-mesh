@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 func TestAuditSink_WritesEntry(t *testing.T) {

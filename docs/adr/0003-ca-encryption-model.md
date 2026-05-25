@@ -2,13 +2,13 @@
 
 - **Status**: Accepted (2026-05-13)
 - **Extends**: [ADR 0002](0002-per-operator-cas.md) (per-operator CAs, server-master-key envelope encryption)
-- **Tracking issue**: [#68](https://github.com/juev/nebula-mesh/issues/68)
+- **Tracking issue**: [#68](https://github.com/forgekeep/nebula-mesh/issues/68)
 
 ## 1. Context
 
 [ADR 0002](0002-per-operator-cas.md) §4.4 fixed the per-CA encryption posture: each CA's PKCS#8 private key is sealed under a per-CA AES-256-GCM data-encryption key (DEK); the DEK is wrapped under a process-wide master KEK that the operator supplies through `NEBULA_MGMT_MASTER_KEY`. The accepted threat model explicitly states that **DB + master key ⇒ all CAs**: any actor with shell access to the running server can decrypt every CA on the box.
 
-Issue [#68](https://github.com/juev/nebula-mesh/issues/68) (follow-up to [#31](https://github.com/juev/nebula-mesh/issues/31)) asks the obvious next question: should CA encryption be bound to **the owning operator's credentials**, so that even a server administrator with full shell + DB access cannot decrypt another operator's CA without that operator's cooperation? This is the "zero-knowledge" framing from the #31 discussion.
+Issue [#68](https://github.com/forgekeep/nebula-mesh/issues/68) (follow-up to [#31](https://github.com/forgekeep/nebula-mesh/issues/31)) asks the obvious next question: should CA encryption be bound to **the owning operator's credentials**, so that even a server administrator with full shell + DB access cannot decrypt another operator's CA without that operator's cooperation? This is the "zero-knowledge" framing from the #31 discussion.
 
 The question is not trivial because the current product **signs certificates unattended**:
 
@@ -172,10 +172,10 @@ The choice is **per-CA-reversible** in principle: a future hybrid could let each
 
 ## 10. References
 
-- Issue: <https://github.com/juev/nebula-mesh/issues/68>
+- Issue: <https://github.com/forgekeep/nebula-mesh/issues/68>
 - [ADR 0001 — CA key storage (superseded)](0001-ca-key-storage.md)
 - [ADR 0002 — Per-operator CAs](0002-per-operator-cas.md)
-- Sibling: ADR 0004 — Agent authorization model ([#70](https://github.com/juev/nebula-mesh/issues/70))
+- Sibling: ADR 0004 — Agent authorization model ([#70](https://github.com/forgekeep/nebula-mesh/issues/70))
 - Current envelope implementation: `internal/keystore/keystore.go`
 - Password policy / hashing: `internal/auth/password.go` (bcrypt today; Argon2id would be new)
 - OIDC integration: `internal/web/oidc.go`

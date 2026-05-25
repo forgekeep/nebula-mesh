@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 func newTestStore(t *testing.T) *SQLiteStore {

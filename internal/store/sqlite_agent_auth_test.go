@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 func newHostFixture(t *testing.T, s *SQLiteStore, id string) *models.Host {

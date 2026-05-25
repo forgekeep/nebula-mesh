@@ -1,11 +1,11 @@
 # nebula-mesh
 
-[![CI](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml/badge.svg)](https://github.com/juev/nebula-mesh/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/juev/nebula-mesh?display_name=tag&sort=semver)](https://github.com/juev/nebula-mesh/releases/latest)
-[![Go Reference](https://pkg.go.dev/badge/github.com/juev/nebula-mesh.svg)](https://pkg.go.dev/github.com/juev/nebula-mesh)
-[![Go Report Card](https://goreportcard.com/badge/github.com/juev/nebula-mesh)](https://goreportcard.com/report/github.com/juev/nebula-mesh)
+[![CI](https://github.com/forgekeep/nebula-mesh/actions/workflows/ci.yml/badge.svg)](https://github.com/forgekeep/nebula-mesh/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/forgekeep/nebula-mesh?display_name=tag&sort=semver)](https://github.com/forgekeep/nebula-mesh/releases/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/forgekeep/nebula-mesh.svg)](https://pkg.go.dev/github.com/forgekeep/nebula-mesh)
+[![Go Report Card](https://goreportcard.com/badge/github.com/forgekeep/nebula-mesh)](https://goreportcard.com/report/github.com/forgekeep/nebula-mesh)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/juev/nebula-mesh)](go.mod)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/forgekeep/nebula-mesh)](go.mod)
 
 > Self-hosted control plane for [Slack's Nebula](https://github.com/slackhq/nebula) mesh VPN — issue certificates, manage hosts (including iOS / Android via QR), distribute config, rotate CAs, and roll out changes from one place.
 
@@ -37,7 +37,7 @@ On a fresh Debian / Ubuntu VM (`amd64`):
 ```sh
 # 1. Install the server.
 VERSION=0.3.5
-curl -fsSLO "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_amd64.deb"
+curl -fsSLO "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_amd64.deb"
 sudo apt install -y "./nebula-mgmt_${VERSION}_linux_amd64.deb"
 
 # 2. Set the master key (required for CA encryption) and initialise.
@@ -120,7 +120,7 @@ nebula-mesh ships **two** static binaries. Install whichever you need on each ma
 | `nebula-mgmt` | one server (the control plane) |
 | `nebula-agent` | every Nebula host, next to `nebula` |
 
-Pick an install method below. The examples assume `VERSION=0.3.5` — replace with the latest from the [releases page](https://github.com/juev/nebula-mesh/releases/latest). Each release ships a `checksums.txt` (SHA-256).
+Pick an install method below. The examples assume `VERSION=0.3.5` — replace with the latest from the [releases page](https://github.com/forgekeep/nebula-mesh/releases/latest). Each release ships a `checksums.txt` (SHA-256).
 
 ### Debian / Ubuntu (`.deb`)
 
@@ -129,11 +129,11 @@ VERSION=0.3.5
 ARCH=$(dpkg --print-architecture)   # amd64 | arm64 | armhf (agent only)
 
 # Server (control plane):
-curl -fsSLO "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_${ARCH}.deb"
+curl -fsSLO "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_${ARCH}.deb"
 sudo apt install -y "./nebula-mgmt_${VERSION}_linux_${ARCH}.deb"
 
 # Agent (each Nebula host):
-curl -fsSLO "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-agent_${VERSION}_linux_${ARCH}.deb"
+curl -fsSLO "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-agent_${VERSION}_linux_${ARCH}.deb"
 sudo apt install -y "./nebula-agent_${VERSION}_linux_${ARCH}.deb"
 ```
 
@@ -143,15 +143,15 @@ sudo apt install -y "./nebula-agent_${VERSION}_linux_${ARCH}.deb"
 VERSION=0.3.5
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-sudo rpm -i "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_${ARCH}.rpm"
-sudo rpm -i "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/nebula-agent_${VERSION}_linux_${ARCH}.rpm"
+sudo rpm -i "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_${ARCH}.rpm"
+sudo rpm -i "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-agent_${VERSION}_linux_${ARCH}.rpm"
 ```
 
 **What the package does.** Installs the binary to `/usr/bin/`, the systemd unit to `/lib/systemd/system/`, and an example config at `/etc/nebula-{mgmt,agent}/`. The service is **not** auto-started — run `nebula-mgmt init` (server) or `nebula-agent --server URL --token TOK` (agent) first, then `sudo systemctl enable --now nebula-{mgmt,agent}`. Configs are marked `noreplace`, so upgrades preserve your edits. `apt purge` / `dnf remove --purge` keeps `/etc/nebula-agent` and `/etc/nebula` so host keys survive accidental removal.
 
 ### Prebuilt binaries (other Linux, macOS, FreeBSD, Windows)
 
-Download a tarball from the [releases page](https://github.com/juev/nebula-mesh/releases/latest) and extract:
+Download a tarball from the [releases page](https://github.com/forgekeep/nebula-mesh/releases/latest) and extract:
 
 ```sh
 VERSION=0.3.5
@@ -160,7 +160,7 @@ ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
 # Pick BIN=nebula-mgmt (server) or BIN=nebula-agent (host)
 BIN=nebula-mgmt
-curl -fsSL "https://github.com/juev/nebula-mesh/releases/download/v${VERSION}/${BIN}_${VERSION}_${OS}_${ARCH}.tar.gz" | tar -xz
+curl -fsSL "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/${BIN}_${VERSION}_${OS}_${ARCH}.tar.gz" | tar -xz
 ```
 
 Supported targets:
@@ -195,7 +195,7 @@ Images: `ghcr.io/juev/nebula-mgmt`, `ghcr.io/juev/nebula-agent`. Tags: `:latest`
 Requires Go 1.26+.
 
 ```sh
-git clone https://github.com/juev/nebula-mesh
+git clone https://github.com/forgekeep/nebula-mesh
 cd nebula-mesh
 make build   # → bin/nebula-mgmt, bin/nebula-agent
 ```
@@ -416,7 +416,7 @@ Ops endpoints (`/healthz`, `/readyz`, `/metrics`, `/debug/`, `/favicon.ico`, `/s
 
 ## Contributing
 
-Issues, PRs, and [Discussions](https://github.com/juev/nebula-mesh/discussions) welcome — ask setup questions in [Q&A](https://github.com/juev/nebula-mesh/discussions/categories/q-a) or share how you run it in [Show and tell](https://github.com/juev/nebula-mesh/discussions/categories/show-and-tell). See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and `make test && make lint` before opening a PR.
+Issues, PRs, and [Discussions](https://github.com/forgekeep/nebula-mesh/discussions) welcome — ask setup questions in [Q&A](https://github.com/forgekeep/nebula-mesh/discussions/categories/q-a) or share how you run it in [Show and tell](https://github.com/forgekeep/nebula-mesh/discussions/categories/show-and-tell). See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and `make test && make lint` before opening a PR.
 
 ## License
 

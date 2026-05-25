@@ -21,13 +21,13 @@ import (
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
 
-	agentpop "github.com/juev/nebula-mesh/internal/agent/pop"
-	"github.com/juev/nebula-mesh/internal/api"
-	"github.com/juev/nebula-mesh/internal/keystore"
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/pki"
-	corepop "github.com/juev/nebula-mesh/internal/pop"
-	"github.com/juev/nebula-mesh/internal/store"
+	agentpop "github.com/forgekeep/nebula-mesh/internal/agent/pop"
+	"github.com/forgekeep/nebula-mesh/internal/api"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/pki"
+	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // signingKeypair returns a fresh Ed25519 keypair and its PEM-encoded public

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juev/nebula-mesh/internal/config"
+	"github.com/forgekeep/nebula-mesh/internal/config"
 )
 
 // TestOIDC_HandleCallback_ErrorParamConsumesState pins that the IdP-error

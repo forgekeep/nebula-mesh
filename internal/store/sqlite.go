@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/store/migrations"
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/store/migrations"
 
 	_ "modernc.org/sqlite" // database/sql driver registration
 )
@@ -98,7 +98,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 //     statements were skipped. We now split each file by top-level `;`
 //     boundaries and Exec one statement at a time.
 //
-// See https://github.com/juev/nebula-mesh/issues/37.
+// See https://github.com/forgekeep/nebula-mesh/issues/37.
 func (s *SQLiteStore) Migrate(ctx context.Context) error {
 	migrationFiles := []string{
 		"001_initial.up.sql",

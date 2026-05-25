@@ -2,7 +2,7 @@
 
 - **Status**: Implemented (extended by [ADR 0007](0007-remove-legacy-ca-stack.md), 2026-05-15)
 - **Supersedes**: [ADR 0001](0001-ca-key-storage.md) (CA key storage: file-system vs database)
-- **Tracking issue**: [#31](https://github.com/juev/nebula-mesh/issues/31)
+- **Tracking issue**: [#31](https://github.com/forgekeep/nebula-mesh/issues/31)
 
 ## 1. Context
 
@@ -143,7 +143,7 @@ Implementation acceptance from issue #31 (in-DB encrypted storage, schema migrat
 
 ## 7. References
 
-- Issue: <https://github.com/juev/nebula-mesh/issues/31>
+- Issue: <https://github.com/forgekeep/nebula-mesh/issues/31>
 - ADR 0001: [docs/adr/0001-ca-key-storage.md](0001-ca-key-storage.md)
 - Multi-operator work: PR #22 (`feat(auth): support multiple operator users (foundation)`)
 - Current single-CA code: `internal/pki/ca.go`, `internal/cli/init.go`, `internal/cli/serve.go`

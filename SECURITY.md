@@ -9,7 +9,7 @@ nebula-mesh is pre-1.0 and ships from `main`. Security fixes target the latest t
 **Please do not open a public issue for security reports.**
 
 Use GitHub's private vulnerability reporting:
-[https://github.com/juev/nebula-mesh/security/advisories/new](https://github.com/juev/nebula-mesh/security/advisories/new)
+[https://github.com/forgekeep/nebula-mesh/security/advisories/new](https://github.com/forgekeep/nebula-mesh/security/advisories/new)
 
 Include:
 - a description of the issue and its impact,

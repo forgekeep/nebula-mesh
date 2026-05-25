@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juev/nebula-mesh/internal/ratelimit"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 func newRateLimitWeb(t *testing.T) *Web {

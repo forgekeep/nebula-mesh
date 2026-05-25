@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juev/nebula-mesh/internal/config"
-	"github.com/juev/nebula-mesh/internal/models"
-	"github.com/juev/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/config"
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // TestOIDC_HandleCallback_EmailVerified covers the email_verified claim

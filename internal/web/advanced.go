@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // parseAdvancedFromForm reads the `adv_*` form fields from the host

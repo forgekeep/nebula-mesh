@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/juev/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // trimEmpty returns a new slice with empty strings removed from src.

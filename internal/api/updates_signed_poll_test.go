@@ -17,8 +17,8 @@ import (
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
 
-	"github.com/juev/nebula-mesh/internal/models"
-	corepop "github.com/juev/nebula-mesh/internal/pop"
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
 )
 
 // enrolledAgent represents a fully enrolled host fixture in the

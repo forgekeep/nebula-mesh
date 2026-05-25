@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	corepop "github.com/juev/nebula-mesh/internal/pop"
+	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
 )
 
 // writeSigningKey writes a freshly generated Ed25519 private key to the

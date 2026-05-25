@@ -8,7 +8,7 @@ import (
 
 	"github.com/slackhq/nebula/cert"
 
-	"github.com/juev/nebula-mesh/internal/keystore"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
 )
 
 // CAManager holds a loaded CA certificate and its signing key in memory.

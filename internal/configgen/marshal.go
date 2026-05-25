@@ -3,6 +3,7 @@ package configgen
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -35,16 +36,52 @@ type pkiSection struct {
 	Key  any `yaml:"key"`
 }
 
-// literalString marshals as a YAML literal-block scalar (|). Used for the
-// inline PEM blocks so the multi-line content is preserved verbatim.
+// literalString marshals the inline PEM blocks as a YAML literal-block scalar
+// (|) when that round-trips, so the multi-line content stays readable.
 type literalString string
 
 func (l literalString) MarshalYAML() (any, error) {
-	return &yaml.Node{
-		Kind:  yaml.ScalarNode,
-		Style: yaml.LiteralStyle,
-		Value: string(l),
-	}, nil
+	n := &yaml.Node{Kind: yaml.ScalarNode, Value: string(l)}
+	// Only request literal-block style for content we know parses back
+	// identically. yaml.v3 honors an explicit LiteralStyle even for content
+	// the YAML parser then rejects — e.g. a line beginning with a tab or
+	// space, emitted verbatim under a block indent the parser reads as broken
+	// indentation ("found a tab character where an indentation space is
+	// expected"). For anything not literal-safe we leave Style unset so the
+	// encoder picks a representation that does round-trip (double-quoted),
+	// which the Nebula config loader parses identically. Well-formed PEM
+	// blocks are literal-safe and keep their readable multi-line form.
+	if literalBlockSafe(string(l)) {
+		n.Style = yaml.LiteralStyle
+	}
+	return n, nil
+}
+
+// literalBlockSafe reports whether s can be emitted as a YAML literal-block
+// scalar and parsed back identically. It is deliberately conservative: a false
+// negative only costs prettiness (the value is double-quoted instead), while a
+// false positive emits YAML the agent cannot reload. A line is literal-safe
+// when it is non-empty, has no leading or trailing space, and contains only
+// printable ASCII (0x20–0x7E) — which excludes tabs, CR, and other control
+// bytes. A single trailing newline (the block-chomping marker) is allowed.
+func literalBlockSafe(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(s, "\n"), "\n") {
+		if line == "" {
+			return false
+		}
+		if line[0] == ' ' || line[len(line)-1] == ' ' {
+			return false
+		}
+		for i := 0; i < len(line); i++ {
+			if c := line[i]; c < 0x20 || c > 0x7e {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 type lighthouseSection struct {

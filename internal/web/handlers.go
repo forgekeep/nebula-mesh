@@ -959,41 +959,9 @@ func (w *Web) handleHostDetail(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleHostEdit(rw http.ResponseWriter, r *http.Request) {
-	op := w.session.CurrentOperator(r)
-	if op == nil {
-		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+	host, ok := w.loadAccessibleHost(rw, r)
+	if !ok {
 		return
-	}
-
-	id := chi.URLParam(r, "id")
-	host, err := w.store.GetHost(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(rw, r)
-		return
-	}
-	if err != nil {
-		w.logger.Error("get host for edit", "error", err)
-		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	// Ownership check: non-admin operators must own the CA signing the network
-	if op.Role != "admin" {
-		network, err := w.store.GetNetwork(r.Context(), host.NetworkID)
-		if err != nil {
-			w.logger.Error("get network for ownership check", "error", err)
-			http.Error(rw, "Failed to load network", http.StatusInternalServerError)
-			return
-		}
-		if network.CAID == "" {
-			http.Error(rw, "Unauthorized", http.StatusForbidden)
-			return
-		}
-		ca, err := w.store.GetCA(r.Context(), network.CAID)
-		if err != nil || ca.OwnerOperatorID != op.ID {
-			http.Error(rw, "Unauthorized", http.StatusForbidden)
-			return
-		}
 	}
 
 	// Load network for CIDR display and validation
@@ -1018,41 +986,17 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "bad request", http.StatusBadRequest)
 		return
 	}
+	// op is fetched up front because the audit entry below needs op.Username;
+	// loadAccessibleHost performs the host.CAID ownership gate.
 	op := w.session.CurrentOperator(r)
 	if op == nil {
 		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 		return
 	}
 
-	id := chi.URLParam(r, "id")
-	host, err := w.store.GetHost(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(rw, r)
+	host, ok := w.loadAccessibleHost(rw, r)
+	if !ok {
 		return
-	}
-	if err != nil {
-		w.logger.Error("get host for update", "error", err)
-		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	// Ownership check
-	if op.Role != "admin" {
-		network, err := w.store.GetNetwork(r.Context(), host.NetworkID)
-		if err != nil {
-			w.logger.Error("get network for ownership check", "error", err)
-			http.Error(rw, "Failed to load network", http.StatusInternalServerError)
-			return
-		}
-		if network.CAID == "" {
-			http.Error(rw, "Unauthorized", http.StatusForbidden)
-			return
-		}
-		ca, err := w.store.GetCA(r.Context(), network.CAID)
-		if err != nil || ca.OwnerOperatorID != op.ID {
-			http.Error(rw, "Unauthorized", http.StatusForbidden)
-			return
-		}
 	}
 
 	form := newHostFormState(r)
@@ -1363,42 +1307,16 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleGenerateMobileBundle(rw http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	host, err := w.store.GetHost(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(rw, r)
-		return
-	}
-	if err != nil {
-		w.logger.Error("get host for mobile bundle", "error", err)
-		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+	host, ok := w.loadAccessibleHost(rw, r)
+	if !ok {
 		return
 	}
 
-	// Verify host is mobile
+	// Verify host is mobile. Checked after the ownership gate so a non-owner
+	// cannot probe another tenant's host kind.
 	if host.Kind != models.HostKindMobile {
 		http.Error(rw, "Host is not a mobile host", http.StatusBadRequest)
 		return
-	}
-
-	// Operator ownership check: non-admin operators must own the CA
-	op := w.session.CurrentOperator(r)
-	if op != nil && op.Role != "admin" {
-		network, err := w.store.GetNetwork(r.Context(), host.NetworkID)
-		if err != nil {
-			w.logger.Error("get network for ownership check", "error", err)
-			http.Error(rw, "Failed to load network", http.StatusInternalServerError)
-			return
-		}
-		if network.CAID == "" {
-			http.Error(rw, "Unauthorized", http.StatusForbidden)
-			return
-		}
-		ca, err := w.store.GetCA(r.Context(), network.CAID)
-		if err != nil || ca.OwnerOperatorID != op.ID {
-			http.Error(rw, "Unauthorized", http.StatusForbidden)
-			return
-		}
 	}
 
 	w.renderMobileBundle(rw, r, host)

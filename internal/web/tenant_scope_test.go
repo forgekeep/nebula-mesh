@@ -139,6 +139,69 @@ func TestWebHostDelete_NonOwnerForbidden(t *testing.T) {
 	}
 }
 
+func TestWebHostEdit_NonOwnerForbidden(t *testing.T) {
+	w, s := newSettingsWeb(t)
+	bob, foreignHost, ownHost := twoTenants(t, w, s)
+
+	// bob can open the edit form for his own host.
+	if code := webGET(t, w, "/ui/hosts/"+ownHost+"/edit", bob); code != http.StatusOK {
+		t.Errorf("own host edit: status = %d, want 200", code)
+	}
+	// bob cannot open the edit form for alice's host.
+	if code := webGET(t, w, "/ui/hosts/"+foreignHost+"/edit", bob); code != http.StatusForbidden {
+		t.Errorf("foreign host edit: status = %d, want 403", code)
+	}
+}
+
+func TestWebHostUpdate_NonOwnerForbidden(t *testing.T) {
+	w, s := newSettingsWeb(t)
+	bob, foreignHost, ownHost := twoTenants(t, w, s)
+
+	// CSRF token from a page bob can load (his own host edit form).
+	token, cookies := getCSRFTokenFromCookies(t, w, "/ui/hosts/"+ownHost+"/edit", []*http.Cookie{bob})
+
+	// Body carries a renamed host; ownership must reject it before any mutation.
+	body := "_csrf=" + token + "&name=hacked&nebula_ip=10.0.0.9&role=host"
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/"+foreignHost+"/edit", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("update foreign host: status = %d, want 403", rec.Code)
+	}
+	// The foreign host must be untouched.
+	got, err := s.GetHost(context.Background(), foreignHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "host-a" {
+		t.Errorf("foreign host was updated despite the 403: name = %q, want %q", got.Name, "host-a")
+	}
+}
+
+func TestWebGenerateMobileBundle_NonOwnerForbidden(t *testing.T) {
+	w, s := newSettingsWeb(t)
+	bob, foreignHost, ownHost := twoTenants(t, w, s)
+
+	token, cookies := getCSRFTokenFromCookies(t, w, "/ui/hosts/"+ownHost+"/edit", []*http.Cookie{bob})
+
+	// Ownership is checked before the mobile-kind gate, so a non-owner is
+	// rejected with 403 even though the foreign host is not a mobile host.
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/"+foreignHost+"/mobile-bundle/generate", strings.NewReader("_csrf="+token))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("generate mobile bundle for foreign host: status = %d, want 403", rec.Code)
+	}
+}
+
 func TestWebNetworks_ListScopedToOwner(t *testing.T) {
 	w, s := newSettingsWeb(t)
 	bob, _, _ := twoTenants(t, w, s) // creates net-a (alice) and net-b (bob)

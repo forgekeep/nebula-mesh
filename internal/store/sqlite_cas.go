@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -185,18 +186,37 @@ func (s *SQLiteStore) UpdateCAStatus(ctx context.Context, id string, status mode
 	return nil
 }
 
-// DeleteCA removes a CA row. The DB-level ON DELETE RESTRICT on
-// networks.ca_id (when enforced by application logic) is mirrored here:
-// the call returns an error if networks still reference the CA, so the
-// operator must retire / move networks first.
+// DeleteCA removes a CA row. ca_id is a plain column on networks, hosts,
+// certificates, and blocklist with no DB-level foreign key (it defaults to the
+// empty string for pre-multi-CA rows), so referential integrity is enforced
+// here: the call refuses while any of those tables still references the CA.
+// Without checking all four, deleting a CA orphans rows whose ca_id no longer
+// resolves, surfacing later as a silent failure in caForHost (ErrNotFound,
+// then 500). Each table is checked independently because they can reference a
+// CA in isolation, e.g. a blocklist row whose host was deleted via ON DELETE
+// SET NULL, or a host whose ca_id diverged from its network's.
 func (s *SQLiteStore) DeleteCA(ctx context.Context, id string) error {
-	row := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM networks WHERE ca_id = ?`, id)
-	var n int
-	if err := row.Scan(&n); err != nil {
-		return fmt.Errorf("check CA references: %w", err)
+	checks := []struct {
+		query string
+		label string
+	}{
+		{`SELECT COUNT(1) FROM networks WHERE ca_id = ?`, "network"},
+		{`SELECT COUNT(1) FROM hosts WHERE ca_id = ?`, "host"},
+		{`SELECT COUNT(1) FROM certificates WHERE ca_id = ?`, "certificate"},
+		{`SELECT COUNT(1) FROM blocklist WHERE ca_id = ?`, "blocklist entry"},
 	}
-	if n > 0 {
-		return fmt.Errorf("CA still has %d network(s); detach them first", n)
+	var blockers []string
+	for _, c := range checks {
+		var n int
+		if err := s.db.QueryRowContext(ctx, c.query, id).Scan(&n); err != nil {
+			return fmt.Errorf("check CA references: %w", err)
+		}
+		if n > 0 {
+			blockers = append(blockers, fmt.Sprintf("%d %s(s)", n, c.label))
+		}
+	}
+	if len(blockers) > 0 {
+		return fmt.Errorf("CA still has %s; detach them first", strings.Join(blockers, ", "))
 	}
 	result, err := s.db.ExecContext(ctx, `DELETE FROM cas WHERE id = ?`, id)
 	if err != nil {

@@ -70,12 +70,6 @@ linters:
       disable:
         - fieldalignment # too noisy; only useful for hot-path structs
         - shadow         # too many false positives in idiomatic Go
-      settings:
-        printf:
-          funcs:
-            - (github.com/forgekeep/nebula-mesh/internal/alerts.Logger).Infof
-            - (github.com/forgekeep/nebula-mesh/internal/alerts.Logger).Warnf
-            - (github.com/forgekeep/nebula-mesh/internal/alerts.Logger).Errorf
 
     staticcheck:
       checks:

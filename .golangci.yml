@@ -73,9 +73,9 @@ linters:
       settings:
         printf:
           funcs:
-            - (github.com/juev/nebula-mesh/internal/alerts.Logger).Infof
-            - (github.com/juev/nebula-mesh/internal/alerts.Logger).Warnf
-            - (github.com/juev/nebula-mesh/internal/alerts.Logger).Errorf
+            - (github.com/forgekeep/nebula-mesh/internal/alerts.Logger).Infof
+            - (github.com/forgekeep/nebula-mesh/internal/alerts.Logger).Warnf
+            - (github.com/forgekeep/nebula-mesh/internal/alerts.Logger).Errorf
 
     staticcheck:
       checks:
@@ -228,7 +228,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/juev/nebula-mesh
+        - github.com/forgekeep/nebula-mesh
   exclusions:
     generated: lax
     paths:

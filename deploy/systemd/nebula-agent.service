@@ -1,6 +1,6 @@
 [Unit]
 Description=Nebula Management Agent
-Documentation=https://github.com/juev/nebula-mgmt
+Documentation=https://github.com/forgekeep/nebula-mesh
 After=network-online.target nebula.service
 Wants=network-online.target
 PartOf=nebula.service

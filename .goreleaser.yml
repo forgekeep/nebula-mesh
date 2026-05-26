@@ -80,9 +80,9 @@ nfpms:
   - id: nebula-mgmt
     package_name: nebula-mgmt
     ids: [nebula-mgmt]
-    vendor: "juev"
-    homepage: "https://github.com/juev/nebula-mesh"
-    maintainer: "juev <https://github.com/juev>"
+    vendor: "forgekeep"
+    homepage: "https://github.com/forgekeep/nebula-mesh"
+    maintainer: "forgekeep <https://github.com/forgekeep>"
     description: |
       Self-hosted control plane for Slack Nebula. Issues certificates,
       manages hosts, distributes config to nebula-agent instances, and
@@ -127,16 +127,16 @@ nfpms:
       summary: Self-hosted control plane for Slack Nebula
     deb:
       fields:
-        Bugs: "https://github.com/juev/nebula-mesh/issues"
+        Bugs: "https://github.com/forgekeep/nebula-mesh/issues"
       lintian_overrides:
         - "statically-linked-binary"
 
   - id: nebula-agent
     package_name: nebula-agent
     ids: [nebula-agent]
-    vendor: "juev"
-    homepage: "https://github.com/juev/nebula-mesh"
-    maintainer: "juev <https://github.com/juev>"
+    vendor: "forgekeep"
+    homepage: "https://github.com/forgekeep/nebula-mesh"
+    maintainer: "forgekeep <https://github.com/forgekeep>"
     description: |
       Polling agent for the nebula-mesh management server.
       Enrolls a host, keeps host.crt/host.key/ca.crt/config.yml in sync,
@@ -171,7 +171,7 @@ nfpms:
       summary: Polling agent for nebula-mesh
     deb:
       fields:
-        Bugs: "https://github.com/juev/nebula-mesh/issues"
+        Bugs: "https://github.com/forgekeep/nebula-mesh/issues"
       lintian_overrides:
         - "statically-linked-binary"
 
@@ -182,13 +182,13 @@ dockers:
     ids: [nebula-mgmt]
     dockerfile: deploy/docker/Dockerfile.server
     image_templates:
-      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-amd64"
+      - "ghcr.io/forgekeep/nebula-mgmt:{{ .Version }}-amd64"
     use: buildx
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.title=nebula-mgmt"
       - "--label=org.opencontainers.image.description=Self-hosted control plane for Slack Nebula"
-      - "--label=org.opencontainers.image.source=https://github.com/juev/nebula-mesh"
+      - "--label=org.opencontainers.image.source=https://github.com/forgekeep/nebula-mesh"
       - "--label=org.opencontainers.image.licenses=MIT"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
@@ -200,13 +200,13 @@ dockers:
     ids: [nebula-mgmt]
     dockerfile: deploy/docker/Dockerfile.server
     image_templates:
-      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-arm64"
+      - "ghcr.io/forgekeep/nebula-mgmt:{{ .Version }}-arm64"
     use: buildx
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.title=nebula-mgmt"
       - "--label=org.opencontainers.image.description=Self-hosted control plane for Slack Nebula"
-      - "--label=org.opencontainers.image.source=https://github.com/juev/nebula-mesh"
+      - "--label=org.opencontainers.image.source=https://github.com/forgekeep/nebula-mesh"
       - "--label=org.opencontainers.image.licenses=MIT"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
@@ -218,13 +218,13 @@ dockers:
     ids: [nebula-agent]
     dockerfile: deploy/docker/Dockerfile.agent
     image_templates:
-      - "ghcr.io/juev/nebula-agent:{{ .Version }}-amd64"
+      - "ghcr.io/forgekeep/nebula-agent:{{ .Version }}-amd64"
     use: buildx
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.title=nebula-agent"
       - "--label=org.opencontainers.image.description=Polling agent for nebula-mesh"
-      - "--label=org.opencontainers.image.source=https://github.com/juev/nebula-mesh"
+      - "--label=org.opencontainers.image.source=https://github.com/forgekeep/nebula-mesh"
       - "--label=org.opencontainers.image.licenses=MIT"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
@@ -236,35 +236,35 @@ dockers:
     ids: [nebula-agent]
     dockerfile: deploy/docker/Dockerfile.agent
     image_templates:
-      - "ghcr.io/juev/nebula-agent:{{ .Version }}-arm64"
+      - "ghcr.io/forgekeep/nebula-agent:{{ .Version }}-arm64"
     use: buildx
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.title=nebula-agent"
       - "--label=org.opencontainers.image.description=Polling agent for nebula-mesh"
-      - "--label=org.opencontainers.image.source=https://github.com/juev/nebula-mesh"
+      - "--label=org.opencontainers.image.source=https://github.com/forgekeep/nebula-mesh"
       - "--label=org.opencontainers.image.licenses=MIT"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.created={{.Date}}"
 
 docker_manifests:
-  - name_template: "ghcr.io/juev/nebula-mgmt:{{ .Version }}"
+  - name_template: "ghcr.io/forgekeep/nebula-mgmt:{{ .Version }}"
     image_templates:
-      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-amd64"
-      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/juev/nebula-mgmt:latest"
+      - "ghcr.io/forgekeep/nebula-mgmt:{{ .Version }}-amd64"
+      - "ghcr.io/forgekeep/nebula-mgmt:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/forgekeep/nebula-mgmt:latest"
     image_templates:
-      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-amd64"
-      - "ghcr.io/juev/nebula-mgmt:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/juev/nebula-agent:{{ .Version }}"
+      - "ghcr.io/forgekeep/nebula-mgmt:{{ .Version }}-amd64"
+      - "ghcr.io/forgekeep/nebula-mgmt:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/forgekeep/nebula-agent:{{ .Version }}"
     image_templates:
-      - "ghcr.io/juev/nebula-agent:{{ .Version }}-amd64"
-      - "ghcr.io/juev/nebula-agent:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/juev/nebula-agent:latest"
+      - "ghcr.io/forgekeep/nebula-agent:{{ .Version }}-amd64"
+      - "ghcr.io/forgekeep/nebula-agent:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/forgekeep/nebula-agent:latest"
     image_templates:
-      - "ghcr.io/juev/nebula-agent:{{ .Version }}-amd64"
-      - "ghcr.io/juev/nebula-agent:{{ .Version }}-arm64"
+      - "ghcr.io/forgekeep/nebula-agent:{{ .Version }}-amd64"
+      - "ghcr.io/forgekeep/nebula-agent:{{ .Version }}-arm64"
 
 checksum:
   name_template: "checksums.txt"
@@ -299,7 +299,7 @@ changelog:
 
 release:
   github:
-    owner: juev
+    owner: forgekeep
     name: nebula-mesh
   draft: false
   prerelease: auto
@@ -307,11 +307,11 @@ release:
   header: |
     ## nebula-mesh {{ .Tag }}
 
-    **Install** — see [README](https://github.com/juev/nebula-mesh#install) for the full snippets.
+    **Install** — see [README](https://github.com/forgekeep/nebula-mesh#install) for the full snippets.
 
-    - Server: `nebula-mgmt_{{ .Version }}_<os>_<arch>.tar.gz` or `docker pull ghcr.io/juev/nebula-mgmt:{{ .Version }}`
-    - Agent: `nebula-agent_{{ .Version }}_<os>_<arch>.tar.gz` or `docker pull ghcr.io/juev/nebula-agent:{{ .Version }}`
+    - Server: `nebula-mgmt_{{ .Version }}_<os>_<arch>.tar.gz` or `docker pull ghcr.io/forgekeep/nebula-mgmt:{{ .Version }}`
+    - Agent: `nebula-agent_{{ .Version }}_<os>_<arch>.tar.gz` or `docker pull ghcr.io/forgekeep/nebula-agent:{{ .Version }}`
   footer: |
     ---
 
-    **Full changelog**: https://github.com/juev/nebula-mesh/compare/{{ .PreviousTag }}...{{ .Tag }}
+    **Full changelog**: https://github.com/forgekeep/nebula-mesh/compare/{{ .PreviousTag }}...{{ .Tag }}

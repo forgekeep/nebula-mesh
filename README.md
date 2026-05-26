@@ -179,16 +179,16 @@ docker run -d --name nebula-mgmt \
   -v nebula-mgmt-data:/var/lib/nebula-mgmt \
   -v nebula-mgmt-etc:/etc/nebula-mgmt \
   -e NEBULA_MGMT_MASTER_KEY \
-  ghcr.io/juev/nebula-mgmt:latest
+  ghcr.io/forgekeep/nebula-mgmt:latest
 
 # Agent (typically sidecar to nebula, sharing the same PID namespace):
 docker run -d --name nebula-agent \
   -v /etc/nebula-agent:/etc/nebula-agent \
   -v /etc/nebula:/etc/nebula \
-  ghcr.io/juev/nebula-agent:latest
+  ghcr.io/forgekeep/nebula-agent:latest
 ```
 
-Images: `ghcr.io/juev/nebula-mgmt`, `ghcr.io/juev/nebula-agent`. Tags: `:latest` and `:X.Y.Z` (semver, no `v` prefix). See [Packages](https://github.com/juev?tab=packages&repo_name=nebula-mesh).
+Images: `ghcr.io/forgekeep/nebula-mgmt`, `ghcr.io/forgekeep/nebula-agent`. Tags: `:latest` and `:X.Y.Z` (semver, no `v` prefix). See [Packages](https://github.com/orgs/forgekeep/packages?repo_name=nebula-mesh).
 
 ### From source
 

@@ -24,6 +24,7 @@ import (
 // enrolledAgent represents a fully enrolled host fixture in the
 // signed-poll test suite: cert fingerprint + Ed25519 signing keypair.
 type enrolledAgent struct {
+	hostID      string
 	fingerprint string
 	signingPub  ed25519.PublicKey
 	signingPriv ed25519.PrivateKey
@@ -93,7 +94,7 @@ func enrolledFixture(t *testing.T, srv *Server) enrolledAgent {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return enrolledAgent{fingerprint: fp, signingPub: edPub, signingPriv: edPriv}
+	return enrolledAgent{hostID: created.Host.ID, fingerprint: fp, signingPub: edPub, signingPriv: edPriv}
 }
 
 // signPoll mutates the request, attaching the four ADR 0004 headers.

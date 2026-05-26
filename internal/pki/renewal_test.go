@@ -5,55 +5,43 @@ import (
 	"time"
 )
 
-func TestShouldRenew(t *testing.T) {
+func TestShouldRenewAt(t *testing.T) {
+	// Fixed reference instant — no wall clock, so the table is deterministic
+	// (the old time.Now()-relative table could straddle a boundary).
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name      string
 		notBefore time.Time
 		notAfter  time.Time
 		want      bool
 	}{
-		{
-			name:      "90% TTL remaining — no renewal",
-			notBefore: time.Now().Add(-1 * 24 * time.Hour),
-			notAfter:  time.Now().Add(9 * 24 * time.Hour),
-			want:      false,
-		},
-		{
-			name:      "50% TTL remaining — no renewal",
-			notBefore: time.Now().Add(-5 * 24 * time.Hour),
-			notAfter:  time.Now().Add(5 * 24 * time.Hour),
-			want:      false,
-		},
-		{
-			name:      "15% TTL remaining — needs renewal",
-			notBefore: time.Now().Add(-17 * 24 * time.Hour),
-			notAfter:  time.Now().Add(3 * 24 * time.Hour),
-			want:      true,
-		},
-		{
-			name:      "expired — needs renewal",
-			notBefore: time.Now().Add(-10 * 24 * time.Hour),
-			notAfter:  time.Now().Add(-1 * time.Hour),
-			want:      true,
-		},
-		{
-			name:      "exactly 20% — needs renewal",
-			notBefore: time.Now().Add(-80 * time.Hour),
-			notAfter:  time.Now().Add(20 * time.Hour),
-			want:      true,
-		},
+		{"90% TTL remaining — no renewal", now.Add(-1 * 24 * time.Hour), now.Add(9 * 24 * time.Hour), false},
+		{"50% TTL remaining — no renewal", now.Add(-5 * 24 * time.Hour), now.Add(5 * 24 * time.Hour), false},
+		{"15% TTL remaining — needs renewal", now.Add(-17 * 24 * time.Hour), now.Add(3 * 24 * time.Hour), true},
+		{"expired — needs renewal", now.Add(-10 * 24 * time.Hour), now.Add(-1 * time.Hour), true},
+		{"exactly 20% — needs renewal", now.Add(-80 * time.Hour), now.Add(20 * time.Hour), true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ShouldRenew(tt.notBefore, tt.notAfter)
+			got := ShouldRenewAt(tt.notBefore, tt.notAfter, now)
 			if got != tt.want {
 				total := tt.notAfter.Sub(tt.notBefore)
-				remaining := time.Until(tt.notAfter)
+				remaining := tt.notAfter.Sub(now)
 				pct := float64(remaining) / float64(total) * 100
-				t.Errorf("ShouldRenew() = %v, want %v (remaining: %.1f%%)", got, tt.want, pct)
+				t.Errorf("ShouldRenewAt() = %v, want %v (remaining: %.1f%%)", got, tt.want, pct)
 			}
 		})
+	}
+}
+
+// TestShouldRenew_DelegatesToWallClock spot-checks the wall-clock wrapper.
+func TestShouldRenew_DelegatesToWallClock(t *testing.T) {
+	if !ShouldRenew(time.Now().Add(-10*24*time.Hour), time.Now().Add(-time.Hour)) {
+		t.Error("expired cert should need renewal via ShouldRenew")
+	}
+	if ShouldRenew(time.Now().Add(-time.Hour), time.Now().Add(9*24*time.Hour)) {
+		t.Error("fresh cert should not need renewal via ShouldRenew")
 	}
 }
 

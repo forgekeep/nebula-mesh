@@ -160,6 +160,27 @@ func TestWebHostUpdate_NonOwnerForbidden(t *testing.T) {
 	// CSRF token from a page bob can load (his own host edit form).
 	token, cookies := getCSRFTokenFromCookies(t, w, "/ui/hosts/"+ownHost+"/edit", []*http.Cookie{bob})
 
+	// bob can update his own host through the same handler: the gate lets the
+	// owner through and the mutation lands (303 + renamed in the store).
+	ownBody := "_csrf=" + token + "&name=renamed-b&nebula_ips=10.0.0.50&role=host"
+	ownReq := httptest.NewRequest(http.MethodPost, "/ui/hosts/"+ownHost+"/edit", strings.NewReader(ownBody))
+	ownReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		ownReq.AddCookie(c)
+	}
+	ownRec := httptest.NewRecorder()
+	w.ServeHTTP(ownRec, ownReq)
+	if ownRec.Code != http.StatusSeeOther {
+		t.Fatalf("update own host: status = %d, want 303", ownRec.Code)
+	}
+	updated, err := s.GetHost(context.Background(), ownHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "renamed-b" {
+		t.Errorf("own host was not updated: name = %q, want %q", updated.Name, "renamed-b")
+	}
+
 	// Body carries a renamed host; ownership must reject it before any mutation.
 	body := "_csrf=" + token + "&name=hacked&nebula_ip=10.0.0.9&role=host"
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts/"+foreignHost+"/edit", strings.NewReader(body))
@@ -187,6 +208,20 @@ func TestWebGenerateMobileBundle_NonOwnerForbidden(t *testing.T) {
 	bob, foreignHost, ownHost := twoTenants(t, w, s)
 
 	token, cookies := getCSRFTokenFromCookies(t, w, "/ui/hosts/"+ownHost+"/edit", []*http.Cookie{bob})
+
+	// bob's own (non-mobile) host passes the ownership gate and is then rejected
+	// by the mobile-kind gate with 400 — not 403 — which proves the gate let the
+	// owner through (the foreign case below stops at 403 before that gate).
+	ownReq := httptest.NewRequest(http.MethodPost, "/ui/hosts/"+ownHost+"/mobile-bundle/generate", strings.NewReader("_csrf="+token))
+	ownReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		ownReq.AddCookie(c)
+	}
+	ownRec := httptest.NewRecorder()
+	w.ServeHTTP(ownRec, ownReq)
+	if ownRec.Code != http.StatusBadRequest {
+		t.Fatalf("mobile bundle for own non-mobile host: status = %d, want 400 (ownership passed, mobile-kind gate rejected)", ownRec.Code)
+	}
 
 	// Ownership is checked before the mobile-kind gate, so a non-owner is
 	// rejected with 403 even though the foreign host is not a mobile host.

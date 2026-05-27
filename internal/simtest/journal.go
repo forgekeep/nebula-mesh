@@ -59,10 +59,3 @@ func (j *Journal) Report(target string) string {
 	}
 	return b.String()
 }
-
-// Len returns the number of recorded events.
-func (j *Journal) Len() int {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	return len(j.events)
-}

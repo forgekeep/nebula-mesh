@@ -1,6 +1,7 @@
 package simtest
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -22,8 +23,12 @@ func TestSim_CertAutoRenewal(t *testing.T) {
 	a := h.Enroll(netID, "renew-host", "10.80.0.10")
 	a.DrainToConverged(h, 5)
 
-	// Freeze the clock at the cert's birth; a fresh 30d cert must not renew.
-	h.SetClock(time.Now())
+	// Freeze the clock at the cert's actual birth; a fresh 30d cert must not renew.
+	ci, err := h.Store.GetCertificateInfo(context.Background(), a.HostID)
+	if err != nil {
+		t.Fatalf("get cert info: %v", err)
+	}
+	h.SetClock(ci.NotBefore)
 	if r := a.Poll(h); r.CertificatePEM != nil {
 		t.Fatalf("cert renewed while fresh (full TTL remaining) — unexpected")
 	}

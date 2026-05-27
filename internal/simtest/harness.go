@@ -43,8 +43,7 @@ type TB interface {
 	Logf(format string, args ...any)
 }
 
-//nolint:gosec // static test credential, not a real secret
-const apiKey = "simtest-api-key" // #nosec G101
+const apiKey = "simtest-api-key" // #nosec G101 -- static test credential, not a real secret
 
 // Option configures a Harness.
 type Option func(*options)

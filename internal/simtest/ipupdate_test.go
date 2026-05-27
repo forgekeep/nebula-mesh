@@ -25,6 +25,8 @@ import (
 // race-free — the TOCTOU exists in source, same as the create path. The test
 // is kept as a post-fix regression guard (it asserts the correct invariant).
 func TestSim_IPUniqueness_ConcurrentUpdate(t *testing.T) {
+	t.Log("NOTE: in-process PATCHes usually serialize at validation, so a PASS here is a " +
+		"post-fix regression guard, not proof the UPDATE-path validate/write TOCTOU is closed.")
 	h := New(t, WithFileStore())
 	netID := h.CreateNetwork("upd-net", "10.40.0.0/16")
 

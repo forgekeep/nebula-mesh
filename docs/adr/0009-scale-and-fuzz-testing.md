@@ -104,13 +104,13 @@ tests; the simulation earns its place on the interleavings a single-feature
 test won't reach — revocation racing renewal under load, that class of thing —
 and each fix gains a Tier 2 invariant as it lands.
 
-**Clock seam (proposed).** Cert renewal, the rotation overlap window, and
+**Clock seam (implemented).** Cert renewal, the rotation overlap window, and
 TTLs read time. Deterministic testing of those needs an injectable clock:
 a `Server.WithClock(func() time.Time)` seam (default `time.Now`), a
 `pki.ShouldRenewAt(notBefore, notAfter, now)` helper, and an optional
-`SignRequest.Now`. Behavior will be unchanged when the clock is unset; advancing
-it will let the sim cross a cert's renewal window in milliseconds. This seam
-lands in its own PR (see Phasing). (The `cawatch` / `alerts` background scanners
+`SignRequest.Now`. Behavior is unchanged when the clock is unset; advancing
+it lets the sim cross a cert's renewal window in milliseconds. The seam landed
+in #170. (The `cawatch` / `alerts` background scanners
 read `time.Now()` directly; seaming them is a follow-up for their
 time-dependent invariants.)
 

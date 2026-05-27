@@ -15,11 +15,18 @@ type SignRequest struct {
 	Networks  []netip.Prefix
 	Groups    []string
 	Duration  time.Duration
+	// Now sets the certificate's NotBefore (and the CA-expiry check instant).
+	// Zero means time.Now(). Callers holding an injectable clock pass it so
+	// re-signs under simulated time produce distinct, correctly-dated certs.
+	Now time.Time
 }
 
 // Sign creates and signs a host certificate using the CA.
 func (m *CAManager) Sign(req SignRequest) (cert.Certificate, error) {
-	now := time.Now()
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
 
 	// Validate CA is not expired
 	if m.caCert.Expired(now) {

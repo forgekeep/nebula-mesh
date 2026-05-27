@@ -11,11 +11,18 @@ type HostCertInfo struct {
 	NotAfter  time.Time
 }
 
-// ShouldRenew returns true if the certificate should be renewed.
+// ShouldRenew returns true if the certificate should be renewed as of now.
 // Renewal is needed when remaining TTL is less than 20% of total duration.
 func ShouldRenew(notBefore, notAfter time.Time) bool {
+	return ShouldRenewAt(notBefore, notAfter, time.Now())
+}
+
+// ShouldRenewAt is ShouldRenew evaluated at an explicit instant, so callers
+// holding an injectable clock (and tests advancing simulated time) get a
+// deterministic decision instead of an implicit time.Now().
+func ShouldRenewAt(notBefore, notAfter, now time.Time) bool {
 	total := notAfter.Sub(notBefore)
-	remaining := time.Until(notAfter)
+	remaining := notAfter.Sub(now)
 
 	if remaining <= 0 {
 		return true

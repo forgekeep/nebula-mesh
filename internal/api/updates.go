@@ -104,7 +104,7 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "timestamp_skew")
 		return
 	}
-	now := time.Now()
+	now := s.now()
 	if diff := now.Sub(ts); diff > pollClockSkew || diff < -pollClockSkew {
 		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonTimestampSkew)
 		writeError(w, http.StatusUnauthorized, "timestamp_skew")
@@ -185,8 +185,8 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 
 	// Check if certificate needs renewal
 	certInfo, err := s.store.GetCertificateInfo(r.Context(), host.ID)
-	if err == nil && pki.ShouldRenew(certInfo.NotBefore, certInfo.NotAfter) {
-		signed, renewErr := s.signHostCert(r.Context(), host, certInfo)
+	if err == nil && pki.ShouldRenewAt(certInfo.NotBefore, certInfo.NotAfter, now) {
+		signed, renewErr := s.signHostCert(r.Context(), host, certInfo, now)
 
 		if renewErr != nil {
 			s.metrics.recordRenewal(resultError)
@@ -282,7 +282,7 @@ type signResult struct {
 
 // signHostCert re-signs the host certificate with the same public key and fresh expiry.
 // CA lock is held only during crypto operations (Sign + CACertPEM).
-func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *models.CertificateInfo) (*signResult, error) {
+func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *models.CertificateInfo, now time.Time) (*signResult, error) {
 	// Prep work — no CA lock needed
 	currentCert, _, err := cert.UnmarshalCertificateFromPEM([]byte(certInfo.PEM))
 	if err != nil {
@@ -315,6 +315,7 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 			Networks:  prefixes,
 			Groups:    host.Groups,
 			Duration:  pki.DefaultAgentCertDuration,
+			Now:       now,
 		})
 		if signErr != nil {
 			return nil, nil, fmt.Errorf("sign renewed cert: %w", signErr)

@@ -1,0 +1,72 @@
+# Scheduled / manual "slow lane" — never on the PR path.
+#
+# ADR 0009 §"CI integration (PR-gate vs scheduled)" pins this boundary as
+# normative: the fast lane (ci.yml) gates every PR on build + `go test -race` +
+# lint + the Tier-1 fuzz seed corpora + the deterministic Tier-2 invariants;
+# the slow, unbounded work runs here on a nightly schedule and on manual
+# dispatch. A slow or flaky gate is one people learn to ignore — so it stays
+# off the PR path.
+#
+# Today this lane runs Tier-1 *generative* fuzzing only (the rest of ADR 0009
+# isn't built yet). It grows by adding matrix entries / jobs as tiers land:
+#   - more Tier-1 fuzz targets (FuzzPoPCanonical, FuzzValidateIP, FuzzMigrations,
+#     FuzzEnrollPayload, FuzzAgentUpdatesHeaders);
+#   - long / high-fan-out Tier-2 simulation runs (once internal/simtest lands);
+#   - Tier-3 Nebula interop (`go test -tags e2e_testing ./...`) + the VM capstone.
+name: Scheduled
+
+on:
+  schedule:
+    # 07:37 UTC nightly — deliberately off the hour to dodge GitHub Actions'
+    # top-of-hour scheduler congestion and the dispatch delay it causes.
+    - cron: '37 7 * * *'
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: 'Per-target generative fuzz budget (go test -fuzztime)'
+        required: false
+        default: '10m'
+
+permissions:
+  contents: read
+
+concurrency:
+  # One slow-lane run at a time per ref; a newer run supersedes an in-flight one.
+  group: scheduled-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: generative fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkg: ./internal/configgen
+            target: FuzzGenerate
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: generative fuzz
+        run: |
+          go test -run='^$' -fuzz='^${{ matrix.target }}$' \
+            -fuzztime='${{ github.event.inputs.fuzztime || '10m' }}' \
+            '${{ matrix.pkg }}'
+
+      # A crasher the generative pass finds is an asset: upload its minimized
+      # input so it can be committed under testdata/fuzz/ as a fast-lane
+      # regression (ADR 0009 — "filed and its input committed as a fast-lane
+      # regression").
+      - name: upload crashers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashers-${{ matrix.target }}
+          path: '**/testdata/fuzz/**'
+          if-no-files-found: ignore

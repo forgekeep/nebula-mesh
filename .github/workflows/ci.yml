@@ -1,3 +1,9 @@
+# Fast lane — gates every PR (ADR 0009 §"CI integration (PR-gate vs scheduled)").
+# Runs the bounded, deterministic subset: build, `go test -race`, lint, the
+# Tier-1 fuzz seed corpora (executed as ordinary `go test`), and — once they
+# land — the deterministic Tier-2 invariants. Unbounded generative fuzz and the
+# long sim / Tier-3 interop runs live in the scheduled slow lane
+# (.github/workflows/scheduled.yml), never here.
 name: CI
 
 on:

@@ -80,10 +80,6 @@ func (w *Web) csrfMiddleware(next http.Handler) http.Handler {
 
 		// If not in header, try form field
 		if bodyToken == "" {
-			// #nosec G120 -- form parsing for CSRF token read; body size capped
-			// by http.Server.MaxHeaderBytes/ReadLimit at the server level
-			// (consistent with the rest of handlers.go which also calls
-			// ParseForm without explicit MaxBytesReader).
 			err := r.ParseForm()
 			if err != nil {
 				http.Error(rw, "Bad Request", http.StatusBadRequest)

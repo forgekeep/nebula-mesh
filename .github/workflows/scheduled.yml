@@ -39,6 +39,10 @@ jobs:
   fuzz:
     name: generative fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
+    # Safety ceiling: workflow_dispatch accepts an arbitrary fuzztime, so cap the
+    # job well below GitHub's 6h default — a typo'd or oversized fuzztime can't
+    # pin a runner. Comfortably above the nightly 10m/target plus setup.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

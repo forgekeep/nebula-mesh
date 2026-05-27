@@ -14,23 +14,16 @@ import (
 )
 
 // TestSim_IPUniqueness_ConcurrentCreate exercises the IP_UNIQUENESS invariant
-// from ADR 0009 under concurrency. Overlay-IP uniqueness is enforced only in
-// application code: validateHostIPs (internal/api/validate_ip.go) reads the
-// host list, and the caller then issues a separate CreateHost write. The read
-// and write are not in one transaction, and migration 014 left no UNIQUE
-// constraint on host_addresses.address — so N concurrent creates of the same
-// IP can all pass validation before any of them inserts (TOCTOU), and the
-// overlay ends up with duplicate addresses.
-//
-// The assertion is the correct invariant: exactly one create may win. The race
-// is intermittently reproducible, so the test is skipped until the fix lands.
+// from ADR 0009 under concurrency. The application-layer check has a TOCTOU:
+// validateHostIPs (internal/api/validate_ip.go) reads the host list, and the
+// caller then issues a separate CreateHost write with no enclosing transaction,
+// so N concurrent creates of the same IP can all pass validation. Migration 018
+// (#149) backstops this at the data layer with a network-scoped UNIQUE
+// constraint on host_addresses(network_id, address): the racing writes collapse
+// to a single winner and the losers map to ErrIPTaken. This test is the
+// regression guard over that fix — exactly one create wins and one row holds the
+// address (verified stable across repeated -race runs).
 func TestSim_IPUniqueness_ConcurrentCreate(t *testing.T) {
-	t.Skip("known TOCTOU race in overlay-IP uniqueness: intermittently reproducible under -race " +
-		"(scheduler-dependent; observed e.g. 2 of 16 concurrent creates winning, leaving two host rows " +
-		"with the same address). validateHostIPs reads then the caller writes with no enclosing transaction " +
-		"and no UNIQUE constraint on host_addresses.address; the production file-backed store allows " +
-		"concurrent connections, widening the window. Un-skip once a network-scoped uniqueness constraint lands.")
-
 	h := New(t, WithFileStore())
 	netID := h.CreateNetwork("race-net", "10.20.0.0/16")
 	const ip = "10.20.0.5"

@@ -106,12 +106,13 @@ and each fix gains a Tier 2 invariant as it lands.
 
 **Clock seam (implemented).** Cert renewal, the rotation overlap window, and
 TTLs read time. Deterministic testing of those needs an injectable clock:
-`Server.WithClock(func() time.Time)` (default `time.Now`),
-`pki.ShouldRenewAt(notBefore, notAfter, now)`, and an optional
-`SignRequest.Now`. Behavior is unchanged when the clock is unset; advancing it
-lets the sim cross a cert's renewal window in milliseconds. (The `cawatch` /
-`alerts` background scanners still read `time.Now()` directly; seaming them is a
-follow-up for their time-dependent invariants.)
+a `Server.WithClock(func() time.Time)` seam (default `time.Now`), a
+`pki.ShouldRenewAt(notBefore, notAfter, now)` helper, and an optional
+`SignRequest.Now`. Behavior is unchanged when the clock is unset; advancing
+it lets the sim cross a cert's renewal window in milliseconds. The seam landed
+in #170. (The `cawatch` / `alerts` background scanners
+read `time.Now()` directly; seaming them is a follow-up for their
+time-dependent invariants.)
 
 ### Tier 3 — Nebula interop
 
@@ -173,8 +174,8 @@ the store and the event journal after each scenario step:
 
 - **`IP_UNIQUENESS`** — no two enrolled hosts on a network share any overlay
   address. (Migration 014 normalized addresses into the `host_addresses` table;
-  a network-scoped uniqueness constraint backs this at the data layer, and the
-  invariant guards it under concurrency.)
+  migration 018 added the network-scoped uniqueness constraint that backs this
+  at the data layer, and the invariant guards it under concurrency.)
 - **`CERT_VALIDATES`** — every issued cert verifies against its issuing CA, and
   against the trust bundle during a rotation overlap.
 - **`TENANT_ISOLATION`** — one operator's artifacts never reference another's

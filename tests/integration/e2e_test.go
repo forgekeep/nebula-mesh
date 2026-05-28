@@ -32,11 +32,11 @@ import (
 
 // signingKeypair returns a fresh Ed25519 keypair and its PEM-encoded public
 // key — the same shape an agent would send to /api/v1/enroll under ADR 0004.
-func signingKeypair(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey, string) {
-	t.Helper()
+func signingKeypair(tb testing.TB) (ed25519.PublicKey, ed25519.PrivateKey, string) {
+	tb.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "NEBULA ED25519 PUBLIC KEY", Bytes: pub})
 	return pub, priv, string(pemBytes)
@@ -75,17 +75,20 @@ func signedGetUpdates(t *testing.T, ts *httptest.Server, fingerprint string, sig
 
 const testAPIKey = "e2e-test-api-key"
 
-func setupE2E(t *testing.T) (*httptest.Server, *store.SQLiteStore, *models.CA) {
-	t.Helper()
+// setupE2E takes a testing.TB (not *testing.T) so both ordinary tests and the
+// signed-poll / enroll fuzz targets can stand the server up once. It uses only
+// TB-available methods (Helper/Fatal/Cleanup) — no t.Run/Parallel.
+func setupE2E(tb testing.TB) (*httptest.Server, *store.SQLiteStore, *models.CA) {
+	tb.Helper()
 
 	s, err := store.NewSQLiteStore(":memory:")
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	if err := s.Migrate(context.Background()); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
+	tb.Cleanup(func() { s.Close() })
 
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -94,7 +97,7 @@ func setupE2E(t *testing.T) (*httptest.Server, *store.SQLiteStore, *models.CA) {
 	// Setup CA for test: create master + resolver + default CA
 	master, err := keystore.NewMaster(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	srv.WithMaster(master)
 	srv.WithCAResolver(pki.NewCAResolver(s, master))
@@ -111,7 +114,7 @@ func setupE2E(t *testing.T) (*httptest.Server, *store.SQLiteStore, *models.CA) {
 		UpdatedAt:    time.Now(),
 	}
 	if err := s.CreateOperator(ctx, op); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 
 	// Seed testAPIKey as an operator API key so e2e requests authenticate via
@@ -123,7 +126,7 @@ func setupE2E(t *testing.T) (*httptest.Server, *store.SQLiteStore, *models.CA) {
 		Name:       "e2e-admin-key",
 		KeyHash:    hex.EncodeToString(keySum[:]),
 	}); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 
 	ca, _, err := pki.MintAndStoreCA(ctx, s, master, logger, pki.MintRequest{
@@ -132,19 +135,19 @@ func setupE2E(t *testing.T) (*httptest.Server, *store.SQLiteStore, *models.CA) {
 		Duration: 365 * 24 * time.Hour,
 	})
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	srv.WithDefaultCAID(ca.ID)
 
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	tb.Cleanup(ts.Close)
 
 	// Return stored CA (not the manager)
 	return ts, s, ca
 }
 
-func apiCall(t *testing.T, ts *httptest.Server, method, path string, body any) *http.Response {
-	t.Helper()
+func apiCall(tb testing.TB, ts *httptest.Server, method, path string, body any) *http.Response {
+	tb.Helper()
 	var bodyReader io.Reader
 	if body != nil {
 		data, _ := json.Marshal(body)
@@ -155,9 +158,40 @@ func apiCall(t *testing.T, ts *httptest.Server, method, path string, body any) *
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return resp
+}
+
+// provisionNetwork creates a network and returns its ID, used by the
+// signed-poll fuzz target's host provisioning.
+func provisionNetwork(tb testing.TB, ts *httptest.Server) string {
+	tb.Helper()
+	resp := apiCall(tb, ts, "POST", "/api/v1/networks", map[string]any{
+		"name":  "fuzz-net",
+		"cidrs": []string{"192.168.100.0/24"},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		b, _ := io.ReadAll(resp.Body)
+		tb.Fatalf("create network: HTTP %d: %s", resp.StatusCode, b)
+	}
+	var network models.Network
+	if err := json.NewDecoder(resp.Body).Decode(&network); err != nil {
+		tb.Fatalf("decode network: %v", err)
+	}
+	resp.Body.Close()
+	return network.ID
+}
+
+// enrollHostForFuzz provisions a network, fully enrolls a host, and returns its
+// Ed25519 signing key and cert fingerprint — the identity an agent poll
+// authenticates as. A thin testing.TB adapter over enrollHost so a fuzz harness
+// can reach the PoP verify path.
+func enrollHostForFuzz(tb testing.TB, ts *httptest.Server) (ed25519.PrivateKey, string) {
+	tb.Helper()
+	netID := provisionNetwork(tb, ts)
+	_, fp, _, signingPriv := enrollHost(tb, ts, netID, "fuzz-host", "192.168.100.10", nil)
+	return signingPriv, fp
 }
 
 func TestE2E_FullCycle(t *testing.T) {
@@ -457,8 +491,8 @@ func TestAgentUpdates_CertSaveFailure(t *testing.T) {
 // below: it creates a host, runs the full enrollment handshake, and returns
 // the host record, its cert fingerprint, its rendered config, and the
 // Ed25519 signing private key needed to issue signed polls afterwards.
-func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP string, extra map[string]any) (host *models.Host, fingerprint, renderedConfig string, signingKey ed25519.PrivateKey) {
-	t.Helper()
+func enrollHost(tb testing.TB, ts *httptest.Server, networkID, name, nebulaIP string, extra map[string]any) (host *models.Host, fingerprint, renderedConfig string, signingKey ed25519.PrivateKey) {
+	tb.Helper()
 	payload := map[string]any{
 		"network_id": networkID,
 		"name":       name,
@@ -467,30 +501,30 @@ func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP str
 	for k, v := range extra {
 		payload[k] = v
 	}
-	resp := apiCall(t, ts, "POST", "/api/v1/hosts", payload)
+	resp := apiCall(tb, ts, "POST", "/api/v1/hosts", payload)
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("create host %s: HTTP %d: %s", name, resp.StatusCode, string(body))
+		tb.Fatalf("create host %s: HTTP %d: %s", name, resp.StatusCode, string(body))
 	}
 	var created struct {
 		Host            *models.Host `json:"host"`
 		EnrollmentToken string       `json:"enrollment_token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		t.Fatalf("decode created %s: %v", name, err)
+		tb.Fatalf("decode created %s: %v", name, err)
 	}
 	resp.Body.Close()
 
 	privKey := make([]byte, 32)
 	if _, err := rand.Read(privKey); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	pubKey, err := curve25519.X25519(privKey, curve25519.Basepoint)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	pubKeyPEM := cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pubKey)
-	_, signingPriv, signingPubPEM := signingKeypair(t)
+	_, signingPriv, signingPubPEM := signingKeypair(tb)
 
 	enrollData, _ := json.Marshal(map[string]string{
 		"token":                  created.EnrollmentToken,
@@ -499,12 +533,12 @@ func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP str
 	})
 	enrollResp, err := http.Post(ts.URL+"/api/v1/enroll", "application/json", bytes.NewReader(enrollData))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	defer enrollResp.Body.Close()
 	if enrollResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(enrollResp.Body)
-		t.Fatalf("enroll %s: HTTP %d: %s", name, enrollResp.StatusCode, string(body))
+		tb.Fatalf("enroll %s: HTTP %d: %s", name, enrollResp.StatusCode, string(body))
 	}
 
 	var enrolled struct {
@@ -512,15 +546,15 @@ func enrollHost(t *testing.T, ts *httptest.Server, networkID, name, nebulaIP str
 		ConfigYAML     string `json:"config_yaml"`
 	}
 	if err := json.NewDecoder(enrollResp.Body).Decode(&enrolled); err != nil {
-		t.Fatalf("decode enroll %s: %v", name, err)
+		tb.Fatalf("decode enroll %s: %v", name, err)
 	}
 	hostCert, _, err := cert.UnmarshalCertificateFromPEM([]byte(enrolled.CertificatePEM))
 	if err != nil {
-		t.Fatalf("parse cert %s: %v", name, err)
+		tb.Fatalf("parse cert %s: %v", name, err)
 	}
 	fp, err := hostCert.Fingerprint()
 	if err != nil {
-		t.Fatalf("fingerprint %s: %v", name, err)
+		tb.Fatalf("fingerprint %s: %v", name, err)
 	}
 
 	return created.Host, fp, enrolled.ConfigYAML, signingPriv

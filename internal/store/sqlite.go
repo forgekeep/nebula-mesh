@@ -137,6 +137,17 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		if applied {
 			continue
 		}
+		// Migration 018 enforces UNIQUE(network_id, address). Before applying it,
+		// resolve the data conditions that would otherwise make it fail with a raw
+		// SQLite error: a cross-host duplicate (a security defect with no safe
+		// automatic winner) fails loud with an actionable message and no schema
+		// change, while orphan and same-host-duplicate rows are repaired
+		// automatically (and logged). See checkOverlayIPConflicts.
+		if f == "018_host_address_network_uniqueness.up.sql" {
+			if err := checkOverlayIPConflicts(ctx, s.db); err != nil {
+				return err
+			}
+		}
 		sqlBytes, err := migrations.FS.ReadFile(f)
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", f, err)
@@ -201,6 +212,240 @@ func (s *SQLiteStore) repairBlocklistCAID(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// maxConflictsListed caps how many cross-host conflict groups (and hosts per
+// group) the fail-loud message enumerates, and how many auto-repaired rows the
+// cleanup logs sample, so a pathological database can't produce a multi-megabyte
+// startup error or log line.
+const maxConflictsListed = 20
+
+// overlayConflict is one (network, address) claimed by two or more distinct
+// hosts — a security defect with no safe automatic winner.
+type overlayConflict struct {
+	network, address string
+	hosts            []string // "name (id)", distinct, first-seen order
+}
+
+// checkOverlayIPConflicts runs before migration 018 applies its
+// UNIQUE(network_id, address) index over host_addresses. 018 has two reachable
+// failure modes on a valid schema: the backfill UPDATE hits a NOT NULL violation
+// on an orphan host_addresses row (whose host no longer exists), and CREATE
+// UNIQUE INDEX fails on a duplicate (network_id, address). The duplicate case
+// splits in two:
+//
+//   - Cross-host (two or more distinct hosts share one overlay IP): a security
+//     defect — a CA has issued certificates that let one host receive another's
+//     traffic. There is no data-derivable answer to which host should keep the
+//     address, so this fails loud with an actionable message and the database is
+//     left untouched for an operator to resolve.
+//   - Same-host (one host bound to the same address at two positions) and orphan
+//     rows: redundant/dangling data with no policy decision and no certificate
+//     implication, so they are repaired automatically (and logged) rather than
+//     blocking startup.
+//
+// It runs before 018 adds network_id, so the cross-host query derives the
+// network by joining host_addresses to hosts. Returns a fail-loud error only for
+// the cross-host case; returns nil (after any auto-repair) otherwise.
+func checkOverlayIPConflicts(ctx context.Context, db *sql.DB) error {
+	conflicts, err := crossHostOverlayConflicts(ctx, db)
+	if err != nil {
+		return err
+	}
+	if len(conflicts) > 0 {
+		// Irreducible: bail to the operator without mutating anything, so the
+		// "no schema changes were made" guarantee holds and any orphan/same-host
+		// rows are left for the post-resolution restart to repair.
+		return errors.New(formatCrossHostConflicts(conflicts))
+	}
+	// No cross-host conflict remains, so the rest is safe to repair in place.
+	if err := cleanOrphanHostAddresses(ctx, db); err != nil {
+		return err
+	}
+	return cleanSameHostAddressDuplicates(ctx, db)
+}
+
+// crossHostOverlayConflicts returns every host_addresses row whose
+// (network_id, address) group is claimed by two or more distinct hosts, grouped
+// by (network, address) with distinct hosts listed in scan order.
+func crossHostOverlayConflicts(ctx context.Context, db *sql.DB) ([]overlayConflict, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT h.network_id, ha.address, h.id, h.name
+		FROM host_addresses ha
+		JOIN hosts h ON h.id = ha.host_id
+		WHERE (
+			SELECT COUNT(DISTINCT h2.id)
+			FROM host_addresses ha2
+			JOIN hosts h2 ON h2.id = ha2.host_id
+			WHERE h2.network_id = h.network_id AND ha2.address = ha.address
+		) >= 2
+		ORDER BY h.network_id, ha.address, h.id`)
+	if err != nil {
+		return nil, fmt.Errorf("check cross-host overlay-ip conflicts: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			slog.Error("close cross-host overlay-ip rows", "error", cerr)
+		}
+	}()
+
+	var order []string
+	groups := map[string]*overlayConflict{}
+	seenHost := map[string]bool{} // key = network\x00address\x00hostID
+	for rows.Next() {
+		var network, address, hostID, hostName string
+		if err := rows.Scan(&network, &address, &hostID, &hostName); err != nil {
+			return nil, fmt.Errorf("scan cross-host overlay-ip conflict: %w", err)
+		}
+		key := network + "\x00" + address
+		g := groups[key]
+		if g == nil {
+			g = &overlayConflict{network: network, address: address}
+			groups[key] = g
+			order = append(order, key)
+		}
+		hk := key + "\x00" + hostID
+		if !seenHost[hk] {
+			seenHost[hk] = true
+			g.hosts = append(g.hosts, fmt.Sprintf("%s (%s)", hostName, hostID))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate cross-host overlay-ip conflicts: %w", err)
+	}
+
+	out := make([]overlayConflict, 0, len(order))
+	for _, key := range order {
+		out = append(out, *groups[key])
+	}
+	return out, nil
+}
+
+// formatCrossHostConflicts builds the operator-facing fail-loud message. The
+// cert-revocation guidance is deliberately precise: removing a host_addresses
+// row (or reassigning the address) does NOT revoke the displaced host's
+// certificate — only deleting the host through the management API/UI blocklists
+// it (DeleteHostAndBlockCert). And because the server is down during this
+// failure, that path is unavailable until the duplicate is cleared and the
+// server boots, hence the two-phase wording.
+func formatCrossHostConflicts(conflicts []overlayConflict) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "migration 018 (network-scoped overlay-IP uniqueness) cannot be applied: "+
+		"%d overlay IP(s) are each claimed by more than one host. The server will not start "+
+		"until these are resolved:\n", len(conflicts))
+	for i, c := range conflicts {
+		if i >= maxConflictsListed {
+			fmt.Fprintf(&b, "  … and %d more\n", len(conflicts)-maxConflictsListed)
+			break
+		}
+		fmt.Fprintf(&b, "  network %s — IP %s — hosts: %s\n", c.network, c.address, joinCapped(c.hosts))
+	}
+	b.WriteString("\nTwo hosts sharing one overlay IP is a security defect: a CA has issued " +
+		"certificates that let one host receive the other's traffic, and there is no safe " +
+		"automatic choice of which host keeps the address.\n\n" +
+		"Resolve: remove one host's binding to the conflicting address from host_addresses so the " +
+		"migration can apply and the server can start. Removing the row does NOT revoke the " +
+		"displaced host's certificate — it stays valid until revoked. Once the server is running, " +
+		"delete the displaced host through the management interface (which blocklists its " +
+		"certificate). Resolving this before upgrading, while the server is still running, avoids " +
+		"the startup failure entirely. No schema changes were made.")
+	return b.String()
+}
+
+// cleanOrphanHostAddresses deletes host_addresses rows whose host_id no longer
+// matches any hosts row. These are dangling bindings (only reachable with
+// foreign keys disabled — e.g. a restored or hand-edited database); 018's
+// backfill UPDATE would otherwise fail on them. Logged when any are removed.
+func cleanOrphanHostAddresses(ctx context.Context, db *sql.DB) error {
+	sample, err := sampleHostAddresses(ctx, db, `
+		SELECT host_id, address FROM host_addresses
+		WHERE NOT EXISTS (SELECT 1 FROM hosts h WHERE h.id = host_addresses.host_id)
+		ORDER BY host_id, address LIMIT ?`)
+	if err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx, `
+		DELETE FROM host_addresses
+		WHERE NOT EXISTS (SELECT 1 FROM hosts h WHERE h.id = host_addresses.host_id)`)
+	if err != nil {
+		return fmt.Errorf("remove orphan host_addresses: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		slog.Warn("migration 018: removed orphaned host_addresses rows (referenced host no longer exists)",
+			"count", n, "sample", sample)
+	}
+	return nil
+}
+
+// cleanSameHostAddressDuplicates collapses rows where one host holds the same
+// address at more than one position, keeping the lowest-rowid row. This is a
+// redundant binding for a single host — same certificate, no winner to choose —
+// so it is safe to repair automatically. Logged when any are removed.
+func cleanSameHostAddressDuplicates(ctx context.Context, db *sql.DB) error {
+	sample, err := sampleHostAddresses(ctx, db, `
+		SELECT host_id, address FROM host_addresses ha
+		WHERE EXISTS (
+			SELECT 1 FROM host_addresses ha2
+			WHERE ha2.host_id = ha.host_id AND ha2.address = ha.address
+			  AND ha2.rowid < ha.rowid)
+		ORDER BY host_id, address LIMIT ?`)
+	if err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx, `
+		DELETE FROM host_addresses
+		WHERE rowid IN (
+			SELECT ha.rowid FROM host_addresses ha
+			WHERE EXISTS (
+				SELECT 1 FROM host_addresses ha2
+				WHERE ha2.host_id = ha.host_id AND ha2.address = ha.address
+				  AND ha2.rowid < ha.rowid))`)
+	if err != nil {
+		return fmt.Errorf("collapse same-host duplicate host_addresses: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		slog.Warn("migration 018: collapsed duplicate same-host overlay-IP bindings",
+			"count", n, "sample", sample)
+	}
+	return nil
+}
+
+// sampleHostAddresses runs query — a complete, in-package literal that selects
+// host_id, address and ends with LIMIT ? — and returns up to maxConflictsListed
+// "host_id=…/address=…" labels for log context before a cleanup DELETE.
+func sampleHostAddresses(ctx context.Context, db *sql.DB, query string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, query, maxConflictsListed)
+	if err != nil {
+		return nil, fmt.Errorf("sample host_addresses: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			slog.Error("close host_addresses sample rows", "error", cerr)
+		}
+	}()
+	var out []string
+	for rows.Next() {
+		var hostID, address string
+		if err := rows.Scan(&hostID, &address); err != nil {
+			return nil, fmt.Errorf("scan host_addresses sample: %w", err)
+		}
+		out = append(out, fmt.Sprintf("host_id=%s/address=%s", hostID, address))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate host_addresses sample: %w", err)
+	}
+	return out, nil
+}
+
+// joinCapped joins host labels with ", ", truncating to maxConflictsListed with
+// an "… and N more" suffix so a single IP claimed by many hosts can't bloat the
+// message.
+func joinCapped(hosts []string) string {
+	if len(hosts) <= maxConflictsListed {
+		return strings.Join(hosts, ", ")
+	}
+	return strings.Join(hosts[:maxConflictsListed], ", ") +
+		fmt.Sprintf(", … and %d more", len(hosts)-maxConflictsListed)
 }
 
 // splitSQLStatements splits a SQL script on top-level `;` boundaries. It

@@ -135,6 +135,7 @@ func Serve(configPath string, insecureHTTP bool) error {
 	// Create API server
 	apiSrv := api.NewServer(s, logger)
 	apiSrv.WithMetricsEnabled(cfg.Metrics.PrometheusEnabled())
+	apiSrv.WithMetricsRequireAuth(cfg.Metrics.RequireAuth)
 	apiSrv.WithEnrollmentTokenTTL(cfg.EnrollmentTokenTTLDuration())
 
 	// Build a single rate limiter shared by API and Web. The Web UI runs

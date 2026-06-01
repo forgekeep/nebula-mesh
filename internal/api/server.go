@@ -30,6 +30,7 @@ type Server struct {
 	logger             *slog.Logger
 	metrics            *metrics
 	metricsEnabled     bool
+	metricsRequireAuth bool
 	hostSeen           HostSeenEmitter
 	limiter            *ratelimit.Limiter
 	passwordPolicy     auth.Policy
@@ -129,6 +130,13 @@ func (s *Server) WithMetricsEnabled(enabled bool) {
 	s.setupRoutes()
 }
 
+// WithMetricsRequireAuth gates /metrics behind bearer auth when true (#187).
+// Must be called before the router is exercised — re-wires the routes.
+func (s *Server) WithMetricsRequireAuth(require bool) {
+	s.metricsRequireAuth = require
+	s.setupRoutes()
+}
+
 // HostSeenEmitter is invoked after every successful agent poll so the Web
 // UI can stream a live "host X just polled" event over its SSE endpoint.
 // hostID is the DB id, lastSeen is the wall-clock timestamp the agent's
@@ -161,10 +169,12 @@ func (s *Server) setupRoutes() {
 	r.Get("/health", s.handleHealth) // legacy alias
 	r.Get("/healthz", s.handleHealth)
 	r.Get("/readyz", s.handleReady)
-	if s.metricsEnabled {
+	// /metrics is public by default; when metrics.require_auth is set it moves
+	// into the bearer-protected group below (#187) — the labels expose
+	// host/network/CA IDs and operational counters.
+	if s.metricsEnabled && !s.metricsRequireAuth {
 		r.Method("GET", "/metrics", promhttp.HandlerFor(s.metrics.reg, promhttp.HandlerOpts{}))
 	}
-	r.Method("GET", "/debug/vars", expvar.Handler())
 	r.Group(func(r chi.Router) {
 		r.Use(s.rateLimitMiddleware("enroll"))
 		r.Post("/api/v1/enroll", s.handleEnroll)
@@ -178,6 +188,15 @@ func (s *Server) setupRoutes() {
 	r.Group(func(r chi.Router) {
 		r.Use(s.rateLimitMiddleware("api"))
 		r.Use(bearerAuth(s.store))
+
+		// Debug/diagnostics are bearer-gated (#187): expvar leaks memstats and
+		// the process command line, and /metrics labels expose host/network/CA
+		// IDs when require_auth is on.
+		r.Method("GET", "/debug/vars", expvar.Handler())
+		if s.metricsEnabled && s.metricsRequireAuth {
+			r.Method("GET", "/metrics", promhttp.HandlerFor(s.metrics.reg, promhttp.HandlerOpts{}))
+		}
+
 		r.Post("/api/v1/networks", s.handleCreateNetwork)
 		r.Get("/api/v1/networks", s.handleListNetworks)
 		r.Get("/api/v1/networks/{id}", s.handleGetNetwork)
@@ -229,7 +248,10 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := contextWithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if err := s.store.Ping(ctx); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable", "error": err.Error()})
+		// Log the cause server-side but do not echo internal error detail
+		// (DB path/driver) to unauthenticated readiness probes (#187).
+		s.logger.Error("readiness check failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})

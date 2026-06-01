@@ -291,6 +291,40 @@ func TestPoll_RespectsContext(t *testing.T) {
 	}
 }
 
+// TestPoll_HTTPTimeout verifies that a single poll honors the configured
+// client timeout even when the request context carries no deadline (the
+// daemon case, #193). Before the fix poll() used http.DefaultClient, which
+// has no timeout, so an unresponsive-but-connected server hung the loop
+// forever.
+func TestPoll_HTTPTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done() // never respond until the client gives up
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	seedSigningKeyAt(t, dir)
+	p := newTestPoller(t, PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "test-fp",
+		DataDir:     dir,
+		Interval:    time.Hour,
+		HTTPTimeout: 100 * time.Millisecond,
+	})
+
+	// context.Background() never cancels — only the client timeout can bound
+	// the call.
+	start := time.Now()
+	err := p.poll(context.Background())
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected timeout error from unresponsive server")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("poll did not honor HTTPTimeout; took %v", elapsed)
+	}
+}
+
 func TestAtomicWriteFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.txt")

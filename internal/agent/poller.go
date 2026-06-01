@@ -107,6 +107,12 @@ func errorsAs(err error, target any) bool {
 	return false
 }
 
+// defaultAgentHTTPTimeout bounds a single outbound agent HTTP request (enroll
+// or poll) so a connected-but-unresponsive server cannot stall the call
+// indefinitely (#193). http.DefaultClient has no timeout, so it is never used
+// for agent requests.
+const defaultAgentHTTPTimeout = 30 * time.Second
+
 // PollerConfig holds configuration for the Poller.
 type PollerConfig struct {
 	ServerURL      string
@@ -115,6 +121,9 @@ type PollerConfig struct {
 	SigningKeyPath string
 	Interval       time.Duration
 	PIDFile        string
+	// HTTPTimeout bounds a single poll request. Zero or negative falls back
+	// to defaultAgentHTTPTimeout.
+	HTTPTimeout time.Duration
 }
 
 // Poller periodically checks the management server for updates.
@@ -123,6 +132,7 @@ type Poller struct {
 	logger     *slog.Logger
 	signalFunc func() error // for testing: override SIGHUP sending
 	signingKey ed25519.PrivateKey
+	httpClient *http.Client
 }
 
 // NewPoller creates a new Poller and loads the Ed25519 signing key needed to
@@ -137,10 +147,15 @@ func NewPoller(cfg PollerConfig, logger *slog.Logger) (*Poller, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load signing key: %w", err)
 	}
+	timeout := cfg.HTTPTimeout
+	if timeout <= 0 {
+		timeout = defaultAgentHTTPTimeout
+	}
 	p := &Poller{
 		config:     cfg,
 		logger:     logger,
 		signingKey: priv,
+		httpClient: &http.Client{Timeout: timeout},
 	}
 	p.signalFunc = func() error {
 		return signalNebulaFromPID(cfg.PIDFile)
@@ -208,7 +223,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	if err := p.signRequest(req); err != nil {
 		return fmt.Errorf("sign poll request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("poll request: %w", err)
 	}

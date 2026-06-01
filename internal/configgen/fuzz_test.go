@@ -40,6 +40,14 @@ func FuzzGenerate(f *testing.F) {
 	f.Add("mobile", "10.0.0.5", "10.0.0.1", "198.51.100.7:4242",
 		"", "", "443", "udp", "ops", 0, 0, false, true, true, true,
 		"-----BEGIN NEBULA CERTIFICATE-----\nAQ==\n-----END NEBULA CERTIFICATE-----")
+	// Regression for the scheduled-fuzz crasher (run 26709587640): a
+	// lighthouse PublicAddr of "\t\n" reached static_host_map as a plain
+	// string, where yaml.v3 picked literal-block style and emitted the tab
+	// verbatim — YAML its own parser then rejected ("found a tab character
+	// where an indentation space is expected"). safeString now forces a
+	// round-tripping style for such values.
+	f.Add("0", "0", "0", "\t\n", "0", "0", "0", "0", "0", -125, 74,
+		false, true, false, false, "0")
 
 	f.Fuzz(func(t *testing.T,
 		hostName, ip, lhIP, lhAddr, listenHost, tunDev, fwPort, fwProto, fwGroup string,

@@ -12,6 +12,31 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
+// TestRedirectCAError_EscapesMessage verifies that store-layer error text is
+// URL-escaped before it is placed in the redirect query string (#194), so
+// URL-significant characters (a network name with '#', '&', spaces) cannot
+// truncate or split the redirect target — and that the message still
+// round-trips back to the original via Query().Get.
+func TestRedirectCAError_EscapesMessage(t *testing.T) {
+	const msg = "Conflict: still attached to net#1 & net 2"
+	rw := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/ui/cas/abc/delete", nil)
+
+	redirectCAError(rw, r, "abc", msg)
+
+	loc := rw.Header().Get("Location")
+	if strings.ContainsAny(loc, "# ") || strings.Contains(loc, "&") {
+		t.Fatalf("unescaped URL-significant char leaked into Location: %q", loc)
+	}
+	u, err := url.Parse(loc)
+	if err != nil {
+		t.Fatalf("Location is not a valid URL: %v", err)
+	}
+	if got := u.Query().Get("error"); got != msg {
+		t.Fatalf("error param round-trip mismatch: got %q, want %q", got, msg)
+	}
+}
+
 func TestCAs_NonOwner_Forbidden(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	aliceCookie := mintSession(t, s, "alice", "user")

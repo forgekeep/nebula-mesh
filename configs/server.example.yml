@@ -57,6 +57,10 @@ allow_self_registration: false
 #   threshold: "72h"
 #   webhook_url: "https://alertmanager.example.com/api/v2/alerts"
 #   webhook_hmac_secret: "change-me"
+#   # webhook_url must be http(s) and, by default, a routable (non-private)
+#   # host — an SSRF guard (#188). Set true for a co-located/internal sink
+#   # (e.g. Alertmanager on a private address).
+#   allow_private_webhook: false
 
 # Per-IP rate limiter (issue #52). Enabled by default; set `enabled: false`
 # in trusted networks. When the management server runs behind a reverse

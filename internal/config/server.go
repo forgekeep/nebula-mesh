@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -149,6 +150,44 @@ func listenIsLoopback(listen string) bool {
 	return addr.IsLoopback()
 }
 
+// hostIsPrivate reports whether host is a loopback, private, link-local, or
+// unspecified address — i.e. not a routable public host. The link-local case
+// covers the cloud-metadata endpoint (169.254.169.254). Hostnames that don't
+// parse as an IP are treated as public (DNS is intentionally not resolved at
+// config-load time), except the literal "localhost".
+func hostIsPrivate(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast() || addr.IsUnspecified()
+}
+
+// validateWebhookURL guards the alert webhook against SSRF (#188): the URL must
+// be http/https with a host, and (unless allowPrivate) must not target a
+// private/loopback/link-local address. DNS names are not resolved here, so this
+// is a config-load guard, not a full request-time SSRF defense.
+func validateWebhookURL(rawURL string, allowPrivate bool) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("alerts.webhook_url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("alerts.webhook_url: scheme must be http or https, got %q", u.Scheme)
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("alerts.webhook_url: missing host")
+	}
+	if !allowPrivate && hostIsPrivate(u.Hostname()) {
+		return fmt.Errorf("alerts.webhook_url: %q is a private/loopback/link-local address; set alerts.allow_private_webhook: true for an intentional internal sink", u.Hostname())
+	}
+	return nil
+}
+
 // CookieSecureResolved returns the effective Secure-cookie flag for this
 // configuration. Explicit value wins; if unset, infer from the presence
 // of TLS material on the server itself.
@@ -223,6 +262,12 @@ type AlertsConfig struct {
 	Threshold         string `yaml:"threshold,omitempty"`
 	WebhookURL        string `yaml:"webhook_url,omitempty"`
 	WebhookHMACSecret string `yaml:"webhook_hmac_secret,omitempty"`
+
+	// AllowPrivateWebhook permits webhook_url to point at a loopback/private/
+	// link-local address. Default false rejects such targets at startup as an
+	// SSRF guard (#188); set true for an intentional internal sink (e.g. a
+	// co-located Alertmanager).
+	AllowPrivateWebhook bool `yaml:"allow_private_webhook,omitempty"`
 }
 
 // IntervalDuration returns Interval as a time.Duration. Falls back to 5m
@@ -320,6 +365,19 @@ func (o *OIDCConfig) Validate() error {
 	if o == nil || !o.Enabled {
 		return nil
 	}
+	// The issuer's discovery doc + JWKS are fetched over this URL at startup
+	// (#188). Require https for a non-loopback issuer so the fetch can't be
+	// downgraded or aimed at an internal http service; loopback issuers (local
+	// dev IdPs like dex) may use http.
+	if o.Issuer != "" {
+		iss, err := url.Parse(o.Issuer)
+		if err != nil {
+			return fmt.Errorf("oidc.issuer: %w", err)
+		}
+		if iss.Scheme != "https" && !hostIsPrivate(iss.Hostname()) {
+			return fmt.Errorf("oidc.issuer must use https for a non-loopback host (got %q)", o.Issuer)
+		}
+	}
 	roleUnsetOrAdmin := o.DefaultRole == "" || o.DefaultRole == "admin"
 	noAllowlist := len(o.AllowedGroups) == 0 && len(o.AllowedEmails) == 0
 	if roleUnsetOrAdmin && noAllowlist {
@@ -384,6 +442,12 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 
 	if err := cfg.OIDC.Validate(); err != nil {
 		return nil, err
+	}
+
+	if cfg.Alerts.Enabled && cfg.Alerts.WebhookURL != "" {
+		if err := validateWebhookURL(cfg.Alerts.WebhookURL, cfg.Alerts.AllowPrivateWebhook); err != nil {
+			return nil, err
+		}
 	}
 
 	if cfg.CAAutoRotate.Enabled {

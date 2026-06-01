@@ -3,6 +3,8 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"time"
@@ -28,6 +30,13 @@ type ServerConfig struct {
 	TLSCert    string      `yaml:"tls_cert,omitempty"`
 	TLSKey     string      `yaml:"tls_key,omitempty"`
 	OIDC       *OIDCConfig `yaml:"oidc,omitempty"`
+
+	// AllowInsecureHTTP opts out of the plaintext-HTTP guard (#179). Without
+	// TLS, the server only binds a loopback address (safe behind a local
+	// reverse proxy); binding a routable address in cleartext is refused
+	// unless this is set true (or the --insecure-http flag is passed). Keep
+	// it false in production — credentials would otherwise transit in the clear.
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http,omitempty"`
 
 	// MasterKey is a base64-encoded 32-byte AES-256 key used to wrap
 	// per-CA DEKs in the cas table. May be supplied via the
@@ -92,6 +101,52 @@ type ServerConfig struct {
 	// The field was deprecated in favor of one-time stdout output from `init` and
 	// recovery via `nebula-mgmt ops mint-admin-key`.
 	legacyAPIKey bool
+}
+
+// RequireSecureBind enforces the plaintext-HTTP guard (#179). It returns an
+// error when the server would serve cleartext on a routable address:
+//
+//   - TLS configured (tls_cert+tls_key)            → always allowed.
+//   - No TLS, AllowInsecureHTTP set                → allowed (explicit opt-out).
+//   - No TLS, Listen bound to a loopback address   → allowed (proxy-friendly).
+//   - No TLS, Listen bound to anything else        → refused.
+//
+// Called at startup after the --insecure-http flag has been folded into
+// AllowInsecureHTTP, so the CLI flag and the config field share one code path.
+func (c *ServerConfig) RequireSecureBind() error {
+	if c.TLSCert != "" && c.TLSKey != "" {
+		return nil
+	}
+	if c.AllowInsecureHTTP {
+		return nil
+	}
+	if listenIsLoopback(c.Listen) {
+		return nil
+	}
+	return fmt.Errorf("refusing to serve plaintext HTTP on non-loopback address %q: set tls_cert+tls_key, bind a loopback address behind a TLS-terminating proxy, or explicitly opt out with allow_insecure_http: true (or --insecure-http)", c.Listen)
+}
+
+// listenIsLoopback reports whether the host portion of a "host:port" listen
+// address is a loopback address. An empty host ("" from ":8080") and the
+// unspecified addresses (0.0.0.0 / ::) bind every interface and are NOT
+// loopback. Unparseable hostnames (other than "localhost") are treated as
+// non-loopback so the guard fails safe.
+func listenIsLoopback(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		host = listen // no port present; classify the whole string
+	}
+	if host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	return addr.IsLoopback()
 }
 
 // CookieSecureResolved returns the effective Secure-cookie flag for this

@@ -46,10 +46,21 @@ func buildMux(webUI, apiSrv http.Handler) *http.ServeMux {
 }
 
 // Serve starts the management server.
-func Serve(configPath string) error {
+func Serve(configPath string, insecureHTTP bool) error {
 	cfg, err := config.LoadServerConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+
+	// The --insecure-http flag overrides the config field so the opt-out can
+	// be expressed either way (#179).
+	if insecureHTTP {
+		cfg.AllowInsecureHTTP = true
+	}
+	// Fail fast before any DB/key work if we'd otherwise serve cleartext on a
+	// routable address.
+	if err := cfg.RequireSecureBind(); err != nil {
+		return err
 	}
 
 	// Setup logger

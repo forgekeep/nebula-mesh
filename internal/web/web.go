@@ -231,8 +231,34 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 	return w, nil
 }
 
+// maxBodySize caps request bodies for the web router. A declared
+// Content-Length over the limit is rejected up front with 413; bodies without
+// a declared length are wrapped with http.MaxBytesReader so a chunked upload
+// still cannot exceed the cap. Closes the gap where unauthenticated /ui form
+// POSTs (login/register) had no limit (#185).
+func (w *Web) maxBodySize(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			if r.ContentLength > maxBytes {
+				http.Error(rw, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(rw, r.Body, maxBytes)
+			}
+			next.ServeHTTP(rw, r)
+		})
+	}
+}
+
 func (w *Web) setupRoutes() {
 	r := chi.NewRouter()
+
+	// Cap request bodies on every /ui route (#185). The web router serves
+	// unauthenticated form POSTs (/ui/login, /ui/register); without a limit,
+	// ParseForm reads the whole body into memory, so an unauthenticated client
+	// could exhaust RAM. Mirrors the API server's maxBodySize.
+	r.Use(w.maxBodySize(1 << 20))
 
 	// Static files
 	staticSub, _ := fs.Sub(staticFS, "static")

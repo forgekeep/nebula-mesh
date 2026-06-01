@@ -33,9 +33,14 @@ func newRateLimitWeb(t *testing.T) *Web {
 
 func TestRateLimit_BlocksAfterBurst(t *testing.T) {
 	w := newRateLimitWeb(t)
+	// Rate is deliberately tiny so the burst-exhaustion assertion is independent
+	// of how long each request takes. Login now spends ~bcrypt time even for an
+	// unknown username (#180 constant-time login), which under -race is hundreds
+	// of ms; a 1 req/s refill would hand back a token mid-test and admit the 3rd
+	// request. A negligible refill rate isolates pure burst behavior.
 	w.WithRateLimiter(ratelimit.New(ratelimit.Config{
 		Enabled: true,
-		Groups:  map[string]ratelimit.GroupConfig{"auth": {Rate: 1, Burst: 2}},
+		Groups:  map[string]ratelimit.GroupConfig{"auth": {Rate: 0.001, Burst: 2}},
 	}))
 
 	csrfToken, csrfCookies := getCSRFTokenFromCookies(t, w, "/ui/login", nil)

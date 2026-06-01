@@ -23,6 +23,20 @@ const (
 	pendingTOTPMaxLife = 5 * time.Minute
 )
 
+// dummyPasswordHash is compared against the submitted password on the
+// login paths that have no real hash to check — unknown username or an
+// inactive account — so a failed login takes the same ~bcrypt time
+// regardless of whether the account exists (#180, username enumeration).
+// Generated once at the same cost as production hashes (bcrypt.DefaultCost,
+// see handlers.go/operators.go) so it tracks any future cost change.
+var dummyPasswordHash = func() []byte {
+	h, err := bcrypt.GenerateFromPassword([]byte("nebula-mesh login timing equalizer"), bcrypt.DefaultCost)
+	if err != nil {
+		panic("bcrypt dummy hash: " + err.Error())
+	}
+	return h
+}()
+
 // SessionManager handles DB-backed cookie sessions for operator users.
 type SessionManager struct {
 	store        store.Store
@@ -72,12 +86,17 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 	}
 	op, err := sm.store.GetOperatorByUsername(r.Context(), username)
 	if errors.Is(err, store.ErrNotFound) {
+		// Equalize timing with the password-verify path below so a missing
+		// account is indistinguishable from a wrong password (#180).
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
 		return LoginResult{}, false, nil
 	}
 	if err != nil {
 		return LoginResult{}, false, fmt.Errorf("lookup operator: %w", err)
 	}
 	if op.Status != models.OperatorStatusActive {
+		// Same constant-time treatment for a disabled/non-active account.
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
 		return LoginResult{}, false, nil
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(password)); err != nil {

@@ -60,5 +60,19 @@ func (r *CAResolver) LoadByID(ctx context.Context, caID string) (*CAManager, err
 	if err != nil {
 		return nil, fmt.Errorf("decrypt CA %s key: %w", caID, err)
 	}
-	return LoadCAFromMaterial([]byte(c.CertPEM), ed25519.PrivateKey(keyBytes))
+	return loadCAOrZeroize([]byte(c.CertPEM), keyBytes)
+}
+
+// loadCAOrZeroize builds a CAManager from freshly-decrypted key material,
+// transferring ownership of keyBytes to the manager on success (the caller
+// later clears it via CAManager.Wipe). If construction fails — e.g. the cert
+// is unparseable or not a CA — the plaintext key never reaches a manager, so
+// it is zeroized here rather than left on the heap for the GC (#181).
+func loadCAOrZeroize(certPEM, keyBytes []byte) (*CAManager, error) {
+	mgr, err := LoadCAFromMaterial(certPEM, ed25519.PrivateKey(keyBytes))
+	if err != nil {
+		keystore.Zeroize(keyBytes)
+		return nil, err
+	}
+	return mgr, nil
 }

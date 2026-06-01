@@ -123,8 +123,12 @@ func loadOrCreateConfig(path string) (*config.ServerConfig, error) {
 		return nil, fmt.Errorf("stat config: %w", err)
 	}
 
+	// Bind loopback by default (#179): a fresh install serves cleartext only to
+	// the local host, so it is safe out of the box behind a TLS-terminating
+	// proxy. For direct remote access set tls_cert+tls_key, or opt into
+	// plaintext exposure with allow_insecure_http + a routable listen address.
 	cfg := &config.ServerConfig{
-		Listen:   ":8080",
+		Listen:   "127.0.0.1:8080",
 		DataDir:  "/var/lib/nebula-mgmt",
 		DBPath:   "/var/lib/nebula-mgmt/nebula.db",
 		LogLevel: "info",

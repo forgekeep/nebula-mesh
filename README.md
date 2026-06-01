@@ -46,7 +46,9 @@ sudo -E nebula-mgmt init --config /etc/nebula-mgmt/server.yml
 sudo systemctl enable --now nebula-mgmt
 ```
 
-Open `http://<server>:8080/ui/` and log in with the password printed by `init`.
+`init` binds `127.0.0.1:8080` by default, so the server is reachable locally: open `http://127.0.0.1:8080/ui/` (or tunnel with `ssh -L 8080:127.0.0.1:8080 <server>`) and log in with the password printed by `init`.
+
+For **remote access**, terminate TLS — set `tls_cert`+`tls_key`, or front with nginx/caddy/traefik and keep the loopback bind. Serving plaintext on a routable address is refused unless you explicitly set `allow_insecure_http: true` (or pass `--insecure-http`) — see [Security](#security).
 
 For RPM / macOS / FreeBSD / Windows / Docker / source — and the host-side agent — see [Install](#install) below. For host enrolment and CLI walk-through, see [Quickstart](#quickstart).
 
@@ -187,6 +189,8 @@ docker run -d --name nebula-agent \
   -v /etc/nebula:/etc/nebula \
   ghcr.io/forgekeep/nebula-agent:latest
 ```
+
+The image runs with `--insecure-http` (TLS belongs at your ingress/reverse proxy), so set `listen: ":8080"` in the mounted `server.yml` for the published port to be reachable — the bare-metal default of `127.0.0.1:8080` would not be.
 
 Images: `ghcr.io/forgekeep/nebula-mgmt`, `ghcr.io/forgekeep/nebula-agent`. Tags: `:latest` and `:X.Y.Z` (semver, no `v` prefix). See [Packages](https://github.com/orgs/forgekeep/packages?repo_name=nebula-mesh).
 
@@ -411,7 +415,7 @@ Ops endpoints (`/healthz`, `/readyz`, `/metrics`, `/debug/`, `/favicon.ico`, `/s
 - **Authorization.** Operator-management API and CA-management API require `role: admin`; non-admin operators can only see and act on the CAs they own.
 - **API keys.** Per-operator, stored as SHA-256 hashes — disable an operator and every key revokes in the same transaction. All admin authentication runs through DB-backed operator_api_keys (SHA-256 hashed).
 - **CA key material.** Stored encrypted at rest in SQLite under a process-wide AES-256-GCM master key (`NEBULA_MGMT_MASTER_KEY`), supplied at startup and never persisted. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the threat-model discussion and [ADR 0003](docs/adr/0003-ca-encryption-model.md) for the operator-derived-KEK / zero-knowledge alternatives we evaluated and deferred.
-- **Transport.** Always run the management server behind TLS — set `tls_cert` + `tls_key`, or front with nginx/caddy/traefik.
+- **Transport.** Always run the management server behind TLS — set `tls_cert` + `tls_key`, or front with nginx/caddy/traefik. Without TLS the server binds only a loopback address by default; it refuses to serve cleartext on a routable address unless you opt in with `allow_insecure_http: true` (or `--insecure-http`) — credentials would otherwise transit in the clear (#179).
 - **Disclosure.** Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 
 ## Contributing

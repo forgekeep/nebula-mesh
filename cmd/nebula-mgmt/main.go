@@ -79,13 +79,14 @@ func runInit(args []string) error {
 func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	configPath := fs.String("config", "", "config file path (required)")
+	insecureHTTP := fs.Bool("insecure-http", false, "allow serving plaintext HTTP on a non-loopback address (overrides allow_insecure_http; credentials transit in cleartext)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *configPath == "" {
 		return fmt.Errorf("--config is required")
 	}
-	return cli.Serve(*configPath)
+	return cli.Serve(*configPath, *insecureHTTP)
 }
 
 func runHost(args []string) error {

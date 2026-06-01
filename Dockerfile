@@ -36,4 +36,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1
 
 ENTRYPOINT ["/usr/local/bin/nebula-mgmt"]
-CMD ["serve", "--config", "/etc/nebula-mgmt/server.yml"]
+# Containers bind 0.0.0.0 and terminate TLS at the ingress/reverse proxy, so the
+# app layer serves plaintext to the container network by design. --insecure-http
+# opts past the loopback-only guard (#179); put TLS in front at your ingress.
+CMD ["serve", "--config", "/etc/nebula-mgmt/server.yml", "--insecure-http"]

@@ -41,6 +41,40 @@ type updateHostRequest struct {
 	Advanced   *models.HostAdvanced `json:"advanced,omitempty"`
 }
 
+// Bounds on host fields that are embedded in the signed Nebula certificate and
+// then distributed to every peer; without caps an operator could bloat certs
+// mesh-wide (#186). Generous relative to real use, but bounded.
+const (
+	maxHostNameLen  = 255
+	maxGroupNameLen = 64
+	maxHostGroups   = 64
+)
+
+// validateHostName bounds the host name length.
+func validateHostName(name string) error {
+	if len(name) > maxHostNameLen {
+		return fmt.Errorf("name must be at most %d characters", maxHostNameLen)
+	}
+	return nil
+}
+
+// validateHostGroups bounds the group count and each group's length, and keeps
+// the existing non-empty rule.
+func validateHostGroups(groups []string) error {
+	if len(groups) > maxHostGroups {
+		return fmt.Errorf("at most %d groups allowed, got %d", maxHostGroups, len(groups))
+	}
+	for _, g := range groups {
+		if strings.TrimSpace(g) == "" {
+			return fmt.Errorf("group names must not be empty")
+		}
+		if len(g) > maxGroupNameLen {
+			return fmt.Errorf("group name must be at most %d characters", maxGroupNameLen)
+		}
+	}
+	return nil
+}
+
 func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	var req createHostRequest
 	if err := decodeJSONStrict(r, &req); err != nil {
@@ -144,11 +178,13 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	if host.Groups == nil {
 		host.Groups = []string{}
 	}
-	for _, g := range host.Groups {
-		if strings.TrimSpace(g) == "" {
-			writeError(w, http.StatusBadRequest, "group names must not be empty")
-			return
-		}
+	if err := validateHostName(host.Name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateHostGroups(host.Groups); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	rawToken := uuid.New().String()
@@ -576,6 +612,10 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "name must not be empty")
 			return
 		}
+		if err := validateHostName(name); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		host.Name = name
 	}
 
@@ -593,11 +633,9 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Groups != nil {
-		for _, g := range *req.Groups {
-			if strings.TrimSpace(g) == "" {
-				writeError(w, http.StatusBadRequest, "group names must not be empty")
-				return
-			}
+		if err := validateHostGroups(*req.Groups); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
 		}
 		host.Groups = *req.Groups
 	}

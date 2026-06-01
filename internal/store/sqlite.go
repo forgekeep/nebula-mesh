@@ -70,6 +70,13 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	// queries hit the same store.
 	if dbPath == ":memory:" {
 		db.SetMaxOpenConns(1)
+	} else {
+		// Bound the pool for file-backed databases so a burst of concurrent
+		// requests cannot spawn unbounded connections/goroutines contending on
+		// SQLite locks (#185).
+		db.SetMaxOpenConns(25)
+		db.SetMaxIdleConns(5)
+		db.SetConnMaxLifetime(5 * time.Minute)
 	}
 
 	// Ping forces at least one connection open so a DSN-pragma failure

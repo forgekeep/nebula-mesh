@@ -100,7 +100,10 @@ func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath strin
 		return fmt.Errorf("build enrollment request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	// Never use http.DefaultClient (no timeout): a connected-but-silent
+	// server would hang the enroll/re-enroll path indefinitely (#193).
+	client := &http.Client{Timeout: defaultAgentHTTPTimeout}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("enrollment request: %w", err)
 	}

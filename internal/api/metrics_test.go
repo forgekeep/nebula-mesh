@@ -181,6 +181,7 @@ func TestMetricsEndpoint_HostsGauge(t *testing.T) {
 func TestExpvarEndpoint_LegacyPath(t *testing.T) {
 	srv, _ := newTestServer(t)
 	r := httptest.NewRequest(http.MethodGet, "/debug/vars", nil)
+	authRequest(r) // /debug/vars is bearer-gated since #187
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
@@ -224,6 +225,7 @@ func TestMetricsEndpoint_DisabledByOption(t *testing.T) {
 	}
 
 	r2 := httptest.NewRequest(http.MethodGet, "/debug/vars", nil)
+	authRequest(r2) // /debug/vars is bearer-gated since #187
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, r2)
 	if w2.Code != http.StatusOK {

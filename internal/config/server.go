@@ -251,13 +251,18 @@ func (a AlertsConfig) ThresholdDuration() time.Duration {
 	return d
 }
 
-// MetricsConfig toggles the Prometheus exporter. Legacy Go expvar stays on
-// /debug/vars regardless.
+// MetricsConfig toggles the Prometheus exporter and whether it requires auth.
 type MetricsConfig struct {
 	// Prometheus is a pointer so an unset value (yaml omitted) is treated
 	// as the default (true). A user setting `prometheus: false` cleanly
 	// disables the exporter.
 	Prometheus *bool `yaml:"prometheus,omitempty"`
+
+	// RequireAuth gates the /metrics endpoint behind the same bearer auth as
+	// the API (#187). Default false keeps unauthenticated scraping working;
+	// set true when the server is reachable beyond a trusted network, since
+	// the metric labels expose host/network/CA IDs and operational counters.
+	RequireAuth bool `yaml:"require_auth,omitempty"`
 }
 
 // PrometheusEnabled returns whether the Prometheus exporter should be served.

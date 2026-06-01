@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -264,6 +265,15 @@ func (w *Web) handleCARetire(rw http.ResponseWriter, r *http.Request) {
 	http.Redirect(rw, r, "/ui/cas/"+c.ID, http.StatusSeeOther)
 }
 
+// redirectCAError sends the operator back to the CA detail page with a
+// human-readable error in the query string. msg is URL-escaped so store-layer
+// text containing URL-significant characters (e.g. a network name with '&',
+// '#', or spaces) cannot corrupt the redirect target (#194). The detail
+// handler reads it back via Query().Get("error"), which reverses the escape.
+func redirectCAError(rw http.ResponseWriter, r *http.Request, caID, msg string) {
+	http.Redirect(rw, r, "/ui/cas/"+caID+"?error="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
 func (w *Web) handleCADelete(rw http.ResponseWriter, r *http.Request) {
 	c, ok := w.loadAccessibleCA(rw, r)
 	if !ok {
@@ -272,8 +282,7 @@ func (w *Web) handleCADelete(rw http.ResponseWriter, r *http.Request) {
 	if err := w.store.DeleteCA(r.Context(), c.ID); err != nil {
 		// Common case: still attached to one or more networks. Surface
 		// the store-layer message inline rather than a generic 500.
-		http.Redirect(rw, r, "/ui/cas/"+c.ID+"?error="+
-			http.StatusText(http.StatusConflict)+": "+err.Error(), http.StatusSeeOther)
+		redirectCAError(rw, r, c.ID, http.StatusText(http.StatusConflict)+": "+err.Error())
 		return
 	}
 	if op := w.session.CurrentOperator(r); op != nil {
@@ -290,9 +299,7 @@ func (w *Web) handleCARotate(rw http.ResponseWriter, r *http.Request) {
 	newCA, err := pki.RotateAndStoreCA(r.Context(), w.store, w.caMaster, w.logger, c)
 	if err != nil {
 		w.logger.Error("rotate ca", "error", err)
-		http.Redirect(rw, r, "/ui/cas/"+c.ID+"?error="+
-			http.StatusText(http.StatusInternalServerError)+": "+err.Error(),
-			http.StatusSeeOther)
+		redirectCAError(rw, r, c.ID, http.StatusText(http.StatusInternalServerError)+": "+err.Error())
 		return
 	}
 	if op := w.session.CurrentOperator(r); op != nil {

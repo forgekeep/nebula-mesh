@@ -4,7 +4,7 @@ GOLANGCI_VERSION ?= v2.12.0
 TOOLS_BIN := $(CURDIR)/.tools
 GOLANGCI_LINT := $(TOOLS_BIN)/golangci-lint
 
-.PHONY: all build test vet lint ci tools clean tidy
+.PHONY: all build test vet lint ci tools clean tidy bench-up bench-down bench-clean
 
 all: lint test build
 
@@ -35,3 +35,13 @@ clean:
 
 tidy:
 	go mod tidy
+
+# Local multi-operator offensive test bench (#208). See hack/offensive-bench/README.md.
+bench-up:
+	hack/offensive-bench/bench.sh up
+
+bench-down:
+	hack/offensive-bench/bench.sh down
+
+bench-clean:
+	hack/offensive-bench/bench.sh clean

@@ -234,6 +234,13 @@ func (w *Web) handleOperatorResetPassword(rw http.ResponseWriter, r *http.Reques
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Terminate the operator's existing sessions so a reset meant to lock out
+	// a compromised credential actually revokes access (CWE-613), mirroring the
+	// cascade in DisableOperator. The password is already changed; log on
+	// failure but do not abort.
+	if err := w.store.DeleteOperatorSessionsByOperator(r.Context(), id); err != nil {
+		w.logger.Error("invalidate sessions on password reset", "error", err)
+	}
 	actor := actorUsername(r, w.session)
 	_ = w.store.AddAuditEntry(r.Context(), actor, "operator.reset_password", id, op.Username)
 	http.Redirect(rw, r, "/ui/operators/"+id, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: hardcoded /ui/operators/ prefix ensures Location stays on the current host regardless of id contents

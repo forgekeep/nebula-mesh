@@ -30,6 +30,11 @@ Out of scope:
 - misconfiguration in deployments not following the README (e.g. running without TLS in production)
 - denial-of-service via legitimate API use behind authentication
 
+## Threat model
+
+The assets, entry points, STRIDE analysis, mitigations, and accepted residual
+risks are documented in [docs/security/threat-model.md](docs/security/threat-model.md).
+
 ## Hardening guidance
 
 See the "Security notes" section of [README.md](README.md) and the [deployment notes](deploy/) for the baseline we recommend.

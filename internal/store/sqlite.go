@@ -1604,9 +1604,21 @@ func (s *SQLiteStore) ConsumeToken(ctx context.Context, token string) (*models.E
 	}
 
 	now := time.Now()
-	_, err = tx.ExecContext(ctx, `UPDATE enrollment_tokens SET used = 1, used_at = ? WHERE id = ?`, now, t.ID)
+	// Couple the used==0 check into the write itself rather than relying on
+	// the SELECT above plus WAL snapshot semantics. If a racing transaction
+	// consumed the token between our SELECT and here, RowsAffected is 0 and we
+	// surface ErrTokenUsed instead of an opaque error — and the guard survives
+	// a future journal-mode / driver change. Mirrors ConsumeTokenAndEnrollHost.
+	res, err := tx.ExecContext(ctx, `UPDATE enrollment_tokens SET used = 1, used_at = ? WHERE id = ? AND used = 0`, now, t.ID)
 	if err != nil {
 		return nil, fmt.Errorf("consume token: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("consume token rows affected: %w", err)
+	}
+	if n == 0 {
+		return nil, ErrTokenUsed
 	}
 
 	if err := tx.Commit(); err != nil {

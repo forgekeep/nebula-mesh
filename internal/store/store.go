@@ -101,6 +101,7 @@ type Store interface {
 	AddToBlocklist(ctx context.Context, fingerprint, hostID, reason string) error
 	RemoveFromBlocklist(ctx context.Context, fingerprint string) error
 	GetBlocklist(ctx context.Context) ([]string, error)
+	GetBlocklistForCA(ctx context.Context, caID string) ([]string, error)
 
 	// Config versioning
 	BumpNetworkConfigVersion(ctx context.Context, networkID string) error

@@ -25,6 +25,56 @@ func TestMaster_FromBase64_RejectsWrongLength(t *testing.T) {
 	}
 }
 
+// TestNewMaster_CopiesKeyMaterial proves NewMaster copies its input into the
+// AEAD key schedule rather than aliasing it. This is the precondition that
+// makes NewMasterFromBase64 safe to zeroize its decoded buffer right after the
+// call (#196): wiping the caller's buffer must not corrupt the Master.
+func TestNewMaster_CopiesKeyMaterial(t *testing.T) {
+	raw := bytes.Repeat([]byte{0xab}, MasterKeySize)
+	m, err := NewMaster(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Caller wipes the source buffer immediately after construction.
+	Zeroize(raw)
+
+	// The Master must still wrap/unwrap correctly.
+	dek, wrapped, err := m.GenerateDEK()
+	if err != nil {
+		t.Fatalf("GenerateDEK after source wipe: %v", err)
+	}
+	unwrapped, err := m.UnwrapDEK(wrapped)
+	if err != nil {
+		t.Fatalf("UnwrapDEK after source wipe: %v", err)
+	}
+	if !bytes.Equal(dek, unwrapped) {
+		t.Error("dek round-trip mismatch after source key wipe — Master aliased its input")
+	}
+}
+
+// TestNewMasterFromBase64_RoundTrip guards that decoding + zeroizing the
+// transient buffer still yields a fully functional Master (#196).
+func TestNewMasterFromBase64_RoundTrip(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x5a}, MasterKeySize))
+	m, err := NewMasterFromBase64(b64)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dek, wrapped, err := m.GenerateDEK()
+	if err != nil {
+		t.Fatal(err)
+	}
+	unwrapped, err := m.UnwrapDEK(wrapped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(dek, unwrapped) {
+		t.Error("dek round-trip mismatch via base64-constructed master")
+	}
+}
+
 func TestWrapUnwrap_RoundTrip(t *testing.T) {
 	m := newTestMaster(t)
 	dek, wrapped, err := m.GenerateDEK()

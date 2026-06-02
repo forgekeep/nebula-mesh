@@ -34,8 +34,9 @@ type Master struct {
 }
 
 // NewMasterFromBase64 builds a Master from a base64-encoded 32-byte key.
-// The decoded bytes are stored only inside the AEAD; callers may zero
-// their original buffer immediately after this call.
+// The decoded bytes are copied into the AEAD key schedule by NewMaster, so the
+// transient plaintext copy is zeroized before returning rather than left on the
+// heap for the GC to reclaim (and possibly reuse).
 func NewMasterFromBase64(b64 string) (*Master, error) {
 	if b64 == "" {
 		return nil, ErrInvalidMasterKey
@@ -44,6 +45,7 @@ func NewMasterFromBase64(b64 string) (*Master, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidMasterKey, err)
 	}
+	defer Zeroize(raw)
 	return NewMaster(raw)
 }
 

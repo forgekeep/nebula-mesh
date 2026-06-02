@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,10 +18,12 @@ import (
 // issue #126).
 //
 // Operator-controlled scalars use the safeString type rather than a bare
-// string: yaml.v3's default style does not round-trip every value (a
-// multi-line value such as "\t\n" is emitted as a literal block whose tab the
-// parser then rejects), and safeString forces a style that does. literalString
-// guards the inline-PEM fields the same way for their readable block form.
+// string: marshaling a Go string through a yaml.Node does not round-trip every
+// value (a multi-line value such as "\t\n" emits as a block whose tab the
+// parser then rejects; an ambiguous value such as "0" or "true" emits bare and
+// re-parses as int/bool), and safeString forces a representation that always
+// reads back unchanged. literalString guards the inline-PEM fields the same way
+// for their readable block form.
 type nebulaConfig struct {
 	PKI           pkiSection                  `yaml:"pki"`
 	StaticHostMap map[safeString][]safeString `yaml:"static_host_map"`
@@ -91,21 +94,43 @@ func literalBlockSafe(s string) bool {
 }
 
 // safeString marshals an operator-controlled scalar so it always round-trips
-// through the YAML parser. yaml.v3's encoder auto-selects a literal/folded
-// block style for multi-line strings and emits their content verbatim under
-// the block indent; a line that begins with a tab or space (e.g. "\t\n") then
-// re-parses as broken indentation ("found a tab character where an indentation
-// space is expected"). Double-quoted style escapes every byte and round-trips
-// for any string, so force it for multi-line values; single-line values keep
-// the encoder's default (plain, or auto-quoted for ambiguous scalars like
-// "0"), staying readable. This is the plain-string counterpart to
-// literalString, which guards the inline-PEM fields (GHSA-7hp6, issue #126).
+// through the YAML parser, for any string.
+//
+// For valid UTF-8 the node is tagged "!!str" so it carries the implicit-string
+// resolution a native Go string would. A tagless ScalarNode loses that tag and
+// so emits ambiguous scalars bare — "0", "true", "null"/"~" and "" would
+// re-parse as int, bool and null rather than as their original string. The tag
+// restores the encoder's default rendering: plain when the value is unambiguous
+// (readable), auto-quoted only when bare emission would retype it. Invalid
+// UTF-8 is left tagless on purpose: yaml.v3 refuses to marshal invalid UTF-8
+// under an explicit "!!str" tag, so we let the encoder fall back to a "!!binary"
+// (base64) node, exactly as a native Go string would — that round-trips too.
+//
+// Two cases the tag alone does not cover, so force double-quoted style — which
+// escapes every byte and round-trips unconditionally:
+//
+//   - Multi-line values. yaml.v3 emits a multi-line scalar as a block (literal
+//     for a mapping value, an explicit-key "? |" block for a mapping key) and
+//     writes the content verbatim under the block indent; a line beginning
+//     with a tab or space (e.g. "\t\n") then re-parses as broken indentation
+//     ("found a tab character where an indentation space is expected"). This
+//     was the original crasher (issue #176).
+//   - "<<". As a static_host_map key (safeString is also the map's key type)
+//     bare "<<" is the YAML merge indicator, so the loader rejects it with
+//     "map merge requires map or sequence of maps as the value". Quoting it
+//     keeps it a literal string key.
+//
+// This is the plain-string counterpart to literalString, which guards the
+// inline-PEM fields (GHSA-7hp6, issue #126).
 type safeString string
 
 func (s safeString) MarshalYAML() (any, error) {
 	n := &yaml.Node{Kind: yaml.ScalarNode, Value: string(s)}
-	if strings.Contains(string(s), "\n") {
-		n.Style = yaml.DoubleQuotedStyle
+	if utf8.ValidString(string(s)) {
+		n.Tag = "!!str"
+		if strings.Contains(string(s), "\n") || string(s) == "<<" {
+			n.Style = yaml.DoubleQuotedStyle
+		}
 	}
 	return n, nil
 }

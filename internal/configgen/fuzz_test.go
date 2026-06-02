@@ -48,35 +48,20 @@ func FuzzGenerate(f *testing.F) {
 	// round-tripping style for such values.
 	f.Add("0", "0", "0", "\t\n", "0", "0", "0", "0", "0", -125, 74,
 		false, true, false, false, "0")
+	// Regression for the invalid-UTF-8 case: safeString now tags scalars
+	// "!!str", and yaml.v3 refuses to marshal invalid UTF-8 under that tag.
+	// A safeString field carrying a lone 0xFF byte must fall back to a
+	// "!!binary" node (as a native Go string would) rather than fail Generate.
+	f.Add("\xff", "\xff", "\xff", "\xff", "\xff", "\xff", "\xff", "\xff", "\xff",
+		0, 0, false, false, true, false, "")
 
 	f.Fuzz(func(t *testing.T,
 		hostName, ip, lhIP, lhAddr, listenHost, tunDev, fwPort, fwProto, fwGroup string,
 		listenPort, mtu int, isLH, isRelay, punch, inlinePEM bool, pemBlock string,
 	) {
-		punchy := punch // address-of a copy; PunchyOverride wants *bool
-		in := GeneratorInput{
-			HostName:         hostName,
-			NebulaIPs:        []string{ip},
-			IsLighthouse:     isLH,
-			IsRelay:          isRelay,
-			ListenPort:       listenPort,
-			ListenHost:       listenHost,
-			MTU:              mtu,
-			TunDevice:        tunDev,
-			PunchyOverride:   &punchy,
-			Lighthouses:      []LighthouseInfo{{NebulaIPs: []string{lhIP}, PublicAddr: lhAddr}},
-			FirewallInbound:  []FirewallRule{{Port: fwPort, Proto: fwProto, Group: fwGroup}},
-			FirewallOutbound: []FirewallRule{{Port: fwPort, Proto: fwProto, Group: fwGroup}},
-		}
-		// Generate only emits the inline-PEM section when CACertPEM is set
-		// (see buildConfig); otherwise it falls back to the path form.
-		if inlinePEM && pemBlock != "" {
-			in.CACertPEM, in.CertPEM, in.KeyPEM = pemBlock, pemBlock, pemBlock
-		} else {
-			in.CACertPath = "/etc/nebula/ca.crt"
-			in.CertPath = "/etc/nebula/host.crt"
-			in.KeyPath = "/etc/nebula/host.key"
-		}
+		in := fuzzGeneratorInput(hostName, ip, lhIP, lhAddr, listenHost, tunDev,
+			fwPort, fwProto, fwGroup, listenPort, mtu, isLH, isRelay, punch,
+			inlinePEM, pemBlock)
 
 		out, err := Generate(in)
 		if err != nil {
@@ -99,8 +84,8 @@ func FuzzGenerate(f *testing.F) {
 		if got := c.GetBool("lighthouse.am_lighthouse", !isLH); got != isLH {
 			t.Fatalf("am_lighthouse round-trip: got %v want %v\n--- config ---\n%s", got, isLH, out)
 		}
-		if got := c.GetBool("punchy.punch", !punchy); got != punchy {
-			t.Fatalf("punchy.punch round-trip: got %v want %v\n--- config ---\n%s", got, punchy, out)
+		if got := c.GetBool("punchy.punch", !punch); got != punch {
+			t.Fatalf("punchy.punch round-trip: got %v want %v\n--- config ---\n%s", got, punch, out)
 		}
 		wantPort := listenPort
 		if wantPort == 0 && isLH {
@@ -110,4 +95,40 @@ func FuzzGenerate(f *testing.F) {
 			t.Fatalf("listen.port round-trip: got %d want %d\n--- config ---\n%s", got, wantPort, out)
 		}
 	})
+}
+
+// fuzzGeneratorInput maps the flat FuzzGenerate arguments onto a
+// GeneratorInput. It is the single construction the fuzzer drives, and
+// TestGenerate_SafeStringRoundTrip reuses it so the focused round-trip checks
+// exercise the same wiring (which operator field lands in which YAML node)
+// rather than a parallel hand-built copy that could drift.
+func fuzzGeneratorInput(
+	hostName, ip, lhIP, lhAddr, listenHost, tunDev, fwPort, fwProto, fwGroup string,
+	listenPort, mtu int, isLH, isRelay, punch, inlinePEM bool, pemBlock string,
+) GeneratorInput {
+	punchy := punch // address-of a copy; PunchyOverride wants *bool
+	in := GeneratorInput{
+		HostName:         hostName,
+		NebulaIPs:        []string{ip},
+		IsLighthouse:     isLH,
+		IsRelay:          isRelay,
+		ListenPort:       listenPort,
+		ListenHost:       listenHost,
+		MTU:              mtu,
+		TunDevice:        tunDev,
+		PunchyOverride:   &punchy,
+		Lighthouses:      []LighthouseInfo{{NebulaIPs: []string{lhIP}, PublicAddr: lhAddr}},
+		FirewallInbound:  []FirewallRule{{Port: fwPort, Proto: fwProto, Group: fwGroup}},
+		FirewallOutbound: []FirewallRule{{Port: fwPort, Proto: fwProto, Group: fwGroup}},
+	}
+	// Generate only emits the inline-PEM section when CACertPEM is set
+	// (see buildConfig); otherwise it falls back to the path form.
+	if inlinePEM && pemBlock != "" {
+		in.CACertPEM, in.CertPEM, in.KeyPEM = pemBlock, pemBlock, pemBlock
+	} else {
+		in.CACertPath = "/etc/nebula/ca.crt"
+		in.CertPath = "/etc/nebula/host.crt"
+		in.KeyPath = "/etc/nebula/host.key"
+	}
+	return in
 }

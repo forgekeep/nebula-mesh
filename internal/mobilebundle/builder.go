@@ -15,6 +15,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/configgen"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/revocation"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
@@ -29,6 +30,14 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 }, host *models.Host) ([]byte, error) {
 	if host.Kind != models.HostKindMobile {
 		return nil, ErrNotMobile
+	}
+
+	// Durable revocation (GHSA-339v-266x-79xr): refuse to mint a fresh mobile
+	// cert for a blocked host or a disabled operator's host. This is the shared
+	// chokepoint for both the API and web mobile-bundle handlers; checked before
+	// key generation and CA decryption so a revoked host triggers no crypto work.
+	if err := revocation.CheckIssuanceAllowed(ctx, s, host); err != nil {
+		return nil, err
 	}
 
 	// Generate X25519 keypair.

@@ -57,6 +57,7 @@ func TestBuild_RoundTrip(t *testing.T) {
 	}
 	err = s.CreateHost(ctx, host)
 	require.NoError(t, err)
+	seedActiveCAOwner(t, s, host.CAID)
 
 	// Call Build.
 	bundle, err := Build(ctx, s, resolver, host)
@@ -166,6 +167,7 @@ func TestBuild_Rotate(t *testing.T) {
 	}
 	err = s.CreateHost(ctx, host)
 	require.NoError(t, err)
+	seedActiveCAOwner(t, s, host.CAID)
 
 	// First call.
 	bundle1, err := Build(ctx, s, resolver, host)
@@ -237,6 +239,31 @@ func TestBuild_RejectsNonMobile(t *testing.T) {
 	bundle, err := Build(ctx, s, resolver, host)
 	require.ErrorIs(t, err, ErrNotMobile)
 	require.Nil(t, bundle)
+}
+
+// seedActiveCAOwner inserts an active operator plus a CA row with id caID owned
+// by it, so Build's durable-revocation check (GHSA-339v-266x-79xr) sees a live
+// owner. The StubCAResolver still supplies the actual signing CA.
+func seedActiveCAOwner(t *testing.T, s store.Store, caID string) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now()
+	if err := s.CreateOperator(ctx, &models.Operator{
+		ID: "op-1", Username: "op-1", PasswordHash: "hash", Role: "admin",
+		Status: models.OperatorStatusActive, AuthProvider: models.OperatorAuthLocal,
+		CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed operator: %v", err)
+	}
+	if err := s.CreateCA(ctx, &models.CA{
+		ID: caID, Name: caID, OwnerOperatorID: "op-1", Fingerprint: "fp-" + caID,
+		CertPEM: "stub", Status: models.CAStatusActive, NotBefore: now, NotAfter: now.Add(time.Hour),
+		EncryptedKeyDEK: []byte("d"), NonceDEK: []byte("n"),
+		EncryptedKeyMaterial: []byte("k"), NonceKey: []byte("nk"),
+		CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed CA: %v", err)
+	}
 }
 
 // StubCAResolver returns a fixed CA for any ID.

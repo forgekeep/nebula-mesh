@@ -19,6 +19,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/mobilebundle"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/revocation"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
@@ -1323,6 +1324,12 @@ func (w *Web) handleGenerateMobileBundle(rw http.ResponseWriter, r *http.Request
 func (w *Web) renderMobileBundle(rw http.ResponseWriter, r *http.Request, host *models.Host) {
 	bundle, err := mobilebundle.Build(r.Context(), w.store, w.caResolver, host)
 	if err != nil {
+		// Durable revocation (GHSA-339v-266x-79xr): a blocked host or a disabled
+		// operator's host must not get a fresh mobile cert.
+		if errors.Is(err, revocation.ErrHostBlocked) || errors.Is(err, revocation.ErrOperatorDisabled) {
+			http.Error(rw, "Mobile bundle denied: "+err.Error(), http.StatusForbidden)
+			return
+		}
 		w.logger.Error("build mobile bundle", "error", err)
 		http.Error(rw, fmt.Sprintf("Failed to generate bundle: %v", err), http.StatusInternalServerError)
 		return

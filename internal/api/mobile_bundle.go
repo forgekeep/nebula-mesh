@@ -48,6 +48,22 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Durable revocation (GHSA-339v-266x-79xr): a mobile bundle mints a fresh
+	// cert just like enrollment, so refuse it for a blocked host or a disabled
+	// operator's host before any CA key is decrypted. mobilebundle.Build repeats
+	// this check as a backstop for the web handler.
+	if err := s.checkIssuanceAllowed(r.Context(), host); err != nil {
+		switch {
+		case errors.Is(err, errHostBlocked), errors.Is(err, errOperatorDisabled):
+			s.recordAuditAction(r.Context(), auditHostMobileBundleForbidden, host.ID, "revoked: "+err.Error())
+			writeError(w, http.StatusForbidden, "mobile-bundle denied: "+err.Error())
+		default:
+			s.logger.Error("issuance check", "error", err, "host", host.ID)
+			writeError(w, http.StatusInternalServerError, "failed to build bundle")
+		}
+		return
+	}
+
 	// Resolve the CA that owns this host and sign with it.
 	caMgr, err := s.caForHost(r.Context(), host)
 	if err != nil {

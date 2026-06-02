@@ -460,6 +460,13 @@ func (s *Server) handleRotateCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Durable revocation (GHSA-339v-266x-79xr): a blocked host must be explicitly
+	// unblocked before any cert rotation/re-issuance.
+	if host.Status == models.HostStatusBlocked {
+		writeError(w, http.StatusConflict, "host is blocked; unblock before rotating its certificate")
+		return
+	}
+
 	if newKey {
 		if err := s.store.SetPendingRekey(r.Context(), host.ID); err != nil {
 			if errors.Is(err, store.ErrRekeyAlreadyPending) {
@@ -544,6 +551,14 @@ func (s *Server) mintEnrollmentTokenForHost(w http.ResponseWriter, r *http.Reque
 	}
 	if !ok {
 		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	// Durable revocation (GHSA-339v-266x-79xr): never mint a re-enroll token for
+	// a blocked host. The enroll handler enforces the same guard, but failing
+	// fast here gives the operator a clear signal to unblock first.
+	if host.Status == models.HostStatusBlocked {
+		writeError(w, http.StatusConflict, "host is blocked; unblock before re-enrolling")
 		return
 	}
 

@@ -86,6 +86,24 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Durable revocation (GHSA-339v-266x-79xr): refuse to (re-)issue a cert for
+	// a blocked host or one whose owning operator is disabled. This closes the
+	// re-enroll bypass, where a fresh fingerprint would otherwise sidestep the
+	// fingerprint-keyed blocklist that is only consulted at poll time.
+	if err := s.checkIssuanceAllowed(r.Context(), host); err != nil {
+		switch {
+		case errors.Is(err, errHostBlocked), errors.Is(err, errOperatorDisabled):
+			s.metrics.recordEnrollment(resultDenied)
+			s.logger.Warn("enrollment denied", "host", host.ID, "reason", err.Error())
+			writeError(w, http.StatusForbidden, "enrollment denied: "+err.Error())
+		default:
+			s.metrics.recordEnrollment(resultError)
+			s.logger.Error("issuance check", "error", err, "host", host.ID)
+			writeError(w, http.StatusInternalServerError, "enrollment failed")
+		}
+		return
+	}
+
 	// Get network
 	network, err := s.store.GetNetwork(r.Context(), host.NetworkID)
 	if errors.Is(err, store.ErrNotFound) {

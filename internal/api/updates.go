@@ -283,6 +283,14 @@ type signResult struct {
 // signHostCert re-signs the host certificate with the same public key and fresh expiry.
 // CA lock is held only during crypto operations (Sign + CACertPEM).
 func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *models.CertificateInfo, now time.Time) (*signResult, error) {
+	// Durable revocation (GHSA-339v-266x-79xr): do not renew/re-sign for a
+	// blocked host or a disabled operator's host. Auto-renewal callers treat a
+	// returned error as "skip renewal", so the host keeps its current cert and
+	// drops off the mesh at expiry instead of renewing indefinitely.
+	if err := s.checkIssuanceAllowed(ctx, host); err != nil {
+		return nil, fmt.Errorf("issuance not allowed: %w", err)
+	}
+
 	// Prep work — no CA lock needed
 	currentCert, _, err := cert.UnmarshalCertificateFromPEM([]byte(certInfo.PEM))
 	if err != nil {

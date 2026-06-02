@@ -109,7 +109,7 @@ Trust zones, from least to most trusted:
 - **Transport**: TLS by default; non-loopback plaintext bind refused unless opted in (#179).
 - **Crypto**: AES-256-GCM throughout; GCM tag binds AAD/nonce (envelope attacks refuted); key material zeroized (#181, #196).
 - **Input**: strict JSON decode, body caps, length bounds on cert-embedded fields (#186, #195).
-- **Tooling baseline**: `golangci-lint` (pinned) + ADR-0009 generative fuzzing in CI; `govulncheck` + standalone `gosec` pending (#209, #165).
+- **Tooling baseline**: `golangci-lint` (pinned), standalone `gosec`, and `govulncheck` gate every PR, plus ADR-0009 generative fuzzing in CI.
 
 ## 6. Residual risks & accepted trade-offs
 

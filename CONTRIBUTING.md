@@ -6,11 +6,15 @@ Thanks for considering a contribution to nebula-mesh.
 
 ```sh
 go mod tidy
-golangci-lint run ./...
-go test -v -race ./...
+make lint          # pinned golangci-lint (.tools/)
+make test          # go test -race ./...
+make gosec         # standalone gosec security audit
+make govulncheck   # reachable-vulnerability scan
 ```
 
-All three must pass. CI runs the same set.
+All must pass — `make ci` runs the full set, and CI runs the same.
+Security tooling (`gosec`, `govulncheck`) is pinned in the `Makefile`; gosec
+exclusions mirror `.golangci.yml` (the canonical rationale).
 
 ## Workflow
 

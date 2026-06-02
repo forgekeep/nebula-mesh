@@ -98,7 +98,7 @@ func (m *Master) WrapDEK(dek []byte) (WrappedKey, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return WrappedKey{}, fmt.Errorf("rand nonce: %w", err)
 	}
-	ct := m.aead.Seal(nil, nonce, dek, nil)
+	ct := m.aead.Seal(nil, nonce, dek, nil) // #nosec G407 -- nonce is freshly generated via crypto/rand immediately above, not a hardcoded value
 	return WrappedKey{Ciphertext: ct, Nonce: nonce}, nil
 }
 
@@ -132,7 +132,7 @@ func SealWithDEK(dek, plaintext []byte) (WrappedBlob, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return WrappedBlob{}, err
 	}
-	ct := aead.Seal(nil, nonce, plaintext, nil)
+	ct := aead.Seal(nil, nonce, plaintext, nil) // #nosec G407 -- nonce is freshly generated via crypto/rand immediately above, not a hardcoded value
 	return WrappedBlob{Ciphertext: ct, Nonce: nonce}, nil
 }
 

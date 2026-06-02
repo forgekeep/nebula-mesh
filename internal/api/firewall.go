@@ -101,6 +101,18 @@ func (s *Server) handleUpdateFirewall(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "firewall rule proto must not be empty")
 				return
 			}
+			// A rule without a target group is marshaled into network_config and
+			// pushed to every agent, where Nebula treats the empty selector as
+			// match-any — a broader allow than intended. Require an explicit
+			// selector and bound its length, consistent with host group caps.
+			if rule.Group == "" {
+				writeError(w, http.StatusBadRequest, "firewall rule must specify a target group")
+				return
+			}
+			if len(rule.Group) > maxGroupNameLen {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("firewall rule group must be at most %d characters", maxGroupNameLen))
+				return
+			}
 		}
 	}
 

@@ -30,3 +30,6 @@ Thumbs.db
 
 /configs/server.local.yml
 /local-data/
+
+# local offensive test bench (#208)
+.bench/

@@ -218,6 +218,16 @@ func (s *SQLiteStore) repairBlocklistCAID(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_blocklist_ca ON blocklist(ca_id)`); err != nil {
 		return err
 	}
+	// Backfill ca_id for legacy rows whose owning host still exists, so the
+	// per-CA poll scope (#203) covers entries written before ca_id was set.
+	// Orphan rows (host already deleted, host_id NULL) stay '' and are treated
+	// as a broadcast fail-safe by GetBlocklistForCA.
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE blocklist
+		    SET ca_id = COALESCE((SELECT h.ca_id FROM hosts h WHERE h.id = blocklist.host_id), '')
+		  WHERE ca_id = '' AND host_id IS NOT NULL`); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1174,8 +1184,8 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason
 	if h.CertFingerprint != "" {
 		var hostIDVal any = id
 		_, err = tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO blocklist (fingerprint, host_id, reason, created_at) VALUES (?, ?, ?, ?)`,
-			h.CertFingerprint, hostIDVal, reason, time.Now(),
+			`INSERT OR REPLACE INTO blocklist (fingerprint, host_id, reason, created_at, ca_id) VALUES (?, ?, ?, ?, ?)`,
+			h.CertFingerprint, hostIDVal, reason, time.Now(), h.CAID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("add to blocklist: %w", err)
@@ -1294,8 +1304,8 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(ctx context.Context, id, reason str
 	if h.CertFingerprint != "" {
 		var hostIDVal any = id
 		_, err = tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO blocklist (fingerprint, host_id, reason, created_at) VALUES (?, ?, ?, ?)`,
-			h.CertFingerprint, hostIDVal, reason, time.Now(),
+			`INSERT OR REPLACE INTO blocklist (fingerprint, host_id, reason, created_at, ca_id) VALUES (?, ?, ?, ?, ?)`,
+			h.CertFingerprint, hostIDVal, reason, time.Now(), h.CAID,
 		)
 		if err != nil {
 			return fmt.Errorf("add to blocklist: %w", err)
@@ -1925,9 +1935,12 @@ func (s *SQLiteStore) AddToBlocklist(ctx context.Context, fingerprint, hostID, r
 	if hostID != "" {
 		hostIDVal = hostID
 	}
+	// Resolve ca_id from the host so the entry is CA-scoped (#203). When hostID
+	// is empty the subquery yields NULL → COALESCE keeps it '' (broadcast).
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO blocklist (fingerprint, host_id, reason, created_at) VALUES (?, ?, ?, ?)`,
-		fingerprint, hostIDVal, reason, time.Now(),
+		`INSERT OR REPLACE INTO blocklist (fingerprint, host_id, reason, created_at, ca_id)
+		 VALUES (?, ?, ?, ?, COALESCE((SELECT ca_id FROM hosts WHERE id = ?), ''))`,
+		fingerprint, hostIDVal, reason, time.Now(), hostIDVal,
 	)
 	if err != nil {
 		return fmt.Errorf("add to blocklist: %w", err)
@@ -1947,6 +1960,35 @@ func (s *SQLiteStore) GetBlocklist(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT fingerprint FROM blocklist ORDER BY fingerprint`)
 	if err != nil {
 		return nil, fmt.Errorf("get blocklist: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("close rows", "error", err)
+		}
+	}()
+
+	result := make([]string, 0)
+	for rows.Next() {
+		var fp string
+		if err := rows.Scan(&fp); err != nil {
+			return nil, fmt.Errorf("scan fingerprint: %w", err)
+		}
+		result = append(result, fp)
+	}
+	return result, rows.Err()
+}
+
+// GetBlocklistForCA returns the revoked fingerprints scoped to a single CA — the
+// set an agent under that CA needs to reject peers, without leaking other
+// operators' revocations across the tenant boundary (#203). Rows with an empty
+// ca_id (legacy/orphan entries from before the column was populated, whose
+// owning host is already deleted so the CA can't be recovered) are included as a
+// fail-safe so revocation is never silently weakened.
+func (s *SQLiteStore) GetBlocklistForCA(ctx context.Context, caID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT fingerprint FROM blocklist WHERE ca_id = ? OR ca_id = '' ORDER BY fingerprint`, caID)
+	if err != nil {
+		return nil, fmt.Errorf("get blocklist for ca: %w", err)
 	}
 	defer func() {
 		if err := rows.Close(); err != nil {

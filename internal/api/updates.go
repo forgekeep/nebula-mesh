@@ -171,8 +171,10 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		s.hostSeen(host.ID, now, host.NetworkID)
 	}
 
-	// Get blocklist
-	blocklist, err := s.store.GetBlocklist(r.Context())
+	// Get the blocklist scoped to this host's CA — an agent only needs to reject
+	// peers under its own CA, and shipping the global list leaks other tenants'
+	// revoked fingerprints across the boundary (#203).
+	blocklist, err := s.store.GetBlocklistForCA(r.Context(), host.CAID)
 	if err != nil {
 		s.logger.Error("get blocklist", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to get blocklist")

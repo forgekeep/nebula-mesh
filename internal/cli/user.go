@@ -46,7 +46,7 @@ func UserCreate(serverURL, apiKey, username, password, displayName, role string)
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}
@@ -81,7 +81,7 @@ func UserList(serverURL, apiKey string) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}
@@ -138,7 +138,7 @@ func APIKeyCreate(serverURL, apiKey, operatorID, name string) error {
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}

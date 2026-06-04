@@ -48,7 +48,7 @@ func HostCreate(serverURL, apiKey, networkID, name, nebulaIP, role string, group
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}
@@ -115,7 +115,7 @@ func doHostAction(serverURL, apiKey, method, path string, wantStatus int, verb s
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}
@@ -153,7 +153,7 @@ func HostList(serverURL, apiKey, networkID string) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}

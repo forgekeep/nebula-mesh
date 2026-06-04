@@ -1,0 +1,14 @@
+-- GHSA-q4vm-pq3q-8wgq: store SHA-256 of operator session tokens at rest.
+--
+-- The old column held the raw 32-byte hex token verbatim — the same value
+-- sent in the session cookie — so anyone with read access to the DB (backup,
+-- snapshot, future SQL-injection sink) could hijack every active session. The
+-- application layer now writes SHA-256 hex and looks sessions up by that hash,
+-- mirroring the enrollment-token fix (016) and operator_api_keys.
+--
+-- Existing rows are kept in place: their column now nominally holds a "hash"
+-- but actually contains a raw token, so it can never match the hash computed
+-- from an incoming cookie and the session becomes unreachable. Operators simply
+-- re-authenticate — the same outcome as a brief restart, acceptable for a
+-- 24h-TTL session token.
+ALTER TABLE operator_sessions RENAME COLUMN token TO token_hash;

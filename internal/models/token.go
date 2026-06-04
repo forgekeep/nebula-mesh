@@ -28,3 +28,16 @@ func HashEnrollmentToken(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
+
+// HashSessionToken produces the at-rest representation of a raw operator
+// session token. Closes GHSA-q4vm-pq3q-8wgq: previously the raw 32-byte hex
+// token was stored verbatim in operator_sessions.token and sent in the
+// session cookie, so anyone with read access to the DB (backup, snapshot,
+// future SQL-injection sink) could hijack every active operator session.
+//
+// Symmetric: same input → same hex → constant-time DB lookup. Mirrors the
+// enrollment-token and operator_api_keys hashing already done elsewhere.
+func HashSessionToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}

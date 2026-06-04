@@ -585,9 +585,11 @@ func (s *SQLiteStore) CreateOperatorSession(ctx context.Context, sess *models.Op
 	if state == "" {
 		state = models.SessionStateAuthenticated
 	}
+	// GHSA-q4vm-pq3q-8wgq: persist only the SHA-256 of the token. The raw
+	// value lives solely in the operator's cookie, never at rest.
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO operator_sessions (token, operator_id, expires_at, created_at, state) VALUES (?, ?, ?, ?, ?)`,
-		sess.Token, sess.OperatorID, sess.ExpiresAt, sess.CreatedAt, state,
+		`INSERT INTO operator_sessions (token_hash, operator_id, expires_at, created_at, state) VALUES (?, ?, ?, ?, ?)`,
+		models.HashSessionToken(sess.Token), sess.OperatorID, sess.ExpiresAt, sess.CreatedAt, state,
 	)
 	if err != nil {
 		return fmt.Errorf("insert session: %w", err)
@@ -600,8 +602,8 @@ func (s *SQLiteStore) CreateOperatorSession(ctx context.Context, sess *models.Op
 // pending_totp state are NOT returned here.
 func (s *SQLiteStore) GetOperatorBySession(ctx context.Context, token string) (*models.Operator, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT operator_id, expires_at, state FROM operator_sessions WHERE token=?`,
-		token,
+		`SELECT operator_id, expires_at, state FROM operator_sessions WHERE token_hash=?`,
+		models.HashSessionToken(token),
 	)
 	var (
 		operatorID string
@@ -639,8 +641,8 @@ func (s *SQLiteStore) GetOperatorBySession(ctx context.Context, token string) (*
 // be active. Sessions already authenticated are not returned.
 func (s *SQLiteStore) GetPendingTwoFactorOperator(ctx context.Context, token string) (*models.Operator, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT operator_id, expires_at, state FROM operator_sessions WHERE token=?`,
-		token,
+		`SELECT operator_id, expires_at, state FROM operator_sessions WHERE token_hash=?`,
+		models.HashSessionToken(token),
 	)
 	var (
 		operatorID string
@@ -678,8 +680,8 @@ func (s *SQLiteStore) GetPendingTwoFactorOperator(ctx context.Context, token str
 // does not exist or is not pending.
 func (s *SQLiteStore) PromoteOperatorSession(ctx context.Context, token string, newExpiry time.Time) error {
 	result, err := s.db.ExecContext(ctx,
-		`UPDATE operator_sessions SET state=?, expires_at=? WHERE token=? AND state=?`,
-		models.SessionStateAuthenticated, newExpiry, token, models.SessionStatePendingTOTP,
+		`UPDATE operator_sessions SET state=?, expires_at=? WHERE token_hash=? AND state=?`,
+		models.SessionStateAuthenticated, newExpiry, models.HashSessionToken(token), models.SessionStatePendingTOTP,
 	)
 	if err != nil {
 		return fmt.Errorf("promote session: %w", err)
@@ -695,7 +697,7 @@ func (s *SQLiteStore) PromoteOperatorSession(ctx context.Context, token string, 
 }
 
 func (s *SQLiteStore) DeleteOperatorSession(ctx context.Context, token string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE token=?`, token)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE token_hash=?`, models.HashSessionToken(token))
 	if err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}

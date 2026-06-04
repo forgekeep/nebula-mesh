@@ -126,6 +126,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"016_enrollment_token_hash.up.sql",
 		"017_pop_nonces.up.sql",
 		"018_host_address_network_uniqueness.up.sql",
+		"019_session_token_hash.up.sql",
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.

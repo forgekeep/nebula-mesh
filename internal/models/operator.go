@@ -58,6 +58,9 @@ const (
 // OperatorSession represents a UI session. A session in `pending_totp` state
 // is awaiting a second-factor verification and is not yet authenticated.
 type OperatorSession struct {
+	// Token is the raw session token carried in the operator's cookie. It is
+	// transient: the store persists only HashSessionToken(Token), never the
+	// raw value at rest (GHSA-q4vm-pq3q-8wgq).
 	Token      string
 	OperatorID string
 	State      SessionState

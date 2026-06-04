@@ -14,6 +14,9 @@ import (
 
 // HostCreate creates a host via the API.
 func HostCreate(serverURL, apiKey, networkID, name, nebulaIP, role string, groups []string, publicIP string, listenPort int) error {
+	if err := validateServerURL(serverURL); err != nil {
+		return err
+	}
 	// Convert single nebulaIP to the new nebula_ips array format
 	nebullaIPs := []string{nebulaIP}
 	if nebulaIP == "" {
@@ -96,6 +99,9 @@ func HostUnblock(serverURL, apiKey, hostID string) error {
 }
 
 func doHostAction(serverURL, apiKey, method, path string, wantStatus int, verb string) error {
+	if err := validateServerURL(serverURL); err != nil {
+		return err
+	}
 	if apiKey == "" {
 		return fmt.Errorf("--api-key is required")
 	}
@@ -133,6 +139,9 @@ func doHostAction(serverURL, apiKey, method, path string, wantStatus int, verb s
 
 // HostList lists hosts via the API.
 func HostList(serverURL, apiKey, networkID string) error {
+	if err := validateServerURL(serverURL); err != nil {
+		return err
+	}
 	u := serverURL + "/api/v1/hosts"
 	if networkID != "" {
 		u += "?network_id=" + url.QueryEscape(networkID)

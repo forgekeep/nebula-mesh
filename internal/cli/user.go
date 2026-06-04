@@ -27,6 +27,9 @@ type userResponse struct {
 
 // UserCreate creates a new operator via the API.
 func UserCreate(serverURL, apiKey, username, password, displayName, role string) error {
+	if err := validateServerURL(serverURL); err != nil {
+		return err
+	}
 	if username == "" || password == "" {
 		return fmt.Errorf("--username and --password are required")
 	}
@@ -69,6 +72,9 @@ func UserCreate(serverURL, apiKey, username, password, displayName, role string)
 
 // UserList lists operators via the API.
 func UserList(serverURL, apiKey string) error {
+	if err := validateServerURL(serverURL); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, serverURL+"/api/v1/operators", http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -121,6 +127,9 @@ type apiKeyCreateResponse struct {
 // APIKeyCreate creates a new per-operator API key. The plaintext key is
 // printed once.
 func APIKeyCreate(serverURL, apiKey, operatorID, name string) error {
+	if err := validateServerURL(serverURL); err != nil {
+		return err
+	}
 	body, _ := json.Marshal(map[string]string{"name": name})
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, serverURL+"/api/v1/operators/"+operatorID+"/api-keys", bytes.NewReader(body))
 	if err != nil {

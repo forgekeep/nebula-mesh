@@ -12,6 +12,9 @@ import (
 
 // NetworkCreate creates a network via the API.
 func NetworkCreate(serverURL, apiKey, name, cidr string) error {
+	if err := validateServerURL(serverURL); err != nil {
+		return err
+	}
 	// Convert single CIDR to the new cidrs array format
 	cidrs := []string{cidr}
 	if cidr == "" {
@@ -67,6 +70,9 @@ func NetworkCreate(serverURL, apiKey, name, cidr string) error {
 
 // NetworkList lists networks via the API.
 func NetworkList(serverURL, apiKey string) error {
+	if err := validateServerURL(serverURL); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, serverURL+"/api/v1/networks", http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)

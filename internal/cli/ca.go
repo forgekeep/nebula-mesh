@@ -34,6 +34,9 @@ type caRotateResponse struct {
 
 // CACreate creates a new CA via the API.
 func CACreate(serverURL, apiKey, name, duration string) error {
+	if err := validateServerURL(serverURL); err != nil {
+		return err
+	}
 	if name == "" {
 		return fmt.Errorf("--name is required")
 	}
@@ -72,6 +75,9 @@ func CACreate(serverURL, apiKey, name, duration string) error {
 
 // CAList prints the CAs visible to the caller.
 func CAList(serverURL, apiKey string) error {
+	if err := validateServerURL(serverURL); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, serverURL+"/api/v1/cas", http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -113,6 +119,9 @@ func CADelete(serverURL, apiKey, id string) error {
 
 // CARotate rotates a CA via the API.
 func CARotate(serverURL, apiKey, id string) error {
+	if err := validateServerURL(serverURL); err != nil {
+		return err
+	}
 	if apiKey == "" {
 		return fmt.Errorf("--api-key is required")
 	}

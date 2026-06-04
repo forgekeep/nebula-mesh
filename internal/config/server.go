@@ -473,6 +473,9 @@ func SaveServerConfig(path string, cfg *ServerConfig) error {
 	}
 
 	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
 	if err != nil {
 		return fmt.Errorf("create temp config: %w", err)

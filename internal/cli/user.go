@@ -130,7 +130,10 @@ func APIKeyCreate(serverURL, apiKey, operatorID, name string) error {
 	if err := validateServerURL(serverURL); err != nil {
 		return err
 	}
-	body, _ := json.Marshal(map[string]string{"name": name})
+	body, err := json.Marshal(map[string]string{"name": name})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, serverURL+"/api/v1/operators/"+operatorID+"/api-keys", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)

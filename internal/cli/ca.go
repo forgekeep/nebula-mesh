@@ -40,7 +40,10 @@ func CACreate(serverURL, apiKey, name, duration string) error {
 	if name == "" {
 		return fmt.Errorf("--name is required")
 	}
-	body, _ := json.Marshal(caCreateRequest{Name: name, Duration: duration})
+	body, err := json.Marshal(caCreateRequest{Name: name, Duration: duration})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, serverURL+"/api/v1/cas", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)

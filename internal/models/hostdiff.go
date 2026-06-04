@@ -38,7 +38,7 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 		}
 	}
 
-	if !nebulIPsEqual(before.NebulaIPs, after.NebulaIPs) {
+	if !nebulaIPsEqual(before.NebulaIPs, after.NebulaIPs) {
 		changes["nebula_ips"] = map[string]any{
 			"before": before.NebulaIPs,
 			"after":  after.NebulaIPs,
@@ -149,8 +149,8 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 	return jsonBytes, true, nil
 }
 
-// nebulIPsEqual compares two IP slices for equality (order matters).
-func nebulIPsEqual(a, b []string) bool {
+// nebulaIPsEqual compares two IP slices for equality (order matters).
+func nebulaIPsEqual(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}

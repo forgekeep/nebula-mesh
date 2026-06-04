@@ -52,7 +52,10 @@ func UserCreate(serverURL, apiKey, username, password, displayName, role string)
 			slog.Error("close response body", "error", err)
 		}
 	}()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response body: %w", err)
+	}
 	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("failed (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}
@@ -135,7 +138,10 @@ func APIKeyCreate(serverURL, apiKey, operatorID, name string) error {
 			slog.Error("close response body", "error", err)
 		}
 	}()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response body: %w", err)
+	}
 	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("failed (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}

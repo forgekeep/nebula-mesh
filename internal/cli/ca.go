@@ -54,7 +54,10 @@ func CACreate(serverURL, apiKey, name, duration string) error {
 			slog.Error("close response body", "error", err)
 		}
 	}()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response body: %w", err)
+	}
 	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("failed (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}
@@ -128,7 +131,10 @@ func CARotate(serverURL, apiKey, id string) error {
 			slog.Error("close response body", "error", err)
 		}
 	}()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response body: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}

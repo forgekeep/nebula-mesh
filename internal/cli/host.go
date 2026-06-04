@@ -119,7 +119,10 @@ func doHostAction(serverURL, apiKey, method, path string, wantStatus int, verb s
 		}
 	}()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response body: %w", err)
+	}
 	if resp.StatusCode != wantStatus {
 		return fmt.Errorf("failed (HTTP %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}

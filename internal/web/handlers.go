@@ -82,9 +82,6 @@ func (w *Web) handleLoginPage(rw http.ResponseWriter, r *http.Request) {
 
 func (w *Web) handleLogin(rw http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
-	if username == "" {
-		username = "admin"
-	}
 	password := r.FormValue("password")
 	result, ok, err := w.session.Login(rw, r, username, password)
 	if err != nil {

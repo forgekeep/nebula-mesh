@@ -40,6 +40,8 @@ var knownAuditActions = map[string]struct{}{
 	auditCACreated:                 {},
 	auditCADeleted:                 {},
 	auditCARotated:                 {},
+	auditNetworkCreate:             {},
+	auditNetworkFirewallUpdate:     {},
 	auditOperatorCreate:            {},
 	auditOperatorDisable:           {},
 	auditOperatorEnable:            {},

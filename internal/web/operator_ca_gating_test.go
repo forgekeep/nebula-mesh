@@ -109,6 +109,20 @@ func TestNetworkCreate_UserWithSingleCA(t *testing.T) {
 	if nets[0].CAID != ca.ID {
 		t.Errorf("network CAID = %q, want %q", nets[0].CAID, ca.ID)
 	}
+
+	// The web create path must write a network.create audit row — the API
+	// audit-coverage sweep only exercises the API handler, so this is the
+	// only guard against the UI path silently stopping auditing.
+	entries, err := s.ListAuditEntries(context.Background(), store.AuditFilter{Action: "network.create", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d network.create audit rows, want 1", len(entries))
+	}
+	if entries[0].Resource != nets[0].ID {
+		t.Errorf("audit resource = %q, want network id %q", entries[0].Resource, nets[0].ID)
+	}
 }
 
 // TestNetworkCreate_UserMustPickWhenMultipleCAs — operators with more

@@ -1294,6 +1294,7 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_ = w.store.AddAuditEntry(r.Context(), op.Username, "network.create", network.ID, network.Name)
 	http.Redirect(rw, r, "/ui/networks", http.StatusSeeOther)
 }
 

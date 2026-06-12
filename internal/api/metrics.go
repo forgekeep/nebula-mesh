@@ -64,6 +64,8 @@ const (
 	auditCACreated                 = "ca.created"
 	auditCADeleted                 = "ca.deleted"
 	auditCARotated                 = "ca.rotated"
+	auditNetworkCreate             = "network.create"
+	auditNetworkFirewallUpdate     = "network.firewall.update"
 	auditOperatorCreate            = "operator.create"
 	auditOperatorDisable           = "operator.disable"
 	auditOperatorEnable            = "operator.enable"
@@ -191,6 +193,7 @@ func newMetrics(s store.Store) *metrics {
 	for _, action := range []string{
 		auditHostCreate, auditHostDelete, auditHostUpdate, auditHostBlock, auditHostUnblock,
 		auditCACreated, auditCADeleted, auditCARotated,
+		auditNetworkCreate, auditNetworkFirewallUpdate,
 		auditOperatorCreate, auditOperatorDisable, auditOperatorEnable,
 		auditOperatorAPIKeyCreate, auditOperatorAPIKeyRevoke,
 		auditSettingsEnforce2FA,

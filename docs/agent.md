@@ -249,12 +249,13 @@ signing_key_path: "/etc/nebula-agent/host.signing.key"  # Ed25519 PoP signing ke
 
 | Field | Default | Notes |
 |---|---|---|
-| `server_url` | (required) | Must be reachable from the host. HTTPS is strongly recommended. |
+| `server_url` | (required) | Must be reachable from the host. Must be `https://` unless the host is loopback — a plaintext `http://` URL on any other host is refused at startup because the enrollment token and rendered Nebula config would transit in cleartext. |
 | `data_dir` | `/etc/nebula` | Owned by `root:root` 0700. Holds `host.key` (0600), `host.crt`, `ca.crt`, `config.yml`. |
 | `poll_interval` | `30s` | Lower values reduce convergence time but increase server load. 5s–5m is the practical range. |
 | `nebula_config_path` | `/etc/nebula/config.yml` | The agent overwrites this file atomically. |
 | `nebula_pid_file` | (empty) | When set and the file holds a numeric PID, the agent sends `SIGHUP` after every successful write. |
 | `signing_key_path` | `/etc/nebula-agent/host.signing.key` | Ed25519 PoP signing key (ADR 0004). Override for non-root setups so the parent directory is writable by the agent user. |
+| `allow_insecure_http` | `false` | Opts out of the `https`-required guard on `server_url` (or pass `--insecure-http`). Only for isolated lab networks; credentials transit in the clear. |
 
 ## Enrollment
 

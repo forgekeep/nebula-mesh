@@ -192,3 +192,59 @@ func TestSaveAgentConfig_RejectsEmpty(t *testing.T) {
 		t.Fatal("expected error for missing server_url")
 	}
 }
+
+func TestValidateAgentServerURL(t *testing.T) {
+	tests := []struct {
+		name          string
+		url           string
+		allowInsecure bool
+		wantErr       bool
+	}{
+		{name: "https accepted", url: "https://mgmt.example.com:8080"},
+		{name: "http non-loopback refused", url: "http://mgmt.example.com:8080", wantErr: true},
+		{name: "http private-range still refused", url: "http://10.0.0.5:8080", wantErr: true},
+		{name: "http localhost allowed", url: "http://localhost:8080"},
+		{name: "http 127.0.0.1 allowed", url: "http://127.0.0.1:8080"},
+		{name: "http [::1] allowed", url: "http://[::1]:8080"},
+		{name: "http non-loopback with opt-out", url: "http://mgmt.example.com:8080", allowInsecure: true},
+		{name: "non-http scheme refused", url: "file:///etc/passwd", wantErr: true},
+		{name: "missing host refused", url: "https://", wantErr: true},
+		{name: "empty refused", url: "", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateAgentServerURL(tc.url, tc.allowInsecure)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("ValidateAgentServerURL(%q, allowInsecure=%v) error = %v, wantErr %v", tc.url, tc.allowInsecure, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestLoadAgentConfig_PlaintextHTTPRefused pins the load-time guard: an
+// on-disk config pointing at a cleartext non-loopback URL fails to load
+// unless allow_insecure_http is set.
+func TestLoadAgentConfig_PlaintextHTTPRefused(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "agent.yml")
+
+	data := []byte("server_url: \"http://mgmt.example.com:8080\"\n")
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadAgentConfig(cfgPath); err == nil {
+		t.Fatal("expected error for plaintext non-loopback server_url, got nil")
+	}
+
+	data = []byte("server_url: \"http://mgmt.example.com:8080\"\nallow_insecure_http: true\n")
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadAgentConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("opt-out config refused: %v", err)
+	}
+	if !cfg.AllowInsecureHTTP {
+		t.Error("AllowInsecureHTTP not loaded from YAML")
+	}
+}

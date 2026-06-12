@@ -95,6 +95,7 @@ func runUnified(ctx context.Context, args []string, stderr io.Writer) error {
 	dataDir := fs.String("data-dir", "", "override data directory (one-shot flow only)")
 	pollInterval := fs.Duration("poll-interval", 0, "override poll interval (one-shot flow only)")
 	updateConfig := fs.Bool("update-config", false, "overwrite on-disk config with CLI flags")
+	insecureHTTP := fs.Bool("insecure-http", false, "allow a plaintext http:// server URL on a non-loopback host (enrollment token and Nebula config transit in cleartext)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -104,7 +105,7 @@ func runUnified(ctx context.Context, args []string, stderr io.Writer) error {
 	// One-shot enroll+poll path — explicit operator intent on the command
 	// line. Preserves the pre-#88 behavior.
 	if *token != "" && *serverURL != "" {
-		cfg, err := resolveConfig(*configPath, *serverURL, *dataDir, *pollInterval, *updateConfig, stderr)
+		cfg, err := resolveConfig(*configPath, *serverURL, *dataDir, *pollInterval, *updateConfig, *insecureHTTP, stderr)
 		if err != nil {
 			return err
 		}
@@ -139,6 +140,16 @@ func awaitEnrollment(ctx context.Context, logger *slog.Logger, configPath string
 	cfg, reason := checkEnrollment(configPath)
 	if cfg != nil {
 		return cfg, nil
+	}
+	// A config file that exists but fails to load is a misconfiguration the
+	// operator must act on — most notably the https-required guard refusing
+	// a pre-existing plaintext server_url after an upgrade — not the routine
+	// "not enrolled yet" state. Surface it at Warn with the load error and
+	// the remediation, so it doesn't read as a normal standby.
+	if _, statErr := os.Stat(configPath); statErr == nil {
+		if _, loadErr := config.LoadAgentConfig(configPath); loadErr != nil {
+			logger.Warn("nebula-agent standby — config present but rejected; fix it or set allow_insecure_http to opt out", "error", loadErr, "config", configPath, "tick", standbyTick)
+		}
 	}
 	logger.Info("nebula-agent standby — run `nebula-agent enroll --server URL --token TOK` to bind", "reason", reason, "config", configPath, "tick", standbyTick)
 	ticker := time.NewTicker(standbyTick)
@@ -184,7 +195,7 @@ func checkEnrollment(configPath string) (*config.AgentConfig, string) {
 // resolveConfig loads the on-disk config or creates one from CLI flags.
 // CLI flags conflicting with an existing config are warned about unless
 // --update-config is set, in which case they overwrite the file.
-func resolveConfig(path, serverURL, dataDir string, pollInterval time.Duration, updateConfig bool, stderr io.Writer) (*config.AgentConfig, error) {
+func resolveConfig(path, serverURL, dataDir string, pollInterval time.Duration, updateConfig, insecureHTTP bool, stderr io.Writer) (*config.AgentConfig, error) {
 	if _, err := os.Stat(path); err == nil {
 		cfg, err := config.LoadAgentConfig(path)
 		if err != nil {
@@ -207,12 +218,15 @@ func resolveConfig(path, serverURL, dataDir string, pollInterval time.Duration, 
 	}
 	cfg := config.DefaultAgentConfig()
 	cfg.ServerURL = serverURL
+	cfg.AllowInsecureHTTP = insecureHTTP
 	if dataDir != "" {
 		cfg.DataDir = dataDir
 	}
 	if pollInterval > 0 {
 		cfg.PollInterval = pollInterval
 	}
+	// SaveAgentConfig validates the URL (https-required guard), so a
+	// refused URL fails here — before the enrollment token is sent.
 	if err := config.SaveAgentConfig(path, cfg); err != nil {
 		return nil, fmt.Errorf("write config: %w", err)
 	}
@@ -313,11 +327,17 @@ func runEnroll(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	signingKeyPath := fs.String("signing-key-path", "", "Ed25519 PoP signing key path; defaults to <config-dir>/host.signing.key")
 	pollInterval := fs.Duration("poll-interval", 30*time.Second, "poll interval written to agent.yml")
 	force := fs.Bool("force", false, "overwrite an existing enrollment")
+	insecureHTTP := fs.Bool("insecure-http", false, "allow a plaintext http:// server URL on a non-loopback host (enrollment token and Nebula config transit in cleartext)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *serverURL == "" || *token == "" {
 		return fmt.Errorf("--server and --token are required")
+	}
+	// Validate before agent.Enroll so a refused URL never carries the
+	// single-use enrollment token over cleartext.
+	if err := config.ValidateAgentServerURL(*serverURL, *insecureHTTP); err != nil {
+		return err
 	}
 	if *signingKeyPath == "" {
 		*signingKeyPath = filepath.Join(filepath.Dir(*configPath), "host.signing.key")
@@ -345,6 +365,7 @@ func runEnroll(ctx context.Context, args []string, stdout, stderr io.Writer) err
 
 	cfg := config.DefaultAgentConfig()
 	cfg.ServerURL = *serverURL
+	cfg.AllowInsecureHTTP = *insecureHTTP
 	cfg.DataDir = *dataDir
 	cfg.SigningKeyPath = *signingKeyPath
 	cfg.PollInterval = *pollInterval

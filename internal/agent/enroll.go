@@ -16,6 +16,8 @@ import (
 
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
+
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
 )
 
 // SigningPublicKeyPEMType is the PEM block type used by the agent for its
@@ -44,6 +46,30 @@ func Reenroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath str
 	return Enroll(ctx, serverURL, token, dataDir, signingKeyPath)
 }
 
+// enrollmentSecrets collects every heap copy of private key material made
+// during enrollment so one deferred wipe covers them all. Fields are filled
+// as the corresponding buffers are created; wipe zeroizes whatever has been
+// set, matching the server-side standard (caMgr.Wipe, GHSA-8h84 / #181).
+type enrollmentSecrets struct {
+	privKey        []byte // X25519 private key (32-byte scalar)
+	privKeyPEM     []byte // PEM encoding of privKey
+	signingPriv    []byte // ed25519.PrivateKey (seed + public half)
+	signingPrivPEM []byte // PEM encoding of signingPriv
+}
+
+func (s *enrollmentSecrets) wipe() {
+	keystore.Zeroize(s.privKey)
+	keystore.Zeroize(s.privKeyPEM)
+	keystore.Zeroize(s.signingPriv)
+	keystore.Zeroize(s.signingPrivPEM)
+}
+
+// enrollSecretsObserverForTest, when non-nil, receives the secrets container
+// on Enroll's way out, before the deferred wipe runs. Tests use it to alias
+// the live buffers and assert they read as zeros after Enroll returns.
+// Production code never sets it.
+var enrollSecretsObserverForTest func(*enrollmentSecrets)
+
 // Enroll performs the enrollment flow: generates keypair, sends public key
 // to the server with the token, saves received cert and config to dataDir,
 // and writes the Ed25519 signing private key to signingKeyPath.
@@ -65,12 +91,23 @@ func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath strin
 	if err := preflightWritable(filepath.Dir(signingKeyPath)); err != nil {
 		return fmt.Errorf("signing key dir: %w", err)
 	}
-	// Generate X25519 keypair (for the Nebula handshake cert).
-	privKey := make([]byte, 32)
-	if _, err := io.ReadFull(rand.Reader, privKey); err != nil {
+	// Generate X25519 keypair (for the Nebula handshake cert). The private
+	// material exists in this function only long enough to reach disk —
+	// wipe every heap copy on every return path so the Nebula host key and
+	// the PoP signing key don't linger (core dump / swap exposure),
+	// matching the server-side zeroization standard (GHSA-8h84, #181).
+	secrets := &enrollmentSecrets{}
+	defer func() {
+		if enrollSecretsObserverForTest != nil {
+			enrollSecretsObserverForTest(secrets)
+		}
+		secrets.wipe()
+	}()
+	secrets.privKey = make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, secrets.privKey); err != nil {
 		return fmt.Errorf("generate private key: %w", err)
 	}
-	pubKey, err := curve25519.X25519(privKey, curve25519.Basepoint)
+	pubKey, err := curve25519.X25519(secrets.privKey, curve25519.Basepoint)
 	if err != nil {
 		return fmt.Errorf("derive public key: %w", err)
 	}
@@ -80,6 +117,7 @@ func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath strin
 	if err != nil {
 		return fmt.Errorf("generate signing keypair: %w", err)
 	}
+	secrets.signingPriv = signingPriv
 
 	// Encode keys to PEM.
 	pubKeyPEM := cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pubKey)
@@ -132,9 +170,10 @@ func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath strin
 		return fmt.Errorf("create data dir: %w", err)
 	}
 
-	// Save private key
-	privKeyPEM := cert.MarshalPrivateKeyToPEM(cert.Curve_CURVE25519, privKey)
-	if err := os.WriteFile(filepath.Join(dataDir, "host.key"), privKeyPEM, 0o600); err != nil {
+	// Save private key. The PEM encoding is a second heap copy of the
+	// secret — tracked in secrets and wiped with the raw bytes.
+	secrets.privKeyPEM = cert.MarshalPrivateKeyToPEM(cert.Curve_CURVE25519, secrets.privKey)
+	if err := os.WriteFile(filepath.Join(dataDir, "host.key"), secrets.privKeyPEM, 0o600); err != nil {
 		return fmt.Errorf("write host key: %w", err)
 	}
 
@@ -143,8 +182,8 @@ func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath strin
 	if err := os.MkdirAll(filepath.Dir(signingKeyPath), 0o750); err != nil {
 		return fmt.Errorf("create signing key dir: %w", err)
 	}
-	signingPrivPEM := pem.EncodeToMemory(&pem.Block{Type: SigningPrivateKeyPEMType, Bytes: signingPriv})
-	if err := os.WriteFile(signingKeyPath, signingPrivPEM, 0o600); err != nil {
+	secrets.signingPrivPEM = pem.EncodeToMemory(&pem.Block{Type: SigningPrivateKeyPEMType, Bytes: secrets.signingPriv})
+	if err := os.WriteFile(signingKeyPath, secrets.signingPrivPEM, 0o600); err != nil {
 		return fmt.Errorf("write signing key: %w", err)
 	}
 

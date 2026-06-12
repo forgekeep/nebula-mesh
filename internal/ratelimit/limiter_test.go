@@ -75,11 +75,59 @@ func TestClientIP_TrustProxyHeader(t *testing.T) {
 		Groups:           map[string]GroupConfig{"auth": {Rate: 5, Burst: 10}},
 	})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.RemoteAddr = "127.0.0.1:5555"
-	r.Header.Set("X-Forwarded-For", "203.0.113.10, 10.0.0.1")
-	if got := l.ClientIP(r); got != "203.0.113.10" {
-		t.Errorf("ClientIP = %q, want 203.0.113.10 (leftmost X-Forwarded-For)", got)
+	tests := []struct {
+		name string
+		xff  string
+		want string
+	}{
+		{
+			name: "single entry appended by proxy",
+			xff:  "203.0.113.10",
+			want: "203.0.113.10",
+		},
+		{
+			// The proxy appends the connecting client's IP on the
+			// right; anything to the left arrived in the client's own
+			// header and must not be trusted.
+			name: "rightmost wins over client-supplied entries",
+			xff:  "198.51.100.99, 203.0.113.10",
+			want: "203.0.113.10",
+		},
+		{
+			// A client rotating a fake leftmost entry per request must
+			// still key on the address the proxy saw.
+			name: "spoofed leftmost entry ignored",
+			xff:  "10.99.99.99, 203.0.113.10",
+			want: "203.0.113.10",
+		},
+		{
+			// No leftward fallback: an unparseable rightmost entry
+			// must not let the client pick its own key from a left
+			// entry — fall through to RemoteAddr instead.
+			name: "unparseable rightmost falls back to RemoteAddr, not leftward",
+			xff:  "198.51.100.99, not-an-ip",
+			want: "127.0.0.1",
+		},
+		{
+			name: "empty rightmost falls back to RemoteAddr",
+			xff:  "198.51.100.99,",
+			want: "127.0.0.1",
+		},
+		{
+			name: "IPv6 rightmost",
+			xff:  "198.51.100.99, 2001:db8::7",
+			want: "2001:db8::7",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.RemoteAddr = "127.0.0.1:5555"
+			r.Header.Set("X-Forwarded-For", tc.xff)
+			if got := l.ClientIP(r); got != tc.want {
+				t.Errorf("ClientIP(xff=%q) = %q, want %q", tc.xff, got, tc.want)
+			}
+		})
 	}
 }
 

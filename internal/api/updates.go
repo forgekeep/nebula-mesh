@@ -43,7 +43,12 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	nonce := r.Header.Get(corepop.HeaderNonce)
 	signatureB64 := r.Header.Get(corepop.HeaderSignature)
 	if fingerprint == "" || timestamp == "" || nonce == "" || signatureB64 == "" {
-		s.recordAuditAction(r.Context(), auditHostAuthFailed, "", authReasonBadSignature)
+		// Deliberately NOT audited: this branch needs no valid token,
+		// fingerprint, or signature, so writing a DB row per request lets
+		// an unauthenticated sender bloat the audit table at line rate,
+		// bounded only by the agent_poll bucket. Flood visibility stays
+		// available via the HTTP request counter (route + status 400);
+		// every branch after the fingerprint lookup still audits.
 		writeError(w, http.StatusBadRequest, "missing_signature")
 		return
 	}

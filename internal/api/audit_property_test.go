@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
@@ -102,12 +104,19 @@ func TestAuditRows_AllProductionPathsConform(t *testing.T) {
 	mustDo(t, srv, http.MethodPatch, "/api/v1/settings",
 		[]byte(`{"enforce_2fa":true}`), http.StatusOK)
 
-	// host.auth.failed — a signed-poll with missing headers exercises
-	// the empty-resource exception (no host known yet).
+	// host.auth.failed — a signed-poll with headers present but an
+	// unknown fingerprint exercises the empty-resource exception (no
+	// host row matched). The headers-missing branch deliberately does
+	// NOT audit (unauthenticated flood vector, see updates.go).
+	pollReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
+	pollReq.Header.Set(corepop.HeaderFingerprint, "no-such-fingerprint")
+	pollReq.Header.Set(corepop.HeaderTimestamp, time.Now().UTC().Format(time.RFC3339))
+	pollReq.Header.Set(corepop.HeaderNonce, "sweep-nonce")
+	pollReq.Header.Set(corepop.HeaderSignature, "c3dlZXA=")
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("signed-poll missing-headers: status = %d, want 400", rec.Code)
+	srv.ServeHTTP(rec, pollReq)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("signed-poll unknown-fingerprint: status = %d, want 401", rec.Code)
 	}
 
 	// Read back every audit row and validate each.

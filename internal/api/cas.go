@@ -107,13 +107,17 @@ func (s *Server) handleCreateCA(w http.ResponseWriter, r *http.Request) {
 	rawKey := mgr.RawKey()
 	defer keystore.Zeroize(rawKey)
 
-	dek, wrappedDEK, err := s.master.GenerateDEK()
+	// The CA ID is minted before sealing because both envelope layers bind
+	// it as AAD — a (DEK, key-material) pair copied into another CA's row
+	// must fail to decrypt rather than sign under the wrong cert.
+	caID := uuid.New().String()
+	dek, wrappedDEK, err := s.master.GenerateDEK([]byte(caID))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate DEK")
 		return
 	}
 	defer keystore.Zeroize(dek)
-	wrappedKey, err := keystore.SealWithDEK(dek, rawKey)
+	wrappedKey, err := keystore.SealWithDEK(dek, rawKey, []byte(caID))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to encrypt CA key")
 		return
@@ -130,7 +134,7 @@ func (s *Server) handleCreateCA(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	c := &models.CA{
-		ID:                   uuid.New().String(),
+		ID:                   caID,
 		Name:                 req.Name,
 		OwnerOperatorID:      actor.ID,
 		CertPEM:              string(certPEM),

@@ -263,3 +263,91 @@ func TestCAResolver_LoadByID_CorruptedKeyMaterialFails(t *testing.T) {
 		})
 	}
 }
+
+// TestCAResolver_LoadByID_RejectsSwappedEnvelope pins the ca_id AAD binding
+// (L6, 2026-06-12 audit): copying CA-B's matched (encrypted DEK, encrypted
+// key material) pair into CA-A's row must fail at decrypt. Without the
+// binding a DB-write swap decrypts cleanly and pairs CA-A's cert with CA-B's
+// signing key.
+func TestCAResolver_LoadByID_RejectsSwappedEnvelope(t *testing.T) {
+	s := newTestStore(t)
+	m := newTestMaster(t)
+	caA := mintCAInStore(t, s, m, "op-swap-a")
+	caB := mintCAInStore(t, s, m, "op-swap-b")
+
+	// Attacker with DB write but no master key: graft B's envelope onto
+	// A's row, keeping A's id and cert.
+	grafted := *caA
+	grafted.EncryptedKeyDEK = append([]byte(nil), caB.EncryptedKeyDEK...)
+	grafted.NonceDEK = append([]byte(nil), caB.NonceDEK...)
+	grafted.EncryptedKeyMaterial = append([]byte(nil), caB.EncryptedKeyMaterial...)
+	grafted.NonceKey = append([]byte(nil), caB.NonceKey...)
+
+	if _, err := pki.NewCAResolver(fakeCAStore{ca: &grafted}, m).LoadByID(context.Background(), caA.ID); err == nil {
+		t.Fatal("LoadByID returned a manager from an envelope swapped between CA rows")
+	}
+}
+
+// TestCAResolver_LoadByID_LegacyNilAADEnvelope verifies the migration path:
+// an envelope sealed before the AAD binding (nil AAD) still loads, provided
+// the key matches the certificate.
+func TestCAResolver_LoadByID_LegacyNilAADEnvelope(t *testing.T) {
+	s := newTestStore(t)
+	m := newTestMaster(t)
+	ca := mintCAInStore(t, s, m, "op-legacy")
+
+	// Re-seal the CA's true key the pre-binding way (nil AAD) to model a
+	// row written by an older release.
+	mgr, err := pki.NewCAResolver(s, m).LoadByID(context.Background(), ca.ID)
+	if err != nil {
+		t.Fatalf("load freshly minted CA: %v", err)
+	}
+	rawKey := append([]byte(nil), mgr.RawKey()...)
+	mgr.Wipe()
+
+	dek, wrappedDEK, err := m.GenerateDEK(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrappedKey, err := keystore.SealWithDEK(dek, rawKey, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := *ca
+	legacy.EncryptedKeyDEK = wrappedDEK.Ciphertext
+	legacy.NonceDEK = wrappedDEK.Nonce
+	legacy.EncryptedKeyMaterial = wrappedKey.Ciphertext
+	legacy.NonceKey = wrappedKey.Nonce
+
+	mgr2, err := pki.NewCAResolver(fakeCAStore{ca: &legacy}, m).LoadByID(context.Background(), ca.ID)
+	if err != nil {
+		t.Fatalf("legacy nil-AAD envelope refused: %v", err)
+	}
+	defer mgr2.Wipe()
+	if !bytes.Equal(mgr2.RawKey(), rawKey) {
+		t.Error("legacy envelope round-trip recovered a different key")
+	}
+}
+
+// TestLoadCAFromMaterial_RejectsMismatchedKey pins the public-key consistency
+// check: a parseable cert paired with a different CA's (valid-length) key
+// must be refused at load, not surface later as unusable certificates. This
+// is the backstop that covers a legacy-envelope swap, where no AAD exists to
+// catch it.
+func TestLoadCAFromMaterial_RejectsMismatchedKey(t *testing.T) {
+	s := newTestStore(t)
+	m := newTestMaster(t)
+	caA := mintCAInStore(t, s, m, "op-mismatch-a")
+	caB := mintCAInStore(t, s, m, "op-mismatch-b")
+
+	mgrB, err := pki.NewCAResolver(s, m).LoadByID(context.Background(), caB.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyB := append([]byte(nil), mgrB.RawKey()...)
+	mgrB.Wipe()
+
+	if _, err := pki.LoadCAFromMaterial([]byte(caA.CertPEM), keyB); err == nil {
+		t.Fatal("LoadCAFromMaterial accepted CA-A's cert with CA-B's key")
+	}
+}

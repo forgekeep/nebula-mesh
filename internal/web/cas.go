@@ -97,14 +97,17 @@ func (w *Web) mintCAForOperator(ctx context.Context, op *models.Operator, name s
 	rawKey := mgr.RawKey()
 	defer keystore.Zeroize(rawKey)
 
-	dek, wrappedDEK, err := w.caMaster.GenerateDEK()
+	// Mint the CA ID before sealing: both envelope layers bind it as AAD
+	// so an envelope copied into another CA's row fails to decrypt.
+	caID := uuid.New().String()
+	dek, wrappedDEK, err := w.caMaster.GenerateDEK([]byte(caID))
 	if err != nil {
 		w.logger.Error("generate dek", "error", err)
 		return nil, err
 	}
 	defer keystore.Zeroize(dek)
 
-	wrappedKey, err := keystore.SealWithDEK(dek, rawKey)
+	wrappedKey, err := keystore.SealWithDEK(dek, rawKey, []byte(caID))
 	if err != nil {
 		w.logger.Error("seal ca key", "error", err)
 		return nil, err
@@ -124,7 +127,7 @@ func (w *Web) mintCAForOperator(ctx context.Context, op *models.Operator, name s
 
 	now := time.Now()
 	ca := &models.CA{
-		ID:                   uuid.New().String(),
+		ID:                   caID,
 		Name:                 name,
 		OwnerOperatorID:      op.ID,
 		CertPEM:              string(certPEM),

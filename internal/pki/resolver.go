@@ -44,19 +44,31 @@ func (r *CAResolver) LoadByID(ctx context.Context, caID string) (*CAManager, err
 	if err != nil {
 		return nil, fmt.Errorf("load CA %s: %w", caID, err)
 	}
-	dek, err := r.master.UnwrapDEK(keystore.WrappedKey{
+	// Try the ca_id-bound envelope first; fall back to nil AAD for
+	// envelopes sealed before the binding existed. The fallback does not
+	// reopen the swap it guards against: an AAD-bound envelope copied from
+	// another CA's row fails both opens (its tag covers the source CA's
+	// ID), and a swapped-in legacy envelope is caught by the public-key
+	// consistency check in LoadCAFromMaterial.
+	wrappedDEK := keystore.WrappedKey{
 		Ciphertext: c.EncryptedKeyDEK,
 		Nonce:      c.NonceDEK,
-	})
+	}
+	aad := []byte(caID)
+	dek, err := r.master.UnwrapDEK(wrappedDEK, aad)
 	if err != nil {
-		return nil, fmt.Errorf("unwrap DEK for CA %s: %w", caID, err)
+		dek, err = r.master.UnwrapDEK(wrappedDEK, nil)
+		if err != nil {
+			return nil, fmt.Errorf("unwrap DEK for CA %s: %w", caID, err)
+		}
+		aad = nil
 	}
 	defer keystore.Zeroize(dek)
 
 	keyBytes, err := keystore.OpenWithDEK(dek, keystore.WrappedBlob{
 		Ciphertext: c.EncryptedKeyMaterial,
 		Nonce:      c.NonceKey,
-	})
+	}, aad)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt CA %s key: %w", caID, err)
 	}

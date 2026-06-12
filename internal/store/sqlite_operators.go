@@ -56,8 +56,14 @@ func (s *SQLiteStore) CreateOperator(ctx context.Context, op *models.Operator) e
 	if op.Status == "" {
 		op.Status = models.OperatorStatusActive
 	}
+	// Least privilege: a caller that wants an admin must say so. Defaulting
+	// the empty string to admin would let any future caller that forgets to
+	// set Role self-provision an administrator.
 	if op.Role == "" {
-		op.Role = "admin"
+		op.Role = models.OperatorRoleUser
+	}
+	if !models.ValidOperatorRole(op.Role) {
+		return fmt.Errorf("invalid operator role %q", op.Role)
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO operators (id, username, display_name, password_hash, auth_provider, status, role, oidc_issuer, oidc_subject, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -103,8 +109,14 @@ func (s *SQLiteStore) SeedInitialAdminOperator(ctx context.Context, op *models.O
 	if op.Status == "" {
 		op.Status = models.OperatorStatusActive
 	}
+	// The seed only ever runs against an empty operators table, and the
+	// first operator must be able to administer the server — admin is the
+	// correct default here, unlike CreateOperator.
 	if op.Role == "" {
-		op.Role = "admin"
+		op.Role = models.OperatorRoleAdmin
+	}
+	if !models.ValidOperatorRole(op.Role) {
+		return false, fmt.Errorf("invalid operator role %q", op.Role)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)

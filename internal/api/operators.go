@@ -38,6 +38,15 @@ func (s *Server) handleCreateOperator(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "username and password are required")
 		return
 	}
+	// An omitted role means least privilege; anything else must be a known
+	// role so a typo can't silently land on a store-level default.
+	if req.Role == "" {
+		req.Role = models.OperatorRoleUser
+	}
+	if !models.ValidOperatorRole(req.Role) {
+		writeError(w, http.StatusBadRequest, "role must be \"admin\" or \"user\"")
+		return
+	}
 	if err := s.passwordPolicy.Validate(req.Password, strings.ToLower(req.Username)); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

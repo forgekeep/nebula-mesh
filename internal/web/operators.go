@@ -66,6 +66,12 @@ func (w *Web) handleOperatorCreate(rw http.ResponseWriter, r *http.Request) {
 	if password == "" {
 		form.Errors["password"] = "Required"
 	}
+	// The form's select only offers the known roles, but the value is
+	// client-controlled — reject anything else here rather than surfacing
+	// the store's error as a 500.
+	if !models.ValidOperatorRole(form.Role) {
+		form.Errors["role"] = "Must be admin or user"
+	}
 
 	// If any required fields are missing, render error and return.
 	if len(form.Errors) > 0 {

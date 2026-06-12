@@ -225,6 +225,41 @@ func TestOperators_CreateRejectsWeakPassword(t *testing.T) {
 	}
 }
 
+// TestOperators_CreateRejectsUnknownRole pins the web-form role allowlist: a
+// crafted POST with a role outside {admin,user} is rejected with a 400 inline
+// error rather than surfacing the store's error as a 500. Mirrors the API-side
+// TestCreateOperator_UnknownRoleRejected.
+func TestOperators_CreateRejectsUnknownRole(t *testing.T) {
+	w, s := newOperatorsWeb(t)
+	cookie := mintSession(t, s, "root", "admin")
+
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/operators", []*http.Cookie{cookie})
+
+	form := url.Values{
+		"username":         {"mallory"},
+		"password":         {strongPassword},
+		"password_confirm": {strongPassword},
+		"role":             {"superadmin"},
+		"_csrf":            {csrfToken},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/ui/operators", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "admin or user") {
+		t.Errorf("expected role error, got %s", rec.Body.String())
+	}
+	if _, err := s.GetOperatorByUsername(context.Background(), "mallory"); err == nil {
+		t.Error("operator with invalid role must not be persisted")
+	}
+}
+
 func TestOperators_CreateInlineErrors_PerField(t *testing.T) {
 	w, s := newOperatorsWeb(t)
 	cookie := mintSession(t, s, "root", "admin")

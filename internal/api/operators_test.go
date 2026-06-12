@@ -33,6 +33,9 @@ func TestOperatorLifecycle_CreateListDisable(t *testing.T) {
 	if created.Username != "bob" {
 		t.Errorf("username = %q, want bob", created.Username)
 	}
+	if created.Role != models.OperatorRoleUser {
+		t.Errorf("omitted role = %q, want %q (least privilege)", created.Role, models.OperatorRoleUser)
+	}
 
 	// List should include bob
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/operators", nil)
@@ -70,11 +73,29 @@ func TestOperatorLifecycle_CreateListDisable(t *testing.T) {
 	}
 }
 
-func TestOperatorAPIKey_CreateAndUse(t *testing.T) {
+func TestCreateOperator_UnknownRoleRejected(t *testing.T) {
 	srv, _ := newTestServer(t)
 
 	body, _ := json.Marshal(map[string]string{
-		"username": "carol", "password": "secret123",
+		"username": "mallory", "password": "supersecret", "role": "superadmin",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operators", bytes.NewBuffer(body))
+	authRequest(req)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("create with role=superadmin status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOperatorAPIKey_CreateAndUse(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// Explicit admin: an omitted role defaults to "user" (least privilege),
+	// so the key must be created with role=admin to pass the admin-gated
+	// operators list check below.
+	body, _ := json.Marshal(map[string]string{
+		"username": "carol", "password": "secret123", "role": "admin",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/operators", bytes.NewBuffer(body))
 	authRequest(req)

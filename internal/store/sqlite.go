@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2183,7 +2185,16 @@ func (s *SQLiteStore) SetNetworkConfigAndBumpVersion(ctx context.Context, networ
 // --- Audit Log ---
 
 func (s *SQLiteStore) AddAuditEntry(ctx context.Context, actor, action, resource, details string) error {
-	id := fmt.Sprintf("audit_%d", time.Now().UnixNano())
+	// The id must not be timestamp-derived: two concurrent writes landing
+	// on the same nanosecond would collide on the PRIMARY KEY, and every
+	// caller fire-and-forgets this method's error, so the losing row would
+	// vanish silently. 16 random bytes make collisions cryptographically
+	// negligible.
+	suffix := make([]byte, 16)
+	if _, err := rand.Read(suffix); err != nil {
+		return fmt.Errorf("audit entry id: %w", err)
+	}
+	id := "audit_" + hex.EncodeToString(suffix)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO audit_log (id, actor, action, resource, details) VALUES (?, ?, ?, ?, ?)`,
 		id, actor, action, resource, details,

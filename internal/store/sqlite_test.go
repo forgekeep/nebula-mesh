@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -497,6 +498,45 @@ func TestBlocklist_AddAndGet(t *testing.T) {
 }
 
 // --- Audit Log ---
+
+// TestAddAuditEntry_ConcurrentWritesAllPersist drives parallel AddAuditEntry
+// calls and asserts every row lands. With a timestamp-derived id two writes
+// in the same nanosecond collided on the PRIMARY KEY and the loser vanished
+// silently (every production caller discards this method's error).
+func TestAddAuditEntry_ConcurrentWritesAllPersist(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	const writers = 8
+	const perWriter = 25
+	errs := make(chan error, writers*perWriter)
+	var wg sync.WaitGroup
+	for w := 0; w < writers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < perWriter; i++ {
+				errs <- s.AddAuditEntry(ctx, "admin", "concurrent_action",
+					fmt.Sprintf("w%d_r%d", w, i), "")
+			}
+		}(w)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("AddAuditEntry: %v", err)
+		}
+	}
+
+	entries, err := s.ListAuditEntries(ctx, AuditFilter{Action: "concurrent_action", Limit: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != writers*perWriter {
+		t.Errorf("persisted rows = %d, want %d (silent row loss)", len(entries), writers*perWriter)
+	}
+}
 
 func TestListAuditEntries_WithLimit(t *testing.T) {
 	s := newTestStore(t)

@@ -281,8 +281,9 @@ func Serve(configPath string, insecureHTTP bool) error {
 		sinks := []alerts.Sink{&alerts.AuditSink{Store: s}}
 		if cfg.Alerts.WebhookURL != "" {
 			sinks = append(sinks, &alerts.WebhookSink{
-				URL:        cfg.Alerts.WebhookURL,
-				HMACSecret: cfg.Alerts.WebhookHMACSecret,
+				URL:          cfg.Alerts.WebhookURL,
+				HMACSecret:   cfg.Alerts.WebhookHMACSecret,
+				AllowPrivate: cfg.Alerts.AllowPrivateWebhook,
 			})
 		}
 		scanner := &alerts.Scanner{

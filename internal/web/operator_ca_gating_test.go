@@ -211,6 +211,46 @@ func TestHostCreate_UserCannotCreateInForeignNetwork(t *testing.T) {
 	}
 }
 
+// TestHostCreate_UserCannotCreateWithoutNetwork — an empty network_id used
+// to skip the entire CA-ownership block, letting a non-admin create a host
+// with CAID="" that the creator then couldn't even see (loadAccessibleHost
+// forbids blank CAID for non-admins) while it still burned an enrollment
+// token and showed up in admin dashboards (L9, 2026-06-12 audit).
+func TestHostCreate_UserCannotCreateWithoutNetwork(t *testing.T) {
+	w, s := newOperatorsWeb(t)
+	cookie := mintSession(t, s, "alice", "user")
+	seedActiveCA(t, s, "ca-alice", "op-alice", "alice-ca")
+
+	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/hosts", []*http.Cookie{cookie})
+	form := url.Values{
+		"name":       {"orphan-host"},
+		"nebula_ips": {"10.30.0.10"},
+		"role":       {"host"},
+		"_csrf":      {csrfToken},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "pick a network") {
+		t.Errorf("body should ask the user to pick a network")
+	}
+	hosts, err := s.ListHosts(context.Background(), store.HostFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 0 {
+		t.Errorf("orphan host must not be persisted; got %d", len(hosts))
+	}
+}
+
 // TestHostCreate_UserOwnedNetworkInheritsCAID — happy path. A user with
 // their own CA + network creates a host; the host row inherits the
 // network's CAID so the agent's cert is signed under that CA, not a

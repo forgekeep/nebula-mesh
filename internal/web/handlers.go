@@ -709,6 +709,15 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	// Resolve the chosen network and check that the operator is allowed
 	// to attach a host to it (issue #93). admins keep their existing
 	// blanket access; users must own the CA that signs the network.
+	//
+	// A non-admin must pick a network: with no network there is no CA, and
+	// a CAID-less host is invisible to its own creator (loadAccessibleHost
+	// forbids blank CAID for non-admins) — an orphan that still burns an
+	// enrollment token and pollutes admin dashboards.
+	if form.NetworkID == "" && op.Role != "admin" {
+		w.renderHostNewError(rw, r, form, "pick a network backed by a CA you own")
+		return
+	}
 	var network *models.Network
 	if networkID := form.NetworkID; networkID != "" {
 		n, err := w.store.GetNetwork(r.Context(), networkID)

@@ -378,6 +378,31 @@ func (s *SQLiteStore) ReplaceOperatorRecoveryCodes(ctx context.Context, id strin
 	return tx.Commit()
 }
 
+// ConsumeOperatorTOTPTimestep advances the operator's last-accepted TOTP
+// timestep to ts, but only if ts is strictly greater than the stored value —
+// the same atomic verify-and-mark shape as ConsumeOperatorRecoveryCode, so
+// two concurrent logins presenting the same code cannot both win. Returns
+// ErrTOTPReplayed when ts has already been used (or an older one accepted
+// after it), which the caller must treat as an authentication failure
+// (RFC 6238 §5.2).
+func (s *SQLiteStore) ConsumeOperatorTOTPTimestep(ctx context.Context, id string, ts int64) error {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE operators SET totp_last_timestep=? WHERE id=? AND totp_last_timestep < ?`,
+		ts, id, ts,
+	)
+	if err != nil {
+		return fmt.Errorf("consume totp timestep: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("consume totp timestep rows: %w", err)
+	}
+	if rows == 0 {
+		return ErrTOTPReplayed
+	}
+	return nil
+}
+
 // ConsumeOperatorRecoveryCode marks the given hash as consumed if it exists
 // and is unused. Returns ErrNotFound otherwise.
 func (s *SQLiteStore) ConsumeOperatorRecoveryCode(ctx context.Context, id, codeHash string) error {

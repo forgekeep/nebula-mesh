@@ -150,6 +150,11 @@ type Store interface {
 
 	// Operator TOTP / recovery codes
 	SetOperatorTOTP(ctx context.Context, id, secret string, enabled bool) error
+	// ConsumeOperatorTOTPTimestep atomically records the TOTP timestep a
+	// code was accepted at, rejecting (ErrTOTPReplayed) any timestep at or
+	// below the last accepted one so an observed code cannot be replayed
+	// within its validity window (RFC 6238 §5.2).
+	ConsumeOperatorTOTPTimestep(ctx context.Context, id string, ts int64) error
 	ReplaceOperatorRecoveryCodes(ctx context.Context, id string, codeHashes []string) error
 	ConsumeOperatorRecoveryCode(ctx context.Context, id, codeHash string) error
 	ListOperatorRecoveryCodes(ctx context.Context, id string) ([]string, error)

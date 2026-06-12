@@ -127,8 +127,26 @@ func (w *Web) handleTOTPLogin(rw http.ResponseWriter, r *http.Request) {
 
 	ok := false
 	usedRecovery := false
-	if code != "" && verifyTOTP(op.TOTPSecret, code) {
-		ok = true
+	if ts, valid := verifyTOTPWithTimestep(op.TOTPSecret, code); code != "" && valid {
+		// Consume the matched timestep atomically (same shape as recovery
+		// codes below): a code is one-time within its acceptance window, so
+		// an observed/phished code cannot be replayed and two concurrent
+		// logins presenting the same code cannot both pass (RFC 6238 §5.2).
+		err := w.store.ConsumeOperatorTOTPTimestep(r.Context(), op.ID, ts)
+		switch {
+		case err == nil:
+			ok = true
+		case errors.Is(err, store.ErrTOTPReplayed):
+			// Code already used this window — a denied login, handled below.
+		default:
+			// A real store failure must not masquerade as a wrong code:
+			// surface it as a 500 and log, rather than silently denying a
+			// valid second factor with no operator-side signal.
+			w.recordLogin(loginResultError, loginFactorTOTP)
+			w.logger.Error("consume totp timestep", "error", err)
+			http.Error(rw, "internal error", http.StatusInternalServerError)
+			return
+		}
 	} else if recovery != "" {
 		// Consume atomically: the single UPDATE both verifies and
 		// marks-used in one statement, which is the one-time
@@ -373,7 +391,8 @@ func (w *Web) handleTwoFAEnable(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code := strings.TrimSpace(r.FormValue("code"))
-	if !verifyTOTP(op.TOTPSecret, code) {
+	ts, valid := verifyTOTPWithTimestep(op.TOTPSecret, code)
+	if !valid {
 		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.enable_failed", op.ID, "")
 		w.renderForRequest(rw, r, "twofa.html", map[string]any{
 			"Active":      "2fa",
@@ -386,6 +405,14 @@ func (w *Web) handleTwoFAEnable(rw http.ResponseWriter, r *http.Request) {
 			"Error": "Invalid code; try again",
 		})
 		return
+	}
+	// Best-effort consume: marks the setup code's timestep used so it
+	// cannot double as the next login's second factor. Unlike the login
+	// path this is not an auth gate (the session is already
+	// authenticated), so a replay error here doesn't block enablement.
+	if err := w.store.ConsumeOperatorTOTPTimestep(r.Context(), op.ID, ts); err != nil &&
+		!errors.Is(err, store.ErrTOTPReplayed) {
+		w.logger.Error("consume totp timestep on enable", "error", err)
 	}
 	if err := w.store.SetOperatorTOTP(r.Context(), op.ID, op.TOTPSecret, true); err != nil {
 		w.logger.Error("enable totp", "error", err)

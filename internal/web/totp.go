@@ -3,10 +3,12 @@ package web
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base32"
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
@@ -31,22 +33,42 @@ func generateTOTPSecret(username string) (otpauthURL, secret string, err error) 
 	return key.URL(), key.Secret(), nil
 }
 
-// verifyTOTP validates a 6-digit code against the operator's secret.
-func verifyTOTP(secret, code string) bool {
+// totpPeriod is the TOTP timestep length. The acceptance window is
+// ±totpSkew timesteps around now.
+const (
+	totpPeriod = 30
+	totpSkew   = 1
+)
+
+// verifyTOTPWithTimestep validates a 6-digit code and, on success, returns
+// the timestep (Unix time / period) the code matched. Callers that gate
+// authentication must persist the timestep via ConsumeOperatorTOTPTimestep
+// so the same code cannot be replayed within its ±skew acceptance window.
+// totp.ValidateCustom does not expose which step matched, so each candidate
+// step in the window is checked individually with the same parameters.
+func verifyTOTPWithTimestep(secret, code string) (int64, bool) {
 	code = strings.TrimSpace(code)
 	if secret == "" || code == "" {
-		return false
+		return 0, false
 	}
-	ok, err := totp.ValidateCustom(code, secret, timeNow(), totp.ValidateOpts{
-		Period:    30,
-		Skew:      1,
-		Digits:    otp.DigitsSix,
-		Algorithm: otp.AlgorithmSHA1,
-	})
-	if err != nil {
-		return false
+	now := timeNow()
+	step := now.Unix() / totpPeriod
+	for delta := int64(-totpSkew); delta <= totpSkew; delta++ {
+		candidate := step + delta
+		want, err := totp.GenerateCodeCustom(secret, time.Unix(candidate*totpPeriod, 0), totp.ValidateOpts{
+			Period:    totpPeriod,
+			Skew:      0,
+			Digits:    otp.DigitsSix,
+			Algorithm: otp.AlgorithmSHA1,
+		})
+		if err != nil {
+			return 0, false
+		}
+		if subtle.ConstantTimeCompare([]byte(want), []byte(code)) == 1 {
+			return candidate, true
+		}
 	}
-	return ok
+	return 0, false
 }
 
 // generateRecoveryCodes returns N random 10-character codes (uppercase

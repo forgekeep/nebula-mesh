@@ -92,6 +92,15 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	return &SQLiteStore{db: db}, nil
 }
 
+// sqlConn is the subset of database/sql operations the migration loader
+// needs, satisfied by both *sql.DB and *sql.Conn. Migrate pins a single
+// *sql.Conn so the whole run shares one connection.
+type sqlConn interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 // Migrate applies all pending migrations. Each migration file is executed
 // at most once per database — its name is recorded in `schema_migrations`
 // once applied. This fixes two latent issues:
@@ -106,6 +115,14 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 //     boundaries and Exec one statement at a time.
 //
 // See https://github.com/forgekeep/nebula-mesh/issues/37.
+//
+// The entire run is pinned to a single pooled connection. PRAGMA
+// foreign_keys is connection-scoped, and migration 014 turns it OFF, drops
+// and recreates tables, then turns it back ON across separate statements —
+// if those statements were dispatched to different pool connections (every
+// connection opens with foreign_keys ON via the DSN), the DROP TABLE would
+// run with FK enforcement live and cascade-delete every child row
+// (certificates, host_addresses, enrollment_tokens, cert_alerts).
 func (s *SQLiteStore) Migrate(ctx context.Context) error {
 	migrationFiles := []string{
 		"001_initial.up.sql",
@@ -129,8 +146,31 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"019_session_token_hash.up.sql",
 	}
 
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("pin migration connection: %w", err)
+	}
+	defer func() {
+		// If a migration failed between PRAGMA foreign_keys = OFF and the
+		// matching ON, this connection must not rejoin the pool with FK
+		// enforcement disabled. Use a fresh context, not the caller's: a
+		// canceled ctx (the very thing that aborted the migration mid-way)
+		// would otherwise make ExecContext refuse to run, leaving the
+		// connection to return to the pool with FK off. Best-effort: a
+		// failed restore is logged and the connection closed regardless
+		// (sql.Conn.Close returns it to the pool; the raw connection itself
+		// is not torn down, so the pragma reset matters).
+		restoreCtx := context.WithoutCancel(ctx)
+		if _, err := conn.ExecContext(restoreCtx, `PRAGMA foreign_keys = ON`); err != nil {
+			slog.Error("restore foreign_keys on migration connection", "error", err)
+		}
+		if err := conn.Close(); err != nil {
+			slog.Error("close migration connection", "error", err)
+		}
+	}()
+
 	// Tracking table. Created once; idempotent on subsequent starts.
-	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+	if _, err := conn.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		name        TEXT PRIMARY KEY,
 		applied_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`); err != nil {
@@ -138,7 +178,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 	}
 
 	for _, f := range migrationFiles {
-		applied, err := s.migrationApplied(ctx, f)
+		applied, err := migrationApplied(ctx, conn, f)
 		if err != nil {
 			return fmt.Errorf("check migration %s: %w", f, err)
 		}
@@ -152,7 +192,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		// change, while orphan and same-host-duplicate rows are repaired
 		// automatically (and logged). See checkOverlayIPConflicts.
 		if f == "018_host_address_network_uniqueness.up.sql" {
-			if err := checkOverlayIPConflicts(ctx, s.db); err != nil {
+			if err := checkOverlayIPConflicts(ctx, conn); err != nil {
 				return err
 			}
 		}
@@ -161,7 +201,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 			return fmt.Errorf("read migration %s: %w", f, err)
 		}
 		for _, stmt := range splitSQLStatements(string(sqlBytes)) {
-			if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			if _, err := conn.ExecContext(ctx, stmt); err != nil {
 				if isDuplicateColumnErr(err) {
 					// Tolerated for backward compatibility with DBs that
 					// partially applied a buggy earlier version of this
@@ -171,7 +211,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 				return fmt.Errorf("apply migration %s stmt %q: %w", f, firstLine(stmt), err)
 			}
 		}
-		if _, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO schema_migrations(name) VALUES (?)`, f); err != nil {
+		if _, err := conn.ExecContext(ctx, `INSERT OR REPLACE INTO schema_migrations(name) VALUES (?)`, f); err != nil {
 			return fmt.Errorf("record migration %s: %w", f, err)
 		}
 	}
@@ -181,15 +221,15 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 	// migration is now flagged as applied. Re-run the affected ALTER
 	// outside the normal migration flow so existing installs heal on the
 	// next start.
-	if err := s.repairBlocklistCAID(ctx); err != nil {
+	if err := repairBlocklistCAID(ctx, conn); err != nil {
 		return fmt.Errorf("repair blocklist ca_id: %w", err)
 	}
 	return nil
 }
 
-func (s *SQLiteStore) migrationApplied(ctx context.Context, name string) (bool, error) {
+func migrationApplied(ctx context.Context, db sqlConn, name string) (bool, error) {
 	var got string
-	row := s.db.QueryRowContext(ctx, `SELECT name FROM schema_migrations WHERE name = ?`, name)
+	row := db.QueryRowContext(ctx, `SELECT name FROM schema_migrations WHERE name = ?`, name)
 	if err := row.Scan(&got); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
@@ -202,8 +242,8 @@ func (s *SQLiteStore) migrationApplied(ctx context.Context, name string) (bool, 
 // repairBlocklistCAID heals databases that ran the buggy multi-statement
 // migration loader before issue #37 was fixed. If `blocklist.ca_id` is
 // absent, add it (together with its index) so multi-CA logic works.
-func (s *SQLiteStore) repairBlocklistCAID(ctx context.Context) error {
-	row := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM pragma_table_info('blocklist') WHERE name = 'ca_id'`)
+func repairBlocklistCAID(ctx context.Context, db sqlConn) error {
+	row := db.QueryRowContext(ctx, `SELECT COUNT(1) FROM pragma_table_info('blocklist') WHERE name = 'ca_id'`)
 	var n int
 	if err := row.Scan(&n); err != nil {
 		return err
@@ -211,19 +251,19 @@ func (s *SQLiteStore) repairBlocklistCAID(ctx context.Context) error {
 	if n > 0 {
 		return nil
 	}
-	if _, err := s.db.ExecContext(ctx, `ALTER TABLE blocklist ADD COLUMN ca_id TEXT NOT NULL DEFAULT ''`); err != nil {
+	if _, err := db.ExecContext(ctx, `ALTER TABLE blocklist ADD COLUMN ca_id TEXT NOT NULL DEFAULT ''`); err != nil {
 		if !isDuplicateColumnErr(err) {
 			return err
 		}
 	}
-	if _, err := s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_blocklist_ca ON blocklist(ca_id)`); err != nil {
+	if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_blocklist_ca ON blocklist(ca_id)`); err != nil {
 		return err
 	}
 	// Backfill ca_id for legacy rows whose owning host still exists, so the
 	// per-CA poll scope (#203) covers entries written before ca_id was set.
 	// Orphan rows (host already deleted, host_id NULL) stay '' and are treated
 	// as a broadcast fail-safe by GetBlocklistForCA.
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := db.ExecContext(ctx,
 		`UPDATE blocklist
 		    SET ca_id = COALESCE((SELECT h.ca_id FROM hosts h WHERE h.id = blocklist.host_id), '')
 		  WHERE ca_id = '' AND host_id IS NOT NULL`); err != nil {
@@ -265,7 +305,7 @@ type overlayConflict struct {
 // It runs before 018 adds network_id, so the cross-host query derives the
 // network by joining host_addresses to hosts. Returns a fail-loud error only for
 // the cross-host case; returns nil (after any auto-repair) otherwise.
-func checkOverlayIPConflicts(ctx context.Context, db *sql.DB) error {
+func checkOverlayIPConflicts(ctx context.Context, db sqlConn) error {
 	conflicts, err := crossHostOverlayConflicts(ctx, db)
 	if err != nil {
 		return err
@@ -286,7 +326,7 @@ func checkOverlayIPConflicts(ctx context.Context, db *sql.DB) error {
 // crossHostOverlayConflicts returns every host_addresses row whose
 // (network_id, address) group is claimed by two or more distinct hosts, grouped
 // by (network, address) with distinct hosts listed in scan order.
-func crossHostOverlayConflicts(ctx context.Context, db *sql.DB) ([]overlayConflict, error) {
+func crossHostOverlayConflicts(ctx context.Context, db sqlConn) ([]overlayConflict, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT h.network_id, ha.address, h.id, h.name
 		FROM host_addresses ha
@@ -374,7 +414,7 @@ func formatCrossHostConflicts(conflicts []overlayConflict) string {
 // matches any hosts row. These are dangling bindings (only reachable with
 // foreign keys disabled — e.g. a restored or hand-edited database); 018's
 // backfill UPDATE would otherwise fail on them. Logged when any are removed.
-func cleanOrphanHostAddresses(ctx context.Context, db *sql.DB) error {
+func cleanOrphanHostAddresses(ctx context.Context, db sqlConn) error {
 	sample, err := sampleHostAddresses(ctx, db, `
 		SELECT host_id, address FROM host_addresses
 		WHERE NOT EXISTS (SELECT 1 FROM hosts h WHERE h.id = host_addresses.host_id)
@@ -399,7 +439,7 @@ func cleanOrphanHostAddresses(ctx context.Context, db *sql.DB) error {
 // address at more than one position, keeping the lowest-rowid row. This is a
 // redundant binding for a single host — same certificate, no winner to choose —
 // so it is safe to repair automatically. Logged when any are removed.
-func cleanSameHostAddressDuplicates(ctx context.Context, db *sql.DB) error {
+func cleanSameHostAddressDuplicates(ctx context.Context, db sqlConn) error {
 	sample, err := sampleHostAddresses(ctx, db, `
 		SELECT host_id, address FROM host_addresses ha
 		WHERE EXISTS (
@@ -431,7 +471,7 @@ func cleanSameHostAddressDuplicates(ctx context.Context, db *sql.DB) error {
 // sampleHostAddresses runs query — a complete, in-package literal that selects
 // host_id, address and ends with LIMIT ? — and returns up to maxConflictsListed
 // "host_id=…/address=…" labels for log context before a cleanup DELETE.
-func sampleHostAddresses(ctx context.Context, db *sql.DB, query string) ([]string, error) {
+func sampleHostAddresses(ctx context.Context, db sqlConn, query string) ([]string, error) {
 	rows, err := db.QueryContext(ctx, query, maxConflictsListed)
 	if err != nil {
 		return nil, fmt.Errorf("sample host_addresses: %w", err)

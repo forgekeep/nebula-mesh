@@ -236,6 +236,13 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.metrics.recordEnrollment(resultOK)
+	s.emit("host.enrolled", map[string]any{
+		"host_id":     host.ID,
+		"host_name":   host.Name,
+		"network_id":  host.NetworkID,
+		"ca_id":       host.CAID,
+		"fingerprint": fp,
+	})
 	writeJSON(w, http.StatusOK, enrollResponse{
 		CertificatePEM:   string(certPEM),
 		CACertificatePEM: string(caCertPEM),

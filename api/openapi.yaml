@@ -198,6 +198,90 @@ paths:
                 items:
                   $ref: "#/components/schemas/AuditEntry"
 
+# Outbound webhooks the server POSTs to an operator-configured endpoint (#256).
+# Each delivery carries X-Nebula-Event (type), X-Nebula-Delivery (id), and
+# X-Nebula-Signature (sha256=<hmac> over the raw body). The handler/scanner emit
+# shapes are validated against these schemas by the contract tests.
+webhooks:
+  host.enrolled:
+    post:
+      operationId: webhookHostEnrolled
+      summary: A host completed enrollment and received its first certificate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HostEnrolledEvent"
+      responses:
+        "2XX":
+          description: Acknowledged.
+  host.blocked:
+    post:
+      operationId: webhookHostBlocked
+      summary: A host was blocked and its certificate revoked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HostEvent"
+      responses:
+        "2XX":
+          description: Acknowledged.
+  host.unblocked:
+    post:
+      operationId: webhookHostUnblocked
+      summary: A previously blocked host was unblocked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HostEvent"
+      responses:
+        "2XX":
+          description: Acknowledged.
+  host.deleted:
+    post:
+      operationId: webhookHostDeleted
+      summary: A host was deleted and its certificate revoked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HostEvent"
+      responses:
+        "2XX":
+          description: Acknowledged.
+  cert.rotated:
+    post:
+      operationId: webhookCertRotated
+      summary: A host certificate was re-signed (in-place rotation).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CertRotatedEvent"
+      responses:
+        "2XX":
+          description: Acknowledged.
+  cert.expiring:
+    post:
+      operationId: webhookCertExpiring
+      summary: A host certificate is approaching expiry without renewal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CertExpiringEvent"
+      responses:
+        "2XX":
+          description: Acknowledged.
+
 components:
   securitySchemes:
     bearerAuth:
@@ -414,3 +498,109 @@ components:
           type: string
         details:
           type: string
+
+    # --- Webhook event envelopes (#256) ---
+
+    HostEventData:
+      type: object
+      required: [host_id, host_name, network_id, ca_id]
+      properties:
+        host_id:
+          type: string
+        host_name:
+          type: string
+        network_id:
+          type: string
+        ca_id:
+          type: string
+
+    HostEnrolledData:
+      type: object
+      required: [host_id, host_name, network_id, ca_id, fingerprint]
+      properties:
+        host_id:
+          type: string
+        host_name:
+          type: string
+        network_id:
+          type: string
+        ca_id:
+          type: string
+        fingerprint:
+          type: string
+
+    CertExpiringData:
+      type: object
+      required: [host_id, host_name, network_id, ca_id, fingerprint, not_after, seconds_until_expiry]
+      properties:
+        host_id:
+          type: string
+        host_name:
+          type: string
+        network_id:
+          type: string
+        ca_id:
+          type: string
+        fingerprint:
+          type: string
+        not_after:
+          type: string
+          format: date-time
+        seconds_until_expiry:
+          type: number
+
+    HostEvent:
+      type: object
+      required: [id, type, created_at, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        data:
+          $ref: "#/components/schemas/HostEventData"
+
+    HostEnrolledEvent:
+      type: object
+      required: [id, type, created_at, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        data:
+          $ref: "#/components/schemas/HostEnrolledData"
+
+    CertRotatedEvent:
+      type: object
+      required: [id, type, created_at, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        data:
+          $ref: "#/components/schemas/HostEnrolledData"
+
+    CertExpiringEvent:
+      type: object
+      required: [id, type, created_at, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        data:
+          $ref: "#/components/schemas/CertExpiringData"

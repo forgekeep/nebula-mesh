@@ -319,8 +319,19 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAuditAction(r.Context(), auditHostDelete, id, "")
+	s.emit("host.deleted", hostEventData(host))
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// hostEventData is the common webhook payload for host lifecycle events.
+func hostEventData(h *models.Host) map[string]any {
+	return map[string]any{
+		"host_id":    h.ID,
+		"host_name":  h.Name,
+		"network_id": h.NetworkID,
+		"ca_id":      h.CAID,
+	}
 }
 
 func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
@@ -356,6 +367,7 @@ func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAuditAction(r.Context(), auditHostBlock, id, "")
+	s.emit("host.blocked", hostEventData(host))
 
 	writeJSON(w, http.StatusOK, host)
 }
@@ -393,6 +405,7 @@ func (s *Server) handleUnblockHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAuditAction(r.Context(), auditHostUnblock, id, "")
+	s.emit("host.unblocked", hostEventData(host))
 
 	writeJSON(w, http.StatusOK, host)
 }
@@ -501,6 +514,9 @@ func (s *Server) handleRotateCert(w http.ResponseWriter, r *http.Request) {
 	}
 	s.metrics.recordSignature(host.CAID)
 	s.recordAuditAction(r.Context(), auditHostRotateCertRequested, host.ID, "new_key=false")
+	rotated := hostEventData(host)
+	rotated["fingerprint"] = signed.fp
+	s.emit("cert.rotated", rotated)
 
 	writeJSON(w, http.StatusOK, rotateCertResponse{
 		NewKey:         false,

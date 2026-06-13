@@ -2,68 +2,60 @@ package api
 
 import (
 	"bytes"
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
 	"encoding/pem"
-	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
-	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/getkin/kin-openapi/openapi3filter"
-	"github.com/getkin/kin-openapi/routers"
-	"github.com/getkin/kin-openapi/routers/gorillamux"
+	"github.com/pb33f/libopenapi"
+	validator "github.com/pb33f/libopenapi-validator"
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
 )
 
 const specPath = "../../api/openapi.yaml"
 
-// loadContract loads the OpenAPI document and a router for matching requests to
-// operations. A failure here means the hand-written spec is itself invalid.
-func loadContract(t *testing.T) routers.Router {
+// loadContract parses the OpenAPI 3.1 document and returns a validator. It also
+// asserts the document is itself valid — a failure here means the hand-written
+// spec is broken, not a handler.
+func loadContract(t *testing.T) validator.Validator {
 	t.Helper()
-	loader := openapi3.NewLoader()
-	doc, err := loader.LoadFromFile(specPath)
+	specBytes, err := os.ReadFile(specPath)
 	if err != nil {
-		t.Fatalf("load spec: %v", err)
+		t.Fatalf("read spec: %v", err)
 	}
-	if err := doc.Validate(context.Background()); err != nil {
-		t.Fatalf("spec is not a valid OpenAPI document: %v", err)
-	}
-	router, err := gorillamux.NewRouter(doc)
+	doc, err := libopenapi.NewDocument(specBytes)
 	if err != nil {
-		t.Fatalf("build router from spec: %v", err)
+		t.Fatalf("parse spec: %v", err)
 	}
-	return router
+	v, errs := validator.NewValidator(doc)
+	if len(errs) > 0 {
+		t.Fatalf("build validator: %v", errs)
+	}
+	if ok, verrs := v.ValidateDocument(); !ok {
+		for _, e := range verrs {
+			t.Errorf("spec is not a valid OpenAPI document: %s — %s", e.Message, e.Reason)
+		}
+		t.FailNow()
+	}
+	return v
 }
 
 // assertContract validates one recorded response against the spec. It fails
-// when the path/method is undefined, the status code is not documented, or the
-// body does not match the response schema — i.e. when a handler has drifted.
-func assertContract(t *testing.T, router routers.Router, req *http.Request, rec *httptest.ResponseRecorder) {
+// when the path/method/status is undefined or the body does not match the
+// response schema — i.e. when a handler has drifted from the contract.
+func assertContract(t *testing.T, v validator.Validator, req *http.Request, rec *httptest.ResponseRecorder) {
 	t.Helper()
-	route, pathParams, err := router.FindRoute(req)
-	if err != nil {
-		t.Fatalf("%s %s: not defined in the spec: %v", req.Method, req.URL.Path, err)
-	}
-	body := rec.Body.Bytes()
-	err = openapi3filter.ValidateResponse(context.Background(), &openapi3filter.ResponseValidationInput{
-		RequestValidationInput: &openapi3filter.RequestValidationInput{
-			Request:    req,
-			PathParams: pathParams,
-			Route:      route,
-		},
-		Status:  rec.Code,
-		Header:  rec.Result().Header,
-		Body:    io.NopCloser(bytes.NewReader(body)),
-		Options: &openapi3filter.Options{IncludeResponseStatus: true},
-	})
-	if err != nil {
-		t.Errorf("%s %s response violates the contract: %v\nbody: %s", req.Method, req.URL.Path, err, body)
+	ok, verrs := v.ValidateHttpResponse(req, rec.Result())
+	if !ok {
+		for _, e := range verrs {
+			t.Errorf("%s %s response violates the contract: %s — %s (fix: %s)",
+				req.Method, req.URL.Path, e.Message, e.Reason, e.HowToFix)
+		}
 	}
 }
 
@@ -81,7 +73,7 @@ func TestContract_SpecIsValid(t *testing.T) {
 
 // TestContract_AdminEndpoints validates real admin responses against the spec.
 func TestContract_AdminEndpoints(t *testing.T) {
-	router := loadContract(t)
+	v := loadContract(t)
 	srv, _ := newTestServer(t)
 
 	// Create network.
@@ -92,7 +84,7 @@ func TestContract_AdminEndpoints(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create network: %d / %s", rec.Code, rec.Body.String())
 	}
-	assertContract(t, router, req, rec)
+	assertContract(t, v, req, rec)
 	var net struct {
 		ID string `json:"id"`
 	}
@@ -101,12 +93,12 @@ func TestContract_AdminEndpoints(t *testing.T) {
 	// List networks.
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/networks", nil)
 	authRequest(req)
-	assertContract(t, router, req, serve(srv, req))
+	assertContract(t, v, req, serve(srv, req))
 
 	// Get network by id.
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/networks/"+net.ID, nil)
 	authRequest(req)
-	assertContract(t, router, req, serve(srv, req))
+	assertContract(t, v, req, serve(srv, req))
 
 	// Create host.
 	hostBody, _ := json.Marshal(createHostRequest{NetworkID: net.ID, Name: "contract-host", NebulaIPs: []string{"192.168.50.10"}})
@@ -116,7 +108,7 @@ func TestContract_AdminEndpoints(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create host: %d / %s", rec.Code, rec.Body.String())
 	}
-	assertContract(t, router, req, rec)
+	assertContract(t, v, req, rec)
 	var ch createHostResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &ch)
 
@@ -133,14 +125,14 @@ func TestContract_AdminEndpoints(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s: %d / %s", path, rec.Code, rec.Body.String())
 		}
-		assertContract(t, router, req, rec)
+		assertContract(t, v, req, rec)
 	}
 }
 
 // TestContract_AgentEndpoints validates the enroll + signed-poll responses the
 // fleet depends on — the endpoints where silent drift hurts most.
 func TestContract_AgentEndpoints(t *testing.T) {
-	router := loadContract(t)
+	v := loadContract(t)
 	srv, _ := newTestServer(t)
 
 	netID := createNetwork(t, srv)
@@ -181,7 +173,7 @@ func TestContract_AgentEndpoints(t *testing.T) {
 	if erec.Code != http.StatusOK {
 		t.Fatalf("enroll: %d / %s", erec.Code, erec.Body.String())
 	}
-	assertContract(t, router, ereq, erec)
+	assertContract(t, v, ereq, erec)
 
 	var enrolled struct {
 		CertificatePEM string `json:"certificate_pem"`
@@ -203,5 +195,5 @@ func TestContract_AgentEndpoints(t *testing.T) {
 	if prec.Code != http.StatusOK {
 		t.Fatalf("agent updates: %d / %s", prec.Code, prec.Body.String())
 	}
-	assertContract(t, router, preq, prec)
+	assertContract(t, v, preq, prec)
 }

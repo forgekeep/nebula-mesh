@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -17,6 +19,14 @@ type AgentConfig struct {
 	PollInterval     time.Duration `yaml:"poll_interval"`
 	NebulaConfigPath string        `yaml:"nebula_config_path"`
 	NebulaPIDFile    string        `yaml:"nebula_pid_file"`
+
+	// AllowInsecureHTTP opts out of the https-required guard on server_url.
+	// Without it a plaintext http:// URL is only accepted for loopback
+	// hosts — over any other network the enrollment token, certificates,
+	// and the Nebula config the agent installs would transit in cleartext,
+	// where an on-path attacker can steal the token or inject a malicious
+	// config. Mirrors the server's allow_insecure_http (#179).
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http,omitempty"`
 }
 
 // DefaultAgentConfig returns a config populated with the defaults the agent
@@ -45,21 +55,74 @@ func LoadAgentConfig(path string) (*AgentConfig, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	if cfg.ServerURL == "" {
-		return nil, errors.New("server_url is required")
+	if err := ValidateAgentServerURL(cfg.ServerURL, cfg.AllowInsecureHTTP); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
 }
 
+// ValidateAgentServerURL guards the agent's management-server URL. The URL
+// must be http/https with a host. A plaintext http:// URL is accepted only
+// for a loopback host (local testing, an on-host TLS-terminating proxy)
+// unless allowInsecure opts out — everywhere else the enrollment token and
+// the host's rendered Nebula config would transit a real network in
+// cleartext. The CLI and the server already carry the equivalent guards
+// (#219, #179); this covers the agent.
+//
+// Exposed as a function rather than only a load-time check so the enroll
+// path can validate the --server flag before the token is sent, when no
+// config file exists yet.
+func ValidateAgentServerURL(serverURL string, allowInsecure bool) error {
+	if serverURL == "" {
+		return errors.New("server_url is required")
+	}
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return fmt.Errorf("invalid server_url %q: %w", serverURL, err)
+	}
+	switch u.Scheme {
+	case "https":
+		// Always fine.
+	case "http":
+		if !allowInsecure && !hostIsLoopback(u.Hostname()) {
+			return fmt.Errorf("refusing plaintext http server_url %q: the enrollment token and rendered Nebula config would transit in cleartext; use https, or set allow_insecure_http: true (--insecure-http) to opt out", serverURL)
+		}
+	default:
+		return fmt.Errorf("invalid server_url %q: scheme must be http or https", serverURL)
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("invalid server_url %q: missing host", serverURL)
+	}
+	return nil
+}
+
+// hostIsLoopback reports whether host is the literal "localhost" or a
+// loopback IP. Other hostnames are treated as non-loopback without
+// resolving DNS, so the guard fails safe. Deliberately narrower than
+// hostIsPrivate (server.go): a private-range address still crosses a real
+// network, where cleartext is exactly the exposure this guard exists for.
+func hostIsLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	return addr.IsLoopback()
+}
+
 // SaveAgentConfig writes cfg to path atomically (tmp + fsync + rename) with
 // mode 0600. The parent directory is created with mode 0755 if missing.
+// The server URL is validated with the same rules as LoadAgentConfig so a
+// config that would be refused at the next startup is never written.
 func SaveAgentConfig(path string, cfg *AgentConfig) error {
 	if cfg == nil {
 		return errors.New("nil config")
 	}
-	if cfg.ServerURL == "" {
-		return errors.New("server_url is required")
+	if err := ValidateAgentServerURL(cfg.ServerURL, cfg.AllowInsecureHTTP); err != nil {
+		return err
 	}
 
 	data, err := yaml.Marshal(cfg)

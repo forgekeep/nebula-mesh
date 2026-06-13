@@ -24,7 +24,7 @@ func TestResolveConfig_FileExists_FlagsIgnored(t *testing.T) {
 	}
 
 	var stderr bytes.Buffer
-	cfg, err := resolveConfig(cfgPath, "https://cli.example.com", "", 0, false, &stderr)
+	cfg, err := resolveConfig(cfgPath, "https://cli.example.com", "", 0, false, false, &stderr)
 	if err != nil {
 		t.Fatalf("resolveConfig: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestResolveConfig_FileExists_UpdateConfigOverwrites(t *testing.T) {
 	}
 
 	var stderr bytes.Buffer
-	cfg, err := resolveConfig(cfgPath, "https://new.example.com", "", 0, true, &stderr)
+	cfg, err := resolveConfig(cfgPath, "https://new.example.com", "", 0, true, false, &stderr)
 	if err != nil {
 		t.Fatalf("resolveConfig: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestResolveConfig_FileMissing_WritesFromFlags(t *testing.T) {
 	cfgPath := filepath.Join(dir, "sub", "agent.yml")
 
 	var stderr bytes.Buffer
-	cfg, err := resolveConfig(cfgPath, "https://fresh.example.com", filepath.Join(dir, "nebula"), 15*time.Second, false, &stderr)
+	cfg, err := resolveConfig(cfgPath, "https://fresh.example.com", filepath.Join(dir, "nebula"), 15*time.Second, false, false, &stderr)
 	if err != nil {
 		t.Fatalf("resolveConfig: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestResolveConfig_FileMissing_NoServer_Errors(t *testing.T) {
 	cfgPath := filepath.Join(dir, "agent.yml")
 
 	var stderr bytes.Buffer
-	_, err := resolveConfig(cfgPath, "", "", 0, false, &stderr)
+	_, err := resolveConfig(cfgPath, "", "", 0, false, false, &stderr)
 	if err == nil {
 		t.Fatal("expected error when config missing and --server unset")
 	}
@@ -122,7 +122,7 @@ func TestResolveConfig_DoesNotPersistToken(t *testing.T) {
 	var stderr bytes.Buffer
 	// We never pass token into resolveConfig — but assert the file content
 	// contains nothing token-shaped to lock the invariant from issue #67.
-	_, err := resolveConfig(cfgPath, "https://srv.example.com", "", 0, false, &stderr)
+	_, err := resolveConfig(cfgPath, "https://srv.example.com", "", 0, false, false, &stderr)
 	if err != nil {
 		t.Fatalf("resolveConfig: %v", err)
 	}
@@ -182,6 +182,38 @@ func TestRun_StandbyWhenCertMissing(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "standby") {
 		t.Errorf("stderr should mention standby; got %q", stderr.String())
+	}
+}
+
+// TestRun_StandbyWarnsOnRejectedHTTPConfig — an upgraded host whose
+// pre-guard agent.yml carries a plaintext http:// non-loopback server_url
+// must not silently park in standby. The daemon load path refuses the
+// config and the standby entry logs the rejection at Warn with the
+// remediation, so the operator sees why polling never starts.
+func TestRun_StandbyWarnsOnRejectedHTTPConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "agent.yml")
+
+	// Write the file directly: SaveAgentConfig would reject the http:// URL,
+	// so this models a config written by an older release.
+	yaml := "server_url: \"http://mgmt.example.com:8080\"\ndata_dir: \"" + filepath.Join(dir, "nebula") + "\"\n"
+	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err := run(ctx, []string{"--config", cfgPath}, &stderr, &stderr)
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context deadline/cancel", err)
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "config present but rejected") {
+		t.Errorf("stderr should warn that the config was rejected; got %q", out)
+	}
+	if !strings.Contains(out, "allow_insecure_http") {
+		t.Errorf("stderr should name the opt-out; got %q", out)
 	}
 }
 

@@ -269,6 +269,32 @@ func TestEnrollSubcommand_RequiresServerAndToken(t *testing.T) {
 	}
 }
 
+// TestEnrollSubcommand_RefusesPlaintextHTTP pins the https-required guard on
+// the enroll path: a cleartext non-loopback --server is refused before the
+// single-use token leaves the process (no config or key files are written).
+// httptest URLs are loopback, so every other enroll test passes the guard
+// untouched; --insecure-http opts out.
+func TestEnrollSubcommand_RefusesPlaintextHTTP(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "agent.yml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	err := run(ctx, []string{
+		"enroll", "--config", cfgPath,
+		"--server", "http://mgmt.example.com:8080", "--token", "tok",
+		"--data-dir", filepath.Join(dir, "nebula"),
+	}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "refusing plaintext http") {
+		t.Fatalf("plaintext non-loopback --server: err = %v, want https-required refusal", err)
+	}
+	if _, statErr := os.Stat(cfgPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("config written despite refused URL: stat = %v", statErr)
+	}
+}
+
 // TestRun_LeavesStandbyAfterFilesAppear — start runUnified in idle, then
 // from a goroutine drop the enrollment artifacts into place and confirm
 // the daemon transitions to the poll loop (mock server records a signed

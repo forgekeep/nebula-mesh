@@ -47,6 +47,15 @@ func TestOIDCConfig_Validate(t *testing.T) {
 			name: "enabled + unset default_role + allowed_emails set accepted (allowlist gates access; runtime defaults to user)",
 			cfg:  &OIDCConfig{Enabled: true, AllowedEmails: []string{"alice@example.com"}},
 		},
+		{
+			// An allowlist is set so the admin-escalation guard is satisfied;
+			// the role itself is still invalid and must be rejected so the
+			// misconfig fails at startup, not at the first OIDC login where
+			// CreateOperator's allowlist would 500.
+			name:      "enabled + unknown default_role rejected even with allowlist",
+			cfg:       &OIDCConfig{Enabled: true, DefaultRole: "operator", AllowedEmails: []string{"alice@example.com"}},
+			wantError: "not a valid role",
+		},
 	}
 
 	for _, tc := range tests {

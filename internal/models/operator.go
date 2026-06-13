@@ -18,6 +18,18 @@ const (
 	OperatorAuthOIDC  OperatorAuthProvider = "oidc"
 )
 
+// Operator roles. Operator.Role is a plain string; these are the only two
+// values the server accepts.
+const (
+	OperatorRoleAdmin = "admin"
+	OperatorRoleUser  = "user"
+)
+
+// ValidOperatorRole reports whether r is a known operator role.
+func ValidOperatorRole(r string) bool {
+	return r == OperatorRoleAdmin || r == OperatorRoleUser
+}
+
 // Operator is an administrative user of the management server.
 type Operator struct {
 	ID           string               `json:"id"`

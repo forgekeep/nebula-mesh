@@ -37,8 +37,42 @@ func TestCreateOperator_Defaults(t *testing.T) {
 	if got.AuthProvider != models.OperatorAuthLocal {
 		t.Errorf("auth_provider = %q, want local", got.AuthProvider)
 	}
-	if got.Role != "admin" {
-		t.Errorf("role = %q, want admin", got.Role)
+	// Least privilege: an empty role must NOT default to admin — a caller
+	// that wants an admin has to say so (SeedInitialAdminOperator does).
+	if got.Role != models.OperatorRoleUser {
+		t.Errorf("role = %q, want %q", got.Role, models.OperatorRoleUser)
+	}
+}
+
+func TestCreateOperator_RejectsUnknownRole(t *testing.T) {
+	s := newTestStore(t)
+	err := s.CreateOperator(context.Background(), &models.Operator{
+		ID: "op-mallory", Username: "mallory", PasswordHash: "bcrypt$hash",
+		Role: "superadmin",
+	})
+	if err == nil {
+		t.Fatal("CreateOperator accepted unknown role \"superadmin\"")
+	}
+}
+
+func TestSeedInitialAdminOperator_EmptyRoleDefaultsToAdmin(t *testing.T) {
+	s := newTestStore(t)
+	op := &models.Operator{
+		ID: "op-seed", Username: "root", PasswordHash: "bcrypt$hash",
+	}
+	seeded, err := s.SeedInitialAdminOperator(context.Background(), op, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !seeded {
+		t.Fatal("seed did not run on empty table")
+	}
+	got, err := s.GetOperator(context.Background(), "op-seed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != models.OperatorRoleAdmin {
+		t.Errorf("seeded role = %q, want %q", got.Role, models.OperatorRoleAdmin)
 	}
 }
 

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // CAAutoRotateConfig configures the CA auto-rotation scanner: interval between scans,
@@ -377,6 +379,14 @@ func (o *OIDCConfig) Validate() error {
 		if iss.Scheme != "https" && !hostIsPrivate(iss.Hostname()) {
 			return fmt.Errorf("oidc.issuer must use https for a non-loopback host (got %q)", o.Issuer)
 		}
+	}
+	// A non-empty default_role must be a role CreateOperator accepts.
+	// Otherwise the misconfiguration is silent until the first OIDC login,
+	// where provisioning fails the store's allowlist and the operator gets
+	// a 500 with no account created — fail loudly at startup instead.
+	if o.DefaultRole != "" && !models.ValidOperatorRole(o.DefaultRole) {
+		return fmt.Errorf("oidc.default_role %q is not a valid role; use %q or %q",
+			o.DefaultRole, models.OperatorRoleAdmin, models.OperatorRoleUser)
 	}
 	roleUnsetOrAdmin := o.DefaultRole == "" || o.DefaultRole == "admin"
 	noAllowlist := len(o.AllowedGroups) == 0 && len(o.AllowedEmails) == 0

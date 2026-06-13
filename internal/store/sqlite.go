@@ -25,6 +25,7 @@ var (
 	ErrRekeyAlreadyPending = errors.New("rekey already pending")
 	ErrReplayedNonce       = errors.New("replayed nonce")
 	ErrIPTaken             = errors.New("nebula ip already assigned in network")
+	ErrTOTPReplayed        = errors.New("totp timestep already used")
 )
 
 // SQLiteStore implements Store using SQLite.
@@ -127,6 +128,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"017_pop_nonces.up.sql",
 		"018_host_address_network_uniqueness.up.sql",
 		"019_session_token_hash.up.sql",
+		"020_operator_totp_timestep.up.sql",
 	}
 
 	// Tracking table. Created once; idempotent on subsequent starts.

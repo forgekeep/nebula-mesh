@@ -28,11 +28,13 @@ func TestGenerateAndVerifyTOTP(t *testing.T) {
 	timeNow = func() time.Time { return now }
 	t.Cleanup(func() { timeNow = time.Now })
 
-	if !verifyTOTP(secret, code) {
-		t.Error("expected verifyTOTP to accept current code")
+	// verifyTOTPWithTimestep is the entry point all production callers use;
+	// exercise it directly rather than a thin bool-only wrapper.
+	if _, ok := verifyTOTPWithTimestep(secret, code); !ok {
+		t.Error("expected current code to verify")
 	}
-	if verifyTOTP(secret, "000000") {
-		t.Error("verifyTOTP accepted bogus code")
+	if _, ok := verifyTOTPWithTimestep(secret, "000000"); ok {
+		t.Error("bogus code verified")
 	}
 }
 

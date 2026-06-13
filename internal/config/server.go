@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/forgekeep/nebula-mesh/internal/fsutil"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
@@ -491,34 +492,9 @@ func SaveServerConfig(path string, cfg *ServerConfig) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
-	if err != nil {
-		return fmt.Errorf("create temp config: %w", err)
-	}
-	tmpPath := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpPath) }
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("write temp config: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("sync temp config: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("close temp config: %w", err)
-	}
-	if err := os.Chmod(tmpPath, 0o600); err != nil {
-		cleanup()
-		return fmt.Errorf("chmod temp config: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		cleanup()
-		return fmt.Errorf("rename temp config: %w", err)
+	// 0o600: server.yml may hold sensitive operational settings; owner-only.
+	if err := fsutil.AtomicWriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write config: %w", err)
 	}
 	return nil
 }

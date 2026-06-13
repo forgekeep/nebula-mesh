@@ -63,6 +63,10 @@ type ServerConfig struct {
 	// by default — operators must opt in by setting Enabled=true.
 	Alerts AlertsConfig `yaml:"alerts,omitempty"`
 
+	// Webhooks configures outbound lifecycle-event delivery (#256). Disabled
+	// by default — operators opt in by setting Enabled=true and a URL.
+	Webhooks WebhooksConfig `yaml:"webhooks,omitempty"`
+
 	// RateLimit configures the per-IP, per-route-group token-bucket
 	// limiter that fronts the Web UI and API (see issue #52). Enabled
 	// by default so login + enrolment endpoints are protected from
@@ -174,24 +178,26 @@ func hostIsPrivate(host string) bool {
 		addr.IsLinkLocalMulticast() || addr.IsUnspecified()
 }
 
-// validateWebhookURL guards the alert webhook against SSRF (#188): the URL must
-// be http/https with a host, and (unless allowPrivate) must not target a
-// private/loopback/link-local address. DNS names are not resolved here — this
-// is the config-load layer; the delivery-time layer (post-resolution dialer
-// guard + per-redirect-hop re-check) lives in the alerts WebhookSink.
-func validateWebhookURL(rawURL string, allowPrivate bool) error {
+// validateWebhookURL guards a webhook URL against SSRF (#188): the URL must be
+// http/https with a host, and (unless allowPrivate) must not target a
+// private/loopback/link-local address. field names the offending config key in
+// errors so both alerts.webhook_url and webhooks.url can reuse it. DNS names are
+// not resolved here — this is the config-load layer; the delivery-time layer
+// (post-resolution dialer guard + per-redirect-hop re-check) lives in the
+// alerts WebhookSink and the webhook.Dispatcher.
+func validateWebhookURL(field, rawURL string, allowPrivate bool) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("alerts.webhook_url: %w", err)
+		return fmt.Errorf("%s: %w", field, err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("alerts.webhook_url: scheme must be http or https, got %q", u.Scheme)
+		return fmt.Errorf("%s: scheme must be http or https, got %q", field, u.Scheme)
 	}
 	if u.Hostname() == "" {
-		return fmt.Errorf("alerts.webhook_url: missing host")
+		return fmt.Errorf("%s: missing host", field)
 	}
 	if !allowPrivate && hostIsPrivate(u.Hostname()) {
-		return fmt.Errorf("alerts.webhook_url: %q is a private/loopback/link-local address; set alerts.allow_private_webhook: true for an intentional internal sink", u.Hostname())
+		return fmt.Errorf("%s: %q is a private/loopback/link-local address; allow it explicitly only for an intentional internal sink", field, u.Hostname())
 	}
 	return nil
 }
@@ -276,6 +282,17 @@ type AlertsConfig struct {
 	// SSRF guard (#188); set true for an intentional internal sink (e.g. a
 	// co-located Alertmanager).
 	AllowPrivateWebhook bool `yaml:"allow_private_webhook,omitempty"`
+}
+
+// WebhooksConfig configures the outbound lifecycle-event webhook (#256). The
+// dispatcher signs each delivery (HMACSecret), filters by event type (Events;
+// empty means all), and SSRF-guards the target unless AllowPrivate is set.
+type WebhooksConfig struct {
+	Enabled      bool     `yaml:"enabled,omitempty"`
+	URL          string   `yaml:"url,omitempty"`
+	HMACSecret   string   `yaml:"hmac_secret,omitempty"`
+	AllowPrivate bool     `yaml:"allow_private,omitempty"`
+	Events       []string `yaml:"events,omitempty"`
 }
 
 // IntervalDuration returns Interval as a time.Duration. Falls back to 5m
@@ -461,7 +478,13 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	}
 
 	if cfg.Alerts.Enabled && cfg.Alerts.WebhookURL != "" {
-		if err := validateWebhookURL(cfg.Alerts.WebhookURL, cfg.Alerts.AllowPrivateWebhook); err != nil {
+		if err := validateWebhookURL("alerts.webhook_url", cfg.Alerts.WebhookURL, cfg.Alerts.AllowPrivateWebhook); err != nil {
+			return nil, err
+		}
+	}
+
+	if cfg.Webhooks.Enabled && cfg.Webhooks.URL != "" {
+		if err := validateWebhookURL("webhooks.url", cfg.Webhooks.URL, cfg.Webhooks.AllowPrivate); err != nil {
 			return nil, err
 		}
 	}

@@ -371,14 +371,47 @@ func runNetworkList(args []string) error {
 
 func runOps(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: nebula-mgmt ops <mint-admin-key>")
+		return fmt.Errorf("usage: nebula-mgmt ops <mint-admin-key|backup|restore>")
 	}
 	switch args[0] {
 	case "mint-admin-key":
 		return runOpsMintAdminKey(args[1:])
+	case "backup":
+		return runOpsBackup(args[1:])
+	case "restore":
+		return runOpsRestore(args[1:])
 	default:
 		return fmt.Errorf("unknown ops subcommand: %s", args[0])
 	}
+}
+
+func runOpsBackup(args []string) error {
+	fs := flag.NewFlagSet("ops backup", flag.ExitOnError)
+	configPath := fs.String("config", "", "config file path (required)")
+	output := fs.String("output", "", "backup archive path (required)")
+	passphrase := fs.String("passphrase", "", "encrypt the archive with this passphrase (optional)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *configPath == "" || *output == "" {
+		return fmt.Errorf("--config and --output are required")
+	}
+	return cli.OpsBackup(*configPath, *output, *passphrase, versionStr)
+}
+
+func runOpsRestore(args []string) error {
+	fs := flag.NewFlagSet("ops restore", flag.ExitOnError)
+	configPath := fs.String("config", "", "config file path (required)")
+	input := fs.String("input", "", "backup archive path (required)")
+	passphrase := fs.String("passphrase", "", "passphrase for an encrypted archive")
+	force := fs.Bool("force", false, "replace an existing database (moved aside to <db>.pre-restore)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *configPath == "" || *input == "" {
+		return fmt.Errorf("--config and --input are required")
+	}
+	return cli.OpsRestore(*configPath, *input, *passphrase, *force)
 }
 
 func runOpsMintAdminKey(args []string) error {

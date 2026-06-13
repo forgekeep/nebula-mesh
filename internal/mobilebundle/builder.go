@@ -124,22 +124,28 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 		return nil, fmt.Errorf("list lighthouses: %w", err)
 	}
 
+	// Resolve the network's firewall policy. Mirrors the agent enroll path
+	// (api.renderHostConfig): a network with no stored policy, or an unusable
+	// one, falls back to the safe baseline so the bundle is always loadable.
+	// This builder has no logger, so the unusable case is silently defaulted;
+	// FirewallRulesFromJSON returns the baseline either way.
+	fwInbound, fwOutbound := configgen.DefaultFirewallInbound, configgen.DefaultFirewallOutbound
+	if val, cfgErr := s.GetNetworkConfig(ctx, host.NetworkID, "firewall"); cfgErr == nil {
+		fwInbound, fwOutbound, _ = configgen.FirewallRulesFromJSON(val)
+	}
+
 	// Generate config.
 	input := configgen.GeneratorInput{
-		HostName:     host.Name,
-		NebulaIPs:    host.NebulaIPs,
-		IsLighthouse: host.IsLighthouse,
-		IsRelay:      host.IsRelay,
-		Lighthouses:  lighthouses,
-		CACertPEM:    string(caPEM),
-		CertPEM:      string(certPEM),
-		KeyPEM:       string(privPEM),
-		FirewallInbound: []configgen.FirewallRule{
-			{Port: "any", Proto: "icmp", Group: "any"},
-		},
-		FirewallOutbound: []configgen.FirewallRule{
-			{Port: "any", Proto: "any", Group: "any"},
-		},
+		HostName:         host.Name,
+		NebulaIPs:        host.NebulaIPs,
+		IsLighthouse:     host.IsLighthouse,
+		IsRelay:          host.IsRelay,
+		Lighthouses:      lighthouses,
+		CACertPEM:        string(caPEM),
+		CertPEM:          string(certPEM),
+		KeyPEM:           string(privPEM),
+		FirewallInbound:  fwInbound,
+		FirewallOutbound: fwOutbound,
 	}
 	if adv := host.Advanced; adv != nil {
 		input.PunchyOverride = adv.Punchy

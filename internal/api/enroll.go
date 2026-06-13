@@ -291,22 +291,20 @@ func (s *Server) renderHostConfig(ctx context.Context, host *models.Host) ([]byt
 		}
 	}
 
+	fwInbound, fwOutbound := s.firewallRulesForGenerator(ctx, host.NetworkID)
+
 	input := configgen.GeneratorInput{
-		HostName:     host.Name,
-		NebulaIPs:    host.NebulaIPs,
-		IsLighthouse: host.IsLighthouse,
-		IsRelay:      host.IsRelay,
-		CACertPath:   "/etc/nebula/ca.crt",
-		CertPath:     "/etc/nebula/host.crt",
-		KeyPath:      "/etc/nebula/host.key",
-		ListenPort:   host.ListenPort,
-		Lighthouses:  lighthouses,
-		FirewallInbound: []configgen.FirewallRule{
-			{Port: "any", Proto: "icmp", Group: "any"},
-		},
-		FirewallOutbound: []configgen.FirewallRule{
-			{Port: "any", Proto: "any", Group: "any"},
-		},
+		HostName:         host.Name,
+		NebulaIPs:        host.NebulaIPs,
+		IsLighthouse:     host.IsLighthouse,
+		IsRelay:          host.IsRelay,
+		CACertPath:       "/etc/nebula/ca.crt",
+		CertPath:         "/etc/nebula/host.crt",
+		KeyPath:          "/etc/nebula/host.key",
+		ListenPort:       host.ListenPort,
+		Lighthouses:      lighthouses,
+		FirewallInbound:  fwInbound,
+		FirewallOutbound: fwOutbound,
 	}
 	if adv := host.Advanced; adv != nil {
 		input.PunchyOverride = adv.Punchy

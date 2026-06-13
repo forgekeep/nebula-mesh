@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/forgekeep/nebula-mesh/internal/configgen"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
@@ -146,4 +148,28 @@ func (s *Server) getFirewallRules(r *http.Request, networkID string) (*firewallR
 		return nil, fmt.Errorf("unmarshal firewall rules: %w", err)
 	}
 	return &rules, nil
+}
+
+// firewallRulesForGenerator resolves the network's stored firewall policy into
+// generator rules for renderHostConfig. A network with no stored policy gets
+// the safe baseline (ICMP inbound / allow-all outbound). A stored policy that
+// is unusable — malformed, or a rule missing a selector that would render a
+// config Nebula rejects — also falls back to the baseline, logged at Warn so
+// the operator can see their policy is not being applied rather than having
+// agents silently fail to load config.
+func (s *Server) firewallRulesForGenerator(ctx context.Context, networkID string) (inbound, outbound []configgen.FirewallRule) {
+	val, err := s.store.GetNetworkConfig(ctx, networkID, "firewall")
+	if errors.Is(err, store.ErrNotFound) {
+		return configgen.DefaultFirewallInbound, configgen.DefaultFirewallOutbound
+	}
+	if err != nil {
+		s.logger.Error("load firewall rules; using default baseline", "network", networkID, "error", err)
+		return configgen.DefaultFirewallInbound, configgen.DefaultFirewallOutbound
+	}
+	in, out, ferr := configgen.FirewallRulesFromJSON(val)
+	if ferr != nil {
+		s.logger.Warn("network firewall policy unusable; agents get the default baseline (icmp inbound / allow-all outbound)",
+			"network", networkID, "error", ferr)
+	}
+	return in, out
 }

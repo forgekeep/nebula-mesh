@@ -20,8 +20,9 @@ import (
 // audit_validator_test.go). Pins the (reason code, resource shape)
 // contract for the signed-poll audit trail — operators key off these
 // strings when filtering the audit log, so a drift here is observable
-// to anyone running detection rules. All 11 audit-failed branches are
-// covered.
+// to anyone running detection rules. Every audit-failed branch is
+// covered; the pre-lookup missing-headers branch intentionally does
+// not audit (see TestSignedPoll_MissingHeadersNotAudited).
 func TestSignedPoll_AuditRowPerBranch(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -29,15 +30,6 @@ func TestSignedPoll_AuditRowPerBranch(t *testing.T) {
 		wantReason   string
 		wantResource string // "" means: must be empty (early-stage branch)
 	}{
-		{
-			name: "missing_headers",
-			setup: func(t *testing.T, srv *Server) (*http.Request, int) {
-				return httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil),
-					http.StatusBadRequest
-			},
-			wantReason:   authReasonBadSignature,
-			wantResource: "",
-		},
 		{
 			name: "unknown_fingerprint",
 			setup: func(t *testing.T, srv *Server) (*http.Request, int) {
@@ -229,6 +221,32 @@ func TestSignedPoll_AuditRowPerBranch(t *testing.T) {
 			wantResource: "<non-empty-host-id>",
 		},
 	}
+
+	t.Run("missing_headers_not_audited", func(t *testing.T) {
+		// A poll missing the PoP headers needs no token, fingerprint, or
+		// signature, so an unauthenticated sender could bloat the audit
+		// table at line rate if this branch wrote a row per request
+		// (L10, 2026-06-12 audit). It must answer 400 without auditing.
+		srv, st := newTestServer(t)
+		ctx := context.Background()
+
+		before, err := st.ListAuditEntries(ctx, store.AuditFilter{Limit: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", w.Code)
+		}
+		after, err := st.ListAuditEntries(ctx, store.AuditFilter{Limit: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(after) != len(before) {
+			t.Errorf("missing-headers poll wrote %d audit rows, want 0 (unauthenticated flood vector)", len(after)-len(before))
+		}
+	})
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -35,7 +35,14 @@ func TestAuditRows_AllProductionPathsConform(t *testing.T) {
 	srv, st := newTestServer(t)
 	ctx := context.Background()
 
+	// network.create — the sweep's own fixture network emits it.
 	netID := createNetwork(t, srv)
+
+	// network.firewall.update — rewrite the network's firewall policy,
+	// exercising the full-ruleset details payload.
+	mustDo(t, srv, http.MethodPut, "/api/v1/networks/"+netID+"/firewall",
+		[]byte(`{"inbound":[{"port":"443","proto":"tcp","group":"servers"}],"outbound":[{"port":"any","proto":"any","group":"all"}]}`),
+		http.StatusOK)
 
 	// host.create — normal create.
 	hostID := mustCreateHost(t, srv, netID, "audit-h1", "192.168.100.50")
@@ -149,6 +156,8 @@ var auditActionsExercisedByCoverageSweep = []string{
 	auditHostDelete,
 	auditCACreated,
 	auditCADeleted,
+	auditNetworkCreate,
+	auditNetworkFirewallUpdate,
 	auditOperatorCreate,
 	auditOperatorDisable,
 	auditOperatorEnable,

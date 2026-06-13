@@ -127,6 +127,9 @@ func (s *Server) handleUpdateFirewall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Details carry the full new ruleset: firewall policy rewrites are
+	// exactly the mutations a forensic reader needs verbatim.
+	s.recordAuditAction(r.Context(), auditNetworkFirewallUpdate, networkID, string(rulesJSON))
 	s.logger.Info("firewall rules updated", "network", networkID)
 	writeJSON(w, http.StatusOK, req)
 }

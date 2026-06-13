@@ -50,6 +50,7 @@ func (s *Server) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.recordAuditAction(r.Context(), auditNetworkCreate, network.ID, network.Name)
 	writeJSON(w, http.StatusCreated, network)
 }
 

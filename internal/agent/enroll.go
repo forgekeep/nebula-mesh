@@ -42,8 +42,8 @@ type EnrollResponse struct {
 // fresh (rekey) or bound to an unenrolled host (initial enroll), so the
 // agent path is identical. Exposed separately so the cmd-side rekey loop
 // reads cleanly.
-func Reenroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath string) error {
-	return Enroll(ctx, serverURL, token, dataDir, signingKeyPath)
+func Reenroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath, nebulaConfigPath string) error {
+	return Enroll(ctx, serverURL, token, dataDir, signingKeyPath, nebulaConfigPath)
 }
 
 // enrollmentSecrets collects every heap copy of private key material made
@@ -71,22 +71,34 @@ func (s *enrollmentSecrets) wipe() {
 var enrollSecretsObserverForTest func(*enrollmentSecrets)
 
 // Enroll performs the enrollment flow: generates keypair, sends public key
-// to the server with the token, saves received cert and config to dataDir,
-// and writes the Ed25519 signing private key to signingKeyPath.
+// to the server with the token, saves received cert (and CA cert) to dataDir,
+// writes the rendered Nebula config to nebulaConfigPath, and writes the
+// Ed25519 signing private key to signingKeyPath.
+//
+// nebulaConfigPath is the path Nebula actually reads its config from; an empty
+// value falls back to dataDir/config.yml for backward compatibility. Honoring
+// it keeps the initial enroll write and the running daemon's rewrites pointed
+// at the same file (#224); the daemon resolves the same path in poller.go.
 //
 // signingKeyPath is intentionally separate from dataDir — Nebula's data dir
 // holds Nebula-owned secrets (host.key / host.crt / ca.crt / config.yml),
 // while the agent's PoP signing key (ADR 0004) is the agent's concern and
 // lives next to agent.yml (default /etc/nebula-agent/host.signing.key). The
 // parent directory of signingKeyPath is created with mode 0o755 if missing.
-func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath string) error {
+func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath, nebulaConfigPath string) error {
 	if signingKeyPath == "" {
 		return fmt.Errorf("signingKeyPath is required")
 	}
-	// Pre-flight: verify both directories are writable BEFORE the POST
+	if nebulaConfigPath == "" {
+		nebulaConfigPath = filepath.Join(dataDir, "config.yml")
+	}
+	// Pre-flight: verify every target directory is writable BEFORE the POST
 	// so a permission error does not burn the single-use enrollment token.
 	if err := preflightWritable(dataDir); err != nil {
 		return fmt.Errorf("data dir: %w", err)
+	}
+	if err := preflightWritable(filepath.Dir(nebulaConfigPath)); err != nil {
+		return fmt.Errorf("nebula config dir: %w", err)
 	}
 	if err := preflightWritable(filepath.Dir(signingKeyPath)); err != nil {
 		return fmt.Errorf("signing key dir: %w", err)
@@ -201,7 +213,7 @@ func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath strin
 	// nebula IPs, lighthouse list, firewall rules, paths to key/cert
 	// files). No secrets in the file itself; the actual private key
 	// lives in host.key, written above at 0o600.
-	if err := os.WriteFile(filepath.Join(dataDir, "config.yml"), []byte(enrollResp.ConfigYAML), 0o640); err != nil { // #nosec G306 -- rendered Nebula config: host name, IPs, lighthouse, firewall rules, paths to key/cert files — no secrets; the actual private key is host.key (0o600)
+	if err := os.WriteFile(nebulaConfigPath, []byte(enrollResp.ConfigYAML), 0o640); err != nil { // #nosec G306 -- rendered Nebula config: host name, IPs, lighthouse, firewall rules, paths to key/cert files — no secrets; the actual private key is host.key (0o600)
 		return fmt.Errorf("write config: %w", err)
 	}
 

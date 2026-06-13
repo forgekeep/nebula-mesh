@@ -301,6 +301,8 @@ The `enroll` subcommand:
 
 The token is single-use and never persisted to disk. Pass `--force` to overwrite an existing enrollment (e.g. after key compromise) — without `--force` the command refuses to clobber `host.crt` / `agent.yml`.
 
+To write the rendered Nebula config somewhere other than `<data-dir>/config.yml` (e.g. when Nebula reads its config from a custom path), pass `--nebula-config-path`. The value is recorded as `nebula_config_path` in `agent.yml`, and both the initial enrollment and the running daemon write the config there.
+
 After a successful enrollment the agent owns the following files:
 
 | Path | Mode | Owner | Contents |

@@ -112,7 +112,7 @@ func runUnified(ctx context.Context, args []string, stderr io.Writer) error {
 		certPath := filepath.Join(cfg.DataDir, "host.crt")
 		if _, err := os.Stat(certPath); errors.Is(err, os.ErrNotExist) {
 			logger.Info("enrolling host", "server", cfg.ServerURL, "data_dir", cfg.DataDir, "signing_key", cfg.SigningKeyPath)
-			if err := agent.Enroll(ctx, cfg.ServerURL, *token, cfg.DataDir, cfg.SigningKeyPath); err != nil {
+			if err := agent.Enroll(ctx, cfg.ServerURL, *token, cfg.DataDir, cfg.SigningKeyPath, cfg.NebulaConfigPath); err != nil {
 				return fmt.Errorf("enrollment failed: %w", err)
 			}
 			logger.Info("enrollment successful")
@@ -274,12 +274,13 @@ func startPoller(ctx context.Context, cfg *config.AgentConfig, logger *slog.Logg
 			return fmt.Errorf("read certificate fingerprint: %w", err)
 		}
 		poller, err := agent.NewPoller(agent.PollerConfig{
-			ServerURL:      cfg.ServerURL,
-			Fingerprint:    fingerprint,
-			DataDir:        cfg.DataDir,
-			SigningKeyPath: cfg.SigningKeyPath,
-			Interval:       cfg.PollInterval,
-			PIDFile:        cfg.NebulaPIDFile,
+			ServerURL:        cfg.ServerURL,
+			Fingerprint:      fingerprint,
+			DataDir:          cfg.DataDir,
+			SigningKeyPath:   cfg.SigningKeyPath,
+			Interval:         cfg.PollInterval,
+			PIDFile:          cfg.NebulaPIDFile,
+			NebulaConfigPath: cfg.NebulaConfigPath,
 		}, logger)
 		if err != nil {
 			return fmt.Errorf("create poller: %w", err)
@@ -301,7 +302,7 @@ func startPoller(ctx context.Context, cfg *config.AgentConfig, logger *slog.Logg
 			var re *agent.RekeyError
 			_ = errors.As(runErr, &re)
 			logger.Info("performing server-requested rekey")
-			if err := agent.Reenroll(ctx, cfg.ServerURL, re.Token, cfg.DataDir, cfg.SigningKeyPath); err != nil {
+			if err := agent.Reenroll(ctx, cfg.ServerURL, re.Token, cfg.DataDir, cfg.SigningKeyPath, cfg.NebulaConfigPath); err != nil {
 				return fmt.Errorf("rekey enrollment: %w", err)
 			}
 			continue
@@ -324,6 +325,7 @@ func runEnroll(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	serverURL := fs.String("server", "", "management server URL (required)")
 	token := fs.String("token", "", "enrollment token (required; never persisted)")
 	dataDir := fs.String("data-dir", "/etc/nebula", "Nebula data directory")
+	nebulaConfigPath := fs.String("nebula-config-path", "", "path Nebula reads its rendered config from; defaults to <data-dir>/config.yml")
 	signingKeyPath := fs.String("signing-key-path", "", "Ed25519 PoP signing key path; defaults to <config-dir>/host.signing.key")
 	pollInterval := fs.Duration("poll-interval", 30*time.Second, "poll interval written to agent.yml")
 	force := fs.Bool("force", false, "overwrite an existing enrollment")
@@ -358,8 +360,17 @@ func runEnroll(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		}
 	}
 
+	// Resolve the rendered-config path once: an explicit --nebula-config-path
+	// wins, otherwise it defaults to <data-dir>/config.yml. The same value is
+	// passed to Enroll (initial write) and recorded in agent.yml so the daemon
+	// rewrites the same file (#224) — no longer hardcoded to data-dir/config.yml.
+	resolvedConfigPath := *nebulaConfigPath
+	if resolvedConfigPath == "" {
+		resolvedConfigPath = filepath.Join(*dataDir, "config.yml")
+	}
+
 	_, _ = fmt.Fprintf(stdout, "enrolling with %s...\n", *serverURL)
-	if err := agent.Enroll(ctx, *serverURL, *token, *dataDir, *signingKeyPath); err != nil {
+	if err := agent.Enroll(ctx, *serverURL, *token, *dataDir, *signingKeyPath, resolvedConfigPath); err != nil {
 		return fmt.Errorf("enrollment failed: %w", err)
 	}
 
@@ -369,7 +380,7 @@ func runEnroll(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	cfg.DataDir = *dataDir
 	cfg.SigningKeyPath = *signingKeyPath
 	cfg.PollInterval = *pollInterval
-	cfg.NebulaConfigPath = filepath.Join(*dataDir, "config.yml")
+	cfg.NebulaConfigPath = resolvedConfigPath
 	if err := config.SaveAgentConfig(*configPath, cfg); err != nil {
 		return fmt.Errorf("write %s: %w", *configPath, err)
 	}
@@ -386,11 +397,12 @@ func runEnroll(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	poller, err := agent.NewPoller(agent.PollerConfig{
-		ServerURL:      cfg.ServerURL,
-		Fingerprint:    fingerprint,
-		DataDir:        cfg.DataDir,
-		SigningKeyPath: cfg.SigningKeyPath,
-		Interval:       cfg.PollInterval,
+		ServerURL:        cfg.ServerURL,
+		Fingerprint:      fingerprint,
+		DataDir:          cfg.DataDir,
+		SigningKeyPath:   cfg.SigningKeyPath,
+		Interval:         cfg.PollInterval,
+		NebulaConfigPath: cfg.NebulaConfigPath,
 	}, logger)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "warning: poller init failed: %v\n", err)

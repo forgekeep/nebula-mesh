@@ -185,25 +185,49 @@ func (p *Poller) Run(ctx context.Context) error {
 	ticker := time.NewTicker(p.config.Interval)
 	defer ticker.Stop()
 
+	// Poll once immediately so a freshly (re)started agent — host reboot,
+	// package upgrade, crash recovery — learns about pending cert rotations,
+	// config changes, revocation, or rekey requests without waiting a full
+	// interval (#228). The same terminal-signal policy as the ticker branch
+	// applies, so a revoked/rekey host stops here too.
+	if ctx.Err() == nil {
+		if err := p.handlePollResult(p.poll(ctx)); err != nil {
+			return err
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			p.logger.Info("poll loop stopped")
 			return ctx.Err()
 		case <-ticker.C:
-			if err := p.poll(ctx); err != nil {
-				if IsRevoked(err) {
-					p.logger.Error("poll loop stopped by server revocation signal", "error", err)
-					return err
-				}
-				if IsRekey(err) {
-					p.logger.Info("server requested rekey; stopping poll loop so caller can re-enroll")
-					return err
-				}
-				p.logger.Error("poll failed", "error", err)
+			if err := p.handlePollResult(p.poll(ctx)); err != nil {
+				return err
 			}
 		}
 	}
+}
+
+// handlePollResult applies the terminal-signal policy shared by the immediate
+// startup poll and the ticker loop, so the two paths cannot drift. It returns a
+// non-nil error only when the loop must stop: a server revocation (403/410) or
+// a rekey request. Transient errors are logged and nil is returned so the
+// caller keeps polling.
+func (p *Poller) handlePollResult(err error) error {
+	if err == nil {
+		return nil
+	}
+	if IsRevoked(err) {
+		p.logger.Error("poll loop stopped by server revocation signal", "error", err)
+		return err
+	}
+	if IsRekey(err) {
+		p.logger.Info("server requested rekey; stopping poll loop so caller can re-enroll")
+		return err
+	}
+	p.logger.Error("poll failed", "error", err)
+	return nil
 }
 
 // PollOnce performs a single signed poll iteration and returns. The enroll

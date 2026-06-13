@@ -121,6 +121,11 @@ type PollerConfig struct {
 	SigningKeyPath string
 	Interval       time.Duration
 	PIDFile        string
+	// NebulaConfigPath is where the rendered Nebula config.yml is written.
+	// Empty falls back to DataDir/config.yml. Honors agent.yml's
+	// nebula_config_path so the daemon writes the config to the file Nebula
+	// actually reads, not always DataDir/config.yml (#224).
+	NebulaConfigPath string
 	// HTTPTimeout bounds a single poll request. Zero or negative falls back
 	// to defaultAgentHTTPTimeout.
 	HTTPTimeout time.Duration
@@ -314,10 +319,10 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 
 	if updates.ConfigYAML != nil {
-		if err := atomicWriteFile(filepath.Join(p.config.DataDir, "config.yml"), []byte(*updates.ConfigYAML), 0o644); err != nil {
+		if err := atomicWriteFile(p.nebulaConfigPath(), []byte(*updates.ConfigYAML), 0o644); err != nil {
 			return fmt.Errorf("write config: %w", err)
 		}
-		p.logger.Info("config updated")
+		p.logger.Info("config updated", "path", p.nebulaConfigPath())
 		needsReload = true
 	}
 
@@ -356,6 +361,17 @@ func (p *Poller) signRequest(req *http.Request) error {
 	req.Header.Set(corepop.HeaderNonce, nonce)
 	req.Header.Set(corepop.HeaderSignature, agentpop.EncodeSignature(sig))
 	return nil
+}
+
+// nebulaConfigPath resolves where the rendered Nebula config is written: the
+// configured NebulaConfigPath, or DataDir/config.yml when unset. Mirrors the
+// fallback Enroll applies so the daemon and the initial enroll write target the
+// same file (#224).
+func (p *Poller) nebulaConfigPath() string {
+	if p.config.NebulaConfigPath != "" {
+		return p.config.NebulaConfigPath
+	}
+	return filepath.Join(p.config.DataDir, "config.yml")
 }
 
 // atomicWriteFile writes data to a temp file, syncs it, then renames to the target path.

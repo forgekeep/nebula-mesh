@@ -58,7 +58,7 @@ func TestEnroll_ZeroizesPrivateKeys(t *testing.T) {
 	defer server.Close()
 
 	captured := captureEnrollSecrets(t)
-	if err := Enroll(context.Background(), server.URL, "test-token", dir, signingKeyPath); err != nil {
+	if err := Enroll(context.Background(), server.URL, "test-token", dir, signingKeyPath, ""); err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
 	assertSecretsWiped(t, *captured)
@@ -76,7 +76,7 @@ func TestEnroll_ZeroizesPrivateKeysOnError(t *testing.T) {
 	defer server.Close()
 
 	captured := captureEnrollSecrets(t)
-	if err := Enroll(context.Background(), server.URL, "stale-token", dir, signingKeyPath); err == nil {
+	if err := Enroll(context.Background(), server.URL, "stale-token", dir, signingKeyPath, ""); err == nil {
 		t.Fatal("expected enrollment error")
 	}
 	if *captured == nil {

@@ -54,7 +54,7 @@ func TestEnroll_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := Enroll(context.Background(), server.URL, "test-token", dir, signingKeyPath)
+	err := Enroll(context.Background(), server.URL, "test-token", dir, signingKeyPath, "")
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestEnroll_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := Enroll(context.Background(), server.URL, "bad-token", t.TempDir(), filepath.Join(t.TempDir(), "host.signing.key"))
+	err := Enroll(context.Background(), server.URL, "bad-token", t.TempDir(), filepath.Join(t.TempDir(), "host.signing.key"), "")
 	if err == nil {
 		t.Fatal("expected error for server error response, got nil")
 	}

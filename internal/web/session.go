@@ -100,6 +100,14 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 		return LoginResult{}, false, nil
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(password)); err != nil {
+		if !errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			// The stored value is not a usable bcrypt hash — e.g. the "oidc"
+			// sentinel on OIDC-provisioned accounts — so the compare above
+			// returned without doing any KDF work. Run the dummy compare so
+			// an active OIDC username is indistinguishable from a wrong
+			// password (#180).
+			_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
+		}
 		// Wrong password is a normal auth failure (bool=false), not a system
 		// error to surface to the caller.
 		return LoginResult{}, false, nil //nolint:nilerr

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	agentpop "github.com/forgekeep/nebula-mesh/internal/agent/pop"
+	"github.com/forgekeep/nebula-mesh/internal/fsutil"
 	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
 )
 
@@ -303,7 +304,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	needsReload := false
 
 	if updates.CertificatePEM != nil {
-		if err := atomicWriteFile(filepath.Join(p.config.DataDir, "host.crt"), []byte(*updates.CertificatePEM), 0o644); err != nil {
+		if err := fsutil.AtomicWriteFile(filepath.Join(p.config.DataDir, "host.crt"), []byte(*updates.CertificatePEM), 0o644); err != nil {
 			return fmt.Errorf("write cert: %w", err)
 		}
 		p.logger.Info("certificate updated")
@@ -311,7 +312,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 
 	if updates.CACertPEM != nil {
-		if err := atomicWriteFile(filepath.Join(p.config.DataDir, "ca.crt"), []byte(*updates.CACertPEM), 0o644); err != nil {
+		if err := fsutil.AtomicWriteFile(filepath.Join(p.config.DataDir, "ca.crt"), []byte(*updates.CACertPEM), 0o644); err != nil {
 			return fmt.Errorf("write CA cert: %w", err)
 		}
 		p.logger.Info("CA certificate updated")
@@ -319,7 +320,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 
 	if updates.ConfigYAML != nil {
-		if err := atomicWriteFile(p.nebulaConfigPath(), []byte(*updates.ConfigYAML), 0o644); err != nil {
+		if err := fsutil.AtomicWriteFile(p.nebulaConfigPath(), []byte(*updates.ConfigYAML), 0o644); err != nil {
 			return fmt.Errorf("write config: %w", err)
 		}
 		p.logger.Info("config updated", "path", p.nebulaConfigPath())
@@ -372,51 +373,6 @@ func (p *Poller) nebulaConfigPath() string {
 		return p.config.NebulaConfigPath
 	}
 	return filepath.Join(p.config.DataDir, "config.yml")
-}
-
-// atomicWriteFile writes data to a temp file, syncs it, then renames to the target path.
-func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-
-	// cleanup removes temp file on failure; set to nil after successful rename
-	cleanup := func() {
-		if removeErr := os.Remove(tmpPath); removeErr != nil && !os.IsNotExist(removeErr) {
-			slog.Error("remove temp file", "path", tmpPath, "error", removeErr)
-		}
-	}
-
-	if _, err := tmp.Write(data); err != nil {
-		if closeErr := tmp.Close(); closeErr != nil {
-			slog.Error("close temp file after write error", "path", tmpPath, "error", closeErr)
-		}
-		cleanup()
-		return fmt.Errorf("write temp file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		if closeErr := tmp.Close(); closeErr != nil {
-			slog.Error("close temp file after sync error", "path", tmpPath, "error", closeErr)
-		}
-		cleanup()
-		return fmt.Errorf("sync temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("close temp file: %w", err)
-	}
-	if err := os.Chmod(tmpPath, perm); err != nil {
-		cleanup()
-		return fmt.Errorf("chmod temp file: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		cleanup()
-		return fmt.Errorf("rename temp to target: %w", err)
-	}
-	return nil
 }
 
 // signalNebulaFromPID reads the PID from file and sends SIGHUP to the nebula process.

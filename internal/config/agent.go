@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/forgekeep/nebula-mesh/internal/fsutil"
 )
 
 type AgentConfig struct {
@@ -134,36 +136,10 @@ func SaveAgentConfig(path string, cfg *AgentConfig) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-
-	tmp, err := os.CreateTemp(dir, ".agent.yml.*")
-	if err != nil {
-		return fmt.Errorf("create temp config: %w", err)
-	}
-	tmpName := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpName) }
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("write temp config: %w", err)
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("chmod temp config: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("sync temp config: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("close temp config: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		cleanup()
-		return fmt.Errorf("rename temp config: %w", err)
+	// 0o600: agent.yml records the server URL and paths but no secrets; still
+	// owner-only since it is the agent's private config.
+	if err := fsutil.AtomicWriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write config: %w", err)
 	}
 	return nil
 }

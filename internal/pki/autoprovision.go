@@ -74,17 +74,19 @@ func MintAndStoreCA(ctx context.Context, s MintStore, master *keystore.Master, l
 		return nil, false, fmt.Errorf("create CA: %w", err)
 	}
 
-	// Extract and encrypt the private key.
+	// Extract and encrypt the private key. The CA ID is minted before
+	// sealing because both envelope layers bind it as AAD.
+	caID := uuid.New().String()
 	rawKey := mgr.RawKey()
 	defer keystore.Zeroize(rawKey)
 
-	dek, wrappedDEK, err := master.GenerateDEK()
+	dek, wrappedDEK, err := master.GenerateDEK([]byte(caID))
 	if err != nil {
 		return nil, false, fmt.Errorf("generate DEK: %w", err)
 	}
 	defer keystore.Zeroize(dek)
 
-	wrappedKey, err := keystore.SealWithDEK(dek, rawKey)
+	wrappedKey, err := keystore.SealWithDEK(dek, rawKey, []byte(caID))
 	if err != nil {
 		return nil, false, fmt.Errorf("seal key: %w", err)
 	}
@@ -106,7 +108,7 @@ func MintAndStoreCA(ctx context.Context, s MintStore, master *keystore.Master, l
 	// Construct the CA model and persist.
 	now := time.Now()
 	ca := &models.CA{
-		ID:                   uuid.New().String(),
+		ID:                   caID,
 		Name:                 req.Name,
 		OwnerOperatorID:      req.Operator.ID,
 		CertPEM:              string(certPEM),

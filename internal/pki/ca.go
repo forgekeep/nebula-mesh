@@ -57,6 +57,14 @@ func LoadCAFromMaterial(certPEM []byte, rawKey ed25519.PrivateKey) (*CAManager, 
 	if len(rawKey) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("raw key length: %d, want %d", len(rawKey), ed25519.PrivateKeySize)
 	}
+	// The private key must actually be the one the cert certifies — a
+	// mismatch means the DB row pairs this cert with a foreign key (e.g. a
+	// pre-AAD envelope swapped between CA rows) and every cert signed with
+	// it would fail peer validation. Refuse at load instead of minting
+	// unusable certificates.
+	if pub, ok := rawKey.Public().(ed25519.PublicKey); !ok || !pub.Equal(ed25519.PublicKey(c.PublicKey())) {
+		return nil, fmt.Errorf("CA private key does not match certificate public key")
+	}
 	return &CAManager{caCert: c, caKey: rawKey}, nil
 }
 

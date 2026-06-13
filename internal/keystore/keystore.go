@@ -77,46 +77,52 @@ type WrappedBlob struct {
 	Nonce      []byte
 }
 
-// GenerateDEK returns a fresh DEK plus its master-key-wrapped form.
-// Callers MUST zeroise the returned plaintext DEK as soon as it is no
-// longer needed.
-func (m *Master) GenerateDEK() (plaintext []byte, wrapped WrappedKey, err error) {
+// GenerateDEK returns a fresh DEK plus its master-key-wrapped form, with
+// the wrap bound to aad (the owning CA's ID — see WrapDEK). Callers MUST
+// zeroise the returned plaintext DEK as soon as it is no longer needed.
+func (m *Master) GenerateDEK(aad []byte) (plaintext []byte, wrapped WrappedKey, err error) {
 	dek := make([]byte, DEKSize)
 	if _, err := rand.Read(dek); err != nil {
 		return nil, WrappedKey{}, fmt.Errorf("rand dek: %w", err)
 	}
-	wrapped, err = m.WrapDEK(dek)
+	wrapped, err = m.WrapDEK(dek, aad)
 	if err != nil {
 		return nil, WrappedKey{}, err
 	}
 	return dek, wrapped, nil
 }
 
-// WrapDEK encrypts a DEK under the master key.
-func (m *Master) WrapDEK(dek []byte) (WrappedKey, error) {
+// WrapDEK encrypts a DEK under the master key. aad is bound into the GCM
+// tag — callers pass the owning CA's ID so a wrapped DEK copied into
+// another CA's row fails to decrypt instead of pairing that CA's cert
+// with a foreign signing key (DB-write envelope swap).
+func (m *Master) WrapDEK(dek, aad []byte) (WrappedKey, error) {
 	nonce := make([]byte, NonceSize)
 	if _, err := rand.Read(nonce); err != nil {
 		return WrappedKey{}, fmt.Errorf("rand nonce: %w", err)
 	}
-	ct := m.aead.Seal(nil, nonce, dek, nil) // #nosec G407 -- nonce is freshly generated via crypto/rand immediately above, not a hardcoded value
+	ct := m.aead.Seal(nil, nonce, dek, aad) // #nosec G407 -- nonce is freshly generated via crypto/rand immediately above, not a hardcoded value
 	return WrappedKey{Ciphertext: ct, Nonce: nonce}, nil
 }
 
-// UnwrapDEK decrypts a DEK previously wrapped with WrapDEK. The returned
-// plaintext lives only until the caller zeroises it.
-func (m *Master) UnwrapDEK(w WrappedKey) ([]byte, error) {
+// UnwrapDEK decrypts a DEK previously wrapped with WrapDEK under the same
+// aad. The returned plaintext lives only until the caller zeroises it.
+// Pass nil aad only for envelopes written before the binding existed (see
+// the legacy fallback in pki.CAResolver.LoadByID).
+func (m *Master) UnwrapDEK(w WrappedKey, aad []byte) ([]byte, error) {
 	if len(w.Nonce) != NonceSize {
 		return nil, fmt.Errorf("wrapped dek nonce: %d bytes, want %d", len(w.Nonce), NonceSize)
 	}
-	pt, err := m.aead.Open(nil, w.Nonce, w.Ciphertext, nil)
+	pt, err := m.aead.Open(nil, w.Nonce, w.Ciphertext, aad)
 	if err != nil {
 		return nil, fmt.Errorf("unwrap dek: %w", err)
 	}
 	return pt, nil
 }
 
-// SealWithDEK encrypts a payload under the given DEK using AES-256-GCM.
-func SealWithDEK(dek, plaintext []byte) (WrappedBlob, error) {
+// SealWithDEK encrypts a payload under the given DEK using AES-256-GCM,
+// binding aad (the owning CA's ID) into the tag — see WrapDEK.
+func SealWithDEK(dek, plaintext, aad []byte) (WrappedBlob, error) {
 	if len(dek) != DEKSize {
 		return WrappedBlob{}, fmt.Errorf("dek length: %d, want %d", len(dek), DEKSize)
 	}
@@ -132,12 +138,13 @@ func SealWithDEK(dek, plaintext []byte) (WrappedBlob, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return WrappedBlob{}, err
 	}
-	ct := aead.Seal(nil, nonce, plaintext, nil) // #nosec G407 -- nonce is freshly generated via crypto/rand immediately above, not a hardcoded value
+	ct := aead.Seal(nil, nonce, plaintext, aad) // #nosec G407 -- nonce is freshly generated via crypto/rand immediately above, not a hardcoded value
 	return WrappedBlob{Ciphertext: ct, Nonce: nonce}, nil
 }
 
-// OpenWithDEK decrypts a WrappedBlob using the given DEK.
-func OpenWithDEK(dek []byte, w WrappedBlob) ([]byte, error) {
+// OpenWithDEK decrypts a WrappedBlob using the given DEK and the aad it
+// was sealed with (nil only for pre-binding legacy envelopes).
+func OpenWithDEK(dek []byte, w WrappedBlob, aad []byte) ([]byte, error) {
 	if len(dek) != DEKSize {
 		return nil, fmt.Errorf("dek length: %d, want %d", len(dek), DEKSize)
 	}
@@ -152,7 +159,7 @@ func OpenWithDEK(dek []byte, w WrappedBlob) ([]byte, error) {
 	if len(w.Nonce) != NonceSize {
 		return nil, fmt.Errorf("wrapped blob nonce: %d bytes, want %d", len(w.Nonce), NonceSize)
 	}
-	pt, err := aead.Open(nil, w.Nonce, w.Ciphertext, nil)
+	pt, err := aead.Open(nil, w.Nonce, w.Ciphertext, aad)
 	if err != nil {
 		return nil, fmt.Errorf("open with dek: %w", err)
 	}

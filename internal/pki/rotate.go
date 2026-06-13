@@ -60,17 +60,19 @@ func RotateAndStoreCA(
 		return nil, fmt.Errorf("create CA: %w", err)
 	}
 
-	// Extract and encrypt the private key.
+	// Extract and encrypt the private key. The successor's ID is minted
+	// before sealing because both envelope layers bind it as AAD.
+	newID := uuid.New().String()
 	rawKey := mgr.RawKey()
 	defer keystore.Zeroize(rawKey)
 
-	dek, wrappedDEK, err := master.GenerateDEK()
+	dek, wrappedDEK, err := master.GenerateDEK([]byte(newID))
 	if err != nil {
 		return nil, fmt.Errorf("generate DEK: %w", err)
 	}
 	defer keystore.Zeroize(dek)
 
-	wrappedKey, err := keystore.SealWithDEK(dek, rawKey)
+	wrappedKey, err := keystore.SealWithDEK(dek, rawKey, []byte(newID))
 	if err != nil {
 		return nil, fmt.Errorf("seal key: %w", err)
 	}
@@ -92,7 +94,7 @@ func RotateAndStoreCA(
 	// Construct the new CA model and persist.
 	now := time.Now()
 	newCA := &models.CA{
-		ID:                   uuid.New().String(),
+		ID:                   newID,
 		Name:                 newName,
 		OwnerOperatorID:      oldCA.OwnerOperatorID,
 		CertPEM:              string(certPEM),

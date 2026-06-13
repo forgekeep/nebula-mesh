@@ -2,6 +2,7 @@ package mobilebundle
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -282,4 +283,42 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestBuild_AppliesStoredFirewallRules pins that a mobile bundle carries the
+// network's stored firewall policy, the same as the agent enroll path. Before
+// the M1 fix the builder hardcoded icmp-inbound/allow-all-outbound, so a
+// configured policy never reached mobile hosts either.
+func TestBuild_AppliesStoredFirewallRules(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := store.NewSQLiteStore(":memory:")
+	require.NoError(t, err)
+	require.NoError(t, s.Migrate(ctx))
+
+	ca, err := pki.NewCA("test-ca", 365*24*time.Hour)
+	require.NoError(t, err)
+	resolver := &StubCAResolver{ca: ca}
+
+	network := &models.Network{ID: "net-fw", Name: "fw-network", CIDRs: []string{"10.0.0.0/8"}}
+	require.NoError(t, s.CreateNetwork(ctx, network))
+
+	const policy = `{"inbound":[{"port":"8443","proto":"tcp","group":"mobile-only"}],` +
+		`"outbound":[{"port":"any","proto":"any","group":"any"}]}`
+	require.NoError(t, s.SetNetworkConfig(ctx, network.ID, "firewall", policy))
+
+	host := &models.Host{
+		ID: "mobile-fw", Name: "phone-fw", NetworkID: network.ID,
+		NebulaIPs: []string{"10.0.0.9"}, Kind: models.HostKindMobile,
+		Variant: models.HostVariantIOS, Role: models.HostRoleHost,
+		Status: models.HostStatusPending, CAID: "test-ca-id", Groups: []string{"mobile"},
+	}
+	require.NoError(t, s.CreateHost(ctx, host))
+	seedActiveCAOwner(t, s, host.CAID)
+
+	bundle, err := Build(ctx, s, resolver, host)
+	require.NoError(t, err)
+	if !strings.Contains(string(bundle), "mobile-only") {
+		t.Errorf("mobile bundle does not contain the stored firewall group; rules not applied\n%s", bundle)
+	}
 }

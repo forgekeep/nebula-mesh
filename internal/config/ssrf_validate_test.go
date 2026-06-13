@@ -29,12 +29,12 @@ func TestValidateWebhookURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateWebhookURL("webhooks.url", tt.url, tt.allowPrivate)
+			err := ValidateWebhookURL("webhooks.url", tt.url, tt.allowPrivate)
 			if tt.wantErr && err == nil {
-				t.Fatalf("validateWebhookURL(%q, %v) = nil, want error", tt.url, tt.allowPrivate)
+				t.Fatalf("ValidateWebhookURL(%q, %v) = nil, want error", tt.url, tt.allowPrivate)
 			}
 			if !tt.wantErr && err != nil {
-				t.Fatalf("validateWebhookURL(%q, %v) = %v, want nil", tt.url, tt.allowPrivate, err)
+				t.Fatalf("ValidateWebhookURL(%q, %v) = %v, want nil", tt.url, tt.allowPrivate, err)
 			}
 		})
 	}

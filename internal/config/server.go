@@ -178,14 +178,14 @@ func hostIsPrivate(host string) bool {
 		addr.IsLinkLocalMulticast() || addr.IsUnspecified()
 }
 
-// validateWebhookURL guards a webhook URL against SSRF (#188): the URL must be
+// ValidateWebhookURL guards a webhook URL against SSRF (#188): the URL must be
 // http/https with a host, and (unless allowPrivate) must not target a
 // private/loopback/link-local address. field names the offending config key in
 // errors so both alerts.webhook_url and webhooks.url can reuse it. DNS names are
 // not resolved here — this is the config-load layer; the delivery-time layer
 // (post-resolution dialer guard + per-redirect-hop re-check) lives in the
 // alerts WebhookSink and the webhook.Dispatcher.
-func validateWebhookURL(field, rawURL string, allowPrivate bool) error {
+func ValidateWebhookURL(field, rawURL string, allowPrivate bool) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("%s: %w", field, err)
@@ -478,13 +478,13 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	}
 
 	if cfg.Alerts.Enabled && cfg.Alerts.WebhookURL != "" {
-		if err := validateWebhookURL("alerts.webhook_url", cfg.Alerts.WebhookURL, cfg.Alerts.AllowPrivateWebhook); err != nil {
+		if err := ValidateWebhookURL("alerts.webhook_url", cfg.Alerts.WebhookURL, cfg.Alerts.AllowPrivateWebhook); err != nil {
 			return nil, err
 		}
 	}
 
 	if cfg.Webhooks.Enabled && cfg.Webhooks.URL != "" {
-		if err := validateWebhookURL("webhooks.url", cfg.Webhooks.URL, cfg.Webhooks.AllowPrivate); err != nil {
+		if err := ValidateWebhookURL("webhooks.url", cfg.Webhooks.URL, cfg.Webhooks.AllowPrivate); err != nil {
 			return nil, err
 		}
 	}

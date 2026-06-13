@@ -239,6 +239,12 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/v1/cas/{id}/rotate", s.handleRotateCA)
 		r.Get("/api/v1/settings", s.handleGetSettings)
 		r.Patch("/api/v1/settings", s.handlePatchSettings)
+
+		r.Get("/api/v1/webhook-subscriptions", s.handleListWebhookSubscriptions)
+		r.Post("/api/v1/webhook-subscriptions", s.handleCreateWebhookSubscription)
+		r.Get("/api/v1/webhook-subscriptions/{id}", s.handleGetWebhookSubscription)
+		r.Patch("/api/v1/webhook-subscriptions/{id}", s.handleUpdateWebhookSubscription)
+		r.Delete("/api/v1/webhook-subscriptions/{id}", s.handleDeleteWebhookSubscription)
 	})
 
 	s.router = r

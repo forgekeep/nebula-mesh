@@ -1,13 +1,14 @@
 // Package webhook delivers lifecycle events (host enrolled/blocked/deleted,
-// cert rotated, cert expiring, …) to an operator-configured HTTP endpoint. It
-// is the unified outbound-event bus: handlers and background scanners publish
-// typed events via Emit; the Dispatcher signs and delivers them asynchronously,
-// off the request path, with bounded retry (#256, phase 1).
+// cert rotated, cert expiring, …) to operator-configured HTTP endpoints. It is
+// the unified outbound-event bus: handlers and background scanners publish typed
+// events via Emit; the Dispatcher signs and delivers them asynchronously, off
+// the request path, with bounded retry (#256).
 //
-// Deliveries are SSRF-guarded at request time and signed with HMAC-SHA256, the
-// same scheme the cert-expiry alerter already uses. The signing/guard logic
-// mirrors internal/alerts and internal/config.hostIsPrivate and must stay in
-// sync with them.
+// Targets come from two places: an optional static target from server config
+// (phase 1) and managed subscriptions loaded from a SubscriptionSource
+// (phase 2). Deliveries are SSRF-guarded at request time and signed with
+// HMAC-SHA256. The signing/guard logic mirrors internal/alerts and
+// internal/config.hostIsPrivate and must stay in sync with them.
 package webhook
 
 import (
@@ -40,7 +41,7 @@ const (
 	SignatureHeader = "X-Nebula-Signature"
 )
 
-// Event is the envelope POSTed to the subscriber. Data carries the
+// Event is the envelope POSTed to a subscriber. Data carries the
 // event-type-specific payload.
 type Event struct {
 	ID        string         `json:"id"`
@@ -49,19 +50,40 @@ type Event struct {
 	Data      map[string]any `json:"data"`
 }
 
-// Emitter is the narrow interface handlers depend on so they need not know
-// about delivery. *Dispatcher implements it; a nil *Dispatcher Emit is a no-op,
-// so callers can hold an optional emitter without nil checks at every call site.
+// Emitter is the narrow interface handlers depend on. *Dispatcher implements
+// it; a nil *Dispatcher Emit is a no-op.
 type Emitter interface {
 	Emit(eventType string, data map[string]any)
 }
 
-// Config configures a Dispatcher. Only URL is required.
+// Target is one resolved delivery endpoint. ID is the subscription id for
+// managed targets (delivery status is recorded against it) and empty for the
+// static config target.
+type Target struct {
+	ID           string
+	URL          string
+	Secret       []byte // HMAC secret; empty => unsigned
+	AllowPrivate bool
+}
+
+// SubscriptionSource yields managed subscriptions for an event and records the
+// outcome of each delivery.
+type SubscriptionSource interface {
+	TargetsFor(ctx context.Context, eventType string) ([]Target, error)
+	RecordDelivery(ctx context.Context, targetID string, ok bool, errMsg string)
+}
+
+// Config configures a Dispatcher. A static target is delivered when URL is set
+// (phase-1 config webhook); managed targets come from Source.
 type Config struct {
+	// Static config target (optional).
 	URL          string
 	HMACSecret   string
-	AllowPrivate bool     // permit private/loopback targets (disables the SSRF guard)
-	Events       []string // delivered event types; empty means all
+	AllowPrivate bool
+	Events       []string // static target's event filter; empty = all
+
+	// Managed subscriptions (optional).
+	Source SubscriptionSource
 
 	// Tunables — zero values fall back to the defaults below.
 	QueueSize    int
@@ -70,7 +92,7 @@ type Config struct {
 	DeliveryTO   time.Duration
 
 	// Test seams.
-	HTTPClient *http.Client     // nil => an SSRF-guarded client
+	HTTPClient *http.Client     // overrides both guarded/unguarded clients
 	Now        func() time.Time // nil => time.Now
 	NewID      func() string    // nil => "evt_"+uuid
 }
@@ -85,14 +107,16 @@ const (
 // Dispatcher signs and delivers events asynchronously. Construct with New,
 // publish with Emit, and Close on shutdown to drain in-flight deliveries.
 type Dispatcher struct {
-	cfg     Config
-	logger  *slog.Logger
-	allowed map[string]bool // nil => all event types
-	queue   chan Event
-	client  *http.Client
-	now     func() time.Time
-	newID   func() string
+	cfg          Config
+	logger       *slog.Logger
+	source       SubscriptionSource
+	staticEvents map[string]bool // nil => all; only consulted when cfg.URL != ""
+	guarded      *http.Client
+	unguarded    *http.Client
+	now          func() time.Time
+	newID        func() string
 
+	queue  chan Event
 	wg     sync.WaitGroup
 	closed atomic.Bool
 	done   chan struct{}
@@ -118,14 +142,17 @@ func New(cfg Config, logger *slog.Logger) *Dispatcher {
 	d := &Dispatcher{
 		cfg:    cfg,
 		logger: logger,
-		queue:  make(chan Event, cfg.QueueSize),
-		client: cfg.HTTPClient,
+		source: cfg.Source,
 		now:    cfg.Now,
 		newID:  cfg.NewID,
+		queue:  make(chan Event, cfg.QueueSize),
 		done:   make(chan struct{}),
 	}
-	if d.client == nil {
-		d.client = newGuardedClient(cfg.AllowPrivate, cfg.DeliveryTO)
+	if cfg.HTTPClient != nil {
+		d.guarded, d.unguarded = cfg.HTTPClient, cfg.HTTPClient
+	} else {
+		d.guarded = newGuardedClient(false, cfg.DeliveryTO)
+		d.unguarded = newGuardedClient(true, cfg.DeliveryTO)
 	}
 	if d.now == nil {
 		d.now = time.Now
@@ -134,9 +161,9 @@ func New(cfg Config, logger *slog.Logger) *Dispatcher {
 		d.newID = func() string { return "evt_" + uuid.NewString() }
 	}
 	if len(cfg.Events) > 0 {
-		d.allowed = make(map[string]bool, len(cfg.Events))
+		d.staticEvents = make(map[string]bool, len(cfg.Events))
 		for _, e := range cfg.Events {
-			d.allowed[e] = true
+			d.staticEvents[e] = true
 		}
 	}
 	d.wg.Add(1)
@@ -144,15 +171,11 @@ func New(cfg Config, logger *slog.Logger) *Dispatcher {
 	return d
 }
 
-// Emit enqueues an event for delivery. It never blocks the caller: events for
-// unsubscribed types are dropped silently, and a full queue drops the event
-// with a logged warning rather than stalling the request path. A nil Dispatcher
-// (webhooks disabled) is a no-op.
+// Emit enqueues an event. It never blocks the caller: a full queue drops the
+// event with a logged warning rather than stalling the request path. Per-target
+// filtering happens at delivery. A nil Dispatcher (webhooks disabled) is a no-op.
 func (d *Dispatcher) Emit(eventType string, data map[string]any) {
 	if d == nil || d.closed.Load() {
-		return
-	}
-	if d.allowed != nil && !d.allowed[eventType] {
 		return
 	}
 	ev := Event{
@@ -168,8 +191,7 @@ func (d *Dispatcher) Emit(eventType string, data map[string]any) {
 	}
 }
 
-// Close stops accepting events and waits for the worker to drain what is
-// already queued. Safe to call once; later calls are no-ops.
+// Close stops accepting events and drains what is already queued. Idempotent.
 func (d *Dispatcher) Close() {
 	if d == nil {
 		return
@@ -183,19 +205,47 @@ func (d *Dispatcher) Close() {
 func (d *Dispatcher) run() {
 	defer d.wg.Done()
 	for ev := range d.queue {
-		d.deliverWithRetry(ev)
+		d.dispatch(ev)
 	}
 }
 
-// deliverWithRetry attempts delivery up to MaxRetries+1 times with linear
-// backoff, aborting early if Close is signaled. A permanent failure is logged
-// (a dead-letter store is phase 2).
-func (d *Dispatcher) deliverWithRetry(ev Event) {
+// dispatch resolves every target for the event and delivers to each.
+func (d *Dispatcher) dispatch(ev Event) {
 	payload, err := json.Marshal(ev)
 	if err != nil {
 		d.logger.Error("marshal webhook event", "type", ev.Type, "error", err)
 		return
 	}
+	for _, tgt := range d.targets(ev.Type) {
+		d.deliverWithRetry(tgt, payload, ev.Type, ev.ID)
+	}
+}
+
+// targets gathers the static config target (when it wants the event) and any
+// managed subscriptions from the source.
+func (d *Dispatcher) targets(eventType string) []Target {
+	var out []Target
+	if d.cfg.URL != "" && (d.staticEvents == nil || d.staticEvents[eventType]) {
+		out = append(out, Target{URL: d.cfg.URL, Secret: []byte(d.cfg.HMACSecret), AllowPrivate: d.cfg.AllowPrivate})
+	}
+	if d.source != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), d.cfg.DeliveryTO)
+		subs, err := d.source.TargetsFor(ctx, eventType)
+		cancel()
+		if err != nil {
+			d.logger.Error("load webhook subscriptions", "type", eventType, "error", err)
+		} else {
+			out = append(out, subs...)
+		}
+	}
+	return out
+}
+
+// deliverWithRetry attempts delivery up to MaxRetries+1 times with linear
+// backoff, aborting early if Close is signaled. The final outcome is recorded
+// against the subscription (managed targets only).
+func (d *Dispatcher) deliverWithRetry(tgt Target, payload []byte, eventType, id string) {
+	var lastErr error
 	for attempt := 0; attempt <= d.cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
 			select {
@@ -204,34 +254,48 @@ func (d *Dispatcher) deliverWithRetry(ev Event) {
 				return
 			}
 		}
-		err := d.deliver(payload, ev.Type, ev.ID)
-		if err == nil {
+		if lastErr = d.deliver(tgt, payload, eventType, id); lastErr == nil {
+			d.record(tgt, true, "")
 			return
 		}
 		d.logger.Warn("webhook delivery failed",
-			"type", ev.Type, "id", ev.ID, "attempt", attempt+1, "error", err)
+			"target", tgt.URL, "type", eventType, "id", id, "attempt", attempt+1, "error", lastErr)
 	}
-	d.logger.Error("webhook delivery exhausted retries", "type", ev.Type, "id", ev.ID)
+	d.logger.Error("webhook delivery exhausted retries", "target", tgt.URL, "type", eventType, "id", id)
+	d.record(tgt, false, lastErr.Error())
 }
 
-func (d *Dispatcher) deliver(payload []byte, eventType, id string) error {
+func (d *Dispatcher) record(tgt Target, ok bool, errMsg string) {
+	if tgt.ID == "" || d.source == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), d.cfg.DeliveryTO)
+	defer cancel()
+	d.source.RecordDelivery(ctx, tgt.ID, ok, errMsg)
+}
+
+func (d *Dispatcher) deliver(tgt Target, payload []byte, eventType, id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), d.cfg.DeliveryTO)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.cfg.URL, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tgt.URL, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(EventHeader, eventType)
 	req.Header.Set(DeliveryHeader, id)
-	if d.cfg.HMACSecret != "" {
-		mac := hmac.New(sha256.New, []byte(d.cfg.HMACSecret))
+	if len(tgt.Secret) > 0 {
+		mac := hmac.New(sha256.New, tgt.Secret)
 		mac.Write(payload)
 		req.Header.Set(SignatureHeader, "sha256="+hex.EncodeToString(mac.Sum(nil)))
 	}
 
-	resp, err := d.client.Do(req)
+	client := d.guarded
+	if tgt.AllowPrivate {
+		client = d.unguarded
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("POST: %w", err)
 	}
@@ -247,7 +311,7 @@ func (d *Dispatcher) deliver(payload []byte, eventType, id string) error {
 
 // --- SSRF guard (mirrors internal/alerts.isBlockedWebhookAddr / config.hostIsPrivate) ---
 
-var errPrivateWebhookAddr = errors.New("webhook delivery to private/loopback/link-local address blocked (SSRF guard); set webhooks.allow_private: true for an intentional internal sink")
+var errPrivateWebhookAddr = errors.New("webhook delivery to private/loopback/link-local address blocked (SSRF guard); set allow_private: true for an intentional internal sink")
 
 func isBlockedAddr(addr netip.Addr) bool {
 	addr = addr.Unmap()

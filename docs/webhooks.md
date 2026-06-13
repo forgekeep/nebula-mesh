@@ -24,7 +24,52 @@ webhooks:
 `url` is validated at startup (must be http/https; loopback/private/link-local
 targets are rejected unless `allow_private: true`).
 
-## Events (phase 1)
+The config webhook is a single static target. For multiple endpoints, runtime
+management, and per-endpoint delivery status, use **managed subscriptions**
+below — both are delivered through the same bus.
+
+## Managed subscriptions
+
+Subscriptions are operator-owned rows managed through the REST API; they need no
+config and take effect immediately (no restart). Each is one delivery target
+with its own URL, event filter, signing secret, and delivery status.
+
+```
+GET    /api/v1/webhook-subscriptions          # list (admin: all; operator: own)
+POST   /api/v1/webhook-subscriptions          # create
+GET    /api/v1/webhook-subscriptions/{id}     # get
+PATCH  /api/v1/webhook-subscriptions/{id}     # update
+DELETE /api/v1/webhook-subscriptions/{id}     # delete
+```
+
+Create body (all but `url` optional):
+
+```json
+{
+  "url": "https://hooks.example.com/team-a",
+  "events": ["host.enrolled", "cert.expiring"],
+  "active": true,
+  "allow_private": false,
+  "secret": "<hmac secret>"
+}
+```
+
+- `events` empty/omitted means all events.
+- `secret` is **write-only**: it is stored envelope-encrypted under
+  `NEBULA_MGMT_MASTER_KEY` (the same scheme as CA keys) and never returned.
+  Responses expose only `has_secret`. On update, omit `secret` to keep it, send
+  `""` to clear it, or a new value to replace it. A non-empty secret requires
+  the master key to be configured.
+- `url` is SSRF-validated like the config webhook; `allow_private: true` opts a
+  private/loopback target in.
+
+Each subscription tracks `last_delivery_at`, `last_status` (`ok`/`failed`),
+`last_error`, and `consecutive_failures` for observability.
+
+## Events
+
+| Event | Fires when | `data` fields |
+|---|---|---|
 
 | Event | Fires when | `data` fields |
 |---|---|---|
@@ -76,9 +121,8 @@ Reject deliveries that do not match.
   as a notification stream, not a system of record — the audit log remains the
   authoritative history.
 
-## Not in phase 1
+## Not yet
 
-- Managed subscriptions (multiple endpoints, CRUD, per-subscription status) —
-  phase 1 is a single config-driven subscription.
+- A Web UI for managing subscriptions (the REST API exists today).
 - `ca.expiring` and other CA-lifecycle events.
 - A persistent dead-letter queue and delivery dashboards.

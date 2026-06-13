@@ -1,0 +1,416 @@
+# OpenAPI contract for the nebula-mgmt REST API.
+#
+# Written by hand and kept in sync with internal/api by the contract tests in
+# internal/api/contract_test.go, which validate real handler responses against
+# this document (#230). Drift between a handler and this file breaks the build.
+#
+# Version note: this is OpenAPI 3.0.3, not 3.1. The contract tests use
+# getkin/kin-openapi — the validator the issue itself suggests — whose
+# response-validation (openapi3filter) targets 3.0.x; there is no mature 3.1
+# response validator in Go. 3.0.3 expresses this API's shapes fully.
+openapi: 3.0.3
+info:
+  title: nebula-mgmt API
+  version: "1.0.0"
+  description: >
+    Control-plane REST API consumed by the CLI, the nebula-agent poller, and
+    mobile bundles. Agent endpoints (enroll, agent/updates) are unauthenticated
+    at the bearer layer — enroll carries a single-use token, polls carry an
+    Ed25519 proof-of-possession signature (ADR 0004). Admin endpoints require an
+    operator API key.
+servers:
+  - url: /
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/enroll:
+    post:
+      operationId: enroll
+      summary: Enroll a pending host and receive its signed certificate + config.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollRequest"
+      responses:
+        "200":
+          description: Enrollment succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/agent/updates:
+    get:
+      operationId: agentUpdates
+      summary: Signed poll for pending certificate / config / revocation updates.
+      description: >
+        Requires the four ADR 0004 proof-of-possession headers
+        (X-Nebula-Fingerprint, X-Nebula-Timestamp, X-Nebula-Nonce,
+        X-Nebula-Signature) rather than a bearer token.
+      security: []
+      parameters:
+        - { in: header, name: X-Nebula-Fingerprint, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Timestamp, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Nonce, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Signature, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Current update state for the polling host.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentUpdatesResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/networks:
+    get:
+      operationId: listNetworks
+      summary: List networks visible to the operator.
+      responses:
+        "200":
+          description: Networks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Network"
+    post:
+      operationId: createNetwork
+      summary: Create a network.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNetworkRequest"
+      responses:
+        "201":
+          description: Created network.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Network"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/networks/{id}:
+    get:
+      operationId: getNetwork
+      summary: Get a network by id.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Network.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Network"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/hosts:
+    get:
+      operationId: listHosts
+      summary: List hosts visible to the operator.
+      responses:
+        "200":
+          description: Hosts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Host"
+    post:
+      operationId: createHost
+      summary: Create a host and mint its enrollment token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateHostRequest"
+      responses:
+        "201":
+          description: Created host with one-shot enrollment token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateHostResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/hosts/{id}:
+    get:
+      operationId: getHost
+      summary: Get a host by id.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Host.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Host"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/blocklist:
+    get:
+      operationId: getBlocklist
+      summary: Certificate fingerprints currently blocked.
+      responses:
+        "200":
+          description: Blocked fingerprints.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /api/v1/audit-log:
+    get:
+      operationId: getAuditLog
+      summary: Audit-log entries.
+      responses:
+        "200":
+          description: Audit entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEntry"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Operator API key as a bearer token.
+
+  responses:
+    Error:
+      description: Error envelope.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    EnrollRequest:
+      type: object
+      required: [token, public_key_pem, signing_public_key_pem]
+      properties:
+        token:
+          type: string
+        public_key_pem:
+          type: string
+        signing_public_key_pem:
+          type: string
+
+    EnrollResponse:
+      type: object
+      required: [certificate_pem, ca_certificate_pem, config_yaml]
+      properties:
+        certificate_pem:
+          type: string
+        ca_certificate_pem:
+          type: string
+        config_yaml:
+          type: string
+
+    AgentUpdatesResponse:
+      type: object
+      required: [has_updates, blocklist]
+      properties:
+        has_updates:
+          type: boolean
+        certificate_pem:
+          type: string
+        ca_certificate_pem:
+          type: string
+        config_yaml:
+          type: string
+        blocklist:
+          type: array
+          items:
+            type: string
+        rekey_required:
+          type: boolean
+        enrollment_token:
+          type: string
+
+    CreateNetworkRequest:
+      type: object
+      required: [name, cidrs]
+      properties:
+        name:
+          type: string
+        cidrs:
+          type: array
+          items:
+            type: string
+
+    Network:
+      type: object
+      required: [id, name, cidrs, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        cidrs:
+          type: array
+          items:
+            type: string
+        ca_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateHostRequest:
+      type: object
+      required: [network_id, name, nebula_ips]
+      properties:
+        network_id:
+          type: string
+        name:
+          type: string
+        nebula_ips:
+          type: array
+          items:
+            type: string
+        groups:
+          type: array
+          items:
+            type: string
+        role:
+          type: string
+        public_ip:
+          type: string
+        listen_port:
+          type: integer
+
+    CreateHostResponse:
+      type: object
+      required: [host, enrollment_token]
+      properties:
+        host:
+          $ref: "#/components/schemas/Host"
+        enrollment_token:
+          type: string
+
+    Host:
+      type: object
+      required:
+        - id
+        - network_id
+        - name
+        - nebula_ips
+        - groups
+        - role
+        - is_lighthouse
+        - is_relay
+        - status
+        - kind
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        network_id:
+          type: string
+        ca_id:
+          type: string
+        name:
+          type: string
+        nebula_ips:
+          type: array
+          items:
+            type: string
+        groups:
+          type: array
+          items:
+            type: string
+        role:
+          type: string
+        is_lighthouse:
+          type: boolean
+        is_relay:
+          type: boolean
+        public_ip:
+          type: string
+        listen_port:
+          type: integer
+        status:
+          type: string
+        cert_fingerprint:
+          type: string
+        prev_cert_fingerprint:
+          type: string
+        cert_expires_at:
+          type: string
+          format: date-time
+        cert_rotated_at:
+          type: string
+          format: date-time
+        pending_rekey:
+          type: boolean
+        signing_pub_pem:
+          type: string
+        last_seen_at:
+          type: string
+          format: date-time
+        kind:
+          type: string
+        variant:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AuditEntry:
+      type: object
+      required: [id, timestamp, actor, action, resource]
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        actor:
+          type: string
+        action:
+          type: string
+        resource:
+          type: string
+        details:
+          type: string

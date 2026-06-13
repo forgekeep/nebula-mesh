@@ -4,11 +4,11 @@
 # internal/api/contract_test.go, which validate real handler responses against
 # this document (#230). Drift between a handler and this file breaks the build.
 #
-# Version note: this is OpenAPI 3.0.3, not 3.1. The contract tests use
-# getkin/kin-openapi — the validator the issue itself suggests — whose
-# response-validation (openapi3filter) targets 3.0.x; there is no mature 3.1
-# response validator in Go. 3.0.3 expresses this API's shapes fully.
-openapi: 3.0.3
+# Targets OpenAPI 3.1.0, validated with pb33f/libopenapi + libopenapi-validator
+# (the contract tests in internal/api/contract_test.go). 3.1 aligns schemas with
+# JSON Schema 2020-12; nullable fields would use `type: [..., "null"]`, though
+# none are needed today (omitempty fields are omitted, not serialized as null).
+openapi: 3.1.0
 info:
   title: nebula-mgmt API
   version: "1.0.0"

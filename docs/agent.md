@@ -145,8 +145,10 @@ itself).
 
 ### 3. Docker / sidecar
 
-The agent ships in the same image as the server. A typical sidecar definition
-shares `/etc/nebula` between `nebula` and the agent container:
+The agent is published as its own image, `ghcr.io/forgekeep/nebula-agent`
+(the server ships separately as `ghcr.io/forgekeep/nebula-mgmt`). The agent
+image already runs `run --config /etc/nebula-agent/agent.yml` by default, so a
+sidecar just shares `/etc/nebula` between `nebula` and the agent container:
 
 ```yaml
 # docker-compose snippet
@@ -157,9 +159,7 @@ services:
     network_mode: host
     cap_add: [NET_ADMIN]
   nebula-agent:
-    image: ghcr.io/forgekeep/nebula-mesh:latest
-    entrypoint: ["/usr/local/bin/nebula-agent"]
-    command: ["--config", "/etc/nebula-agent/agent.yml"]
+    image: ghcr.io/forgekeep/nebula-agent:latest
     volumes:
       - nebula-conf:/etc/nebula
       - ./agent.yml:/etc/nebula-agent/agent.yml:ro

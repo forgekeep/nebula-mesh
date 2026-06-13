@@ -214,6 +214,7 @@ func Serve(configPath string, insecureHTTP bool) error {
 	webUI.WithPasswordPolicy(pwPolicy)
 	webUI.WithMaster(master)
 	webUI.WithCAResolver(caResolver)
+	webUI.WithEnrollmentTokenTTL(cfg.EnrollmentTokenTTLDuration())
 
 	// Live host-status SSE: API server fires HostSeenEmitter on each agent
 	// poll, EventBus fans out to subscribed browser tabs.

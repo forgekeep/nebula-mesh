@@ -912,7 +912,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		ID:        uuid.New().String(),
 		HostID:    host.ID,
 		TokenHash: models.HashEnrollmentToken(rawToken),
-		ExpiresAt: now.Add(24 * time.Hour),
+		ExpiresAt: now.Add(w.tokenTTLFor(r.Context(), networkID)),
 		CreatedAt: now,
 	}
 	if err := w.store.CreateHostAndToken(r.Context(), host, token); err != nil {

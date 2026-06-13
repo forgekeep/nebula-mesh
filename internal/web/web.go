@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/forgekeep/nebula-mesh/internal/auth"
+	"github.com/forgekeep/nebula-mesh/internal/enrollment"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
@@ -46,6 +47,7 @@ type Web struct {
 	passwordPolicy        auth.Policy
 	caMaster              *keystore.Master
 	caResolver            *pki.CAResolver
+	enrollmentTokenTTL    time.Duration
 
 	// apiKeyFlash holds freshly-minted operator API keys for one-shot
 	// display on the next operator-detail render. Closes GHSA-9pg3-25fq-p6cc
@@ -78,6 +80,23 @@ func (w *Web) WithRateLimiter(l *ratelimit.Limiter) {
 // WithCAResolver wires a CA resolver for mobile bundle generation.
 func (w *Web) WithCAResolver(r *pki.CAResolver) {
 	w.caResolver = r
+}
+
+// WithEnrollmentTokenTTL sets the default enrollment-token TTL applied to
+// agent hosts created through the Web UI when no per-network override exists.
+// Mirrors the API server's setter so both host-creation paths honor the same
+// operator-configured lifetime policy. A non-positive ttl is ignored, leaving
+// the resolver's built-in default in place. Closes GHSA-g4x6-jcvr-9m3g.
+func (w *Web) WithEnrollmentTokenTTL(ttl time.Duration) {
+	if ttl > 0 {
+		w.enrollmentTokenTTL = ttl
+	}
+}
+
+// tokenTTLFor resolves the enrollment-token TTL for networkID via the shared
+// enrollment policy resolver, identical to the API server path.
+func (w *Web) tokenTTLFor(ctx context.Context, networkID string) time.Duration {
+	return enrollment.TokenTTL(ctx, w.store, w.enrollmentTokenTTL, networkID)
 }
 
 // noStore tells the browser not to cache UI responses. Without this Chrome

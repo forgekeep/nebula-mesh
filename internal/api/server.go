@@ -14,6 +14,7 @@ import (
 
 	"github.com/forgekeep/nebula-mesh/internal/auth"
 	"github.com/forgekeep/nebula-mesh/internal/configgen"
+	"github.com/forgekeep/nebula-mesh/internal/enrollment"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
@@ -74,22 +75,12 @@ func (s *Server) WithEnrollmentTokenTTL(ttl time.Duration) {
 	}
 }
 
-// tokenTTLFor resolves the enrollment-token TTL for the network. Order of
-// precedence: per-network `enrollment_token_ttl` value in `network_config`,
-// then the server-level default, then 24h.
+// tokenTTLFor resolves the enrollment-token TTL for the network via the shared
+// enrollment policy resolver. Order of precedence: per-network
+// `enrollment_token_ttl` value in `network_config`, then the server-level
+// default, then enrollment.DefaultTokenTTL.
 func (s *Server) tokenTTLFor(ctx context.Context, networkID string) time.Duration {
-	if networkID != "" {
-		v, err := s.store.GetNetworkConfig(ctx, networkID, "enrollment_token_ttl")
-		if err == nil && v != "" {
-			if d, perr := time.ParseDuration(v); perr == nil && d > 0 {
-				return d
-			}
-		}
-	}
-	if s.enrollmentTokenTTL > 0 {
-		return s.enrollmentTokenTTL
-	}
-	return 24 * time.Hour
+	return enrollment.TokenTTL(ctx, s.store, s.enrollmentTokenTTL, networkID)
 }
 
 // WithCAResolver attaches a CAResolver. Must be called before ServeHTTP.

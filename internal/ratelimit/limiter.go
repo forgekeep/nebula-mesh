@@ -112,20 +112,21 @@ func (l *Limiter) Allow(ip, group string) (allowed bool, retryAfter time.Duratio
 }
 
 // ClientIP returns the effective IP for the request. When the limiter
-// is configured to trust X-Forwarded-For, the leftmost public address
-// wins; otherwise RemoteAddr is used.
+// is configured to trust X-Forwarded-For, the rightmost address wins:
+// that entry was appended by the reverse proxy in front of this server,
+// while everything to its left arrived in the client's own header and
+// is attacker-controlled. Entries left of the rightmost are never
+// consulted — falling back leftward on a parse failure would let a
+// client choose its own rate-limit key with "spoofed, garbage". If the
+// rightmost entry does not parse, or trust_proxy_header is off,
+// RemoteAddr is used.
 func (l *Limiter) ClientIP(r *http.Request) string {
 	if l != nil && l.cfg.TrustProxyHeader {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			parts := strings.Split(xff, ",")
-			for _, p := range parts {
-				p = strings.TrimSpace(p)
-				if p == "" {
-					continue
-				}
-				if ip := net.ParseIP(p); ip != nil {
-					return ip.String()
-				}
+			last := strings.TrimSpace(parts[len(parts)-1])
+			if ip := net.ParseIP(last); ip != nil {
+				return ip.String()
 			}
 		}
 	}

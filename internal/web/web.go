@@ -169,7 +169,12 @@ func (w *Web) WithOIDC(o *OIDC) {
 	// Wire the auto-provision callback so OIDC can create default CA
 	// for new user-role operators on their first login.
 	o.provisionCA = w.provisionDefaultCA
-	w.router.Get("/ui/oidc/login", o.HandleLogin)
+	// Both OIDC routes share the auth rate-limit bucket. /ui/oidc/login is
+	// unauthenticated and allocates server-side state per hit, so without a
+	// limiter an anonymous client could flood it and grow the in-memory state
+	// map for the full TTL window (GHSA-m3cx-mwpg-32jg). The handler also caps
+	// the map as a second line of defense.
+	w.router.With(w.rateLimitMiddleware("auth")).Get("/ui/oidc/login", o.HandleLogin)
 	w.router.With(w.rateLimitMiddleware("auth")).Get("/ui/oidc/callback", o.HandleCallback)
 }
 

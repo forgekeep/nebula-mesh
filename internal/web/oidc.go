@@ -24,6 +24,12 @@ import (
 const (
 	oidcStateCookieName = "nebula_oidc_state"
 	oidcStateTTL        = 10 * time.Minute
+	// oidcMaxLiveStates caps the number of concurrently pending OIDC login
+	// states. Combined with the auth rate limiter on /ui/oidc/login, it bounds
+	// the in-memory state map so an unauthenticated flood cannot grow it for
+	// the full TTL window (GHSA-m3cx-mwpg-32jg). Real deployments have at most
+	// a handful of in-flight logins, so this ceiling leaves ample headroom.
+	oidcMaxLiveStates = 4096
 )
 
 // OIDC encapsulates the configured OpenID Connect identity provider and
@@ -109,7 +115,15 @@ func (o *OIDC) HandleLogin(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	o.rememberState(state)
+	if !o.rememberState(state) {
+		// Live-state ceiling hit: refuse rather than grow the map unbounded.
+		// A 503 with Retry-After lets a legitimate client retry once the burst
+		// drains, while denying an attacker further allocation.
+		o.logger.Warn("oidc login refused: pending-state ceiling reached", "max", oidcMaxLiveStates)
+		rw.Header().Set("Retry-After", "60")
+		http.Error(rw, "too many pending logins, retry shortly", http.StatusServiceUnavailable)
+		return
+	}
 	http.SetCookie(rw, &http.Cookie{ // #nosec G124 -- Secure gated by o.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
 		Name:     oidcStateCookieName,
 		Value:    state,
@@ -350,20 +364,30 @@ func (o *OIDC) isAllowed(email string, groups []string) bool {
 	return false
 }
 
-func (o *OIDC) rememberState(state string) {
+// rememberState records a pending login state, sweeping expired entries first.
+// It returns false (without storing) when the live-state ceiling is reached, so
+// the caller fails the login closed rather than letting the map grow without
+// bound. The sweep alone cannot bound growth: within the TTL window an
+// unauthenticated flood accumulates non-expired entries faster than they age
+// out (GHSA-m3cx-mwpg-32jg), which is why the hard cap exists.
+func (o *OIDC) rememberState(state string) bool {
 	o.stateMu.Lock()
 	defer o.stateMu.Unlock()
 	o.sweepLocked(time.Now())
+	if len(o.states) >= oidcMaxLiveStates {
+		return false
+	}
 	o.states[state] = time.Now().Add(oidcStateTTL)
+	return true
 }
 
 // sweepLocked drops every state entry whose expiry is at or before now. The
 // caller MUST hold stateMu. Called lazily from rememberState so the per-call
-// cost is amortized across logins and the map cannot grow without bound
-// when an unauthenticated client bursts /ui/oidc/login. Avoiding a
-// background goroutine keeps the OIDC type cheap to construct and matches
-// the project's preference for lazy in-memory cleanup where the hot path
-// already takes the lock.
+// cost is amortized across logins. Avoiding a background goroutine keeps the
+// OIDC type cheap to construct and matches the project's preference for lazy
+// in-memory cleanup where the hot path already takes the lock. The sweep only
+// reclaims expired entries; the live-state cap in rememberState is what bounds
+// growth under a burst.
 func (o *OIDC) sweepLocked(now time.Time) {
 	for s, exp := range o.states {
 		if !now.Before(exp) {

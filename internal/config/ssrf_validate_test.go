@@ -22,6 +22,10 @@ func TestValidateWebhookURL(t *testing.T) {
 		{name: "metadata link-local rejected", url: "http://169.254.169.254/latest/meta-data/", wantErr: true},
 		{name: "loopback allowed with opt-out", url: "http://127.0.0.1:9093/x", allowPrivate: true, wantErr: false},
 		{name: "private allowed with opt-out", url: "http://10.0.0.5/x", allowPrivate: true, wantErr: false},
+		// IPv4-mapped IPv6 forms must classify by the embedded v4 address.
+		{name: "mapped loopback rejected", url: "http://[::ffff:127.0.0.1]:9093/x", wantErr: true},
+		{name: "mapped private rejected", url: "http://[::ffff:10.0.0.5]/x", wantErr: true},
+		{name: "mapped unspecified rejected", url: "http://[::ffff:0.0.0.0]/x", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

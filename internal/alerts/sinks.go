@@ -7,9 +7,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/store"
@@ -50,10 +55,21 @@ func (a *AuditSink) Notify(ctx context.Context, ev Alert) error {
 // in the X-Nebula-Signature header (sha256=<hex>). If HMACSecret is empty,
 // the signature header is omitted — useful for trusted-internal alertmanager
 // endpoints behind mTLS where signing is redundant.
+//
+// Unless AllowPrivate is set, deliveries are SSRF-guarded at request time:
+// the dialer rejects connections to private/loopback/link-local addresses
+// after DNS resolution, and redirects re-apply the same check per hop. This
+// complements the config-load check in validateWebhookURL, which cannot see
+// what a hostname resolves to at delivery time or where a redirect points.
 type WebhookSink struct {
 	URL        string
 	HMACSecret string
 	HTTPClient *http.Client
+	// AllowPrivate disables the request-time private-address guard,
+	// mirroring alerts.allow_private_webhook for intentional internal
+	// sinks. Only consulted when HTTPClient is nil — a caller-supplied
+	// client manages its own transport policy.
+	AllowPrivate bool
 }
 
 // SignatureHeader is the HTTP header webhook receivers should inspect to
@@ -87,21 +103,84 @@ func (w *WebhookSink) Notify(ctx context.Context, ev Alert) error {
 
 	client := w.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = newWebhookClient(w.AllowPrivate)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("webhook POST: %w", err)
 	}
 	defer func() {
+		// Drain the (small) body before closing so the underlying
+		// connection can return to the keep-alive pool for reuse rather
+		// than being discarded mid-response.
+		_, _ = io.Copy(io.Discard, resp.Body)
 		if err := resp.Body.Close(); err != nil {
-			// nothing meaningful to do — drain failed but the upstream
-			// status was already captured.
-			_ = err
+			_ = err // status already captured; nothing actionable on close failure
 		}
 	}()
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// errPrivateWebhookAddr is returned by the guarded dialer when a webhook
+// delivery would connect to a non-public address.
+var errPrivateWebhookAddr = errors.New("webhook delivery to private/loopback/link-local address blocked (SSRF guard); set alerts.allow_private_webhook: true for an intentional internal sink")
+
+// isBlockedWebhookAddr reports whether addr is a non-public destination the
+// webhook guard must refuse: loopback, private, link-local, or unspecified.
+// An IPv4-mapped IPv6 address is first unmapped to its v4 form — netip's
+// predicates classify most mapped forms correctly, but ::ffff:0.0.0.0 reads
+// as non-unspecified while 0.0.0.0 routes to localhost on connect, so Unmap
+// makes the check form-independent. Mirrors config.hostIsPrivate; the two
+// must stay in sync.
+func isBlockedWebhookAddr(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast() || addr.IsUnspecified()
+}
+
+// newWebhookClient builds the sink's default HTTP client. With the guard
+// active (allowPrivate false), the address check runs in the dialer's
+// Control hook — after DNS resolution, on the literal IP being connected
+// to — so a hostname that was public at config load but resolves privately
+// at delivery time (DNS rebinding), and any redirect hop, are both caught.
+// CheckRedirect re-applies because each redirect triggers a fresh dial
+// through the same transport; the explicit hop cap mirrors http's default.
+func newWebhookClient(allowPrivate bool) *http.Client {
+	if allowPrivate {
+		return &http.Client{Timeout: 10 * time.Second}
+	}
+	dialer := &net.Dialer{
+		Control: func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return fmt.Errorf("webhook dial %q: %w", address, err)
+			}
+			addr, err := netip.ParseAddr(host)
+			if err != nil {
+				return fmt.Errorf("webhook dial %q: %w", address, err)
+			}
+			if isBlockedWebhookAddr(addr) {
+				return errPrivateWebhookAddr
+			}
+			return nil
+		},
+	}
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			DialContext: dialer.DialContext,
+		},
+		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("webhook: too many redirects")
+			}
+			// Each hop dials through the guarded transport, so the
+			// private-address check re-applies automatically; nothing
+			// further to validate here.
+			return nil
+		},
+	}
 }

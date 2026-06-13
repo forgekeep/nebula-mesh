@@ -165,14 +165,19 @@ func hostIsPrivate(host string) bool {
 	if err != nil {
 		return false
 	}
+	// Unmap an IPv4-mapped IPv6 form so the predicates classify it by its
+	// embedded v4 address (covers ::ffff:0.0.0.0, which netip otherwise
+	// reads as non-unspecified while 0.0.0.0 routes to localhost).
+	addr = addr.Unmap()
 	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() ||
 		addr.IsLinkLocalMulticast() || addr.IsUnspecified()
 }
 
 // validateWebhookURL guards the alert webhook against SSRF (#188): the URL must
 // be http/https with a host, and (unless allowPrivate) must not target a
-// private/loopback/link-local address. DNS names are not resolved here, so this
-// is a config-load guard, not a full request-time SSRF defense.
+// private/loopback/link-local address. DNS names are not resolved here — this
+// is the config-load layer; the delivery-time layer (post-resolution dialer
+// guard + per-redirect-hop re-check) lives in the alerts WebhookSink.
 func validateWebhookURL(rawURL string, allowPrivate bool) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {

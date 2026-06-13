@@ -143,18 +143,21 @@ func Serve(configPath string, insecureHTTP bool) error {
 	// host.enrolled/blocked/unblocked/deleted and cert.rotated through the
 	// dispatcher; cert.expiring is fanned in below via the alerts scanner. Nil
 	// when disabled — the api emitter and Close are both nil-safe.
-	var webhookDispatcher *webhook.Dispatcher
-	if cfg.Webhooks.Enabled && cfg.Webhooks.URL != "" {
-		webhookDispatcher = webhook.New(webhook.Config{
-			URL:          cfg.Webhooks.URL,
-			HMACSecret:   cfg.Webhooks.HMACSecret,
-			AllowPrivate: cfg.Webhooks.AllowPrivate,
-			Events:       cfg.Webhooks.Events,
-		}, logger)
-		defer webhookDispatcher.Close()
-		apiSrv.WithEventEmitter(webhookDispatcher)
-		logger.Info("webhooks enabled", "url", cfg.Webhooks.URL, "events", cfg.Webhooks.Events)
-	}
+	// The webhook dispatcher always runs: managed subscriptions (#256 phase 2)
+	// are created at runtime via the API, so the bus must be live to pick them
+	// up even when the static config webhook (phase 1) is unset. It fans each
+	// event out to DB-backed subscriptions plus the optional static config
+	// target.
+	webhookDispatcher := webhook.New(webhook.Config{
+		URL:          cfg.Webhooks.URL,
+		HMACSecret:   cfg.Webhooks.HMACSecret,
+		AllowPrivate: cfg.Webhooks.AllowPrivate,
+		Events:       cfg.Webhooks.Events,
+		Source:       webhook.NewStoreSource(s, master, logger),
+	}, logger)
+	defer webhookDispatcher.Close()
+	apiSrv.WithEventEmitter(webhookDispatcher)
+	logger.Info("webhook dispatcher started", "static_url", cfg.Webhooks.URL != "")
 
 	// Build a single rate limiter shared by API and Web. The Web UI runs
 	// auth/ui groups; the API server runs api/enroll/agent_poll groups.

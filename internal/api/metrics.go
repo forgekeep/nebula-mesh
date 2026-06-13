@@ -72,6 +72,9 @@ const (
 	auditOperatorAPIKeyCreate      = "operator.api_key.create"
 	auditOperatorAPIKeyRevoke      = "operator.api_key.revoke"
 	auditSettingsEnforce2FA        = "settings.enforce_2fa"
+	auditWebhookSubCreate          = "webhook_subscription.create"
+	auditWebhookSubUpdate          = "webhook_subscription.update"
+	auditWebhookSubDelete          = "webhook_subscription.delete"
 )
 
 // Audit reason codes used in the `details` field of host.auth.failed audit
@@ -197,6 +200,7 @@ func newMetrics(s store.Store) *metrics {
 		auditOperatorCreate, auditOperatorDisable, auditOperatorEnable,
 		auditOperatorAPIKeyCreate, auditOperatorAPIKeyRevoke,
 		auditSettingsEnforce2FA,
+		auditWebhookSubCreate, auditWebhookSubUpdate, auditWebhookSubDelete,
 	} {
 		m.auditEntries.WithLabelValues(action).Add(0)
 	}

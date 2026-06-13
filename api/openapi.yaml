@@ -198,6 +198,86 @@ paths:
                 items:
                   $ref: "#/components/schemas/AuditEntry"
 
+  /api/v1/webhook-subscriptions:
+    get:
+      operationId: listWebhookSubscriptions
+      summary: List webhook subscriptions visible to the operator.
+      responses:
+        "200":
+          description: Subscriptions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebhookSubscription"
+    post:
+      operationId: createWebhookSubscription
+      summary: Create a webhook subscription.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookSubscriptionRequest"
+      responses:
+        "201":
+          description: Created subscription.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/webhook-subscriptions/{id}:
+    get:
+      operationId: getWebhookSubscription
+      summary: Get a webhook subscription by id.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Subscription.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: updateWebhookSubscription
+      summary: Update a webhook subscription.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookSubscriptionRequest"
+      responses:
+        "200":
+          description: Updated subscription.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteWebhookSubscription
+      summary: Delete a webhook subscription.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "204":
+          description: Deleted.
+        "404":
+          $ref: "#/components/responses/Error"
+
 # Outbound webhooks the server POSTs to an operator-configured endpoint (#256).
 # Each delivery carries X-Nebula-Event (type), X-Nebula-Delivery (id), and
 # X-Nebula-Signature (sha256=<hmac> over the raw body). The handler/scanner emit
@@ -604,3 +684,59 @@ components:
           format: date-time
         data:
           $ref: "#/components/schemas/CertExpiringData"
+
+    # --- Managed webhook subscriptions (#256 phase 2) ---
+
+    WebhookSubscriptionRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+        events:
+          type: ["array", "null"]
+          items:
+            type: string
+        active:
+          type: boolean
+        allow_private:
+          type: boolean
+        secret:
+          type: string
+          description: Write-only HMAC secret. Omit to keep, "" to clear, value to set.
+
+    WebhookSubscription:
+      type: object
+      required: [id, owner_operator_id, url, active, allow_private, has_secret, consecutive_failures, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        owner_operator_id:
+          type: string
+        url:
+          type: string
+        events:
+          type: ["array", "null"]
+          items:
+            type: string
+        active:
+          type: boolean
+        allow_private:
+          type: boolean
+        has_secret:
+          type: boolean
+        last_delivery_at:
+          type: string
+          format: date-time
+        last_status:
+          type: string
+        last_error:
+          type: string
+        consecutive_failures:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

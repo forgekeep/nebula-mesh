@@ -63,9 +63,10 @@ var protectedGETScoping = map[string]listScoping{
 	"/api/v1/agent/updates": publicRoute, // agent poll, signed-poll auth — not operator bearer
 
 	// Collection reads — must scope non-admins to owned CAs.
-	"/api/v1/networks": scopedToOwner,
-	"/api/v1/hosts":    scopedToOwner,
-	"/api/v1/cas":      scopedToOwner,
+	"/api/v1/networks":              scopedToOwner,
+	"/api/v1/hosts":                 scopedToOwner,
+	"/api/v1/cas":                   scopedToOwner,
+	"/api/v1/webhook-subscriptions": scopedToOwner,
 
 	// Admin-only reads — non-admin gets 403, no tenant data in the body.
 	"/api/v1/operators":               adminOnly,
@@ -75,10 +76,11 @@ var protectedGETScoping = map[string]listScoping{
 	"/api/v1/settings":                adminOnly,
 
 	// Single-resource reads — guarded per-row by canAccess*.
-	"/api/v1/networks/{id}":          singleResource,
-	"/api/v1/networks/{id}/firewall": singleResource,
-	"/api/v1/hosts/{id}":             singleResource,
-	"/api/v1/cas/{id}":               singleResource,
+	"/api/v1/networks/{id}":              singleResource,
+	"/api/v1/networks/{id}/firewall":     singleResource,
+	"/api/v1/hosts/{id}":                 singleResource,
+	"/api/v1/cas/{id}":                   singleResource,
+	"/api/v1/webhook-subscriptions/{id}": singleResource,
 }
 
 // TestProtectedGETRoutesAreClassified fails the moment setupRoutes registers
@@ -116,12 +118,16 @@ func TestProtectedGETRoutesAreClassified(t *testing.T) {
 func TestListEndpointsScopeToOwner(t *testing.T) {
 	srv, st := newTestServer(t)
 
-	keyA, _, caA := createOperatorWithCA(t, srv)
-	keyB, _, caB := createOperatorWithCA(t, srv)
+	keyA, opA, caA := createOperatorWithCA(t, srv)
+	keyB, opB, caB := createOperatorWithCA(t, srv)
 	// Distinct CIDRs/IPs so the seed is robust to any nebula_ip uniqueness
 	// scheme; ownership is what the test cares about, not addressing.
 	seedNetworkAndHost(t, st, caA.ID, "a", "10.10.0.0/24", "10.10.0.10")
 	seedNetworkAndHost(t, st, caB.ID, "b", "10.20.0.0/24", "10.20.0.10")
+	// Webhook subscriptions carry no ca_id, so embed the owner's CA id in the
+	// URL to satisfy the generic owner-leak assertions below.
+	seedWebhookSub(t, st, opA.ID, "https://example.com/"+caA.ID)
+	seedWebhookSub(t, st, opB.ID, "https://example.com/"+caB.ID)
 
 	for route, scoping := range protectedGETScoping {
 		switch scoping {
@@ -176,6 +182,20 @@ func authedGET(srv *Server, route, key string) (int, string) {
 // {kid} sub-key param, so {id} is the only substitution needed.
 func concretePath(route string) string {
 	return strings.ReplaceAll(route, "{id}", "test-admin")
+}
+
+// seedWebhookSub inserts a webhook subscription owned by ownerID directly via
+// the store, bypassing the create handler's owner derivation so cross-operator
+// fixtures can be set up.
+func seedWebhookSub(t *testing.T, st *store.SQLiteStore, ownerID, url string) {
+	t.Helper()
+	require.NoError(t, st.CreateWebhookSubscription(context.Background(), &models.WebhookSubscription{
+		ID:              uuid.New().String(),
+		OwnerOperatorID: ownerID,
+		URL:             url,
+		Active:          true,
+		CreatedAt:       time.Now(),
+	}))
 }
 
 // seedNetworkAndHost inserts a network and a host bound to caID directly via

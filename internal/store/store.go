@@ -38,6 +38,16 @@ type Store interface {
 	UpdateCAStatus(ctx context.Context, id string, status models.CAStatus) error
 	DeleteCA(ctx context.Context, id string) error
 
+	// Webhook subscriptions
+	CreateWebhookSubscription(ctx context.Context, sub *models.WebhookSubscription) error
+	GetWebhookSubscription(ctx context.Context, id string) (*models.WebhookSubscription, error)
+	ListWebhookSubscriptions(ctx context.Context) ([]*models.WebhookSubscription, error)
+	ListWebhookSubscriptionsByOwner(ctx context.Context, ownerID string) ([]*models.WebhookSubscription, error)
+	ListActiveWebhookSubscriptions(ctx context.Context) ([]*models.WebhookSubscription, error)
+	UpdateWebhookSubscription(ctx context.Context, sub *models.WebhookSubscription) error
+	DeleteWebhookSubscription(ctx context.Context, id string) error
+	RecordWebhookDelivery(ctx context.Context, id string, ok bool, errMsg string, at time.Time) error
+
 	// Networks
 	CreateNetwork(ctx context.Context, n *models.Network) error
 	GetNetwork(ctx context.Context, id string) (*models.Network, error)

@@ -149,6 +149,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"019_session_token_hash.up.sql",
 		"020_operator_totp_timestep.up.sql",
 		"021_webhook_subscriptions.up.sql",
+		"022_operator_lockout.up.sql",
 	}
 
 	conn, err := s.db.Conn(ctx)

@@ -11,7 +11,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
-const operatorColumns = `id, username, display_name, password_hash, auth_provider, status, role, totp_secret, totp_enabled, oidc_issuer, oidc_subject, created_at, updated_at, last_login_at`
+const operatorColumns = `id, username, display_name, password_hash, auth_provider, status, role, totp_secret, totp_enabled, oidc_issuer, oidc_subject, created_at, updated_at, last_login_at, failed_login_attempts, locked_until`
 
 func scanOperator(scanner interface {
 	Scan(dest ...any) error
@@ -19,6 +19,7 @@ func scanOperator(scanner interface {
 	var op models.Operator
 	var (
 		lastLogin   sql.NullTime
+		lockedUntil sql.NullTime
 		totpEnabled int
 	)
 	if err := scanner.Scan(
@@ -27,6 +28,7 @@ func scanOperator(scanner interface {
 		&op.TOTPSecret, &totpEnabled,
 		&op.OIDCIssuer, &op.OIDCSubject,
 		&op.CreatedAt, &op.UpdatedAt, &lastLogin,
+		&op.FailedLoginAttempts, &lockedUntil,
 	); err != nil {
 		return nil, err
 	}
@@ -34,6 +36,10 @@ func scanOperator(scanner interface {
 	if lastLogin.Valid {
 		t := lastLogin.Time
 		op.LastLoginAt = &t
+	}
+	if lockedUntil.Valid {
+		t := lockedUntil.Time
+		op.LockedUntil = &t
 	}
 	return &op, nil
 }
@@ -260,6 +266,41 @@ func (s *SQLiteStore) UpdateOperatorLastLogin(ctx context.Context, id string, t 
 	_, err := s.db.ExecContext(ctx, `UPDATE operators SET last_login_at=?, updated_at=? WHERE id=?`, t, t, id)
 	if err != nil {
 		return fmt.Errorf("update last_login_at: %w", err)
+	}
+	return nil
+}
+
+// RecordFailedLoginAttempt increments the operator's consecutive failed-login
+// counter and, when the count reaches maxAttempts, sets locked_until to
+// lockUntil — atomically in one UPDATE so concurrent failures can't race past
+// the threshold (#263). It reports whether the account is now locked.
+func (s *SQLiteStore) RecordFailedLoginAttempt(ctx context.Context, id string, maxAttempts int, lockUntil time.Time) (bool, error) {
+	now := time.Now()
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE operators
+		    SET failed_login_attempts = failed_login_attempts + 1,
+		        locked_until = CASE WHEN failed_login_attempts + 1 >= ? THEN ? ELSE locked_until END,
+		        updated_at = ?
+		  WHERE id = ?`,
+		maxAttempts, lockUntil, now, id); err != nil {
+		return false, fmt.Errorf("record failed login: %w", err)
+	}
+	var locked sql.NullTime
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT locked_until FROM operators WHERE id = ?`, id).Scan(&locked); err != nil {
+		return false, fmt.Errorf("read lock state: %w", err)
+	}
+	return locked.Valid && locked.Time.After(now), nil
+}
+
+// ResetFailedLoginAttempts clears the failed-login counter and any active lock,
+// called on a successful login and when an expired lock is observed (#263).
+func (s *SQLiteStore) ResetFailedLoginAttempts(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE operators SET failed_login_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?`,
+		time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("reset failed login attempts: %w", err)
 	}
 	return nil
 }

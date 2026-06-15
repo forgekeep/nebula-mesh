@@ -21,6 +21,13 @@ const (
 	sessionCookieName  = "nebula_session"
 	sessionDuration    = 24 * time.Hour
 	pendingTOTPMaxLife = 5 * time.Minute
+
+	// maxFailedLoginAttempts is the number of consecutive failed password
+	// logins that lock a local account; lockoutDuration is how long the lock
+	// lasts (#263, OWASP ASVS V2.1.5). Defense-in-depth over the IP rate
+	// limiter against distributed brute-force from many source IPs.
+	maxFailedLoginAttempts = 10
+	lockoutDuration        = 15 * time.Minute
 )
 
 // dummyPasswordHash is compared against the submitted password on the
@@ -99,6 +106,22 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
 		return LoginResult{}, false, nil
 	}
+	// Per-account lockout (#263). An active lock denies login regardless of the
+	// password, with the same dummy-bcrypt timing and (false, nil) result as a
+	// wrong password so an attacker can't tell a locked account apart (#180).
+	// An expired lock is cleared first so the operator gets a fresh attempt
+	// budget instead of re-locking on the next single mistake.
+	if op.LockedUntil != nil {
+		if time.Now().Before(*op.LockedUntil) {
+			_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
+			return LoginResult{}, false, nil
+		}
+		if err := sm.store.ResetFailedLoginAttempts(r.Context(), op.ID); err != nil {
+			slog.Debug("reset expired lockout", "error", err)
+		}
+		op.FailedLoginAttempts = 0
+		op.LockedUntil = nil
+	}
 	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(password)); err != nil {
 		if !errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
 			// The stored value is not a usable bcrypt hash — e.g. the "oidc"
@@ -107,10 +130,28 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 			// an active OIDC username is indistinguishable from a wrong
 			// password (#180).
 			_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
+		} else {
+			// Genuine wrong password on a local account: count it toward the
+			// lockout threshold and lock when reached. OIDC accounts (no usable
+			// hash, handled above) are not counted — they never log in here.
+			locked, rerr := sm.store.RecordFailedLoginAttempt(r.Context(), op.ID, maxFailedLoginAttempts, time.Now().Add(lockoutDuration))
+			if rerr != nil {
+				slog.Debug("record failed login", "error", rerr)
+			} else if locked {
+				_ = sm.store.AddAuditEntry(r.Context(), op.Username, "operator.account_locked", op.ID, "")
+			}
 		}
 		// Wrong password is a normal auth failure (bool=false), not a system
 		// error to surface to the caller.
 		return LoginResult{}, false, nil //nolint:nilerr
+	}
+
+	// Correct password: clear any prior failure streak so good logins never
+	// accumulate toward a lock (#263). Cheap no-op when already zero.
+	if op.FailedLoginAttempts > 0 {
+		if err := sm.store.ResetFailedLoginAttempts(r.Context(), op.ID); err != nil {
+			slog.Debug("reset failed login counter", "error", err)
+		}
 	}
 
 	// Generate both tokens BEFORE any DB write or response mutation.

@@ -155,6 +155,8 @@ type Store interface {
 	ListOperators(ctx context.Context) ([]*models.Operator, error)
 	UpdateOperatorPassword(ctx context.Context, id, passwordHash string) error
 	UpdateOperatorLastLogin(ctx context.Context, id string, t time.Time) error
+	RecordFailedLoginAttempt(ctx context.Context, id string, maxAttempts int, lockUntil time.Time) (bool, error)
+	ResetFailedLoginAttempts(ctx context.Context, id string) error
 	DisableOperator(ctx context.Context, id string) error
 	EnableOperator(ctx context.Context, id string) error
 

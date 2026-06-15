@@ -46,6 +46,13 @@ type Operator struct {
 	CreatedAt    time.Time            `json:"created_at"`
 	UpdatedAt    time.Time            `json:"updated_at"`
 	LastLoginAt  *time.Time           `json:"last_login_at,omitempty"`
+
+	// FailedLoginAttempts counts consecutive failed password logins; it
+	// resets to 0 on a successful login or when an expired lock is cleared
+	// (#263). LockedUntil, when non-nil and in the future, blocks login
+	// regardless of credentials.
+	FailedLoginAttempts int        `json:"-"`
+	LockedUntil         *time.Time `json:"-"`
 }
 
 // OperatorAPIKey is a per-operator API key. Only the hash is stored.

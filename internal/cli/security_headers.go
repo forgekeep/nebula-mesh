@@ -15,6 +15,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		"script-src 'self' 'unsafe-inline'; " +
 		"style-src 'self' 'unsafe-inline'; " +
 		"img-src 'self' data:; " +
+		"object-src 'none'; " +
 		"frame-ancestors 'none'; " +
 		"base-uri 'none'; " +
 		"form-action 'self'"

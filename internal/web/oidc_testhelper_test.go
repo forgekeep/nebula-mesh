@@ -62,9 +62,9 @@ type mockIDP struct {
 	tokenStatus int
 }
 
-// setupOIDCServer starts a mock IdP and returns a handle for configuring it.
-// Callers must call t.Cleanup or defer Close.
-func setupOIDCServer(t *testing.T) *mockIDP {
+// newMockIDP builds a mock IdP (signing key + handlers) without starting a
+// server, so callers can choose a plaintext or TLS httptest server.
+func newMockIDP(t *testing.T) *mockIDP {
 	t.Helper()
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -88,19 +88,42 @@ func setupOIDCServer(t *testing.T) *mockIDP {
 		return nil
 	}
 
-	idp := &mockIDP{
+	return &mockIDP{
 		signer:    signer,
 		publicKey: &key.PublicKey,
 		kid:       kid,
 	}
+}
 
+// routes wires the five discovery/JWKS/token/userinfo/auth endpoints the
+// relying-party flow needs onto a fresh mux.
+func (m *mockIDP) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/.well-known/openid-configuration", idp.handleDiscovery)
-	mux.HandleFunc("/keys", idp.handleJWKS)
-	mux.HandleFunc("/auth", idp.handleAuth)
-	mux.HandleFunc("/token", idp.handleToken)
-	mux.HandleFunc("/userinfo", idp.handleUserinfo)
-	idp.server = httptest.NewServer(mux)
+	mux.HandleFunc("/.well-known/openid-configuration", m.handleDiscovery)
+	mux.HandleFunc("/keys", m.handleJWKS)
+	mux.HandleFunc("/auth", m.handleAuth)
+	mux.HandleFunc("/token", m.handleToken)
+	mux.HandleFunc("/userinfo", m.handleUserinfo)
+	return mux
+}
+
+// setupOIDCServer starts a plaintext-HTTP mock IdP and returns a handle for
+// configuring it. Callers must call t.Cleanup or defer Close.
+func setupOIDCServer(t *testing.T) *mockIDP {
+	t.Helper()
+	idp := newMockIDP(t)
+	idp.server = httptest.NewServer(idp.routes())
+	t.Cleanup(idp.Close)
+	return idp
+}
+
+// setupOIDCServerTLS starts the same mock IdP over TLS (self-signed cert), used
+// to exercise oidc.tls_ca_cert certificate pinning (#264). The server's cert is
+// reachable via idp.server.Certificate().
+func setupOIDCServerTLS(t *testing.T) *mockIDP {
+	t.Helper()
+	idp := newMockIDP(t)
+	idp.server = httptest.NewTLSServer(idp.routes())
 	t.Cleanup(idp.Close)
 	return idp
 }

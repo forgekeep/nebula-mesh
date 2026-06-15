@@ -270,6 +270,13 @@ func (w *Web) handleProfilePage(rw http.ResponseWriter, r *http.Request) {
 		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 		return
 	}
+	w.renderProfile(rw, r, op, nil)
+}
+
+// renderProfile loads the operator's CAs and renders the profile page. extra
+// merges page-specific fields (e.g. password-change messages) into the template
+// data, so callers can re-render the page with an inline result.
+func (w *Web) renderProfile(rw http.ResponseWriter, r *http.Request, op *models.Operator, extra map[string]any) {
 	cas, err := w.store.ListCAsByOwner(r.Context(), op.ID)
 	if err != nil {
 		w.logger.Error("list cas for profile", "error", err)
@@ -284,11 +291,73 @@ func (w *Web) handleProfilePage(rw http.ResponseWriter, r *http.Request) {
 			IsExpiringSoon: pki.ShouldRenew(ca.NotBefore, ca.NotAfter),
 		}
 	}
-	w.renderForRequest(rw, r, "profile.html", map[string]any{
+	data := map[string]any{
 		"Active":   "profile",
 		"Operator": op,
 		"CAs":      caViews,
-	})
+		// IsLocal gates the change-password form: OIDC operators have no local
+		// password to change.
+		"IsLocal": op.AuthProvider == models.OperatorAuthLocal,
+	}
+	for k, v := range extra {
+		data[k] = v
+	}
+	w.renderForRequest(rw, r, "profile.html", data)
+}
+
+// handleChangePassword lets an operator change their own password after proving
+// the current one (#259). On success it revokes every other session of the
+// operator while keeping the caller's current session alive.
+func (w *Web) handleChangePassword(rw http.ResponseWriter, r *http.Request) {
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	// OIDC operators authenticate through the IdP and have no local password.
+	if op.AuthProvider != models.OperatorAuthLocal {
+		http.Error(rw, "password change is not available for federated accounts", http.StatusForbidden)
+		return
+	}
+
+	oldPassword := r.FormValue("old_password")
+	newPassword := r.FormValue("new_password")
+	confirm := r.FormValue("new_password_confirm")
+
+	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(oldPassword)); err != nil {
+		w.renderProfile(rw, r, op, map[string]any{"PasswordError": "Current password is incorrect"})
+		return
+	}
+	if err := w.passwordPolicy.Validate(newPassword, strings.ToLower(op.Username)); err != nil {
+		w.renderProfile(rw, r, op, map[string]any{"PasswordError": err.Error()})
+		return
+	}
+	if newPassword != confirm {
+		w.renderProfile(rw, r, op, map[string]any{"PasswordError": "Password confirmation does not match"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		w.logger.Error("hash password", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := w.store.UpdateOperatorPassword(r.Context(), op.ID, string(hash)); err != nil {
+		w.logger.Error("update password", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// Revoke every other session so a self-service change after a suspected
+	// compromise locks out a stolen cookie, while keeping the caller's current
+	// session alive (#259, mirrors the admin-reset cascade in #204, CWE-613).
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		if err := w.store.DeleteOperatorSessionsByOperatorExcept(r.Context(), op.ID, cookie.Value); err != nil {
+			w.logger.Error("invalidate other sessions on password change", "error", err)
+		}
+	}
+	_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.change_password", op.ID, "")
+	w.renderProfile(rw, r, op, map[string]any{"PasswordSuccess": "Password changed. Other sessions have been signed out."})
 }
 
 // --- 2FA management ---

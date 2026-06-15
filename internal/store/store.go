@@ -184,6 +184,7 @@ type Store interface {
 	PromoteOperatorSession(ctx context.Context, token string, newExpiry time.Time) error
 	DeleteOperatorSession(ctx context.Context, token string) error
 	DeleteOperatorSessionsByOperator(ctx context.Context, operatorID string) error
+	DeleteOperatorSessionsByOperatorExcept(ctx context.Context, operatorID, keepToken string) error
 	DeleteExpiredOperatorSessions(ctx context.Context, before time.Time) error
 
 	// Lifecycle

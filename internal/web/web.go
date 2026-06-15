@@ -333,6 +333,7 @@ func (w *Web) setupRoutes() {
 			r.Get("/ui/networks", w.handleNetworks)
 			r.Post("/ui/networks", w.handleNetworkCreate)
 			r.Get("/ui/profile", w.handleProfilePage)
+			r.Post("/ui/profile/change-password", w.handleChangePassword)
 			r.Get("/ui/2fa", w.handleTwoFAPage)
 			r.Get("/ui/2fa/required", w.handleTwoFARequired)
 			r.Get("/ui/settings", w.handleSettingsPage)

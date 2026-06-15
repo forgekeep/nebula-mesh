@@ -749,6 +749,21 @@ func (s *SQLiteStore) DeleteOperatorSessionsByOperator(ctx context.Context, oper
 	return nil
 }
 
+// DeleteOperatorSessionsByOperatorExcept removes every session of an operator
+// except the one identified by keepToken, used by self-service password change
+// to revoke other (possibly compromised) sessions while keeping the caller's
+// current session alive (#259). keepToken is the raw cookie value; it is hashed
+// here, mirroring DeleteOperatorSession.
+func (s *SQLiteStore) DeleteOperatorSessionsByOperatorExcept(ctx context.Context, operatorID, keepToken string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM operator_sessions WHERE operator_id=? AND token_hash<>?`,
+		operatorID, models.HashSessionToken(keepToken))
+	if err != nil {
+		return fmt.Errorf("delete sessions by operator except current: %w", err)
+	}
+	return nil
+}
+
 func (s *SQLiteStore) DeleteExpiredOperatorSessions(ctx context.Context, before time.Time) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE expires_at < ?`, before)
 	if err != nil {

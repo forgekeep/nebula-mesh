@@ -16,6 +16,21 @@
     </table>
 </div>
 
+{{if .IsLocal}}
+<div class="card">
+    <h2>Change password</h2>
+    {{if .PasswordError}}<p class="error" style="color:var(--danger,#c0392b)">{{.PasswordError}}</p>{{end}}
+    {{if .PasswordSuccess}}<p class="success" style="color:var(--success,#27ae60)">{{.PasswordSuccess}}</p>{{end}}
+    <form method="POST" action="/ui/profile/change-password" class="change-password">
+        {{ csrfField }}
+        <p><label>Current password<br><input type="password" name="old_password" autocomplete="current-password" required></label></p>
+        <p><label>New password<br><input type="password" name="new_password" autocomplete="new-password" required></label></p>
+        <p><label>Confirm new password<br><input type="password" name="new_password_confirm" autocomplete="new-password" required></label></p>
+        <button type="submit" class="btn btn-primary">Change password</button>
+    </form>
+</div>
+{{end}}
+
 <div class="card">
     <h2>Account actions</h2>
     <p style="margin-bottom:12px"><a href="/ui/2fa">Manage two-factor authentication →</a></p>

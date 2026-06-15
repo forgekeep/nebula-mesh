@@ -91,8 +91,14 @@ func TestRegister_RejectsDuplicateUsername(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), "Username already taken") {
-		t.Errorf("expected duplicate-username error; body=%s", rec.Body.String())
+	body := rec.Body.String()
+	if !strings.Contains(body, "Registration failed") {
+		t.Errorf("expected generic registration error; body=%s", body)
+	}
+	// The response must not reveal that the username specifically is taken,
+	// otherwise it becomes a username-enumeration oracle (#260).
+	if strings.Contains(body, "already taken") {
+		t.Errorf("response leaks that username exists; body=%s", body)
 	}
 }
 

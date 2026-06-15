@@ -229,7 +229,11 @@ func (w *Web) handleRegister(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := w.store.GetOperatorByUsername(r.Context(), username); err == nil {
-		w.renderForRequest(rw, r, "register.html", map[string]any{"Error": "Username already taken"})
+		// Generic message so an unauthenticated caller cannot enumerate
+		// existing operator usernames via a distinct error (#260). The real
+		// reason is logged server-side.
+		w.renderForRequest(rw, r, "register.html", map[string]any{"Error": "Registration failed"})
+		w.logger.Info("register: username taken", "username", username)
 		return
 	} else if !errors.Is(err, store.ErrNotFound) {
 		w.logger.Error("register: lookup", "error", err)

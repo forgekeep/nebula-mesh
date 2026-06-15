@@ -67,6 +67,44 @@ func TestLoadServerConfig_Defaults(t *testing.T) {
 	}
 }
 
+func TestMetricsConfig_RequireAuthEnabled(t *testing.T) {
+	// Default (omitted) gates /metrics behind bearer auth (#262): the metric
+	// labels expose host/network/CA IDs, so unauthenticated scraping is now
+	// opt-in.
+	var m MetricsConfig
+	if !m.RequireAuthEnabled() {
+		t.Error("RequireAuthEnabled() = false for unset config, want true (auth-gated by default)")
+	}
+
+	// Operators on a trusted network opt out explicitly.
+	f := false
+	m.RequireAuth = &f
+	if m.RequireAuthEnabled() {
+		t.Error("RequireAuthEnabled() = true with require_auth: false, want false")
+	}
+
+	tr := true
+	m.RequireAuth = &tr
+	if !m.RequireAuthEnabled() {
+		t.Error("RequireAuthEnabled() = false with require_auth: true, want true")
+	}
+}
+
+func TestLoadServerConfig_MetricsRequireAuthDefault(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadServerConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Metrics.RequireAuthEnabled() {
+		t.Error("metrics.require_auth default = false, want true (#262)")
+	}
+}
+
 func TestLoadServerConfig_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "server.yml")

@@ -136,7 +136,7 @@ func Serve(configPath string, insecureHTTP bool) error {
 	// Create API server
 	apiSrv := api.NewServer(s, logger)
 	apiSrv.WithMetricsEnabled(cfg.Metrics.PrometheusEnabled())
-	apiSrv.WithMetricsRequireAuth(cfg.Metrics.RequireAuth)
+	apiSrv.WithMetricsRequireAuth(cfg.Metrics.RequireAuthEnabled())
 	apiSrv.WithEnrollmentTokenTTL(cfg.EnrollmentTokenTTLDuration())
 
 	// Outbound lifecycle-event webhooks (#256). When enabled, handlers emit

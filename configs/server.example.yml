@@ -126,3 +126,9 @@ allow_self_registration: false
 #   # set `default_role: "admin"` AND at least one allowlist entry (the
 #   # two-field footprint is the point).
 #   default_role: "user"                   # role for newly-federated users
+#   # Optional: pin the IdP's TLS to a specific CA bundle (#264). When set,
+#   # OIDC discovery, JWKS fetch, and token exchange trust only this PEM bundle,
+#   # so a CA compromise in the system trust store cannot MITM the IdP and forge
+#   # ID tokens. Leave unset to use the system trust store. Only affects IdP
+#   # traffic; every other connection still uses the system store.
+#   tls_ca_cert: /etc/nebula-mgmt/oidc-ca.pem

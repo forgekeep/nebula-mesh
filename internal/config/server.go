@@ -379,6 +379,14 @@ type OIDCConfig struct {
 	// or send it in a shape HandleCallback can't decode (numeric,
 	// nested object, etc). emailVerifiedRequired() resolves nil → true.
 	RequireEmailVerified *bool `yaml:"require_email_verified,omitempty"`
+
+	// TLSCACert optionally pins the IdP's TLS trust to a PEM CA bundle at this
+	// path (#264). When set, OIDC discovery, JWKS fetch, and token exchange use
+	// a dedicated HTTP client whose RootCAs is this bundle, so a CA compromise
+	// in the system trust store cannot MITM the IdP. Empty = use the system
+	// trust store (default). The system store is untouched for every other
+	// connection.
+	TLSCACert string `yaml:"tls_ca_cert,omitempty"`
 }
 
 // EmailVerifiedRequired reports whether HandleCallback must enforce the

@@ -3,11 +3,14 @@ package web
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -56,6 +59,12 @@ type OIDC struct {
 	// for user-role operators without coupling OIDC to Web struct.
 	// If nil, auto-provision is skipped.
 	provisionCA func(ctx context.Context, op *models.Operator) error
+
+	// httpClient is the CA-pinned HTTP client used for all IdP traffic when
+	// oidc.tls_ca_cert is configured (#264). nil means the system trust store
+	// is used (default). When set it is wired into discovery/JWKS at provider
+	// creation and into the callback's token exchange via oidc.ClientContext.
+	httpClient *http.Client
 }
 
 // SetCookieSecure controls the Secure attribute on the OIDC state cookie.
@@ -77,6 +86,21 @@ func NewOIDC(ctx context.Context, cfg *config.OIDCConfig, s store.Store, sm *Ses
 	if cfg.Issuer == "" || cfg.ClientID == "" || cfg.RedirectURL == "" {
 		return nil, fmt.Errorf("oidc: issuer, client_id, redirect_url are required")
 	}
+	// When tls_ca_cert is configured, pin all IdP traffic to that CA bundle by
+	// running discovery (and later JWKS + token exchange) over a dedicated HTTP
+	// client. go-oidc stores the client from the context at provider creation
+	// and reuses it for the JWKS keyset, so this one ClientContext covers
+	// discovery and id_token verification; the callback wires the same client
+	// into the token exchange (#264).
+	var httpClient *http.Client
+	if cfg.TLSCACert != "" {
+		c, err := oidcHTTPClientWithCA(cfg.TLSCACert)
+		if err != nil {
+			return nil, fmt.Errorf("oidc: %w", err)
+		}
+		httpClient = c
+		ctx = oidc.ClientContext(ctx, httpClient)
+	}
 	provider, err := oidc.NewProvider(ctx, cfg.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("oidc discovery: %w", err)
@@ -93,14 +117,38 @@ func NewOIDC(ctx context.Context, cfg *config.OIDCConfig, s store.Store, sm *Ses
 		Scopes:       scopes,
 	}
 	return &OIDC{
-		cfg:      *cfg,
-		provider: provider,
-		verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
-		oauth:    oc,
-		store:    s,
-		session:  sm,
-		logger:   logger,
-		states:   make(map[string]time.Time),
+		cfg:        *cfg,
+		provider:   provider,
+		verifier:   provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
+		oauth:      oc,
+		store:      s,
+		session:    sm,
+		logger:     logger,
+		states:     make(map[string]time.Time),
+		httpClient: httpClient,
+	}, nil
+}
+
+// oidcHTTPClientWithCA builds an HTTP client that trusts only the CA bundle at
+// caPath for TLS, used to pin the IdP connection (#264). It fails loudly when
+// the file is unreadable or holds no valid PEM certificate rather than silently
+// falling back to the system trust store.
+func oidcHTTPClientWithCA(caPath string) (*http.Client, error) {
+	pemBytes, err := os.ReadFile(caPath) // #nosec G304 -- operator-supplied trusted config path
+	if err != nil {
+		return nil, fmt.Errorf("read tls_ca_cert %q: %w", caPath, err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		return nil, fmt.Errorf("tls_ca_cert %q: no valid PEM certificates", caPath)
+	}
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs:    pool,
+				MinVersion: tls.VersionTLS12,
+			},
+		},
 	}, nil
 }
 
@@ -182,7 +230,14 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tok, err := o.oauth.Exchange(r.Context(), code)
+	// Route token exchange (and id_token verification) through the CA-pinned
+	// client when tls_ca_cert is configured, so the callback honors the same
+	// trust anchor as discovery (#264). Without pinning this is just r.Context().
+	ctx := r.Context()
+	if o.httpClient != nil {
+		ctx = oidc.ClientContext(ctx, o.httpClient)
+	}
+	tok, err := o.oauth.Exchange(ctx, code)
 	if err != nil {
 		o.logger.Error("oidc exchange", "error", err)
 		http.Error(rw, "oidc token exchange failed", http.StatusBadGateway)
@@ -193,7 +248,7 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "oidc response missing id_token", http.StatusBadGateway)
 		return
 	}
-	idToken, err := o.verifier.Verify(r.Context(), rawID)
+	idToken, err := o.verifier.Verify(ctx, rawID)
 	if err != nil {
 		http.Error(rw, "oidc id_token verification failed: "+err.Error(), http.StatusBadGateway)
 		return

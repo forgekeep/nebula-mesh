@@ -81,6 +81,7 @@ func TestSecurityHeaders_CSPDirectives(t *testing.T) {
 	csp := rec.Result().Header.Get("Content-Security-Policy")
 	want := []string{
 		"default-src 'self'",
+		"object-src 'none'",
 		"frame-ancestors 'none'",
 		"base-uri 'none'",
 		"form-action 'self'",

@@ -36,11 +36,12 @@ allow_self_registration: false
 # /debug/vars regardless.
 # metrics:
 #   prometheus: true
-#   # Gate /metrics behind the same bearer auth as the API (#187). Default
-#   # false keeps unauthenticated scraping; set true when the server is
-#   # reachable beyond a trusted network — metric labels expose host/network/CA
-#   # IDs. /debug/vars is always bearer-gated.
-#   require_auth: false
+#   # Gate /metrics behind the same bearer auth as the API (#187). Defaults
+#   # to true (#262): metric labels expose host/network/CA IDs, so scraping is
+#   # authenticated unless you opt out. Set false only on a trusted network
+#   # where the scraper cannot pass a bearer token. /debug/vars is always
+#   # bearer-gated.
+#   require_auth: true
 
 # Cert-expiry alerter (issue #41). Disabled by default. When enabled, a
 # periodic scanner fans out alerts for hosts whose current certificate

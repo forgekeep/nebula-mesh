@@ -179,7 +179,8 @@ func (s *Server) setupRoutes() {
 	r.Get("/health", s.handleHealth) // legacy alias
 	r.Get("/healthz", s.handleHealth)
 	r.Get("/readyz", s.handleReady)
-	// /metrics is public by default; when metrics.require_auth is set it moves
+	// /metrics is bearer-gated by default (#262); set metrics.require_auth:
+	// false to expose it publicly on a trusted network. When gated it moves
 	// into the bearer-protected group below (#187) — the labels expose
 	// host/network/CA IDs and operational counters.
 	if s.metricsEnabled && !s.metricsRequireAuth {

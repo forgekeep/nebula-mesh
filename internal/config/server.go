@@ -329,10 +329,11 @@ type MetricsConfig struct {
 	Prometheus *bool `yaml:"prometheus,omitempty"`
 
 	// RequireAuth gates the /metrics endpoint behind the same bearer auth as
-	// the API (#187). Default false keeps unauthenticated scraping working;
-	// set true when the server is reachable beyond a trusted network, since
-	// the metric labels expose host/network/CA IDs and operational counters.
-	RequireAuth bool `yaml:"require_auth,omitempty"`
+	// the API (#187). It is a pointer so an unset value (yaml omitted) takes
+	// the default (true, #262): the metric labels expose host/network/CA IDs
+	// and operational counters, so unauthenticated scraping is opt-in. Set
+	// `require_auth: false` to allow it on a trusted network.
+	RequireAuth *bool `yaml:"require_auth,omitempty"`
 }
 
 // PrometheusEnabled returns whether the Prometheus exporter should be served.
@@ -342,6 +343,16 @@ func (m MetricsConfig) PrometheusEnabled() bool {
 		return true
 	}
 	return *m.Prometheus
+}
+
+// RequireAuthEnabled returns whether /metrics must be bearer-authenticated.
+// Defaults to true when unset (#262); set `require_auth: false` to opt into
+// unauthenticated scraping on a trusted network.
+func (m MetricsConfig) RequireAuthEnabled() bool {
+	if m.RequireAuth == nil {
+		return true
+	}
+	return *m.RequireAuth
 }
 
 // OIDCConfig configures an OpenID Connect identity provider for operator

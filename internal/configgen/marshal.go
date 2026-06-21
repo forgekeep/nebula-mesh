@@ -50,18 +50,25 @@ type pkiSection struct {
 type literalString string
 
 func (l literalString) MarshalYAML() (any, error) {
-	n := &yaml.Node{Kind: yaml.ScalarNode, Value: string(l)}
-	// Only request literal-block style for content we know parses back
-	// identically. yaml.v3 honors an explicit LiteralStyle even for content
-	// the YAML parser then rejects — e.g. a line beginning with a tab or
-	// space, emitted verbatim under a block indent the parser reads as broken
-	// indentation ("found a tab character where an indentation space is
-	// expected"). For anything not literal-safe we leave Style unset so the
-	// encoder picks a representation that does round-trip (double-quoted),
-	// which the Nebula config loader parses identically. Well-formed PEM
-	// blocks are literal-safe and keep their readable multi-line form.
-	if literalBlockSafe(string(l)) {
+	s := string(l)
+	n := &yaml.Node{Kind: yaml.ScalarNode, Value: s}
+	switch {
+	case literalBlockSafe(s):
+		// Well-formed PEM blocks keep their readable multi-line form.
 		n.Style = yaml.LiteralStyle
+	case utf8.ValidString(s):
+		// Not literal-safe but valid UTF-8: force double-quoted, which escapes
+		// every byte and round-trips unconditionally. Leaving Style unset is
+		// NOT enough — yaml.v3 still picks literal-block style for multi-line
+		// content on its own and writes a leading tab/space verbatim under the
+		// block indent, which the YAML parser then rejects ("found a tab
+		// character where an indentation space is expected", issue #176). This
+		// mirrors safeString, the plain-string counterpart.
+		n.Style = yaml.DoubleQuotedStyle
+	default:
+		// Invalid UTF-8: leave the node tagless and styleless so yaml.v3 falls
+		// back to a !!binary (base64) node, which round-trips — double-quoted
+		// style refuses invalid UTF-8.
 	}
 	return n, nil
 }

@@ -54,6 +54,15 @@ func FuzzGenerate(f *testing.F) {
 	// "!!binary" node (as a native Go string would) rather than fail Generate.
 	f.Add("\xff", "\xff", "\xff", "\xff", "\xff", "\xff", "\xff", "\xff", "\xff",
 		0, 0, false, false, true, false, "")
+	// Regression for the scheduled-fuzz crasher (run 27902040938): an inline
+	// PEM of "\t\n" reached pki.ca/cert/key as a literalString. It is not
+	// literal-block-safe, but with Style left unset yaml.v3 still picked
+	// literal-block for the multi-line value and emitted the tab verbatim —
+	// the same "found a tab character where an indentation space is expected"
+	// the safeString path had already fixed. literalString now forces a
+	// double-quoted style for non-literal-safe UTF-8 content.
+	f.Add("0", "0", "0", "0", "", "", "0", "0", "0", 0, -2,
+		false, true, true, true, "\t\n")
 
 	f.Fuzz(func(t *testing.T,
 		hostName, ip, lhIP, lhAddr, listenHost, tunDev, fwPort, fwProto, fwGroup string,

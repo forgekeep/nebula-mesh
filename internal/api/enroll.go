@@ -322,6 +322,17 @@ func (s *Server) renderHostConfig(ctx context.Context, host *models.Host) ([]byt
 			input.UnsafeRoutes = append(input.UnsafeRoutes, configgen.AdvancedUnsafeRoute{Route: u.Route, Via: u.Via})
 		}
 	}
+
+	// Emit the per-CA blocklist into pki.blocklist so the Nebula daemon
+	// rejects handshakes from revoked peers (GHSA-cm26-5974-52h8).
+	if host.CAID != "" {
+		bl, err := s.store.GetBlocklistForCA(ctx, host.CAID)
+		if err != nil {
+			return nil, fmt.Errorf("get blocklist for config: %w", err)
+		}
+		input.Blocklist = bl
+	}
+
 	return configgen.Generate(input)
 }
 

@@ -40,9 +40,10 @@ type nebulaConfig struct {
 // literal-block scalars (via literalString.MarshalYAML) while path-based
 // values are plain strings.
 type pkiSection struct {
-	CA   any `yaml:"ca"`
-	Cert any `yaml:"cert"`
-	Key  any `yaml:"key"`
+	CA        any          `yaml:"ca"`
+	Cert      any          `yaml:"cert"`
+	Key       any          `yaml:"key"`
+	Blocklist []safeString `yaml:"blocklist,omitempty"`
 }
 
 // literalString marshals the inline PEM blocks as a YAML literal-block scalar
@@ -216,15 +217,17 @@ func buildConfig(input GeneratorInput) nebulaConfig {
 
 	if input.CACertPEM != "" {
 		cfg.PKI = pkiSection{
-			CA:   literalString(input.CACertPEM),
-			Cert: literalString(input.CertPEM),
-			Key:  literalString(input.KeyPEM),
+			CA:        literalString(input.CACertPEM),
+			Cert:      literalString(input.CertPEM),
+			Key:       literalString(input.KeyPEM),
+			Blocklist: toSafeStrings(input.Blocklist),
 		}
 	} else {
 		cfg.PKI = pkiSection{
-			CA:   safeString(input.CACertPath),
-			Cert: safeString(input.CertPath),
-			Key:  safeString(input.KeyPath),
+			CA:        safeString(input.CACertPath),
+			Cert:      safeString(input.CertPath),
+			Key:       safeString(input.KeyPath),
+			Blocklist: toSafeStrings(input.Blocklist),
 		}
 	}
 
@@ -295,6 +298,17 @@ func mapFirewallRules(in []FirewallRule) []firewallRule {
 			fr.Group = safeString(r.Group)
 		}
 		out = append(out, fr)
+	}
+	return out
+}
+
+func toSafeStrings(in []string) []safeString {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]safeString, len(in))
+	for i, s := range in {
+		out[i] = safeString(s)
 	}
 	return out
 }

@@ -1206,8 +1206,12 @@ func (s *SQLiteStore) DeleteHost(ctx context.Context, id string) error {
 }
 
 // BlockHostAndAddToBlocklist atomically blocks a host and adds its cert to the blocklist.
-// If the blocked host was an enrolled lighthouse, the network's config_version is
-// bumped so peers stop directing traffic at it on their next poll.
+// The network's config_version is bumped whenever a fingerprint enters the
+// blocklist so every peer under the same CA receives a re-rendered config.yml
+// carrying the new pki.blocklist entry (GHSA-cm26-5974-52h8). An additional
+// bump for enrolled lighthouses is redundant — the single bump below already
+// covers blocklist propagation — but the lighthouse-specific path is kept so
+// peers also stop directing traffic at the blocked lighthouse.
 func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason string) (*models.Host, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1256,7 +1260,10 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason
 		return nil, ErrNotFound
 	}
 
-	if wasEnrolledLighthouse {
+	// Bump config version whenever a fingerprint was added to the blocklist
+	// so peers receive the updated pki.blocklist in their re-rendered config
+	// (GHSA-cm26-5974-52h8). The lighthouse case is handled by the same bump.
+	if h.CertFingerprint != "" || wasEnrolledLighthouse {
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
 			h.NetworkID,
@@ -1326,8 +1333,8 @@ func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(ctx context.Context, id 
 }
 
 // DeleteHostAndBlockCert atomically deletes a host and adds its cert to the blocklist.
-// If the deleted host was an enrolled lighthouse, the network's config_version is
-// bumped so peers stop directing traffic at it on their next poll.
+// The network's config_version is bumped whenever a fingerprint enters the
+// blocklist so peers receive the updated pki.blocklist (GHSA-cm26-5974-52h8).
 func (s *SQLiteStore) DeleteHostAndBlockCert(ctx context.Context, id, reason string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1373,7 +1380,9 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(ctx context.Context, id, reason str
 		return ErrNotFound
 	}
 
-	if wasEnrolledLighthouse {
+	// Bump config version whenever a fingerprint was added to the blocklist
+	// so peers receive the updated pki.blocklist (GHSA-cm26-5974-52h8).
+	if h.CertFingerprint != "" || wasEnrolledLighthouse {
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
 			h.NetworkID,

@@ -1515,8 +1515,11 @@ func TestBlockHostAndAddToBlocklist_NoBumpForPendingLighthouse(t *testing.T) {
 		t.Fatal(err)
 	}
 	after, _ := s.GetNetworkConfigVersion(ctx, net.ID)
+	// Pending lighthouse has no cert fingerprint, so no blocklist entry and
+	// no bump (GHSA-cm26-5974-52h8: bump is driven by fingerprint entering
+	// the blocklist, not by lighthouse status alone).
 	if after != before {
-		t.Errorf("version = %d, want %d (pending lighthouse — no bump)", after, before)
+		t.Errorf("version = %d, want %d (pending lighthouse, no fingerprint — no bump)", after, before)
 	}
 }
 
@@ -1622,6 +1625,72 @@ func TestDeleteHostAndBlockCert_NoBumpForRegularHost(t *testing.T) {
 	after, _ := s.GetNetworkConfigVersion(ctx, net.ID)
 	if after != before {
 		t.Errorf("version = %d, want %d (regular host — no bump)", after, before)
+	}
+}
+
+// TestBlockHostAndAddToBlocklist_BumpsForRegularHostWithFingerprint verifies
+// that blocking a regular (non-lighthouse) host with a cert fingerprint bumps
+// the network config version so peers receive the updated pki.blocklist
+// (GHSA-cm26-5974-52h8).
+func TestBlockHostAndAddToBlocklist_BumpsForRegularHostWithFingerprint(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_regular_fp", NetworkID: net.ID, Name: "regular-fp",
+		NebulaIPs: []string{"192.168.100.20"}, Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	h.CertFingerprint = "fp-regular-block"
+	if err := s.UpdateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	before, _ := s.GetNetworkConfigVersion(ctx, net.ID)
+	if _, err := s.BlockHostAndAddToBlocklist(ctx, h.ID, "test block"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.GetNetworkConfigVersion(ctx, net.ID)
+	if after != before+1 {
+		t.Errorf("version = %d, want %d (regular host with fingerprint should bump)", after, before+1)
+	}
+}
+
+// TestDeleteHostAndBlockCert_BumpsForRegularHostWithFingerprint verifies
+// that deleting a regular host with a cert fingerprint bumps the network
+// config version so peers receive the updated pki.blocklist
+// (GHSA-cm26-5974-52h8).
+func TestDeleteHostAndBlockCert_BumpsForRegularHostWithFingerprint(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	net := createTestNetwork(t, s)
+
+	h := &models.Host{
+		ID: "host_regular_del_fp", NetworkID: net.ID, Name: "regular-del-fp",
+		NebulaIPs: []string{"192.168.100.21"}, Groups: []string{},
+		Role: models.HostRoleHost, Status: models.HostStatusEnrolled,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	h.CertFingerprint = "fp-regular-del"
+	if err := s.UpdateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+
+	before, _ := s.GetNetworkConfigVersion(ctx, net.ID)
+	if err := s.DeleteHostAndBlockCert(ctx, h.ID, "test delete"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.GetNetworkConfigVersion(ctx, net.ID)
+	if after != before+1 {
+		t.Errorf("version = %d, want %d (regular host with fingerprint should bump on delete)", after, before+1)
 	}
 }
 

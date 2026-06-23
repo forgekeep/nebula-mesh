@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -14,9 +15,8 @@ import (
 //
 // Correctness:
 //   - all blocked fingerprints propagate to an unblocked host's next poll;
-//   - blocking does NOT trigger a config re-render (config_yaml stays nil) —
-//     handleBlockHost ships the blocklist without bumping the network config
-//     version, so a block is O(blocklist), not an O(N) re-render storm.
+//   - blocking triggers a config re-render that carries pki.blocklist, so the
+//     Nebula daemon enforces revocation at the data plane (GHSA-cm26-5974-52h8).
 //
 // Smell (logged, not asserted, since it is the current intended behavior):
 //   - once anything is blocked, has_updates is true and the full blocklist
@@ -56,15 +56,28 @@ func TestSim_ScaleBlocklistPropagation(t *testing.T) {
 	}
 
 	// An unblocked host's next poll must carry every blocked fingerprint, and
-	// must NOT re-render config (a block is not a network config change).
+	// must re-render config (the config version was bumped so pki.blocklist
+	// reaches the agent's config.yml — GHSA-cm26-5974-52h8).
 	r := agents[0].Poll(h)
 	for _, fp := range blockedFPs {
 		if !slices.Contains(r.Blocklist, fp) {
 			t.Errorf("blocked fingerprint %q did not propagate to unblocked host's blocklist", fp)
 		}
 	}
-	if r.ConfigYAML != nil {
-		t.Errorf("blocking triggered a config re-render (config_yaml non-nil) — should be O(blocklist), not an O(N) re-render storm")
+	if r.ConfigYAML == nil {
+		t.Errorf("blocking did not trigger a config re-render — pki.blocklist must reach peers via config.yml (GHSA-cm26-5974-52h8)")
+	} else if !strings.Contains(*r.ConfigYAML, "blocklist") {
+		t.Errorf("re-rendered config does not contain pki.blocklist:\n%s", *r.ConfigYAML)
+	}
+
+	// After draining to convergence, the blocklist still ships (has_updates
+	// is true whenever the blocklist is non-empty) but config stays nil.
+	agents[0].DrainToConverged(h, 5)
+	r = agents[0].Poll(h)
+	for _, fp := range blockedFPs {
+		if !slices.Contains(r.Blocklist, fp) {
+			t.Errorf("blocked fingerprint %q missing from steady-state blocklist", fp)
+		}
 	}
 
 	t.Logf("SCALE SMELL: after blocking %d/%d, an unblocked host's steady-state poll reports has_updates=%v and ships the full %d-entry blocklist; this repeats on every poll by every host regardless of churn",

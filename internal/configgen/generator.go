@@ -49,4 +49,9 @@ type GeneratorInput struct {
 	CACertPEM string
 	CertPEM   string
 	KeyPEM    string
+
+	// Blocklist is the per-CA list of revoked certificate fingerprints.
+	// Emitted as pki.blocklist in config.yml so the Nebula daemon rejects
+	// handshakes from revoked peers (GHSA-cm26-5974-52h8).
+	Blocklist []string
 }

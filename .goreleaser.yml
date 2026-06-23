@@ -290,12 +290,13 @@ changelog:
       order: 999
   filters:
     exclude:
-      - "^docs:"
+      - "^docs(\(.+\))?:"
       - "^test:"
       - "^chore:"
       - "merge conflict"
       - Merge pull request
       - Merge branch
+      - Merge commit from fork
 
 release:
   github:

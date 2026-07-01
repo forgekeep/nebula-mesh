@@ -61,7 +61,8 @@ Create body (all but `url` optional):
   `""` to clear it, or a new value to replace it. A non-empty secret requires
   the master key to be configured.
 - `url` is SSRF-validated like the config webhook; `allow_private: true` opts a
-  private/loopback target in.
+  private/loopback target in. Setting `allow_private` requires the admin role —
+  a non-admin operator sending it gets `403`.
 
 Each subscription tracks `last_delivery_at`, `last_status` (`ok`/`failed`),
 `last_error`, and `consecutive_failures` for observability.

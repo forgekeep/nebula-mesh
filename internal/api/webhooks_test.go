@@ -97,6 +97,44 @@ func TestWebhookSubscriptions_RejectsPrivateURL(t *testing.T) {
 	}
 }
 
+// TestWebhookSubscriptions_AllowPrivateRequiresAdmin guards the SSRF authz gap
+// (GHSA-7rx3-5wx3-5v76): a non-admin operator must not be able to set
+// allow_private, which switches the dispatcher to the unguarded HTTP client and
+// bypasses the private/loopback/link-local rejection.
+func TestWebhookSubscriptions_AllowPrivateRequiresAdmin(t *testing.T) {
+	srv, _ := newTestServer(t)
+	userKey := createUserWithAPIKey(t, srv, "user")
+
+	newReq := func(method, path, body string) *http.Request {
+		req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+userKey)
+		return req
+	}
+
+	// Create with allow_private → 403, same as every other admin-gated toggle.
+	rec := serve(srv, newReq(http.MethodPost, "/api/v1/webhook-subscriptions",
+		`{"url":"http://127.0.0.1:9999/internal","allow_private":true}`))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin create with allow_private: %d / %s, want 403", rec.Code, rec.Body.String())
+	}
+
+	// Control: same non-admin key, a public URL without allow_private still works.
+	crec := serve(srv, newReq(http.MethodPost, "/api/v1/webhook-subscriptions",
+		`{"url":"https://hooks.example.com/ok"}`))
+	if crec.Code != http.StatusCreated {
+		t.Fatalf("non-admin create (public url): %d / %s, want 201", crec.Code, crec.Body.String())
+	}
+	var sub models.WebhookSubscription
+	_ = json.Unmarshal(crec.Body.Bytes(), &sub)
+
+	// Update the owned sub to flip allow_private on → 403.
+	urec := serve(srv, newReq(http.MethodPatch, "/api/v1/webhook-subscriptions/"+sub.ID,
+		`{"url":"http://127.0.0.1:9999/internal","allow_private":true}`))
+	if urec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin update with allow_private: %d / %s, want 403", urec.Code, urec.Body.String())
+	}
+}
+
 func TestWebhookSubscriptions_GetNotFound(t *testing.T) {
 	srv, _ := newTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/webhook-subscriptions/missing", nil)

@@ -70,6 +70,10 @@ func (s *Server) handleCreateWebhookSubscription(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if req.AllowPrivate && !s.isActiveAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "allow_private requires the admin role")
+		return
+	}
 	if err := config.ValidateWebhookURL("url", req.URL, req.AllowPrivate); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -119,6 +123,10 @@ func (s *Server) handleUpdateWebhookSubscription(w http.ResponseWriter, r *http.
 	}
 	if req.URL == "" {
 		req.URL = sub.URL
+	}
+	if req.AllowPrivate && !s.isActiveAdmin(r.Context()) {
+		writeError(w, http.StatusForbidden, "allow_private requires the admin role")
+		return
 	}
 	if err := config.ValidateWebhookURL("url", req.URL, req.AllowPrivate); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

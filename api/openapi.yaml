@@ -701,6 +701,9 @@ components:
           type: boolean
         allow_private:
           type: boolean
+          description: >-
+            Opt a private/loopback/link-local delivery target out of the SSRF
+            guard. Admin role only; a non-admin operator setting this gets 403.
         secret:
           type: string
           description: Write-only HMAC secret. Omit to keep, "" to clear, value to set.

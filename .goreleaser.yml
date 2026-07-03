@@ -276,6 +276,11 @@ snapshot:
 changelog:
   sort: asc
   use: github
+  # No catch-all group: a commit matching none of the groups below is
+  # dropped from the changelog, not funneled into an "Others" bucket.
+  # This replaces exclude-by-prefix (which previously drifted out of sync
+  # for scoped commits, e.g. chore(deps): leaking past a bare ^chore: filter
+  # in v0.7.1/v0.7.2) with an explicit whitelist of what's worth showing.
   groups:
     - title: Features
       regexp: '^.*?feat(\(.+\))?!?:.+$'
@@ -286,17 +291,9 @@ changelog:
     - title: "Performance"
       regexp: '^.*?perf(\(.+\))?!?:.+$'
       order: 2
-    - title: Others
-      order: 999
-  filters:
-    exclude:
-      - '^docs(\(.+\))?:'
-      - "^test:"
-      - "^chore:"
-      - "merge conflict"
-      - Merge pull request
-      - Merge branch
-      - Merge commit from fork
+    - title: "Dependency updates"
+      regexp: '^.*?chore\(deps\):.+$'
+      order: 3
 
 release:
   github:

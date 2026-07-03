@@ -305,10 +305,7 @@ release:
   header: |
     ## nebula-mesh {{ .Tag }}
 
-    **Install** — see [README](https://github.com/forgekeep/nebula-mesh#install) for the full snippets.
-
-    - Server: `nebula-mgmt_{{ .Version }}_<os>_<arch>.tar.gz` or `docker pull ghcr.io/forgekeep/nebula-mgmt:{{ .Version }}`
-    - Agent: `nebula-agent_{{ .Version }}_<os>_<arch>.tar.gz` or `docker pull ghcr.io/forgekeep/nebula-agent:{{ .Version }}`
+    **Install:** see [README](https://github.com/forgekeep/nebula-mesh#install) for install snippets (all packages/archives are in the assets below).
   footer: |
     ---
 

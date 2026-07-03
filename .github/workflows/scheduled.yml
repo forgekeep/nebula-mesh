@@ -46,7 +46,7 @@ jobs:
           - pkg: ./internal/configgen
             target: FuzzGenerate
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -65,7 +65,7 @@ jobs:
       # regression").
       - name: upload crashers
         if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-crashers-${{ matrix.target }}
           path: '**/testdata/fuzz/**'
@@ -81,7 +81,7 @@ jobs:
     name: govulncheck (Go vuln DB)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:

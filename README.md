@@ -52,7 +52,7 @@ For **remote access**, terminate TLS — set `tls_cert`+`tls_key`, or front with
 
 For RPM / macOS / FreeBSD / Windows / Docker / source — and the host-side agent — see [Install](#install) below. For host enrolment and CLI walk-through, see [Quickstart](#quickstart).
 
-**Jump to:** [Why](#why) · [Features](#features) · [Architecture](#architecture) · [Install](#install) · [Quickstart](#quickstart) · [Operators & auth](#operators-auth-and-tenancy) · [Deployment](#deployment) · [Endpoints](#endpoints) · [Status](#status) · [Security](#security)
+**Jump to:** [Why](#why) · [Features](#features) · [Architecture](#architecture) · [Install](#install) · [Quickstart](#quickstart) · [Operators & auth](#operators-auth-and-tenancy) · [Deployment](#deployment) · [Endpoints](#endpoints) · [Status](#status) · [Production readiness](docs/production-readiness.md) · [Security](#security)
 
 <a name="why"></a>
 ## Why
@@ -408,7 +408,7 @@ Ops endpoints (`/healthz`, `/readyz`, `/metrics`, `/debug/`, `/favicon.ico`, `/s
 <a name="status"></a>
 ## Status
 
-**Beta.** Core flows (init, enroll, poll, rotate, revoke, audit, multi-CA) are covered by unit + integration tests with `-race`. API surface is not yet frozen — expect breaking changes until `v1.0.0`. Please open issues for anything rough.
+**Beta.** Core flows (init, enroll, poll, rotate, revoke, audit, multi-CA) are covered by unit + integration tests with `-race`. nebula-mesh may remain on the `0.x` release line; production readiness is based on explicit compatibility, security, recovery, and validation gates rather than a `v1.0.0` tag. Minor `0.x` releases may still contain documented breaking changes. See [Production readiness](docs/production-readiness.md) for the release policy, current baseline, and remaining work. Please open issues for anything rough.
 
 <a name="security"></a>
 ## Security

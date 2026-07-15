@@ -1246,8 +1246,8 @@ func (s *SQLiteStore) DeleteHost(ctx context.Context, id string) error {
 }
 
 // BlockHostAndAddToBlocklist atomically blocks a host and adds its cert to the blocklist.
-// The network's config_version is bumped whenever a fingerprint enters the
-// blocklist so every peer under the same CA receives a re-rendered config.yml
+// Every network under the host CA is bumped whenever a fingerprint enters the
+// blocklist so every peer under that CA receives a re-rendered config.yml
 // carrying the new pki.blocklist entry (GHSA-cm26-5974-52h8). An additional
 // bump for enrolled lighthouses is redundant — the single bump below already
 // covers blocklist propagation — but the lighthouse-specific path is kept so
@@ -1300,10 +1300,12 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason
 		return nil, ErrNotFound
 	}
 
-	// Bump config version whenever a fingerprint was added to the blocklist
-	// so peers receive the updated pki.blocklist in their re-rendered config
-	// (GHSA-cm26-5974-52h8). The lighthouse case is handled by the same bump.
-	if h.CertFingerprint != "" || wasEnrolledLighthouse {
+	// Blocklist data is CA-scoped, so its rollout must use the same scope.
+	if h.CertFingerprint != "" {
+		if err := bumpNetworkConfigVersionsForCA(ctx, tx, h.CAID, h.NetworkID); err != nil {
+			return nil, fmt.Errorf("bump CA network config versions: %w", err)
+		}
+	} else if wasEnrolledLighthouse {
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
 			h.NetworkID,
@@ -1344,8 +1346,18 @@ func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(ctx context.Context, id 
 	}
 
 	if h.CertFingerprint != "" {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM blocklist WHERE fingerprint = ?`, h.CertFingerprint); err != nil {
+		deleted, err := tx.ExecContext(ctx, `DELETE FROM blocklist WHERE fingerprint = ?`, h.CertFingerprint)
+		if err != nil {
 			return nil, fmt.Errorf("remove from blocklist: %w", err)
+		}
+		rows, err := deleted.RowsAffected()
+		if err != nil {
+			return nil, fmt.Errorf("remove from blocklist rows affected: %w", err)
+		}
+		if rows > 0 {
+			if err := bumpNetworkConfigVersionsForCA(ctx, tx, h.CAID, h.NetworkID); err != nil {
+				return nil, fmt.Errorf("bump CA network config versions: %w", err)
+			}
 		}
 	}
 
@@ -1373,7 +1385,7 @@ func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(ctx context.Context, id 
 }
 
 // DeleteHostAndBlockCert atomically deletes a host and adds its cert to the blocklist.
-// The network's config_version is bumped whenever a fingerprint enters the
+// Every network under the host CA is bumped whenever a fingerprint enters the
 // blocklist so peers receive the updated pki.blocklist (GHSA-cm26-5974-52h8).
 func (s *SQLiteStore) DeleteHostAndBlockCert(ctx context.Context, id, reason string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1420,9 +1432,12 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(ctx context.Context, id, reason str
 		return ErrNotFound
 	}
 
-	// Bump config version whenever a fingerprint was added to the blocklist
-	// so peers receive the updated pki.blocklist (GHSA-cm26-5974-52h8).
-	if h.CertFingerprint != "" || wasEnrolledLighthouse {
+	// Blocklist data is CA-scoped, so its rollout must use the same scope.
+	if h.CertFingerprint != "" {
+		if err := bumpNetworkConfigVersionsForCA(ctx, tx, h.CAID, h.NetworkID); err != nil {
+			return fmt.Errorf("bump CA network config versions: %w", err)
+		}
+	} else if wasEnrolledLighthouse {
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
 			h.NetworkID,
@@ -1435,6 +1450,16 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(ctx context.Context, id, reason str
 		return fmt.Errorf("commit delete host: %w", err)
 	}
 	return nil
+}
+
+func bumpNetworkConfigVersionsForCA(ctx context.Context, tx *sql.Tx, caID, hostNetworkID string) error {
+	// CAID-less Networks are retained for the legacy API path. Their Hosts
+	// inherit defaultCAID, so include only the Host's own unbound Network as a
+	// compatibility fallback while keeping every other CA isolated.
+	_, err := tx.ExecContext(ctx,
+		`UPDATE networks SET config_version = config_version + 1
+		 WHERE ca_id = ? OR (id = ? AND (ca_id IS NULL OR ca_id = ''))`, caID, hostNetworkID)
+	return err
 }
 
 // --- Agent authorization (ADR 0004) ---

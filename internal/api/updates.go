@@ -233,7 +233,7 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		hostVersion, hvErr := s.store.GetHostConfigVersion(r.Context(), host.ID)
 		if hvErr != nil {
 			s.logger.Error("get host config version", "error", hvErr)
-		} else if hostVersion != netVersion {
+		} else if hostVersion != netVersion || (configAckV1 && profile.PendingConfigVersion != 0) {
 			configYAML, cfgErr := s.renderHostConfig(r.Context(), host)
 			if cfgErr != nil {
 				s.logger.Error("render host config", "host", host.Name, "error", cfgErr)

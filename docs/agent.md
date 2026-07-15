@@ -2,8 +2,8 @@
 
 The `nebula-agent` is the client-side counterpart to `nebula-mgmt`. It enrolls a host
 into a network, polls the management server for configuration updates, writes Nebula's
-`config.yml`, `host.crt`, `host.key`, and `ca.crt` atomically, and signals `nebula` to
-pick up changes.
+`config.yml`, `host.crt`, `host.key`, and `ca.crt`, and signals `nebula` to pick up
+managed updates.
 
 This document covers production usage — installation, configuration, day-2 operations
 and troubleshooting. The 30-second walkthrough lives in the project [README](../README.md).
@@ -314,7 +314,8 @@ The `enroll` subcommand:
 
 - generates both keypairs (X25519 for Nebula + Ed25519 for poll signatures);
 - hits `POST /api/v1/enroll` on the server;
-- atomically writes `agent.yml` (mode 0600) and the five enrollment files (see table below);
+- writes `agent.yml` atomically (mode 0600) and writes each enrollment file to its
+  configured path after checking every destination directory;
 - runs **one** confirmation signed poll so you see `enrollment successful (confirmation poll OK)` in the same command;
 - exits 0.
 
@@ -451,7 +452,8 @@ and config files while the session has status `collecting`; signed polls return
 
 ### 4. Review and finalize
 
-The session page shows a normalized Host proposal with source snapshot IDs.
+The session page shows a normalized Host proposal with source snapshot IDs and
+the status each Host will receive.
 Resolve blockers such as missing lighthouse or relay endpoints, divergent
 firewalls, divergent blocklists and unsupported connectivity settings.
 Warnings for certificate expiry or optional settings require a checkbox
@@ -461,7 +463,9 @@ Finalize after the displayed count matches `expected_hosts`, when set, and you
 have confirmed the inventory checkbox. The server rejects a stale revision or
 any Network, CA, Host-set or blocklist change since collection began. A
 successful finalize commits roles, endpoints, advanced settings, firewall and
-blocklist in one transaction, enrolls the imported hosts and increments the
+blocklist in one transaction. Hosts whose certificate fingerprints appear in
+the imported blocklist remain `blocked`; other Hosts become `enrolled`. A
+matching blocklist row links to its blocked Host. Finalize also increments the
 Network config version.
 
 The next poll validates and writes the server-rendered config. Before replacing
@@ -469,6 +473,15 @@ an imported config, the agent creates an owner-only backup named
 `<nebula_config_path>.pre-nebula-mesh.<import_session_id>`. It keeps the imported
 certificate and key paths from the discovery profile. Certificate renewal then
 uses the managed lifecycle.
+
+A blocked imported agent receives `403 revoked` after finalize. Unblock it only
+when you intend to authorize its existing identity again. Unblock deletes the
+old certificate fingerprint from the CA blocklist and changes the Host to
+`pending`; the server accepts the old Ed25519 signing key immediately. Every
+Network using that CA receives a config version bump, so peers accept the old
+Nebula certificate after they poll and apply the new blocklist. Run a separate
+re-enrollment or force-rotate operation if you need new credentials. Unblock
+does not provide an atomic credential replacement.
 
 The REST workflow uses these protected endpoints:
 
@@ -726,7 +739,8 @@ file format under `data_dir` has been stable since v0.1.0.
 ### Remove from the server side
 
 `nebula-mgmt host delete --id <host-id>` (or via the UI). The host's certificate
-fingerprint is added to the blocklist, so the agent's next poll returns `401`.
+fingerprint is added to the blocklist, so the agent's next poll returns
+`410 gone`.
 Stop and remove `nebula-agent.service`, then delete `/etc/nebula` to clear secrets.
 
 ### Re-enroll the same host
@@ -761,9 +775,18 @@ Useful after the host's keys are believed compromised. Two flavours:
      "https://mgmt.example.com:8080/api/v1/hosts/<host-id>/rotate-cert?new_key=true"
    ```
 
-   The next poll response carries `rekey_required: true` plus a fresh
-   token. The agent generates both keypairs, calls `/api/v1/enroll`, and
-   atomically swaps every file in `data_dir` before resuming polling.
+   The next poll response carries `rekey_required: true` plus a fresh token.
+   The agent generates both keypairs, calls `/api/v1/enroll`, and writes the
+   CA, certificate, key and config to the paths in its current AgentProfile.
+   Imported custom paths stay in place; rekey does not migrate them into
+   `data_dir`. The agent checks every destination directory before consuming
+   the single-use token, then writes the files individually.
+
+   When `nebula_pid_file` is configured, the agent sends `SIGHUP` after all
+   writes and before acknowledging the config version. A signal error leaves
+   the version pending; the next signed poll returns the current config again.
+   With no PID file, management re-enrollment and acknowledgement complete, and
+   you must restart Nebula to load the new identity.
 
 3. **Hard reset** (last resort, churns the host row). `host delete` the
    old record on the server and create a new one; agent steps as in

@@ -238,10 +238,14 @@ func (s *Server) handleFinalizeMeshImport(w http.ResponseWriter, r *http.Request
 	})
 	for _, proposal := range hosts {
 		host := proposal.Host
-		host.Status = models.HostStatusEnrolled
+		eventType := "host.blocked"
+		if host.Status != models.HostStatusBlocked {
+			host.Status = models.HostStatusEnrolled
+			eventType = "host.enrolled"
+		}
 		data := hostEventData(&host)
 		data["fingerprint"] = host.CertFingerprint
-		s.emit(scope, "host.enrolled", data)
+		s.emit(scope, eventType, data)
 	}
 	writeJSON(w, http.StatusOK, finalized)
 }

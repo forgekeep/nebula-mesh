@@ -192,3 +192,53 @@ func TestConfigAckPendingDeliveryTracksNewestNetworkVersion(t *testing.T) {
 		t.Fatalf("stale ack: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestConfigAckPendingVersionRedeliversWhenAppliedIsCurrent(t *testing.T) {
+	srv, st := newTestServer(t)
+	agentIdentity := enrolledFixture(t, srv)
+	host, err := st.GetHost(t.Context(), agentIdentity.hostID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkVersion, err := st.GetNetworkConfigVersion(t.Context(), host.NetworkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateHostConfigVersion(t.Context(), host.ID, networkVersion); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec(`UPDATE host_agent_profiles
+		SET config_ack_v1 = 1, pending_config_version = ? WHERE host_id = ?`, networkVersion, host.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	poll := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
+	signPoll(t, poll, agentIdentity)
+	recorder := httptest.NewRecorder()
+	srv.ServeHTTP(recorder, poll)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("poll: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var updates agentUpdatesResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&updates); err != nil {
+		t.Fatal(err)
+	}
+	if updates.ConfigYAML == nil || updates.ConfigVersion != networkVersion {
+		t.Fatalf("updates = %#v, want pending config version %d", updates, networkVersion)
+	}
+
+	ack := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/agent/config-ack/%d", networkVersion), nil)
+	signPoll(t, ack, agentIdentity)
+	recorder = httptest.NewRecorder()
+	srv.ServeHTTP(recorder, ack)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("ack: %d %s", recorder.Code, recorder.Body.String())
+	}
+	profile, err := st.GetHostAgentProfile(t.Context(), host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.PendingConfigVersion != 0 {
+		t.Fatalf("pending config version = %d, want 0", profile.PendingConfigVersion)
+	}
+}

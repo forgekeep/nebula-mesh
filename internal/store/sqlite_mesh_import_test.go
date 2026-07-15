@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -616,6 +618,7 @@ func TestFinalizeMeshImportAppliesProposalAtomically(t *testing.T) {
 		FirewallJSON: `{"inbound":[{"port":"22","proto":"tcp","group":"ops"}],"outbound":[]}`,
 		Blocklist:    []string{strings.Repeat("a", 64)}, Now: now.Add(time.Minute),
 	}
+	setMeshImportSnapshotBlocklist(t, s, session.ID, input.Blocklist)
 	if err := s.FinalizeMeshImport(context.Background(), input); err != nil {
 		t.Fatalf("finalize mesh import: %v", err)
 	}
@@ -646,6 +649,150 @@ func TestFinalizeMeshImportAppliesProposalAtomically(t *testing.T) {
 	}
 	if count := meshImportChallengeCount(t, s, session.ID); count != 0 {
 		t.Fatalf("challenges after finalize = %d, want 0", count)
+	}
+}
+
+func TestFinalizeMeshImportPreservesRevokedHostState(t *testing.T) {
+	expected := 2
+	s, session, now := newMeshImportFixture(t, &expected)
+	revoked := registerMeshImportTestHost(t, s, session, "revoked", "10.42.0.10", now)
+	ordinary := registerMeshImportTestHost(t, s, session, "ordinary", "10.42.0.11", now)
+	historical := tokenHash("historical-revocation")
+	blocklist := []string{revoked.Host.CertFingerprint, historical}
+	setMeshImportSnapshotBlocklist(t, s, session.ID, blocklist)
+	revoked.Host.Status = models.HostStatusBlocked
+
+	err := s.FinalizeMeshImport(context.Background(), MeshImportFinalizeInput{
+		ID: session.ID, Revision: 2, Hosts: []MeshImportFinalizeHost{revoked, ordinary},
+		FirewallJSON: `{"inbound":[],"outbound":[]}`, Blocklist: blocklist, Now: now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("finalize mesh import: %v", err)
+	}
+	revokedHost, err := s.GetHost(context.Background(), revoked.Host.ID)
+	if err != nil || revokedHost.Status != models.HostStatusBlocked {
+		t.Fatalf("revoked host = %#v, %v", revokedHost, err)
+	}
+	ordinaryHost, err := s.GetHost(context.Background(), ordinary.Host.ID)
+	if err != nil || ordinaryHost.Status != models.HostStatusEnrolled {
+		t.Fatalf("ordinary host = %#v, %v", ordinaryHost, err)
+	}
+	rows, err := s.db.Query(`SELECT fingerprint, host_id FROM blocklist WHERE ca_id = ? ORDER BY fingerprint`, session.CAID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	links := make(map[string]sql.NullString)
+	for rows.Next() {
+		var fingerprint string
+		var hostID sql.NullString
+		if err := rows.Scan(&fingerprint, &hostID); err != nil {
+			t.Fatal(err)
+		}
+		links[fingerprint] = hostID
+	}
+	if link := links[revoked.Host.CertFingerprint]; !link.Valid || link.String != revoked.Host.ID {
+		t.Fatalf("revoked blocklist link = %#v", link)
+	}
+	if link := links[historical]; link.Valid {
+		t.Fatalf("historical blocklist link = %#v, want NULL", link)
+	}
+}
+
+func TestFinalizeMeshImportRejectsUntrustedRevocationInputs(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, *SQLiteStore, *models.MeshImport, *MeshImportFinalizeHost, string)
+		input  func(MeshImportFinalizeHost, string) []string
+	}{
+		{
+			name: "caller omits fingerprint",
+			mutate: func(t *testing.T, s *SQLiteStore, session *models.MeshImport, proposal *MeshImportFinalizeHost, fingerprint string) {
+				setMeshImportSnapshotBlocklist(t, s, session.ID, []string{fingerprint})
+				proposal.Host.Status = models.HostStatusBlocked
+			},
+		},
+		{
+			name:  "caller adds fingerprint",
+			input: func(MeshImportFinalizeHost, string) []string { return []string{tokenHash("caller-only")} },
+		},
+		{
+			name: "invalid persisted blocklist",
+			mutate: func(t *testing.T, s *SQLiteStore, _ *models.MeshImport, proposal *MeshImportFinalizeHost, _ string) {
+				setMeshImportSnapshotBlocklistForHost(t, s, proposal.Host.ID, []string{"not-a-fingerprint"})
+			},
+		},
+		{
+			name: "proposal fingerprint",
+			mutate: func(_ *testing.T, _ *SQLiteStore, _ *models.MeshImport, proposal *MeshImportFinalizeHost, _ string) {
+				proposal.Host.CertFingerprint = tokenHash("tampered-proposal")
+			},
+		},
+		{
+			name: "staged host fingerprint",
+			mutate: func(t *testing.T, s *SQLiteStore, _ *models.MeshImport, proposal *MeshImportFinalizeHost, _ string) {
+				if _, err := s.db.Exec(`UPDATE hosts SET cert_fingerprint = ? WHERE id = ?`, tokenHash("tampered-staged"), proposal.Host.ID); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "proposal status",
+			mutate: func(t *testing.T, s *SQLiteStore, session *models.MeshImport, proposal *MeshImportFinalizeHost, fingerprint string) {
+				setMeshImportSnapshotBlocklist(t, s, session.ID, []string{fingerprint})
+				proposal.Host.Status = models.HostStatusImporting
+			},
+			input: func(_ MeshImportFinalizeHost, fingerprint string) []string { return []string{fingerprint} },
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			expected := 1
+			s, session, now := newMeshImportFixture(t, &expected)
+			proposal := registerMeshImportTestHost(t, s, session, "one", "10.42.0.10", now)
+			fingerprint := proposal.Host.CertFingerprint
+			if test.mutate != nil {
+				test.mutate(t, s, session, &proposal, fingerprint)
+			}
+			var blocklist []string
+			if test.input != nil {
+				blocklist = test.input(proposal, fingerprint)
+			}
+			err := s.FinalizeMeshImport(context.Background(), MeshImportFinalizeInput{
+				ID: session.ID, Revision: 1, Hosts: []MeshImportFinalizeHost{proposal},
+				FirewallJSON: `{"inbound":[],"outbound":[]}`, Blocklist: blocklist, Now: now.Add(time.Minute),
+			})
+			if !errors.Is(err, ErrMeshImportConflict) {
+				t.Fatalf("finalize error = %v, want ErrMeshImportConflict", err)
+			}
+			stored, getErr := s.GetMeshImport(context.Background(), session.ID)
+			if getErr != nil || stored.Status != models.MeshImportStatusCollecting {
+				t.Fatalf("session after conflict = %#v, %v", stored, getErr)
+			}
+			if blocklist, getErr := s.GetBlocklistForCA(context.Background(), session.CAID); getErr != nil || len(blocklist) != 0 {
+				t.Fatalf("blocklist after conflict = %#v, %v", blocklist, getErr)
+			}
+		})
+	}
+}
+
+func TestFinalizeMeshImportRejectsDivergentPersistedBlocklists(t *testing.T) {
+	expected := 2
+	s, session, now := newMeshImportFixture(t, &expected)
+	first := registerMeshImportTestHost(t, s, session, "one", "10.42.0.10", now)
+	second := registerMeshImportTestHost(t, s, session, "two", "10.42.0.11", now)
+	setMeshImportSnapshotBlocklistForHost(t, s, first.Host.ID, []string{first.Host.CertFingerprint})
+	first.Host.Status = models.HostStatusBlocked
+
+	err := s.FinalizeMeshImport(context.Background(), MeshImportFinalizeInput{
+		ID: session.ID, Revision: 2, Hosts: []MeshImportFinalizeHost{first, second},
+		FirewallJSON: `{"inbound":[],"outbound":[]}`, Now: now.Add(time.Minute),
+	})
+	if !errors.Is(err, ErrMeshImportConflict) {
+		t.Fatalf("finalize error = %v, want ErrMeshImportConflict", err)
+	}
+	if blocklist, getErr := s.GetBlocklistForCA(context.Background(), session.CAID); getErr != nil || len(blocklist) != 0 {
+		t.Fatalf("blocklist after conflict = %#v, %v", blocklist, getErr)
 	}
 }
 
@@ -856,7 +1003,7 @@ func TestFinalizeMeshImportRejectsStaleRevisionAndExpectedCount(t *testing.T) {
 
 func registerMeshImportTestHost(t *testing.T, s *SQLiteStore, session *models.MeshImport, suffix, ip string, now time.Time) MeshImportFinalizeHost {
 	t.Helper()
-	challenge := meshImportChallenge(session.ID, "challenge-"+suffix, "fp-"+suffix, "signing-"+suffix, "payload-"+suffix, now)
+	challenge := meshImportChallenge(session.ID, "challenge-"+suffix, tokenHash("fp-"+suffix), "signing-"+suffix, "payload-"+suffix, now)
 	if err := s.CreateMeshImportChallenge(context.Background(), challenge, now); err != nil {
 		t.Fatal(err)
 	}
@@ -940,7 +1087,7 @@ func meshImportRegistration(session *models.MeshImport, challenge *models.MeshIm
 			ID: "snapshot-" + hostID, MeshImportID: session.ID, HostID: hostID,
 			CertificateFingerprint: challenge.CertificateFingerprint, CertificatePEM: "cert-" + hostID,
 			AgentSigningPubPEM: challenge.AgentSigningPubPEM, PayloadHash: challenge.PayloadHash,
-			SnapshotJSON: `{"config":"sanitized"}`, CreatedAt: now, UpdatedAt: now,
+			SnapshotJSON: `{"config":{"blocklist":[]}}`, CreatedAt: now, UpdatedAt: now,
 		},
 		Profile: &models.HostAgentProfile{
 			HostID: hostID, MeshImportID: session.ID, NebulaConfigPath: "/etc/nebula/config.yml",
@@ -965,6 +1112,28 @@ func tokenHash(raw string) string {
 }
 
 func ptrTime(value time.Time) *time.Time { return &value }
+
+func setMeshImportSnapshotBlocklist(t *testing.T, s *SQLiteStore, sessionID string, blocklist []string) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"config": map[string]any{"blocklist": blocklist}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE mesh_import_snapshots SET snapshot_json = ? WHERE mesh_import_id = ?`, string(payload), sessionID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setMeshImportSnapshotBlocklistForHost(t *testing.T, s *SQLiteStore, hostID string, blocklist []string) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"config": map[string]any{"blocklist": blocklist}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE mesh_import_snapshots SET snapshot_json = ? WHERE host_id = ?`, string(payload), hostID); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func meshImportChallengeCount(t *testing.T, s *SQLiteStore, sessionID string) int {
 	t.Helper()

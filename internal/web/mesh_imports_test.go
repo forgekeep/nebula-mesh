@@ -278,6 +278,142 @@ func TestMeshImportWebPreviewAndFinalize(t *testing.T) {
 	}
 }
 
+func TestMeshImportWebFinalizePreservesRevokedHostAndEmitsBlocked(t *testing.T) {
+	w, st := newOperatorsWebWithMaster(t)
+	emitter := &webFakeEmitter{}
+	w.WithLifecycleEventEmitter(emitter)
+	cookie := mintSession(t, st, "blocked-adopter", "admin")
+	op, err := st.GetOperatorByUsername(t.Context(), "blocked-adopter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca, err := w.mintCAForOperator(t.Context(), op, "blocked-adopt-ca", 365*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	network := &models.Network{
+		ID: "blocked-adopt-network", Name: "Blocked Adopt Network", CIDRs: []string{"10.76.0.0/16"},
+		CAID: ca.ID, CreatedAt: time.Now(),
+	}
+	if err := st.CreateNetwork(t.Context(), network); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	session := &models.MeshImport{
+		ID: "blocked-adopt-import", NetworkID: network.ID, CAID: ca.ID, OwnerOperatorID: op.ID,
+		Status: models.MeshImportStatusCollecting, TokenHash: bootstraptoken.Hash("nmi_blocked_adopt"),
+		TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
+	}
+	if err := st.CreateMeshImport(t.Context(), session); err != nil {
+		t.Fatal(err)
+	}
+	resolver := pki.NewCAResolver(st, w.caMaster)
+	manager, err := resolver.LoadByID(t.Context(), ca.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Wipe()
+	hostCertificate, err := manager.Sign(pki.SignRequest{
+		Name: "blocked-adopted-host", PublicKey: make([]byte, 32),
+		Networks: []netip.Prefix{netip.MustParsePrefix("10.76.0.10/16")}, Groups: []string{"prod"},
+		Duration: 90 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostPEM, err := hostCertificate.MarshalPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, err := hostCertificate.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := meshimport.Snapshot{
+		ID: "snapshot-blocked-adopt", HostID: "host-blocked-adopt", CertificatePEM: string(hostPEM),
+		Profile: models.DefaultAgentProfile(),
+		Config: meshimport.ConfigSnapshot{
+			CARootFingerprints: []string{ca.Fingerprint}, Firewall: meshimport.FirewallPolicy{},
+			Blocklist: []string{fingerprint},
+		},
+	}
+	report := meshimport.Reconcile(meshimport.ReconcileInput{
+		NetworkID: network.ID, CAID: ca.ID, NetworkCIDRs: network.CIDRs,
+		CACertificatePEM: ca.CertPEM, CAFingerprint: ca.Fingerprint, Snapshots: []meshimport.Snapshot{snapshot}, Now: now,
+	})
+	if len(report.Blockers) != 0 || len(report.Proposal.Hosts) != 1 ||
+		report.Proposal.Hosts[0].Host.Status != models.HostStatusBlocked {
+		t.Fatalf("fixture reconcile = %#v", report)
+	}
+	proposalHost := report.Proposal.Hosts[0].Host
+	stagedHost := proposalHost
+	stagedHost.Status = models.HostStatusImporting
+	stagedHost.SigningPubPEM = "test-signing-key"
+	stagedHost.CreatedAt, stagedHost.UpdatedAt = now, now
+	encodedSnapshot, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenge := &models.MeshImportChallenge{
+		ID: "challenge-blocked-adopt", MeshImportID: session.ID, TokenHash: session.TokenHash,
+		CertificateFingerprint: fingerprint, AgentSigningPubPEM: stagedHost.SigningPubPEM,
+		PayloadHash: "payload-blocked-adopt", ServerNonce: "nonce-blocked-adopt",
+		ExpiresAt: now.Add(time.Minute), CreatedAt: now,
+	}
+	if err := st.CreateMeshImportChallenge(t.Context(), challenge, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RegisterImportedHost(t.Context(), &models.MeshImportRegistration{
+		ChallengeID: challenge.ID, CertificateNotBefore: hostCertificate.NotBefore(),
+		CertificateNotAfter: hostCertificate.NotAfter(), Host: &stagedHost,
+		Snapshot: &models.MeshImportSnapshot{
+			ID: snapshot.ID, MeshImportID: session.ID, HostID: stagedHost.ID,
+			CertificateFingerprint: fingerprint, CertificatePEM: string(hostPEM),
+			AgentSigningPubPEM: stagedHost.SigningPubPEM, PayloadHash: challenge.PayloadHash,
+			SnapshotJSON: string(encodedSnapshot), CreatedAt: now, UpdatedAt: now,
+		},
+		Profile: &models.HostAgentProfile{
+			HostID: stagedHost.ID, MeshImportID: session.ID, NebulaConfigPath: snapshot.Profile.NebulaConfigPath,
+			NebulaCAPath: snapshot.Profile.NebulaCAPath, NebulaCertPath: snapshot.Profile.NebulaCertPath,
+			NebulaKeyPath: snapshot.Profile.NebulaKeyPath, ConfigAckV1: true, CreatedAt: now, UpdatedAt: now,
+		},
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/mesh-imports/"+session.ID, []*http.Cookie{cookie})
+	get := httptest.NewRequest(http.MethodGet, "/ui/mesh-imports/"+session.ID, nil)
+	for _, current := range cookies {
+		get.AddCookie(current)
+	}
+	page := httptest.NewRecorder()
+	w.ServeHTTP(page, get)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "blocked") {
+		t.Fatalf("blocked preview page = %d / %s", page.Code, page.Body.String())
+	}
+	form := url.Values{"revision": {"1"}, "inventory_complete": {"true"}, "_csrf": {csrfToken}}
+	request := httptest.NewRequest(http.MethodPost, "/ui/mesh-imports/"+session.ID+"/finalize", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, current := range cookies {
+		request.AddCookie(current)
+	}
+	response := httptest.NewRecorder()
+	w.ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("finalize status = %d, body = %s", response.Code, response.Body.String())
+	}
+	finalHost, err := st.GetHost(t.Context(), stagedHost.ID)
+	if err != nil || finalHost.Status != models.HostStatusBlocked {
+		t.Fatalf("finalized host = %#v, %v", finalHost, err)
+	}
+	if _, ok := emitter.find("host.blocked"); !ok {
+		t.Fatal("host.blocked event missing")
+	}
+	if _, ok := emitter.find("host.enrolled"); ok {
+		t.Fatal("revoked imported host emitted host.enrolled")
+	}
+}
+
 func TestMeshImportWebFrozenMutationsReturnConflict(t *testing.T) {
 	w, st := newOperatorsWebWithMaster(t)
 	cookie := mintSession(t, st, "freeze-admin", "admin")

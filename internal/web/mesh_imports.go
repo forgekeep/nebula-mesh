@@ -253,7 +253,11 @@ func (w *Web) handleMeshImportFinalize(rw http.ResponseWriter, r *http.Request) 
 	})
 	for _, proposal := range hosts {
 		host := proposal.Host
-		w.emitLifecycle(scope, "host.enrolled", map[string]any{
+		eventType := "host.blocked"
+		if host.Status != models.HostStatusBlocked {
+			eventType = "host.enrolled"
+		}
+		w.emitLifecycle(scope, eventType, map[string]any{
 			"host_id": host.ID, "host_name": host.Name, "network_id": host.NetworkID,
 			"ca_id": host.CAID, "fingerprint": host.CertFingerprint,
 		})

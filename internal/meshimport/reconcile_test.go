@@ -5,10 +5,13 @@ import (
 	"crypto/rand"
 	"net/netip"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/slackhq/nebula/cert"
+
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 func TestReconcileDerivesIdentityFromCertificate(t *testing.T) {
@@ -188,6 +191,38 @@ func TestReconcileBlocklistAndCARoots(t *testing.T) {
 	requireIssueCode(t, report.Blockers, IssueInvalidBlocklist)
 	requireIssueCode(t, report.Blockers, IssueDivergentBlocklist)
 	requireIssueCode(t, report.Blockers, IssueExtraCARoot)
+}
+
+func TestReconcileMarksHostWhoseCertificateIsBlocklisted(t *testing.T) {
+	fixture := newCertificateFixture(t)
+	revoked := fixture.snapshot(t, "revoked", "revoked", "10.42.0.10/24", nil)
+	ordinary := fixture.snapshot(t, "ordinary", "ordinary", "10.42.0.11/24", nil)
+	certificate, _, err := cert.UnmarshalCertificateFromPEM([]byte(revoked.CertificatePEM))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, err := certificate.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocklist := []string{"  " + strings.ToUpper(fingerprint) + "  "}
+	revoked.Config.Blocklist = blocklist
+	ordinary.Config.Blocklist = blocklist
+
+	report := fixture.reconcile(revoked, ordinary)
+	if len(report.Blockers) != 0 {
+		t.Fatalf("blockers = %#v", report.Blockers)
+	}
+	statuses := make(map[string]models.HostStatus)
+	for _, proposal := range report.Proposal.Hosts {
+		statuses[proposal.SnapshotID] = proposal.Host.Status
+	}
+	if statuses[revoked.ID] != models.HostStatusBlocked {
+		t.Fatalf("revoked status = %q, want blocked", statuses[revoked.ID])
+	}
+	if statuses[ordinary.ID] != models.HostStatusImporting {
+		t.Fatalf("ordinary status = %q, want importing", statuses[ordinary.ID])
+	}
 }
 
 func TestReconcileCertificateExpiryWarningsAndBlockers(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -555,11 +556,9 @@ func (s *SQLiteStore) FinalizeMeshImport(ctx context.Context, input MeshImportFi
 	if input.Now.IsZero() {
 		input.Now = time.Now()
 	}
-	for _, fingerprint := range input.Blocklist {
-		decoded, err := hex.DecodeString(strings.TrimSpace(fingerprint))
-		if err != nil || len(decoded) != 32 {
-			return ErrMeshImportConflict
-		}
+	inputBlocklist, err := normalizeImportedBlocklist(input.Blocklist)
+	if err != nil {
+		return ErrMeshImportConflict
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -630,10 +629,13 @@ func (s *SQLiteStore) FinalizeMeshImport(ctx context.Context, input MeshImportFi
 
 	seenSnapshots := make(map[string]struct{}, len(input.Hosts))
 	seenHosts := make(map[string]struct{}, len(input.Hosts))
+	finalStatuses := make(map[string]models.HostStatus, len(input.Hosts))
+	blocklistHosts := make(map[string]string, len(input.Hosts))
+	var persistedBlocklist []string
 	for _, proposal := range input.Hosts {
 		host := proposal.Host
 		if proposal.SnapshotID == "" || host.ID == "" || host.NetworkID != networkID || host.CAID != caID ||
-			host.Status != models.HostStatusImporting || !models.ValidRole(host.Role) ||
+			(host.Status != models.HostStatusImporting && host.Status != models.HostStatusBlocked) || !models.ValidRole(host.Role) ||
 			models.ValidateRoleReachability(host.Role, host.PublicIP, host.ListenPort) != nil ||
 			models.ValidateHostAdvanced(host.Advanced) != nil {
 			return ErrMeshImportConflict
@@ -646,16 +648,56 @@ func (s *SQLiteStore) FinalizeMeshImport(ctx context.Context, input MeshImportFi
 		}
 		seenSnapshots[proposal.SnapshotID] = struct{}{}
 		seenHosts[host.ID] = struct{}{}
-		var storedHostID string
-		if err := tx.QueryRowContext(ctx, `SELECT host_id FROM mesh_import_snapshots WHERE id = ? AND mesh_import_id = ?`, proposal.SnapshotID, input.ID).
-			Scan(&storedHostID); err != nil || storedHostID != host.ID {
+		var storedHostID, snapshotFingerprint, snapshotJSON, stagedFingerprint string
+		if err := tx.QueryRowContext(ctx, `SELECT s.host_id, s.certificate_fingerprint, s.snapshot_json, h.cert_fingerprint
+			FROM mesh_import_snapshots s JOIN hosts h ON h.id = s.host_id
+			WHERE s.id = ? AND s.mesh_import_id = ?`, proposal.SnapshotID, input.ID).
+			Scan(&storedHostID, &snapshotFingerprint, &snapshotJSON, &stagedFingerprint); err != nil || storedHostID != host.ID {
 			return ErrMeshImportConflict
 		}
+		normalizedFingerprint, err := normalizeImportedFingerprint(snapshotFingerprint)
+		if err != nil || !strings.EqualFold(strings.TrimSpace(host.CertFingerprint), normalizedFingerprint) ||
+			!strings.EqualFold(strings.TrimSpace(stagedFingerprint), normalizedFingerprint) {
+			return ErrMeshImportConflict
+		}
+		var snapshot persistedMeshImportSnapshot
+		if err := json.Unmarshal([]byte(snapshotJSON), &snapshot); err != nil {
+			return ErrMeshImportConflict
+		}
+		snapshotBlocklist, err := normalizeImportedBlocklist(snapshot.Config.Blocklist)
+		if err != nil {
+			return ErrMeshImportConflict
+		}
+		if persistedBlocklist == nil {
+			persistedBlocklist = snapshotBlocklist
+		} else if !equalStrings(persistedBlocklist, snapshotBlocklist) {
+			return ErrMeshImportConflict
+		}
+		finalStatus := models.HostStatusEnrolled
+		if containsString(snapshotBlocklist, normalizedFingerprint) {
+			finalStatus = models.HostStatusBlocked
+			blocklistHosts[normalizedFingerprint] = host.ID
+		}
+		expectedProposalStatus := models.HostStatusImporting
+		if finalStatus == models.HostStatusBlocked {
+			expectedProposalStatus = models.HostStatusBlocked
+		}
+		if host.Status != expectedProposalStatus {
+			return ErrMeshImportConflict
+		}
+		finalStatuses[host.ID] = finalStatus
+	}
+	if !equalStrings(inputBlocklist, persistedBlocklist) {
+		return ErrMeshImportConflict
 	}
 
-	for _, fingerprint := range input.Blocklist {
+	for _, fingerprint := range inputBlocklist {
+		var hostID any
+		if linkedHostID, ok := blocklistHosts[fingerprint]; ok {
+			hostID = linkedHostID
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO blocklist (fingerprint, host_id, reason, created_at, ca_id)
-			VALUES (?, NULL, ?, ?, ?)`, strings.ToLower(strings.TrimSpace(fingerprint)), "imported mesh blocklist", input.Now, caID); err != nil {
+			VALUES (?, ?, ?, ?, ?)`, fingerprint, hostID, "imported mesh blocklist", input.Now, caID); err != nil {
 			return fmt.Errorf("insert imported blocklist: %w", err)
 		}
 	}
@@ -678,7 +720,7 @@ func (s *SQLiteStore) FinalizeMeshImport(ctx context.Context, input MeshImportFi
 			status = ?, updated_at = ? WHERE id = ? AND network_id = ? AND ca_id = ? AND status = ?
 			AND EXISTS (SELECT 1 FROM mesh_import_snapshots s WHERE s.id = ? AND s.host_id = hosts.id AND s.mesh_import_id = ?)`,
 			host.Name, string(groupsJSON), host.Role, host.IsLighthouse, host.IsRelay, host.PublicIP,
-			host.ListenPort, advancedJSON, models.HostStatusEnrolled, input.Now, host.ID, networkID, caID,
+			host.ListenPort, advancedJSON, finalStatuses[host.ID], input.Now, host.ID, networkID, caID,
 			models.HostStatusImporting, proposal.SnapshotID, input.ID)
 		if err != nil {
 			return fmt.Errorf("finalize imported host: %w", err)
@@ -724,6 +766,55 @@ func (s *SQLiteStore) FinalizeMeshImport(ctx context.Context, input MeshImportFi
 		return fmt.Errorf("commit mesh import finalize: %w", err)
 	}
 	return nil
+}
+
+type persistedMeshImportSnapshot struct {
+	Config struct {
+		Blocklist []string `json:"blocklist"`
+	} `json:"config"`
+}
+
+func normalizeImportedFingerprint(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	decoded, err := hex.DecodeString(normalized)
+	if err != nil || len(decoded) != 32 {
+		return "", ErrMeshImportConflict
+	}
+	return normalized, nil
+}
+
+func normalizeImportedBlocklist(values []string) ([]string, error) {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		normalized, err := normalizeImportedFingerprint(value)
+		if err != nil {
+			return nil, err
+		}
+		set[normalized] = struct{}{}
+	}
+	result := make([]string, 0, len(set))
+	for value := range set {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func containsString(values []string, target string) bool {
+	index := sort.SearchStrings(values, target)
+	return index < len(values) && values[index] == target
 }
 
 func (s *SQLiteStore) GetHostAgentProfile(ctx context.Context, hostID string) (*models.HostAgentProfile, error) {

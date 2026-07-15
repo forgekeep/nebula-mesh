@@ -450,6 +450,16 @@ func (r *reconcileState) reconcileBlocklist() {
 			r.block(IssueDivergentBlocklist, r.hosts[i].proposal.SnapshotID, r.hosts[i].proposal.Host.Name, "config.blocklist", "blocklist differs from other imported hosts")
 		}
 	}
+	revoked := make(map[string]struct{}, len(r.proposal.Blocklist))
+	for _, fingerprint := range r.proposal.Blocklist {
+		revoked[fingerprint] = struct{}{}
+	}
+	for i := range r.hosts {
+		fingerprint := strings.ToLower(strings.TrimSpace(r.hosts[i].proposal.Host.CertFingerprint))
+		if _, blocked := revoked[fingerprint]; blocked {
+			r.hosts[i].proposal.Host.Status = models.HostStatusBlocked
+		}
+	}
 }
 
 func normalizeBlocklist(values []string) ([]string, error) {

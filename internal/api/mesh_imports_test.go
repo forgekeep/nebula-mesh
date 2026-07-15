@@ -3,17 +3,24 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/slackhq/nebula/cert"
+	"golang.org/x/crypto/curve25519"
 
 	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -368,6 +375,173 @@ func TestMeshImportAPI_PreviewAndFinalizeRequireInventoryAndWarningAcknowledgeme
 	})
 	if response.Code != http.StatusConflict {
 		t.Fatalf("stale finalize status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMeshImportAPI_FinalizePreservesRevokedHostAndEmitsBlocked(t *testing.T) {
+	fixture := newAgentImportFixture(t)
+	fingerprint := certificateFingerprint(t, fixture.snapshot.CertificatePEM)
+	fixture.snapshot.Config.Blocklist = []string{fingerprint}
+	rehashAgentImportFixture(t, &fixture)
+	registered := registerAgentImport(t, fixture)
+	emitter := &fakeEmitter{}
+	fixture.server.WithEventEmitter(emitter)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/mesh-imports/"+fixture.sessionID, nil)
+	authRequest(request)
+	response := httptest.NewRecorder()
+	fixture.server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("preview status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var detail meshImportDetailResponse
+	if err := json.NewDecoder(response.Body).Decode(&detail); err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Report.Proposal.Hosts) != 1 || detail.Report.Proposal.Hosts[0].Host.Status != models.HostStatusBlocked {
+		t.Fatalf("preview hosts = %#v, want blocked", detail.Report.Proposal.Hosts)
+	}
+	acknowledged := make([]string, 0, len(detail.WarningAcknowledgements))
+	for _, warning := range detail.WarningAcknowledgements {
+		acknowledged = append(acknowledged, warning.Key)
+	}
+	body, _ := json.Marshal(meshImportFinalizeRequest{
+		Revision: detail.MeshImport.Revision, InventoryComplete: true, AcknowledgedWarnings: acknowledged,
+	})
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/mesh-imports/"+fixture.sessionID+"/finalize", bytes.NewReader(body))
+	authRequest(request)
+	response = httptest.NewRecorder()
+	fixture.server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("finalize status = %d, body = %s", response.Code, response.Body.String())
+	}
+	host, err := fixture.store.GetHost(t.Context(), registered.HostID)
+	if err != nil || host.Status != models.HostStatusBlocked {
+		t.Fatalf("finalized host = %#v, %v", host, err)
+	}
+	if _, ok := emitter.find("host.blocked"); !ok {
+		t.Fatal("host.blocked event missing")
+	}
+	if _, ok := emitter.find("host.enrolled"); ok {
+		t.Fatal("revoked imported host emitted host.enrolled")
+	}
+
+	poll := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
+	importedIdentity := enrolledAgent{
+		hostID: registered.HostID, fingerprint: registered.Fingerprint, signingPriv: fixture.signingPriv,
+	}
+	signPoll(t, poll, importedIdentity)
+	response = httptest.NewRecorder()
+	fixture.server.ServeHTTP(response, poll)
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"reason":"revoked"`) {
+		t.Fatalf("blocked poll = %d %s", response.Code, response.Body.String())
+	}
+
+	finalizedHost, err := fixture.store.GetHost(t.Context(), registered.HostID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sibling := &models.Network{
+		ID: "network-import-sibling", Name: "Import sibling", CIDRs: []string{"10.251.0.0/16"},
+		CAID: finalizedHost.CAID, CreatedAt: time.Now(),
+	}
+	if err := fixture.store.CreateNetwork(t.Context(), sibling); err != nil {
+		t.Fatal(err)
+	}
+	peerIdentity := enrollMeshImportPeer(t, fixture.server, sibling.ID)
+	otherNetwork, _ := seedAPIMeshImportScope(t, fixture.store, "post-finalize-other-ca")
+	otherVersion, err := fixture.store.GetNetworkConfigVersion(t.Context(), otherNetwork.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unblock := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+registered.HostID+"/unblock", nil)
+	authRequest(unblock)
+	response = httptest.NewRecorder()
+	fixture.server.ServeHTTP(response, unblock)
+	if response.Code != http.StatusOK {
+		t.Fatalf("unblock status = %d, body = %s", response.Code, response.Body.String())
+	}
+	unblockedHost, err := fixture.store.GetHost(t.Context(), registered.HostID)
+	if err != nil || unblockedHost.Status != models.HostStatusPending {
+		t.Fatalf("unblocked host = %#v, %v", unblockedHost, err)
+	}
+
+	poll = httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
+	signPoll(t, poll, importedIdentity)
+	response = httptest.NewRecorder()
+	fixture.server.ServeHTTP(response, poll)
+	if response.Code != http.StatusOK {
+		t.Fatalf("unblocked imported poll = %d %s", response.Code, response.Body.String())
+	}
+
+	peerPoll := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
+	signPoll(t, peerPoll, peerIdentity)
+	response = httptest.NewRecorder()
+	fixture.server.ServeHTTP(response, peerPoll)
+	if response.Code != http.StatusOK {
+		t.Fatalf("sibling peer poll = %d %s", response.Code, response.Body.String())
+	}
+	var peerUpdates agentUpdatesResponse
+	if err := json.NewDecoder(response.Body).Decode(&peerUpdates); err != nil {
+		t.Fatal(err)
+	}
+	if peerUpdates.ConfigYAML == nil || strings.Contains(*peerUpdates.ConfigYAML, fingerprint) || slices.Contains(peerUpdates.Blocklist, fingerprint) {
+		t.Fatalf("sibling peer updates retain unblocked fingerprint: %#v", peerUpdates)
+	}
+	if current, err := fixture.store.GetNetworkConfigVersion(t.Context(), otherNetwork.ID); err != nil || current != otherVersion {
+		t.Fatalf("other CA version = %d, %v; want %d", current, err, otherVersion)
+	}
+}
+
+func enrollMeshImportPeer(t *testing.T, server *Server, networkID string) enrolledAgent {
+	t.Helper()
+	body, _ := json.Marshal(createHostRequest{
+		NetworkID: networkID, Name: "import-sibling-peer", NebulaIPs: []string{"10.251.0.10"},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewReader(body))
+	authRequest(request)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create sibling peer = %d %s", response.Code, response.Body.String())
+	}
+	var created createHostResponse
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	xPrivate := make([]byte, curve25519.ScalarSize)
+	if _, err := rand.Read(xPrivate); err != nil {
+		t.Fatal(err)
+	}
+	defer clear(xPrivate)
+	xPublic, err := curve25519.X25519(xPrivate, curve25519.Basepoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signingPublic, signingPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrollBody, _ := json.Marshal(enrollRequest{
+		Token:         created.EnrollmentToken,
+		PublicKeyPEM:  string(cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, xPublic)),
+		SigningPubPEM: string(pem.EncodeToMemory(&pem.Block{Type: SigningPublicKeyPEMType, Bytes: signingPublic})),
+		Profile:       models.DefaultAgentProfile(),
+	})
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/enroll", bytes.NewReader(enrollBody))
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("enroll sibling peer = %d %s", response.Code, response.Body.String())
+	}
+	var enrolled enrollResponse
+	if err := json.NewDecoder(response.Body).Decode(&enrolled); err != nil {
+		t.Fatal(err)
+	}
+	return enrolledAgent{
+		hostID: created.Host.ID, fingerprint: certificateFingerprint(t, enrolled.CertificatePEM),
+		signingPub: signingPublic, signingPriv: signingPrivate,
 	}
 }
 

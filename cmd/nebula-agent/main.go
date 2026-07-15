@@ -16,6 +16,7 @@ import (
 
 	"github.com/forgekeep/nebula-mesh/internal/agent"
 	"github.com/forgekeep/nebula-mesh/internal/config"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/version"
 )
 
@@ -370,7 +371,14 @@ func startPoller(ctx context.Context, cfg *config.AgentConfig, logger *slog.Logg
 			var re *agent.RekeyError
 			_ = errors.As(runErr, &re)
 			logger.Info("performing server-requested rekey")
-			if err := agent.Reenroll(ctx, cfg.ServerURL, re.Token, cfg.DataDir, cfg.SigningKeyPath, cfg.NebulaConfigPath); err != nil {
+			if err := agent.Reenroll(ctx, cfg.ServerURL, re.Token, agent.ReenrollOptions{
+				DataDir: cfg.DataDir, SigningKeyPath: cfg.SigningKeyPath, PIDFile: cfg.NebulaPIDFile,
+				Profile: models.AgentProfile{
+					NebulaConfigPath: cfg.NebulaConfigPath, NebulaCAPath: cfg.ResolvedNebulaCAPath(),
+					NebulaCertPath: cfg.ResolvedNebulaCertPath(), NebulaKeyPath: cfg.ResolvedNebulaKeyPath(),
+					ConfigAckV1: true,
+				},
+			}); err != nil {
 				return fmt.Errorf("rekey enrollment: %w", err)
 			}
 			continue

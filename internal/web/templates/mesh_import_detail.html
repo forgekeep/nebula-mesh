@@ -48,8 +48,8 @@
 {{if .Report.Proposal.Hosts}}
 <div class="card">
     <h2>Normalized proposal</h2>
-    <table><thead><tr><th>Source</th><th>Name</th><th>Role</th><th>Overlay addresses</th><th>Endpoint</th></tr></thead>
-    <tbody>{{range .Report.Proposal.Hosts}}<tr><td><code>{{.SnapshotID}}</code></td><td>{{.Host.Name}}</td><td>{{.Host.Role}}</td><td>{{range .Host.NebulaIPs}}<code>{{.}}</code> {{end}}</td><td>{{.Host.PublicIP}}:{{.Host.ListenPort}}</td></tr>{{end}}</tbody></table>
+    <table><thead><tr><th>Source</th><th>Name</th><th>Status</th><th>Role</th><th>Overlay addresses</th><th>Endpoint</th></tr></thead>
+    <tbody>{{range .Report.Proposal.Hosts}}<tr><td><code>{{.SnapshotID}}</code></td><td>{{.Host.Name}}</td><td>{{.Host.Status}}</td><td>{{.Host.Role}}</td><td>{{range .Host.NebulaIPs}}<code>{{.}}</code> {{end}}</td><td>{{.Host.PublicIP}}:{{.Host.ListenPort}}</td></tr>{{end}}</tbody></table>
 </div>
 {{end}}
 

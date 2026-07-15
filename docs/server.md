@@ -374,9 +374,19 @@ During collection the target Network and CA are frozen against ordinary host,
 firewall, rotation and attachment mutations. Hosts remain `importing`; the
 server does not send configuration, renew certificates or change their Nebula
 files. Review the session preview, resolve every blocker, acknowledge the exact
-current warnings and confirm the inventory. Finalize compares the displayed
-revision and commits the complete Host set, firewall, blocklist and next
-Network config version in one transaction.
+current warnings, inspect each proposed Host status and confirm the inventory.
+Finalize compares the displayed revision and commits the complete Host set,
+firewall, blocklist and next Network config version in one transaction. A Host
+whose certificate fingerprint appears in the imported blocklist becomes
+`blocked`; every other Host becomes `enrolled`. The blocked agent receives
+`403 revoked` on its next signed poll.
+
+Unblocking an imported Host authorizes its existing identity. The server
+accepts the old agent signing key immediately, removes the old certificate
+fingerprint from the blocklist and bumps the config version of every Network
+using that CA. Peers accept the old Nebula certificate after their next config
+poll and apply. Use a separate re-enrollment or force-rotate operation to issue
+new credentials; unblock does not replace them.
 
 Cancel a failed collection instead of editing its temporary rows. Cancellation
 removes the staged hosts without touching remote files; create a new session

@@ -357,6 +357,36 @@ func TestAgentImportChallengeExpiryReplayAndIdempotency(t *testing.T) {
 	})
 }
 
+func TestAgentImportChallengeLimitReturnsRetryAfterWithoutInvalidatingIssuedChallenges(t *testing.T) {
+	fixture := newAgentImportFixture(t)
+	first := requestAgentImportChallenge(t, fixture, http.StatusCreated)
+	second := requestAgentImportChallenge(t, fixture, http.StatusCreated)
+
+	response := postAgentImportJSON(t, fixture.server, "/api/v1/agent/import/challenge", agentImportChallengeBody(fixture))
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("third challenge status = %d, want 429; body = %s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Retry-After"); got != "120" {
+		t.Errorf("Retry-After = %q, want 120", got)
+	}
+	var errorBody map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &errorBody); err != nil {
+		t.Fatal(err)
+	}
+	if errorBody["error"] != "import_challenge_limit" {
+		t.Errorf("error = %q, want import_challenge_limit", errorBody["error"])
+	}
+
+	firstResponse := submitAgentImport(t, fixture, first, computeAgentImportProof(t, fixture, first))
+	if firstResponse.Code != http.StatusCreated {
+		t.Fatalf("first issued challenge became unusable: %d %s", firstResponse.Code, firstResponse.Body.String())
+	}
+	secondResponse := submitAgentImport(t, fixture, second, computeAgentImportProof(t, fixture, second))
+	if secondResponse.Code != http.StatusOK {
+		t.Fatalf("second issued challenge became unusable: %d %s", secondResponse.Code, secondResponse.Body.String())
+	}
+}
+
 func TestAgentImportRequestBodyIsBounded(t *testing.T) {
 	fixture := newAgentImportFixture(t)
 	oversized := append([]byte(`{"token":"`), bytes.Repeat([]byte("x"), 2<<20)...)

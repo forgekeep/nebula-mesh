@@ -64,6 +64,206 @@ func TestMeshImportLifecycleStoresOnlyTokenHash(t *testing.T) {
 	}
 }
 
+func TestCreateMeshImportChallengeLimitsFingerprintAndPrunesStaleRows(t *testing.T) {
+	s, session, now := newMeshImportFixture(t, nil)
+	ctx := context.Background()
+	first := meshImportChallenge(session.ID, "challenge-first", "fp-shared", "signing", "payload", now)
+	second := meshImportChallenge(session.ID, "challenge-second", "fp-shared", "signing", "payload", now)
+	third := meshImportChallenge(session.ID, "challenge-third", "fp-shared", "signing", "payload", now)
+	for _, challenge := range []*models.MeshImportChallenge{first, second} {
+		if err := s.CreateMeshImportChallenge(ctx, challenge, now); err != nil {
+			t.Fatalf("create %s: %v", challenge.ID, err)
+		}
+	}
+	if err := s.CreateMeshImportChallenge(ctx, third, now); !errors.Is(err, ErrMeshImportChallengeLimit) {
+		t.Fatalf("third active challenge error = %v, want ErrMeshImportChallengeLimit", err)
+	}
+	if count := meshImportChallengeCount(t, s, session.ID); count != 2 {
+		t.Fatalf("challenge rows after limit = %d, want 2", count)
+	}
+
+	if _, err := s.db.ExecContext(ctx, `UPDATE mesh_import_challenges SET consumed_at = ? WHERE id = ?`, now, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE mesh_import_challenges SET expires_at = ? WHERE id = ?`, now, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateMeshImportChallenge(ctx, third, now); err != nil {
+		t.Fatalf("create after stale cleanup: %v", err)
+	}
+	if count := meshImportChallengeCount(t, s, session.ID); count != 1 {
+		t.Fatalf("challenge rows after cleanup = %d, want 1", count)
+	}
+	for _, id := range []string{first.ID, second.ID} {
+		if _, err := s.GetMeshImportChallenge(ctx, id); !errors.Is(err, ErrNotFound) {
+			t.Errorf("get stale challenge %s: %v, want ErrNotFound", id, err)
+		}
+	}
+}
+
+func TestCreateMeshImportChallengeLimitsExpectedSessionCapacity(t *testing.T) {
+	expected := 2
+	s, session, now := newMeshImportFixture(t, &expected)
+	ctx := context.Background()
+	for i := 0; i < 4; i++ {
+		challenge := meshImportChallenge(session.ID, fmt.Sprintf("challenge-%d", i), fmt.Sprintf("fp-%d", i), "signing", "payload", now)
+		if err := s.CreateMeshImportChallenge(ctx, challenge, now); err != nil {
+			t.Fatalf("create challenge %d: %v", i, err)
+		}
+	}
+	extra := meshImportChallenge(session.ID, "challenge-extra", "fp-extra", "signing", "payload", now)
+	if err := s.CreateMeshImportChallenge(ctx, extra, now); !errors.Is(err, ErrMeshImportChallengeLimit) {
+		t.Fatalf("challenge above expected capacity error = %v, want ErrMeshImportChallengeLimit", err)
+	}
+	if count := meshImportActiveChallengeCount(t, s, session.ID, now); count != 4 {
+		t.Fatalf("active challenges = %d, want 4", count)
+	}
+}
+
+func TestCreateMeshImportChallengeEnforcesHardSessionCapacity(t *testing.T) {
+	const hardLimit = 4096
+	s, session, now := newMeshImportFixture(t, nil)
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < hardLimit; i++ {
+		if _, err := tx.Exec(`INSERT INTO mesh_import_challenges (
+			id, mesh_import_id, certificate_fingerprint, agent_signing_pub_pem,
+			payload_hash, server_nonce, expires_at, created_at)
+			VALUES (?, ?, ?, 'signing', 'payload', 'nonce', ?, ?)`,
+			fmt.Sprintf("seed-%d", i), session.ID, fmt.Sprintf("seed-fp-%d", i), now.Add(time.Minute), now); err != nil {
+			_ = tx.Rollback()
+			t.Fatalf("seed challenge %d: %v", i, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	extra := meshImportChallenge(session.ID, "challenge-extra", "fp-extra", "signing", "payload", now)
+	if err := s.CreateMeshImportChallenge(context.Background(), extra, now); !errors.Is(err, ErrMeshImportChallengeLimit) {
+		t.Fatalf("challenge above hard capacity error = %v, want ErrMeshImportChallengeLimit", err)
+	}
+	if count := meshImportActiveChallengeCount(t, s, session.ID, now); count != hardLimit {
+		t.Fatalf("active challenges = %d, want %d", count, hardLimit)
+	}
+}
+
+func TestConcurrentMeshImportChallengesStopExactlyAtSessionCapacity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "challenge-race.db")
+	s, err := NewSQLiteStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	expected := 2
+	session, now := seedMeshImportFixture(t, s, &expected)
+
+	const workers = 12
+	start := make(chan struct{})
+	results := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			challenge := meshImportChallenge(session.ID, fmt.Sprintf("race-%d", i), fmt.Sprintf("race-fp-%d", i), "signing", "payload", now)
+			results <- s.CreateMeshImportChallenge(context.Background(), challenge, now)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	var successes, limited, unexpected int
+	for err := range results {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrMeshImportChallengeLimit):
+			limited++
+		default:
+			unexpected++
+			t.Errorf("unexpected concurrent create error: %v", err)
+		}
+	}
+	if successes != 4 || limited != workers-4 || unexpected != 0 {
+		t.Fatalf("successes=%d limited=%d unexpected=%d, want 4/%d/0", successes, limited, unexpected, workers-4)
+	}
+	if count := meshImportActiveChallengeCount(t, s, session.ID, now); count != 4 {
+		t.Fatalf("active challenges = %d, want 4", count)
+	}
+}
+
+func TestRotateMeshImportTokenDeletesChallengesAtomically(t *testing.T) {
+	s, session, now := newMeshImportFixture(t, nil)
+	ctx := context.Background()
+	first := meshImportChallenge(session.ID, "rotate-first", "rotate-fp-1", "signing", "payload", now)
+	second := meshImportChallenge(session.ID, "rotate-second", "rotate-fp-2", "signing", "payload", now)
+	for _, challenge := range []*models.MeshImportChallenge{first, second} {
+		if err := s.CreateMeshImportChallenge(ctx, challenge, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE mesh_import_challenges SET consumed_at = ? WHERE id = ?`, now, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	newHash := tokenHash("rotated-with-cleanup")
+	if err := s.RotateMeshImportToken(ctx, session.ID, newHash, now.Add(time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	if count := meshImportChallengeCount(t, s, session.ID); count != 0 {
+		t.Fatalf("challenges after token rotation = %d, want 0", count)
+	}
+}
+
+func TestCreateMeshImportChallengeRejectsTokenVerifiedBeforeRotation(t *testing.T) {
+	s, session, now := newMeshImportFixture(t, nil)
+	ctx := context.Background()
+	oldTokenChallenge := meshImportChallenge(session.ID, "late-old-token", "late-old-fp", "signing", "payload", now)
+
+	if err := s.RotateMeshImportToken(ctx, session.ID, tokenHash("replacement"), now.Add(time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateMeshImportChallenge(ctx, oldTokenChallenge, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("create with token verified before rotation: %v, want ErrNotFound", err)
+	}
+	if count := meshImportChallengeCount(t, s, session.ID); count != 0 {
+		t.Fatalf("challenges after late old-token request = %d, want 0", count)
+	}
+}
+
+func TestRotateMeshImportTokenRollsBackWhenChallengeCleanupFails(t *testing.T) {
+	s, session, now := newMeshImportFixture(t, nil)
+	ctx := context.Background()
+	challenge := meshImportChallenge(session.ID, "rotate-rollback", "rotate-rollback-fp", "signing", "payload", now)
+	if err := s.CreateMeshImportChallenge(ctx, challenge, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `CREATE TRIGGER fail_mesh_import_challenge_delete
+		BEFORE DELETE ON mesh_import_challenges BEGIN SELECT RAISE(ABORT, 'blocked delete'); END`); err != nil {
+		t.Fatal(err)
+	}
+	newHash := tokenHash("must-roll-back")
+	if err := s.RotateMeshImportToken(ctx, session.ID, newHash, now.Add(time.Hour), now); err == nil {
+		t.Fatal("token rotation unexpectedly succeeded")
+	}
+	if _, err := s.GetMeshImportByTokenHash(ctx, session.TokenHash, now); err != nil {
+		t.Fatalf("old token hash was not restored: %v", err)
+	}
+	if _, err := s.GetMeshImportByTokenHash(ctx, newHash, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("new token hash survived rollback: %v", err)
+	}
+	if count := meshImportChallengeCount(t, s, session.ID); count != 1 {
+		t.Fatalf("challenges after failed rotation = %d, want 1", count)
+	}
+}
+
 func TestRegisterImportedHostChallengeAndIdempotency(t *testing.T) {
 	expected := 1
 	s, session, now := newMeshImportFixture(t, &expected)
@@ -185,6 +385,9 @@ func TestCancelMeshImportCreatesTombstoneAndAllowsReplacement(t *testing.T) {
 	if err := s.CancelMeshImport(ctx, firstSession.ID, "aborted", now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
+	if count := meshImportChallengeCount(t, s, firstSession.ID); count != 0 {
+		t.Fatalf("challenges after cancel = %d, want 0", count)
+	}
 	if _, err := s.GetHost(ctx, "host-1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("canceled importing host still exists: %v", err)
 	}
@@ -205,6 +408,7 @@ func TestCancelMeshImportCreatesTombstoneAndAllowsReplacement(t *testing.T) {
 		t.Fatalf("create replacement session: %v", err)
 	}
 	wrongKeyChallenge := meshImportChallenge(secondSession.ID, "wrong-key", "fp-1", "signing-other", "payload-new", now)
+	wrongKeyChallenge.TokenHash = secondSession.TokenHash
 	if err := s.CreateMeshImportChallenge(ctx, wrongKeyChallenge, now); err != nil {
 		t.Fatal(err)
 	}
@@ -212,6 +416,7 @@ func TestCancelMeshImportCreatesTombstoneAndAllowsReplacement(t *testing.T) {
 		t.Fatalf("replace tombstone with different signing key: %v, want ErrMeshImportSigningKeyConflict", err)
 	}
 	replacementChallenge := meshImportChallenge(secondSession.ID, "replacement", "fp-1", "signing-1", "payload-new", now)
+	replacementChallenge.TokenHash = secondSession.TokenHash
 	if err := s.CreateMeshImportChallenge(ctx, replacementChallenge, now); err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +557,7 @@ func TestConcurrentMeshImportRegistrationIsSingleWriter(t *testing.T) {
 	}
 	session, now := seedMeshImportFixture(t, s, nil)
 
-	const workers = 8
+	const workers = maxActiveMeshImportChallengesPerFingerprint
 	for i := 0; i < workers; i++ {
 		challenge := meshImportChallenge(session.ID, fmt.Sprintf("challenge-%d", i), "fp-shared", "signing-shared", "payload-shared", now)
 		if err := s.CreateMeshImportChallenge(context.Background(), challenge, now); err != nil {
@@ -438,6 +643,9 @@ func TestFinalizeMeshImportAppliesProposalAtomically(t *testing.T) {
 	}
 	if blocklist, err := s.GetBlocklistForCA(context.Background(), session.CAID); err != nil || len(blocklist) != 1 || blocklist[0] != input.Blocklist[0] {
 		t.Fatalf("blocklist = %#v, %v", blocklist, err)
+	}
+	if count := meshImportChallengeCount(t, s, session.ID); count != 0 {
+		t.Fatalf("challenges after finalize = %d, want 0", count)
 	}
 }
 
@@ -531,6 +739,38 @@ func TestFinalizeMeshImportRollsBackAllWrites(t *testing.T) {
 	}
 	if blocklist, err := s.GetBlocklistForCA(context.Background(), session.CAID); err != nil || len(blocklist) != 0 {
 		t.Fatalf("blocklist after rollback = %#v, %v", blocklist, err)
+	}
+}
+
+func TestFinalizeMeshImportRollsBackChallengeCleanup(t *testing.T) {
+	expected := 1
+	s, session, now := newMeshImportFixture(t, &expected)
+	proposal := registerMeshImportTestHost(t, s, session, "one", "10.42.0.10", now)
+	if count := meshImportChallengeCount(t, s, session.ID); count != 1 {
+		t.Fatalf("challenge rows before finalize = %d, want 1", count)
+	}
+	if _, err := s.db.Exec(`CREATE TRIGGER fail_mesh_import_finalize
+		BEFORE UPDATE OF status ON mesh_imports
+		WHEN NEW.status = 'finalized' BEGIN SELECT RAISE(ABORT, 'blocked finalize'); END`); err != nil {
+		t.Fatal(err)
+	}
+	err := s.FinalizeMeshImport(context.Background(), MeshImportFinalizeInput{
+		ID: session.ID, Revision: 1, Hosts: []MeshImportFinalizeHost{proposal},
+		FirewallJSON: `{"inbound":[],"outbound":[]}`, Now: now.Add(time.Minute),
+	})
+	if err == nil {
+		t.Fatal("finalize unexpectedly succeeded")
+	}
+	if count := meshImportChallengeCount(t, s, session.ID); count != 1 {
+		t.Fatalf("challenge rows after rollback = %d, want 1", count)
+	}
+	stored, getErr := s.GetMeshImport(context.Background(), session.ID)
+	if getErr != nil || stored.Status != models.MeshImportStatusCollecting {
+		t.Fatalf("session after rollback = %#v, %v", stored, getErr)
+	}
+	host, getErr := s.GetHost(context.Background(), proposal.Host.ID)
+	if getErr != nil || host.Status != models.HostStatusImporting {
+		t.Fatalf("host after rollback = %#v, %v", host, getErr)
 	}
 }
 
@@ -679,7 +919,7 @@ func meshImportCA(id, fingerprint, owner string, predecessor *string, now time.T
 
 func meshImportChallenge(sessionID, id, fingerprint, signingKey, payloadHash string, now time.Time) *models.MeshImportChallenge {
 	return &models.MeshImportChallenge{
-		ID: id, MeshImportID: sessionID, CertificateFingerprint: fingerprint,
+		ID: id, MeshImportID: sessionID, TokenHash: tokenHash("raw-bootstrap-token"), CertificateFingerprint: fingerprint,
 		AgentSigningPubPEM: signingKey, PayloadHash: payloadHash, ServerNonce: "nonce-" + id,
 		ExpiresAt: now.Add(time.Minute), CreatedAt: now,
 	}
@@ -725,3 +965,22 @@ func tokenHash(raw string) string {
 }
 
 func ptrTime(value time.Time) *time.Time { return &value }
+
+func meshImportChallengeCount(t *testing.T, s *SQLiteStore, sessionID string) int {
+	t.Helper()
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM mesh_import_challenges WHERE mesh_import_id = ?`, sessionID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+func meshImportActiveChallengeCount(t *testing.T, s *SQLiteStore, sessionID string, now time.Time) int {
+	t.Helper()
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM mesh_import_challenges
+		WHERE mesh_import_id = ? AND consumed_at IS NULL AND expires_at > ?`, sessionID, now).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}

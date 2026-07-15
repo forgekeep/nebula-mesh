@@ -16,6 +16,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/meshimport"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/webhook"
 )
 
 const webMeshImportTokenTTL = 24 * time.Hour
@@ -246,12 +247,13 @@ func (w *Web) handleMeshImportFinalize(rw http.ResponseWriter, r *http.Request) 
 	}
 	op := w.session.CurrentOperator(r)
 	_ = w.store.AddAuditEntry(r.Context(), op.Username, "mesh_import.finalized", item.ID, fmt.Sprintf("hosts=%d revision=%d", len(hosts), item.Revision))
-	w.emitLifecycle("mesh_import.finalized", map[string]any{
+	scope := webhook.Scope{CAID: item.CAID}
+	w.emitLifecycle(scope, "mesh_import.finalized", map[string]any{
 		"mesh_import_id": item.ID, "network_id": item.NetworkID, "ca_id": item.CAID, "host_count": len(hosts),
 	})
 	for _, proposal := range hosts {
 		host := proposal.Host
-		w.emitLifecycle("host.enrolled", map[string]any{
+		w.emitLifecycle(scope, "host.enrolled", map[string]any{
 			"host_id": host.ID, "host_name": host.Name, "network_id": host.NetworkID,
 			"ca_id": host.CAID, "fingerprint": host.CertFingerprint,
 		})

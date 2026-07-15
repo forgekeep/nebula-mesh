@@ -13,11 +13,14 @@ import (
 
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
+
+	"github.com/forgekeep/nebula-mesh/internal/webhook"
 )
 
 type capturedEvent struct {
-	typ  string
-	data map[string]any
+	scope webhook.Scope
+	typ   string
+	data  map[string]any
 }
 
 // fakeEmitter records events synchronously so handler-emit tests need no waits.
@@ -26,10 +29,10 @@ type fakeEmitter struct {
 	events []capturedEvent
 }
 
-func (f *fakeEmitter) Emit(eventType string, data map[string]any) {
+func (f *fakeEmitter) Emit(scope webhook.Scope, eventType string, data map[string]any) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.events = append(f.events, capturedEvent{eventType, data})
+	f.events = append(f.events, capturedEvent{scope: scope, typ: eventType, data: data})
 }
 
 func (f *fakeEmitter) find(eventType string) (capturedEvent, bool) {
@@ -84,6 +87,9 @@ func TestEmit_HostBlockedAndUnblocked(t *testing.T) {
 		if ev.data["host_id"] != host.ID {
 			t.Errorf("%s host_id = %v, want %s", step.event, ev.data["host_id"], host.ID)
 		}
+		if ev.scope.CAID != host.CAID {
+			t.Errorf("%s scope CAID = %q, want %q", step.event, ev.scope.CAID, host.CAID)
+		}
 	}
 }
 
@@ -129,5 +135,8 @@ func TestEmit_HostEnrolled(t *testing.T) {
 	}
 	if ev.data["fingerprint"] == "" || ev.data["fingerprint"] == nil {
 		t.Error("host.enrolled missing fingerprint")
+	}
+	if ev.scope.CAID != created.Host.CAID {
+		t.Errorf("host.enrolled scope CAID = %q, want %q", ev.scope.CAID, created.Host.CAID)
 	}
 }

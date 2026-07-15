@@ -496,6 +496,14 @@ certificate and Ed25519 signing key. A prefix/state mismatch, expired or rotated
 token, different signing key, duplicate overlay address, or completed session
 returns an error instead of creating another identity.
 
+The server allows two outstanding proof challenges per host certificate. A
+`429 Too Many Requests` response leaves both existing challenges valid; wait
+for the `Retry-After` interval and run the same command again. The session also
+limits simultaneous outstanding challenges to twice `expected_hosts`, bounded
+to 2–4096, or 4096 when the expected count is unknown. Start larger fleets in
+waves; each successful registration frees capacity. Rotating the import token
+invalidates all challenges issued for the previous token.
+
 Before finalize, use Cancel in the session page or
 `POST /api/v1/mesh-imports/{id}/cancel`. Cancellation removes temporary
 `importing` hosts and records tombstones; it does not touch Nebula files. Start a

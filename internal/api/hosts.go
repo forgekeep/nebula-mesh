@@ -14,6 +14,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/webhook"
 )
 
 type createHostRequest struct {
@@ -332,7 +333,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAuditAction(r.Context(), auditHostDelete, id, "")
-	s.emit("host.deleted", hostEventData(host))
+	s.emit(webhook.Scope{CAID: host.CAID}, "host.deleted", hostEventData(host))
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -383,7 +384,7 @@ func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAuditAction(r.Context(), auditHostBlock, id, "")
-	s.emit("host.blocked", hostEventData(host))
+	s.emit(webhook.Scope{CAID: host.CAID}, "host.blocked", hostEventData(host))
 
 	writeJSON(w, http.StatusOK, host)
 }
@@ -424,7 +425,7 @@ func (s *Server) handleUnblockHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAuditAction(r.Context(), auditHostUnblock, id, "")
-	s.emit("host.unblocked", hostEventData(host))
+	s.emit(webhook.Scope{CAID: host.CAID}, "host.unblocked", hostEventData(host))
 
 	writeJSON(w, http.StatusOK, host)
 }
@@ -538,7 +539,7 @@ func (s *Server) handleRotateCert(w http.ResponseWriter, r *http.Request) {
 	s.recordAuditAction(r.Context(), auditHostRotateCertRequested, host.ID, "new_key=false")
 	rotated := hostEventData(host)
 	rotated["fingerprint"] = signed.fp
-	s.emit("cert.rotated", rotated)
+	s.emit(webhook.Scope{CAID: host.CAID}, "cert.rotated", rotated)
 	caBundle, err := s.renderAgentCABundle(r.Context(), host.CAID)
 	if err != nil {
 		s.logger.Error("render CA bundle for rotated cert", "error", err)

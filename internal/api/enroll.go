@@ -16,6 +16,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/webhook"
 )
 
 type enrollRequest struct {
@@ -227,7 +228,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.metrics.recordEnrollment(resultOK)
-	s.emit("host.enrolled", map[string]any{
+	s.emit(webhook.Scope{CAID: host.CAID}, "host.enrolled", map[string]any{
 		"host_id":     host.ID,
 		"host_name":   host.Name,
 		"network_id":  host.NetworkID,

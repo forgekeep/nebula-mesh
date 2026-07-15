@@ -71,7 +71,7 @@ func TestDispatcher_DeliversSignedEnvelope(t *testing.T) {
 	}, testLogger())
 	defer d.Close()
 
-	d.Emit("host.enrolled", map[string]any{"host_id": "h1", "network_id": "n1"})
+	d.Emit(Scope{CAID: "ca1"}, "host.enrolled", map[string]any{"host_id": "h1", "network_id": "n1"})
 	got := waitRecv(t, ch)
 
 	if got.event != "host.enrolled" {
@@ -100,6 +100,13 @@ func TestDispatcher_DeliversSignedEnvelope(t *testing.T) {
 	if ev.Data["host_id"] != "h1" {
 		t.Errorf("data.host_id = %v, want h1", ev.Data["host_id"])
 	}
+	var raw map[string]any
+	if err := json.Unmarshal(got.body, &raw); err != nil {
+		t.Fatalf("unmarshal raw envelope: %v", err)
+	}
+	if _, ok := raw["scope"]; ok {
+		t.Error("internal webhook scope was serialized")
+	}
 }
 
 func TestDispatcher_FiltersByEventType(t *testing.T) {
@@ -113,10 +120,10 @@ func TestDispatcher_FiltersByEventType(t *testing.T) {
 	}, testLogger())
 	defer d.Close()
 
-	d.Emit("host.enrolled", map[string]any{"host_id": "h1"}) // not subscribed
+	d.Emit(Scope{}, "host.enrolled", map[string]any{"host_id": "h1"}) // not subscribed
 	expectNoRecv(t, ch)
 
-	d.Emit("host.blocked", map[string]any{"host_id": "h1"}) // subscribed
+	d.Emit(Scope{}, "host.blocked", map[string]any{"host_id": "h1"}) // subscribed
 	if got := waitRecv(t, ch); got.event != "host.blocked" {
 		t.Errorf("delivered %q, want host.blocked", got.event)
 	}
@@ -145,7 +152,7 @@ func TestDispatcher_RetriesUntilSuccess(t *testing.T) {
 	}, testLogger())
 	defer d.Close()
 
-	d.Emit("cert.rotated", map[string]any{"host_id": "h1"})
+	d.Emit(Scope{CAID: "ca1"}, "cert.rotated", map[string]any{"host_id": "h1"})
 	if got := waitRecv(t, ch); got.event != "cert.rotated" {
 		t.Errorf("delivered %q after retries, want cert.rotated", got.event)
 	}
@@ -168,6 +175,6 @@ func TestDispatcher_SSRFGuardBlocksLoopback(t *testing.T) {
 	}, testLogger())
 	defer d.Close()
 
-	d.Emit("host.enrolled", map[string]any{"host_id": "h1"})
+	d.Emit(Scope{CAID: "ca1"}, "host.enrolled", map[string]any{"host_id": "h1"})
 	expectNoRecv(t, ch)
 }

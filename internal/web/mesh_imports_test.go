@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,9 +21,37 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/meshimport"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/webhook"
 )
 
 var meshImportTokenPattern = regexp.MustCompile(`nmi_[A-Za-z0-9_-]+`)
+
+type webCapturedEvent struct {
+	scope webhook.Scope
+	typ   string
+}
+
+type webFakeEmitter struct {
+	mu     sync.Mutex
+	events []webCapturedEvent
+}
+
+func (f *webFakeEmitter) Emit(scope webhook.Scope, eventType string, _ map[string]any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = append(f.events, webCapturedEvent{scope: scope, typ: eventType})
+}
+
+func (f *webFakeEmitter) find(eventType string) (webCapturedEvent, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, event := range f.events {
+		if event.typ == eventType {
+			return event, true
+		}
+	}
+	return webCapturedEvent{}, false
+}
 
 func TestMeshImportWebCreateShowsTokenOnceAndUsesCSRF(t *testing.T) {
 	w, st := newTestWeb(t)
@@ -123,6 +152,8 @@ func TestMeshImportWebTenantIsolation(t *testing.T) {
 
 func TestMeshImportWebPreviewAndFinalize(t *testing.T) {
 	w, st := newOperatorsWebWithMaster(t)
+	emitter := &webFakeEmitter{}
+	w.WithLifecycleEventEmitter(emitter)
 	cookie := mintSession(t, st, "adopter", "admin")
 	op, err := st.GetOperatorByUsername(context.Background(), "adopter")
 	if err != nil {
@@ -188,7 +219,7 @@ func TestMeshImportWebPreviewAndFinalize(t *testing.T) {
 		t.Fatal(err)
 	}
 	challenge := &models.MeshImportChallenge{
-		ID: "challenge-adopt", MeshImportID: session.ID, CertificateFingerprint: fingerprint,
+		ID: "challenge-adopt", MeshImportID: session.ID, TokenHash: session.TokenHash, CertificateFingerprint: fingerprint,
 		AgentSigningPubPEM: host.SigningPubPEM, PayloadHash: "payload-adopt", ServerNonce: "nonce-adopt",
 		ExpiresAt: now.Add(time.Minute), CreatedAt: now,
 	}
@@ -235,6 +266,15 @@ func TestMeshImportWebPreviewAndFinalize(t *testing.T) {
 	finalHost, err := st.GetHost(context.Background(), host.ID)
 	if err != nil || finalHost.Status != models.HostStatusEnrolled {
 		t.Fatalf("finalized host = %#v, %v", finalHost, err)
+	}
+	for _, eventType := range []string{"mesh_import.finalized", "host.enrolled"} {
+		event, ok := emitter.find(eventType)
+		if !ok {
+			t.Fatalf("%s event missing", eventType)
+		}
+		if event.scope.CAID != ca.ID {
+			t.Errorf("%s scope CAID = %q, want %q", eventType, event.scope.CAID, ca.ID)
+		}
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -98,7 +99,7 @@ func (s *Server) handleAgentImportChallenge(w http.ResponseWriter, r *http.Reque
 	now := s.now()
 	expiresAt := now.Add(agentImportChallengeTTL)
 	challenge := &models.MeshImportChallenge{
-		ID: uuid.NewString(), MeshImportID: verified.session.ID,
+		ID: uuid.NewString(), MeshImportID: verified.session.ID, TokenHash: verified.session.TokenHash,
 		CertificateFingerprint: verified.fingerprint, AgentSigningPubPEM: verified.signingPEM,
 		PayloadHash: verified.payloadHash, ServerNonce: expectedProofHash,
 		ExpiresAt: expiresAt, CreatedAt: now,
@@ -321,6 +322,9 @@ func (verified *verifiedAgentImport) proofBinding() importproof.Binding {
 
 func (s *Server) writeAgentImportStoreError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, store.ErrMeshImportChallengeLimit):
+		w.Header().Set("Retry-After", strconv.FormatInt(int64(agentImportChallengeTTL/time.Second), 10))
+		writeError(w, http.StatusTooManyRequests, "import_challenge_limit")
 	case errors.Is(err, store.ErrMeshImportTokenExpired):
 		writeError(w, http.StatusGone, "import_token_expired")
 	case errors.Is(err, store.ErrMeshImportNotCollecting):

@@ -21,6 +21,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
 	"github.com/forgekeep/nebula-mesh/internal/secretingress"
 	"github.com/forgekeep/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/webhook"
 )
 
 // Server is the HTTP API server.
@@ -47,19 +48,18 @@ type Server struct {
 
 // EventEmitter receives lifecycle events the handlers publish (host enrolled,
 // blocked, deleted, cert rotated). The webhook.Dispatcher satisfies it; the
-// interface keeps the api package free of a webhook import. A nil emitter (the
-// default) makes emit a no-op.
+// default makes emit a no-op.
 type EventEmitter interface {
-	Emit(eventType string, data map[string]any)
+	Emit(scope webhook.Scope, eventType string, data map[string]any)
 }
 
 // WithEventEmitter wires the outbound-event sink. Must be set before ServeHTTP.
 func (s *Server) WithEventEmitter(e EventEmitter) { s.events = e }
 
 // emit publishes a lifecycle event, nil-safe so handlers need no guard.
-func (s *Server) emit(eventType string, data map[string]any) {
+func (s *Server) emit(scope webhook.Scope, eventType string, data map[string]any) {
 	if s.events != nil {
-		s.events.Emit(eventType, data)
+		s.events.Emit(scope, eventType, data)
 	}
 }
 

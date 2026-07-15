@@ -32,6 +32,7 @@ var (
 	ErrMeshImportNotCollecting        = errors.New("mesh import is not collecting")
 	ErrMeshImportTokenExpired         = errors.New("mesh import token expired")
 	ErrMeshImportChallengeExpired     = errors.New("mesh import challenge expired")
+	ErrMeshImportChallengeLimit       = errors.New("mesh import challenge limit reached")
 	ErrMeshImportChallengeUsed        = errors.New("mesh import challenge already used")
 	ErrMeshImportChallengeMismatch    = errors.New("mesh import challenge does not match registration")
 	ErrMeshImportSigningKeyConflict   = errors.New("certificate fingerprint is bound to another signing key")
@@ -165,6 +166,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"021_webhook_subscriptions.up.sql",
 		"022_operator_lockout.up.sql",
 		"023_mesh_import.up.sql",
+		"024_mesh_import_challenge_limits.up.sql",
 	}
 
 	conn, err := s.db.Conn(ctx)

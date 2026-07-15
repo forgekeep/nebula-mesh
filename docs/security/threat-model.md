@@ -52,7 +52,7 @@ Trust zones, from least to most trusted:
 | A3 | Operator credentials & sessions | Passwords bcrypt-hashed; API keys hashed at rest; sessions are random tokens; cookie `HttpOnly` + `SameSite=Lax` + `Secure`-gated. | `internal/web/session.go`; #180 |
 | A4 | Enrollment tokens | `crypto/rand` UUID, SHA-256 at rest, single-use via an atomic conditional consume; bound to a specific `host_id`. | ADR 0004; #197 |
 | A5 | Certificate-signing authority | Every sign path is gated by `checkIssuanceAllowed` (blocked host / disabled operator → refuse). | GHSA-339v-266x-79xr; `internal/revocation` |
-| A6 | Network topology & host metadata | Reads scoped to the caller's owned CAs/networks; revocation blocklist scoped per-CA. | #154, #203 |
+| A6 | Network topology & host metadata | Reads scoped to the caller's owned CAs/networks; revocation blocklist scoped per-CA; managed webhook delivery scoped by the event CA owner. The deployer-owned static webhook remains server-wide. | #154, #203; `internal/webhook` |
 | A7 | Existing-mesh import material | CA signing key is encrypted on ingress; import token is SHA-256 hashed; snapshots contain allowlisted public topology and never `host.key`. | `internal/caimport`, `internal/agent/discovery.go`, `internal/secretingress` |
 
 ## 3. Entry points & trust boundaries
@@ -111,13 +111,14 @@ Trust zones, from least to most trusted:
 - **Replay / token theft**: `nmi_` tokens are random, hashed at rest, TTL- and session-bound, rotatable, and invalid after cancel/finalize. Challenges are single-use and bind the certificate fingerprint, Ed25519 signing key and sanitized payload hash. Expected host count limits fleet expansion.
 - **Information disclosure**: discovery constructs an allowlist snapshot. It uploads public certificates, routes, endpoints and normalized policy, but no host private key, CA private key, inline secrets or unsupported setting values. Request bodies and raw tokens are not audited.
 - **Tampering / cutover**: imported hosts remain `importing`, and signed polls return `import_pending` without updates. Preview exposes conflicts; finalize requires inventory confirmation, warning acknowledgements and revision compare-and-swap, then validates the frozen CA/Network/Host set in one transaction.
-- **DoS**: public challenge and registration bodies are capped and use the shared per-IP limiter. Operators can rotate the token or cancel the session; ordinary mutations remain frozen only while collection is active.
+- **DoS**: public challenge and registration bodies are capped and use the shared per-IP limiter. The store also limits outstanding challenges to two per certificate fingerprint and `min(4096, max(2, 2 * expected_hosts))` per session, or 4096 when the inventory size is unknown. Creation removes expired and consumed rows before counting; token rotation, cancel and finalize remove all remaining challenges transactionally. Operators can therefore revoke outstanding proof state without leaving durable rows; ordinary mutations remain frozen only while collection is active.
 
 ## 5. Cross-cutting mitigations
 
 - **Transport**: TLS by default; non-loopback plaintext bind refused unless opted in (#179).
 - **Crypto**: AES-256-GCM throughout; both CA-key envelope layers bind the owning `ca_id` as AAD, so an envelope copied between CA rows fails to decrypt (envelopes sealed before the binding load via a nil-AAD fallback and are backstopped by a key/cert public-key consistency check at load); key material zeroized (#181, #196).
 - **Input**: strict JSON decode, body caps, length bounds on cert-embedded fields (#186, #195).
+- **Tenant isolation**: lifecycle events carry a non-serialized CA scope. Managed webhook targets are selected only from subscriptions owned by that CA's operator; empty or unknown scope selects none. The static config target is explicitly deployer-wide.
 - **Tooling baseline**: `golangci-lint` (pinned), standalone `gosec`, and `govulncheck` gate every PR, plus ADR-0009 generative fuzzing in CI.
 
 ## 6. Residual risks & accepted trade-offs

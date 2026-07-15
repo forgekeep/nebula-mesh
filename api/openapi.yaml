@@ -132,7 +132,15 @@ paths:
         "413":
           $ref: "#/components/responses/Error"
         "429":
-          $ref: "#/components/responses/Error"
+          description: Per-IP request rate or durable active-challenge quota exceeded. Retry-After is expressed in seconds.
+          headers:
+            Retry-After:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/agent/import:
     post:

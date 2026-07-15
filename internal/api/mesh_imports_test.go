@@ -343,11 +343,23 @@ func TestMeshImportAPI_PreviewAndFinalizeRequireInventoryAndWarningAcknowledgeme
 	if err != nil || host.Status != models.HostStatusEnrolled {
 		t.Fatalf("finalized host = %#v, %v", host, err)
 	}
-	if _, ok := emitter.find("mesh_import.finalized"); !ok {
+	session, err := fixture.store.GetMeshImport(context.Background(), fixture.sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizedEvent, ok := emitter.find("mesh_import.finalized")
+	if !ok {
 		t.Fatal("mesh_import.finalized event missing")
 	}
-	if _, ok := emitter.find("host.enrolled"); !ok {
+	if finalizedEvent.scope.CAID != session.CAID {
+		t.Errorf("mesh_import.finalized scope CAID = %q, want %q", finalizedEvent.scope.CAID, session.CAID)
+	}
+	enrolledEvent, ok := emitter.find("host.enrolled")
+	if !ok {
 		t.Fatal("host.enrolled event missing")
+	}
+	if enrolledEvent.scope.CAID != session.CAID {
+		t.Errorf("host.enrolled scope CAID = %q, want %q", enrolledEvent.scope.CAID, session.CAID)
 	}
 
 	response = postFinalize(meshImportFinalizeRequest{

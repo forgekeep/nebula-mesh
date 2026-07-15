@@ -136,6 +136,7 @@ func (p HostAgentProfile) AgentProfile() AgentProfile {
 type MeshImportChallenge struct {
 	ID                     string     `json:"id"`
 	MeshImportID           string     `json:"mesh_import_id"`
+	TokenHash              string     `json:"-"`
 	CertificateFingerprint string     `json:"certificate_fingerprint"`
 	AgentSigningPubPEM     string     `json:"agent_signing_pub_pem"`
 	PayloadHash            string     `json:"payload_hash"`

@@ -362,6 +362,14 @@ it is stored as a hash and stops working at expiry, rotation, cancel, expected
 count, or finalize. Registered agents immediately switch to signed Ed25519
 polls and do not need another token.
 
+The server keeps at most two outstanding proof challenges per host certificate.
+The session limit is twice `expected_hosts`, bounded to 2–4096, or 4096 when the
+count is unknown. A host that receives `429 Too Many Requests` should wait for
+the `Retry-After` interval and run enrollment again. For fleets that may exceed
+4096 simultaneous attempts, start agents in waves; successful registrations
+free capacity. Token rotation discards every outstanding challenge from the old
+token.
+
 During collection the target Network and CA are frozen against ordinary host,
 firewall, rotation and attachment mutations. Hosts remain `importing`; the
 server does not send configuration, renew certificates or change their Nebula

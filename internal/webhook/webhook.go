@@ -41,6 +41,12 @@ const (
 	SignatureHeader = "X-Nebula-Signature"
 )
 
+// Scope identifies the CA tenant for managed-subscription routing. It is
+// internal delivery metadata and is never serialized to webhook receivers.
+type Scope struct {
+	CAID string
+}
+
 // Event is the envelope POSTed to a subscriber. Data carries the
 // event-type-specific payload.
 type Event struct {
@@ -48,12 +54,13 @@ type Event struct {
 	Type      string         `json:"type"`
 	CreatedAt time.Time      `json:"created_at"`
 	Data      map[string]any `json:"data"`
+	Scope     Scope          `json:"-"`
 }
 
 // Emitter is the narrow interface handlers depend on. *Dispatcher implements
 // it; a nil *Dispatcher Emit is a no-op.
 type Emitter interface {
-	Emit(eventType string, data map[string]any)
+	Emit(scope Scope, eventType string, data map[string]any)
 }
 
 // Target is one resolved delivery endpoint. ID is the subscription id for
@@ -69,7 +76,7 @@ type Target struct {
 // SubscriptionSource yields managed subscriptions for an event and records the
 // outcome of each delivery.
 type SubscriptionSource interface {
-	TargetsFor(ctx context.Context, eventType string) ([]Target, error)
+	TargetsFor(ctx context.Context, scope Scope, eventType string) ([]Target, error)
 	RecordDelivery(ctx context.Context, targetID string, ok bool, errMsg string)
 }
 
@@ -174,7 +181,7 @@ func New(cfg Config, logger *slog.Logger) *Dispatcher {
 // Emit enqueues an event. It never blocks the caller: a full queue drops the
 // event with a logged warning rather than stalling the request path. Per-target
 // filtering happens at delivery. A nil Dispatcher (webhooks disabled) is a no-op.
-func (d *Dispatcher) Emit(eventType string, data map[string]any) {
+func (d *Dispatcher) Emit(scope Scope, eventType string, data map[string]any) {
 	if d == nil || d.closed.Load() {
 		return
 	}
@@ -183,6 +190,7 @@ func (d *Dispatcher) Emit(eventType string, data map[string]any) {
 		Type:      eventType,
 		CreatedAt: d.now().UTC(),
 		Data:      data,
+		Scope:     scope,
 	}
 	select {
 	case d.queue <- ev:
@@ -216,21 +224,21 @@ func (d *Dispatcher) dispatch(ev Event) {
 		d.logger.Error("marshal webhook event", "type", ev.Type, "error", err)
 		return
 	}
-	for _, tgt := range d.targets(ev.Type) {
+	for _, tgt := range d.targets(ev.Scope, ev.Type) {
 		d.deliverWithRetry(tgt, payload, ev.Type, ev.ID)
 	}
 }
 
 // targets gathers the static config target (when it wants the event) and any
 // managed subscriptions from the source.
-func (d *Dispatcher) targets(eventType string) []Target {
+func (d *Dispatcher) targets(scope Scope, eventType string) []Target {
 	var out []Target
 	if d.cfg.URL != "" && (d.staticEvents == nil || d.staticEvents[eventType]) {
 		out = append(out, Target{URL: d.cfg.URL, Secret: []byte(d.cfg.HMACSecret), AllowPrivate: d.cfg.AllowPrivate})
 	}
 	if d.source != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), d.cfg.DeliveryTO)
-		subs, err := d.source.TargetsFor(ctx, eventType)
+		subs, err := d.source.TargetsFor(ctx, scope, eventType)
 		cancel()
 		if err != nil {
 			d.logger.Error("load webhook subscriptions", "type", eventType, "error", err)

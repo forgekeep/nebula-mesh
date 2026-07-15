@@ -17,10 +17,74 @@ func seedWebhookOwner(t *testing.T, s *SQLiteStore, id string) {
 	}
 }
 
+func seedWebhookCA(t *testing.T, s *SQLiteStore, id, ownerID string) {
+	t.Helper()
+	now := time.Now()
+	ca := &models.CA{
+		ID: id, Name: id, OwnerOperatorID: ownerID, CertPEM: "pem-" + id,
+		Fingerprint: "fp-" + id, NotBefore: now, NotAfter: now.Add(time.Hour),
+		Status: models.CAStatusActive, EncryptedKeyDEK: []byte{1}, NonceDEK: []byte{1},
+		EncryptedKeyMaterial: []byte{1}, NonceKey: []byte{1},
+	}
+	if err := s.CreateCA(context.Background(), ca); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWebhookSubscription_ListActiveForCAIsOwnerScoped(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedWebhookOwner(t, s, "op-a")
+	seedWebhookOwner(t, s, "op-b")
+	seedWebhookCA(t, s, "ca-a", "op-a")
+	seedWebhookCA(t, s, "ca-a-second", "op-a")
+	seedWebhookCA(t, s, "ca-b", "op-b")
+
+	for _, sub := range []*models.WebhookSubscription{
+		{ID: "wh-a", OwnerOperatorID: "op-a", URL: "https://a.example/hook", Active: true},
+		{ID: "wh-a-second", OwnerOperatorID: "op-a", URL: "https://a2.example/hook", Active: true},
+		{ID: "wh-a-inactive", OwnerOperatorID: "op-a", URL: "https://inactive.example/hook", Active: false},
+		{ID: "wh-b", OwnerOperatorID: "op-b", URL: "https://b.example/hook", Active: true},
+	} {
+		if err := s.CreateWebhookSubscription(ctx, sub); err != nil {
+			t.Fatalf("create subscription %s: %v", sub.ID, err)
+		}
+	}
+
+	for _, caID := range []string{"ca-a", "ca-a-second"} {
+		got, err := s.ListActiveWebhookSubscriptionsForCA(ctx, caID)
+		if err != nil {
+			t.Fatalf("list subscriptions for %s: %v", caID, err)
+		}
+		if len(got) != 2 || got[0].ID != "wh-a" || got[1].ID != "wh-a-second" {
+			t.Errorf("subscriptions for %s = %#v, want wh-a and wh-a-second", caID, got)
+		}
+	}
+
+	got, err := s.ListActiveWebhookSubscriptionsForCA(ctx, "ca-b")
+	if err != nil {
+		t.Fatalf("list subscriptions for ca-b: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "wh-b" {
+		t.Errorf("subscriptions for ca-b = %#v, want wh-b", got)
+	}
+
+	for _, caID := range []string{"", "missing"} {
+		got, err := s.ListActiveWebhookSubscriptionsForCA(ctx, caID)
+		if err != nil {
+			t.Fatalf("list subscriptions for %q: %v", caID, err)
+		}
+		if len(got) != 0 {
+			t.Errorf("subscriptions for %q = %#v, want none", caID, got)
+		}
+	}
+}
+
 func TestWebhookSubscription_CRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	seedWebhookOwner(t, s, "op1")
+	seedWebhookCA(t, s, "ca1", "op1")
 
 	sub := &models.WebhookSubscription{
 		ID:                 "wh1",
@@ -66,7 +130,7 @@ func TestWebhookSubscription_CRUD(t *testing.T) {
 	}
 
 	// ListActive excludes the now-inactive sub.
-	active, _ := s.ListActiveWebhookSubscriptions(ctx)
+	active, _ := s.ListActiveWebhookSubscriptionsForCA(ctx, "ca1")
 	if len(active) != 0 {
 		t.Errorf("active list = %d, want 0", len(active))
 	}

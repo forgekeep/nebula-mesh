@@ -19,6 +19,11 @@ const meshImportColumns = `id, network_id, ca_id, owner_operator_id, ca_fingerpr
 	captured_network_config_version, terminal_reason, created_at, updated_at,
 	finalized_at, canceled_at`
 
+const (
+	maxActiveMeshImportChallengesPerFingerprint = 2
+	maxActiveMeshImportChallengesPerSession     = 4096
+)
+
 func scanMeshImport(scanner interface{ Scan(...any) error }) (*models.MeshImport, error) {
 	var item models.MeshImport
 	var expected sql.NullInt64
@@ -170,14 +175,29 @@ func (s *SQLiteStore) queryMeshImports(ctx context.Context, where string, args .
 }
 
 func (s *SQLiteStore) RotateMeshImportToken(ctx context.Context, id, tokenHash string, expiresAt, now time.Time) error {
-	result, err := s.db.ExecContext(ctx, `UPDATE mesh_imports
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin rotate mesh import token: %w", err)
+	}
+	defer rollbackLog(tx)
+
+	result, err := tx.ExecContext(ctx, `UPDATE mesh_imports
 		SET token_hash = ?, token_expires_at = ?, updated_at = ?
 		WHERE id = ? AND status = ?`,
 		tokenHash, expiresAt, now, id, models.MeshImportStatusCollecting)
 	if err != nil {
 		return fmt.Errorf("rotate mesh import token: %w", err)
 	}
-	return meshImportCollectingRows(ctx, s.db, result, id)
+	if err := meshImportCollectingRows(ctx, tx, result, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM mesh_import_challenges WHERE mesh_import_id = ?`, id); err != nil {
+		return fmt.Errorf("delete challenges for rotated mesh import token: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit mesh import token rotation: %w", err)
+	}
+	return nil
 }
 
 func (s *SQLiteStore) CancelMeshImport(ctx context.Context, id, reason string, now time.Time) error {
@@ -232,7 +252,7 @@ func (s *SQLiteStore) CancelMeshImport(ctx context.Context, id, reason string, n
 
 func (s *SQLiteStore) CreateMeshImportChallenge(ctx context.Context, challenge *models.MeshImportChallenge, now time.Time) error {
 	if challenge == nil || challenge.ID == "" || challenge.MeshImportID == "" ||
-		challenge.CertificateFingerprint == "" || challenge.AgentSigningPubPEM == "" ||
+		challenge.TokenHash == "" || challenge.CertificateFingerprint == "" || challenge.AgentSigningPubPEM == "" ||
 		challenge.PayloadHash == "" || challenge.ServerNonce == "" {
 		return errors.New("complete mesh import challenge is required")
 	}
@@ -242,27 +262,79 @@ func (s *SQLiteStore) CreateMeshImportChallenge(ctx context.Context, challenge *
 	if challenge.CreatedAt.IsZero() {
 		challenge.CreatedAt = now
 	}
-	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO mesh_import_challenges (
-			id, mesh_import_id, certificate_fingerprint, agent_signing_pub_pem,
-			payload_hash, server_nonce, expires_at, created_at)
-		SELECT ?, mi.id, ?, ?, ?, ?, ?, ?
-		FROM mesh_imports mi
-		WHERE mi.id = ? AND mi.status = ?`,
-		challenge.ID, challenge.CertificateFingerprint, challenge.AgentSigningPubPEM,
-		challenge.PayloadHash, challenge.ServerNonce, challenge.ExpiresAt, challenge.CreatedAt,
-		challenge.MeshImportID, models.MeshImportStatusCollecting)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("create mesh import challenge: %w", err)
+		return fmt.Errorf("begin mesh import challenge: %w", err)
 	}
-	rows, err := result.RowsAffected()
+	defer rollbackLog(tx)
+
+	locked, err := tx.ExecContext(ctx, `UPDATE mesh_imports SET revision = revision
+		WHERE id = ? AND status = ?`, challenge.MeshImportID, models.MeshImportStatusCollecting)
 	if err != nil {
-		return fmt.Errorf("create mesh import challenge rows: %w", err)
+		return fmt.Errorf("lock mesh import challenge session: %w", err)
 	}
-	if rows == 0 {
+	rows, err := locked.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("lock mesh import challenge session rows: %w", err)
+	}
+	if rows != 1 {
 		return ErrMeshImportNotCollecting
 	}
+
+	var expected sql.NullInt64
+	var currentTokenHash string
+	if err := tx.QueryRowContext(ctx, `SELECT expected_hosts, token_hash FROM mesh_imports WHERE id = ?`, challenge.MeshImportID).Scan(&expected, &currentTokenHash); err != nil {
+		return fmt.Errorf("load mesh import challenge capacity: %w", err)
+	}
+	if currentTokenHash != challenge.TokenHash {
+		return ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM mesh_import_challenges
+		WHERE mesh_import_id = ? AND (consumed_at IS NOT NULL OR expires_at <= ?)`, challenge.MeshImportID, now); err != nil {
+		return fmt.Errorf("prune mesh import challenges: %w", err)
+	}
+
+	var fingerprintActive int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mesh_import_challenges
+		WHERE mesh_import_id = ? AND certificate_fingerprint = ?
+		AND consumed_at IS NULL AND expires_at > ?`,
+		challenge.MeshImportID, challenge.CertificateFingerprint, now).Scan(&fingerprintActive); err != nil {
+		return fmt.Errorf("count mesh import fingerprint challenges: %w", err)
+	}
+	if fingerprintActive >= maxActiveMeshImportChallengesPerFingerprint {
+		return ErrMeshImportChallengeLimit
+	}
+
+	var sessionActive int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mesh_import_challenges
+		WHERE mesh_import_id = ? AND consumed_at IS NULL AND expires_at > ?`,
+		challenge.MeshImportID, now).Scan(&sessionActive); err != nil {
+		return fmt.Errorf("count mesh import session challenges: %w", err)
+	}
+	if sessionActive >= meshImportChallengeSessionLimit(expected) {
+		return ErrMeshImportChallengeLimit
+	}
+
+	if _, err := tx.ExecContext(ctx, `INSERT INTO mesh_import_challenges (
+		id, mesh_import_id, certificate_fingerprint, agent_signing_pub_pem,
+		payload_hash, server_nonce, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		challenge.ID, challenge.MeshImportID, challenge.CertificateFingerprint,
+		challenge.AgentSigningPubPEM, challenge.PayloadHash, challenge.ServerNonce,
+		challenge.ExpiresAt, challenge.CreatedAt); err != nil {
+		return fmt.Errorf("create mesh import challenge: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit mesh import challenge: %w", err)
+	}
 	return nil
+}
+
+func meshImportChallengeSessionLimit(expected sql.NullInt64) int {
+	if !expected.Valid || expected.Int64 > int64(maxActiveMeshImportChallengesPerSession/2) {
+		return maxActiveMeshImportChallengesPerSession
+	}
+	return int(expected.Int64 * maxActiveMeshImportChallengesPerFingerprint)
 }
 
 func (s *SQLiteStore) GetMeshImportChallenge(ctx context.Context, id string) (*models.MeshImportChallenge, error) {
@@ -632,6 +704,9 @@ func (s *SQLiteStore) FinalizeMeshImport(ctx context.Context, input MeshImportFi
 			return fmt.Errorf("bump finalized network config rows: %w", err)
 		}
 		return ErrMeshImportConflict
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM mesh_import_challenges WHERE mesh_import_id = ?`, input.ID); err != nil {
+		return fmt.Errorf("delete finalized mesh import challenges: %w", err)
 	}
 	finalized, err := tx.ExecContext(ctx, `UPDATE mesh_imports SET status = ?, revision = revision + 1,
 		updated_at = ?, finalized_at = ? WHERE id = ? AND status = ? AND revision = ?`,

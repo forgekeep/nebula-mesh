@@ -57,7 +57,7 @@ type Store interface {
 	GetWebhookSubscription(ctx context.Context, id string) (*models.WebhookSubscription, error)
 	ListWebhookSubscriptions(ctx context.Context) ([]*models.WebhookSubscription, error)
 	ListWebhookSubscriptionsByOwner(ctx context.Context, ownerID string) ([]*models.WebhookSubscription, error)
-	ListActiveWebhookSubscriptions(ctx context.Context) ([]*models.WebhookSubscription, error)
+	ListActiveWebhookSubscriptionsForCA(ctx context.Context, caID string) ([]*models.WebhookSubscription, error)
 	UpdateWebhookSubscription(ctx context.Context, sub *models.WebhookSubscription) error
 	DeleteWebhookSubscription(ctx context.Context, id string) error
 	RecordWebhookDelivery(ctx context.Context, id string, ok bool, errMsg string, at time.Time) error

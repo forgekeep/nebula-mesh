@@ -102,7 +102,7 @@ func TestWebhookContract_EmittedPayloadsMatchSpec(t *testing.T) {
 
 	// cert.expiring originates in the scanner adapter; emit a representative
 	// payload (same shape the adapter produces) so its schema is exercised too.
-	d.Emit("cert.expiring", map[string]any{
+	d.Emit(webhook.Scope{CAID: "ca1"}, "cert.expiring", map[string]any{
 		"host_id": "h1", "host_name": "n", "network_id": "net1", "ca_id": "ca1",
 		"fingerprint": "fp", "not_after": time.Now().UTC().Format(time.RFC3339),
 		"seconds_until_expiry": 3600.0,

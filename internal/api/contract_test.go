@@ -216,6 +216,15 @@ func TestContract_AgentImport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &challenge); err != nil {
 		t.Fatal(err)
 	}
+	for attempt, wantStatus := range []int{http.StatusCreated, http.StatusTooManyRequests} {
+		quotaRequest := httptest.NewRequest(http.MethodPost, "/api/v1/agent/import/challenge", bytes.NewReader(body))
+		quotaRequest.Header.Set("Content-Type", "application/json")
+		quotaResponse := serve(fixture.server, quotaRequest)
+		if quotaResponse.Code != wantStatus {
+			t.Fatalf("quota challenge attempt %d: %d / %s", attempt+2, quotaResponse.Code, quotaResponse.Body.String())
+		}
+		assertContract(t, v, quotaRequest, quotaResponse)
+	}
 	proof := computeAgentImportProof(t, fixture, challenge)
 	payload["challenge_id"] = challenge.ChallengeID
 	payload["proof"] = base64.RawURLEncoding.EncodeToString(proof)

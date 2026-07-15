@@ -22,6 +22,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
 	"github.com/forgekeep/nebula-mesh/internal/secretingress"
 	"github.com/forgekeep/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/webhook"
 )
 
 //go:embed templates/*.html
@@ -64,16 +65,16 @@ type Web struct {
 }
 
 type LifecycleEventEmitter interface {
-	Emit(eventType string, data map[string]any)
+	Emit(scope webhook.Scope, eventType string, data map[string]any)
 }
 
 func (w *Web) WithLifecycleEventEmitter(emitter LifecycleEventEmitter) {
 	w.lifecycleEvents = emitter
 }
 
-func (w *Web) emitLifecycle(eventType string, data map[string]any) {
+func (w *Web) emitLifecycle(scope webhook.Scope, eventType string, data map[string]any) {
 	if w.lifecycleEvents != nil {
-		w.lifecycleEvents.Emit(eventType, data)
+		w.lifecycleEvents.Emit(scope, eventType, data)
 	}
 }
 

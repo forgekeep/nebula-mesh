@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -50,6 +51,9 @@ func TestReenroll_MintsTokenAndPreservesHost(t *testing.T) {
 	}
 	if resp.Token == "" || resp.Token == initial.EnrollmentToken {
 		t.Errorf("reenroll token must be fresh; got %q", resp.Token)
+	}
+	if !strings.HasPrefix(resp.Token, "nme_") {
+		t.Errorf("reenroll token = %q, want nme_ prefix", resp.Token)
 	}
 
 	// Host row survives — ID, IP, groups, status unchanged.

@@ -63,7 +63,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  network <create|list>")
 	fmt.Fprintln(os.Stderr, "  user <create|list|disable|enable>")
 	fmt.Fprintln(os.Stderr, "  apikey <create|revoke>")
-	fmt.Fprintln(os.Stderr, "  ca <create|list|delete|rotate>")
+	fmt.Fprintln(os.Stderr, "  ca <create|import|list|delete|rotate>")
 	fmt.Fprintln(os.Stderr, "  ops <mint-admin-key>")
 }
 
@@ -249,11 +249,13 @@ func runUserList(args []string) error {
 
 func runCA(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: nebula-mgmt ca <create|list|delete|rotate>")
+		return fmt.Errorf("usage: nebula-mgmt ca <create|import|list|delete|rotate>")
 	}
 	switch args[0] {
 	case "create":
 		return runCACreate(args[1:])
+	case "import":
+		return runCAImport(args[1:])
 	case "list":
 		return runCAList(args[1:])
 	case "delete":
@@ -263,6 +265,20 @@ func runCA(args []string) error {
 	default:
 		return fmt.Errorf("unknown ca subcommand: %s", args[0])
 	}
+}
+
+func runCAImport(args []string) error {
+	fs := flag.NewFlagSet("ca import", flag.ExitOnError)
+	server := fs.String("server", "http://127.0.0.1:8080", "management server URL (HTTPS or literal-loopback HTTP)")
+	apiKey := fs.String("api-key", "", "API key")
+	name := fs.String("name", "", "managed CA name")
+	certFile := fs.String("cert-file", "", "existing Nebula CA certificate PEM")
+	keyFile := fs.String("key-file", "", "existing Nebula CA signing private key PEM")
+	passphraseFile := fs.String("passphrase-file", "", "file containing the encrypted key passphrase; never passed in argv")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return cli.CAImport(*server, *apiKey, *name, *certFile, *keyFile, *passphraseFile)
 }
 
 func runCACreate(args []string) error {

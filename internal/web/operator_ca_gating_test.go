@@ -297,6 +297,9 @@ func TestHostCreate_UserOwnedNetworkInheritsCAID(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), "nme_") {
+		t.Fatalf("host create response does not contain an nme_ enrollment token: %s", rec.Body.String())
+	}
 	hosts, err := s.ListHosts(context.Background(), store.HostFilter{Limit: 10})
 	if err != nil {
 		t.Fatal(err)

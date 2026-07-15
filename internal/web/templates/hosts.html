@@ -21,7 +21,7 @@
             <td><span class="badge badge-online" data-online="{{.Online}}">{{if .Online}}online{{else}}offline{{end}}</span></td>
             <td class="host-last-seen">{{if .LastSeenAt}}{{.LastSeenAt.Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
             <td>
-                {{if ne (printf "%s" .Status) "blocked"}}
+                {{if and (ne (printf "%s" .Status) "blocked") (ne (printf "%s" .Status) "importing")}}
                 <button class="btn btn-sm btn-danger"
                         hx-post="/ui/hosts/{{.ID}}/block"
                         hx-confirm="Block host {{.Name}}?"

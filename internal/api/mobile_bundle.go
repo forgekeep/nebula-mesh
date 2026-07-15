@@ -41,6 +41,9 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	if rejectImportingHost(w, host) {
+		return
+	}
 
 	// Check that host is mobile
 	if host.Kind != models.HostKindMobile {

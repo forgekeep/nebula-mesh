@@ -9,12 +9,16 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/curve25519"
+
+	"github.com/forgekeep/nebula-mesh/internal/pki"
 	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
 )
 
@@ -98,7 +102,7 @@ func TestPoller_NoUpdates(t *testing.T) {
 }
 
 func TestPoller_WithCertUpdate(t *testing.T) {
-	certPEM := "-----BEGIN NEBULA CERTIFICATE-----\nupdated-cert\n-----END NEBULA CERTIFICATE-----"
+	certPEM := validPollerHostCertificate(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(UpdatesResponse{
 			HasUpdates:     true,
@@ -184,7 +188,8 @@ func TestPoller_WithCACertUpdate(t *testing.T) {
 }
 
 func TestPoller_WithConfigUpdate(t *testing.T) {
-	configYAML := "pki:\n  ca: /etc/nebula/ca.crt\n"
+	dir := t.TempDir()
+	configYAML := "pki:\n  ca: " + filepath.Join(dir, "ca.crt") + "\n  cert: " + filepath.Join(dir, "host.crt") + "\n  key: " + filepath.Join(dir, "host.key") + "\n"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(UpdatesResponse{
 			HasUpdates: true,
@@ -194,7 +199,6 @@ func TestPoller_WithConfigUpdate(t *testing.T) {
 	}))
 	defer server.Close()
 
-	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
 	p := newTestPoller(t, PollerConfig{
 		ServerURL:   server.URL,
@@ -214,6 +218,36 @@ func TestPoller_WithConfigUpdate(t *testing.T) {
 	if string(data) != configYAML {
 		t.Errorf("config = %q, want %q", string(data), configYAML)
 	}
+}
+
+func validPollerHostCertificate(t *testing.T) string {
+	t.Helper()
+	manager, err := pki.NewCA("poller-test", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Wipe()
+	privateKey := make([]byte, curve25519.ScalarSize)
+	if _, err := rand.Read(privateKey); err != nil {
+		t.Fatal(err)
+	}
+	defer clear(privateKey)
+	publicKey, err := curve25519.X25519(privateKey, curve25519.Basepoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate, err := manager.Sign(pki.SignRequest{
+		Name: "poller-host", PublicKey: publicKey,
+		Networks: []netip.Prefix{netip.MustParsePrefix("10.88.0.2/16")}, Duration: time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := certificate.MarshalPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
 }
 
 func TestPoller_SignsRequest(t *testing.T) {

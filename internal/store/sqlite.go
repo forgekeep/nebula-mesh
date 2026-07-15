@@ -20,14 +20,28 @@ import (
 )
 
 var (
-	ErrNotFound            = errors.New("not found")
-	ErrTokenUsed           = errors.New("token already used")
-	ErrTokenExpired        = errors.New("token expired")
-	ErrDuplicateEntry      = errors.New("duplicate entry")
-	ErrRekeyAlreadyPending = errors.New("rekey already pending")
-	ErrReplayedNonce       = errors.New("replayed nonce")
-	ErrIPTaken             = errors.New("nebula ip already assigned in network")
-	ErrTOTPReplayed        = errors.New("totp timestep already used")
+	ErrNotFound                       = errors.New("not found")
+	ErrTokenUsed                      = errors.New("token already used")
+	ErrTokenExpired                   = errors.New("token expired")
+	ErrDuplicateEntry                 = errors.New("duplicate entry")
+	ErrRekeyAlreadyPending            = errors.New("rekey already pending")
+	ErrReplayedNonce                  = errors.New("replayed nonce")
+	ErrIPTaken                        = errors.New("nebula ip already assigned in network")
+	ErrTOTPReplayed                   = errors.New("totp timestep already used")
+	ErrMeshImportInProgress           = errors.New("mesh import collection in progress")
+	ErrMeshImportNotCollecting        = errors.New("mesh import is not collecting")
+	ErrMeshImportTokenExpired         = errors.New("mesh import token expired")
+	ErrMeshImportChallengeExpired     = errors.New("mesh import challenge expired")
+	ErrMeshImportChallengeUsed        = errors.New("mesh import challenge already used")
+	ErrMeshImportChallengeMismatch    = errors.New("mesh import challenge does not match registration")
+	ErrMeshImportSigningKeyConflict   = errors.New("certificate fingerprint is bound to another signing key")
+	ErrMeshImportPayloadConflict      = errors.New("certificate fingerprint is bound to another snapshot payload")
+	ErrConfigAckUnsupported           = errors.New("config acknowledgement is not supported by this host")
+	ErrConfigVersionMismatch          = errors.New("config acknowledgement version does not match pending delivery")
+	ErrHostNotEnrolled                = errors.New("host is not enrolled")
+	ErrMeshImportExpectedHostsReached = errors.New("mesh import expected host count reached")
+	ErrMeshImportScopeInvalid         = errors.New("mesh import scope is invalid")
+	ErrMeshImportConflict             = errors.New("mesh import changed since preview")
 )
 
 // SQLiteStore implements Store using SQLite.
@@ -150,6 +164,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"020_operator_totp_timestep.up.sql",
 		"021_webhook_subscriptions.up.sql",
 		"022_operator_lockout.up.sql",
+		"023_mesh_import.up.sql",
 	}
 
 	conn, err := s.db.Conn(ctx)
@@ -660,11 +675,21 @@ func (s *SQLiteStore) CreateNetwork(ctx context.Context, n *models.Network) erro
 		}
 	}()
 
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO networks (id, name, created_at, ca_id) VALUES (?, ?, ?, ?)`,
-		n.ID, n.Name, n.CreatedAt, n.CAID,
-	); err != nil {
+	result, err := tx.ExecContext(ctx,
+		`INSERT INTO networks (id, name, created_at, ca_id)
+		 SELECT ?, ?, ?, ?
+		 WHERE NOT EXISTS (
+			SELECT 1 FROM mesh_imports WHERE ca_id = ? AND status = ?
+		 )`,
+		n.ID, n.Name, n.CreatedAt, n.CAID, n.CAID, models.MeshImportStatusCollecting,
+	)
+	if err != nil {
 		return fmt.Errorf("insert network: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("insert network rows: %w", err)
+	} else if rows == 0 {
+		return ErrMeshImportInProgress
 	}
 
 	if err := s.setNetworkCIDRs(ctx, tx, n.ID, n.CIDRs); err != nil {
@@ -689,8 +714,12 @@ func (s *SQLiteStore) UpdateNetwork(ctx context.Context, n *models.Network) erro
 	}()
 
 	result, err := tx.ExecContext(ctx,
-		`UPDATE networks SET name = ?, ca_id = ? WHERE id = ?`,
-		n.Name, n.CAID, n.ID,
+		`UPDATE networks SET name = ?, ca_id = ?
+		 WHERE id = ? AND NOT EXISTS (
+			SELECT 1 FROM mesh_imports
+			WHERE status = ? AND (network_id = ? OR ca_id = ?)
+		 )`,
+		n.Name, n.CAID, n.ID, models.MeshImportStatusCollecting, n.ID, n.CAID,
 	)
 	if err != nil {
 		return fmt.Errorf("update network: %w", err)
@@ -701,7 +730,7 @@ func (s *SQLiteStore) UpdateNetwork(ctx context.Context, n *models.Network) erro
 		return fmt.Errorf("rows affected: %w", err)
 	}
 	if rows == 0 {
-		return ErrNotFound
+		return meshImportNetworkOrCAUpdateError(ctx, tx, n.ID, n.CAID)
 	}
 
 	if err := s.setNetworkCIDRs(ctx, tx, n.ID, n.CIDRs); err != nil {
@@ -864,15 +893,24 @@ func (s *SQLiteStore) CreateHost(ctx context.Context, h *models.Host) error {
 		return err
 	}
 
-	if _, err := tx.ExecContext(ctx,
+	result, err := tx.ExecContext(ctx,
 		`INSERT INTO hosts (id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		 WHERE NOT EXISTS (
+			SELECT 1 FROM mesh_imports WHERE network_id = ? AND status = ?
+		 )`,
 		h.ID, h.NetworkID, h.Name, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
 		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON, h.CAID,
-		string(h.Kind), string(h.Variant),
-	); err != nil {
+		string(h.Kind), string(h.Variant), h.NetworkID, models.MeshImportStatusCollecting,
+	)
+	if err != nil {
 		return fmt.Errorf("insert host: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("insert host rows: %w", err)
+	} else if rows == 0 {
+		return ErrMeshImportInProgress
 	}
 
 	if err := s.setHostAddresses(ctx, tx, h.ID, h.NetworkID, h.NebulaIPs); err != nil {
@@ -1536,16 +1574,24 @@ func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t 
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx,
+	result, err := tx.ExecContext(ctx,
 		`INSERT INTO hosts (id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		 WHERE NOT EXISTS (
+			SELECT 1 FROM mesh_imports WHERE network_id = ? AND status = ?
+		 )`,
 		h.ID, h.NetworkID, h.Name, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
 		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON, h.CAID,
-		string(h.Kind), string(h.Variant),
+		string(h.Kind), string(h.Variant), h.NetworkID, models.MeshImportStatusCollecting,
 	)
 	if err != nil {
 		return fmt.Errorf("insert host: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("insert host rows: %w", err)
+	} else if rows == 0 {
+		return ErrMeshImportInProgress
 	}
 
 	if err := s.setHostAddresses(ctx, tx, h.ID, h.NetworkID, h.NebulaIPs); err != nil {
@@ -1805,6 +1851,28 @@ func (s *SQLiteStore) enrollHostInTx(ctx context.Context, tx *sql.Tx, hostID str
 // transaction. The caller is expected to have validated the token via
 // GetEnrollmentToken first, so a zero-row CAS here means the race was lost.
 func (s *SQLiteStore) ConsumeTokenAndEnrollHost(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
+	return s.enrollHostWithConsumedToken(ctx, hostID, token, certPEM, fp, notBefore, notAfter, "", nil, nil)
+}
+
+func (s *SQLiteStore) ConsumeTokenAndEnrollHostWithProfile(
+	ctx context.Context, hostID, token string, certPEM []byte, fp string,
+	notBefore, notAfter time.Time, signingPubPEM string, profile models.AgentProfile,
+) (int, error) {
+	if signingPubPEM == "" {
+		return 0, errors.New("signing public key is required")
+	}
+	if err := profile.Validate(); err != nil {
+		return 0, err
+	}
+	var configVersion int
+	err := s.enrollHostWithConsumedToken(ctx, hostID, token, certPEM, fp, notBefore, notAfter, signingPubPEM, &profile, &configVersion)
+	return configVersion, err
+}
+
+func (s *SQLiteStore) enrollHostWithConsumedToken(
+	ctx context.Context, hostID, token string, certPEM []byte, fp string,
+	notBefore, notAfter time.Time, signingPubPEM string, profile *models.AgentProfile, configVersion *int,
+) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -1832,6 +1900,49 @@ func (s *SQLiteStore) ConsumeTokenAndEnrollHost(ctx context.Context, hostID, tok
 
 	if err := s.enrollHostInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter); err != nil {
 		return err
+	}
+	if profile != nil {
+		now := time.Now()
+		var networkVersion int
+		if err := tx.QueryRowContext(ctx, `SELECT n.config_version FROM hosts h JOIN networks n ON n.id = h.network_id WHERE h.id = ?`, hostID).Scan(&networkVersion); err != nil {
+			return fmt.Errorf("get enrollment network version: %w", err)
+		}
+		if configVersion != nil {
+			*configVersion = networkVersion
+		}
+		pendingVersion := 0
+		if profile.ConfigAckV1 {
+			pendingVersion = networkVersion
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE hosts SET signing_pub_pem = ?,
+			config_version = CASE WHEN ? THEN config_version ELSE ? END,
+			updated_at = ? WHERE id = ?`, signingPubPEM, profile.ConfigAckV1, networkVersion, now, hostID)
+		if err != nil {
+			return fmt.Errorf("bind enrollment signing identity: %w", err)
+		}
+		if rows, err := result.RowsAffected(); err != nil || rows == 0 {
+			if err != nil {
+				return fmt.Errorf("bind enrollment signing identity rows affected: %w", err)
+			}
+			return ErrNotFound
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO host_agent_profiles (
+			host_id, mesh_import_id, nebula_config_path, nebula_ca_path,
+			nebula_cert_path, nebula_key_path, config_ack_v1, pending_config_version,
+			created_at, updated_at
+		) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(host_id) DO UPDATE SET
+			nebula_config_path = excluded.nebula_config_path,
+			nebula_ca_path = excluded.nebula_ca_path,
+			nebula_cert_path = excluded.nebula_cert_path,
+			nebula_key_path = excluded.nebula_key_path,
+			config_ack_v1 = excluded.config_ack_v1,
+			pending_config_version = excluded.pending_config_version,
+			updated_at = excluded.updated_at`,
+			hostID, profile.NebulaConfigPath, profile.NebulaCAPath, profile.NebulaCertPath,
+			profile.NebulaKeyPath, profile.ConfigAckV1, pendingVersion, now, now); err != nil {
+			return fmt.Errorf("store enrollment agent profile: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -2126,9 +2237,17 @@ func (s *SQLiteStore) SetServerSetting(ctx context.Context, key, value string) e
 // --- Config Versioning ---
 
 func (s *SQLiteStore) BumpNetworkConfigVersion(ctx context.Context, networkID string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE networks SET config_version = config_version + 1 WHERE id = ?`, networkID)
+	result, err := s.db.ExecContext(ctx, `UPDATE networks SET config_version = config_version + 1
+		WHERE id = ? AND NOT EXISTS (
+			SELECT 1 FROM mesh_imports WHERE network_id = ? AND status = ?
+		)`, networkID, networkID, models.MeshImportStatusCollecting)
 	if err != nil {
 		return fmt.Errorf("bump config version: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("bump config version rows: %w", err)
+	} else if rows == 0 {
+		return meshImportNetworkMutationError(ctx, s.db, networkID)
 	}
 	return nil
 }
@@ -2192,13 +2311,22 @@ func (s *SQLiteStore) GetNetworkConfig(ctx context.Context, networkID, key strin
 }
 
 func (s *SQLiteStore) SetNetworkConfig(ctx context.Context, networkID, key, value string) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO network_config (network_id, key, value) VALUES (?, ?, ?)
+	result, err := s.db.ExecContext(ctx,
+		`INSERT INTO network_config (network_id, key, value)
+		 SELECT ?, ?, ?
+		 WHERE NOT EXISTS (
+			SELECT 1 FROM mesh_imports WHERE network_id = ? AND status = ?
+		 )
 		 ON CONFLICT(network_id, key) DO UPDATE SET value = excluded.value`,
-		networkID, key, value,
+		networkID, key, value, networkID, models.MeshImportStatusCollecting,
 	)
 	if err != nil {
 		return fmt.Errorf("set network config: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("set network config rows: %w", err)
+	} else if rows == 0 {
+		return ErrMeshImportInProgress
 	}
 	return nil
 }
@@ -2215,18 +2343,35 @@ func (s *SQLiteStore) SetNetworkConfigAndBumpVersion(ctx context.Context, networ
 		}
 	}()
 
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO network_config (network_id, key, value) VALUES (?, ?, ?)
+	result, err := tx.ExecContext(ctx,
+		`INSERT INTO network_config (network_id, key, value)
+		 SELECT ?, ?, ?
+		 WHERE NOT EXISTS (
+			SELECT 1 FROM mesh_imports WHERE network_id = ? AND status = ?
+		 )
 		 ON CONFLICT(network_id, key) DO UPDATE SET value = excluded.value`,
-		networkID, key, value,
+		networkID, key, value, networkID, models.MeshImportStatusCollecting,
 	)
 	if err != nil {
 		return fmt.Errorf("set network config: %w", err)
 	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("set network config rows: %w", err)
+	} else if rows == 0 {
+		return ErrMeshImportInProgress
+	}
 
-	_, err = tx.ExecContext(ctx, `UPDATE networks SET config_version = config_version + 1 WHERE id = ?`, networkID)
+	result, err = tx.ExecContext(ctx, `UPDATE networks SET config_version = config_version + 1
+		WHERE id = ? AND NOT EXISTS (
+			SELECT 1 FROM mesh_imports WHERE network_id = ? AND status = ?
+		)`, networkID, networkID, models.MeshImportStatusCollecting)
 	if err != nil {
 		return fmt.Errorf("bump config version: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("bump config version rows: %w", err)
+	} else if rows == 0 {
+		return meshImportNetworkMutationError(ctx, tx, networkID)
 	}
 
 	if err := tx.Commit(); err != nil {

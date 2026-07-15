@@ -38,7 +38,7 @@ Trust zones, from least to most trusted:
 | Zone | Principal | Authenticates with |
 |------|-----------|--------------------|
 | Public | anonymous | none (`/healthz`, `/readyz`, optionally `/metrics`) |
-| Agent | an enrolled host | single-use enroll token, then Ed25519 proof-of-possession |
+| Agent | an enrolled or importing host | purpose-scoped bootstrap token for registration, then Ed25519 proof-of-possession |
 | Operator (non-admin) | an operator session / API key | bcrypt login (+ TOTP), or bearer API key; scoped to **owned** CAs |
 | Operator (admin) | an admin operator | same, plus the `admin` role gate |
 | Host/operator | the deployer | env (`NEBULA_MGMT_MASTER_KEY`), CLI, config file |
@@ -53,6 +53,7 @@ Trust zones, from least to most trusted:
 | A4 | Enrollment tokens | `crypto/rand` UUID, SHA-256 at rest, single-use via an atomic conditional consume; bound to a specific `host_id`. | ADR 0004; #197 |
 | A5 | Certificate-signing authority | Every sign path is gated by `checkIssuanceAllowed` (blocked host / disabled operator → refuse). | GHSA-339v-266x-79xr; `internal/revocation` |
 | A6 | Network topology & host metadata | Reads scoped to the caller's owned CAs/networks; revocation blocklist scoped per-CA. | #154, #203 |
+| A7 | Existing-mesh import material | CA signing key is encrypted on ingress; import token is SHA-256 hashed; snapshots contain allowlisted public topology and never `host.key`. | `internal/caimport`, `internal/agent/discovery.go`, `internal/secretingress` |
 
 ## 3. Entry points & trust boundaries
 
@@ -65,6 +66,7 @@ Trust zones, from least to most trusted:
 | E5 | OIDC login | public → operator | IdP (OIDC code flow) | state + single-use code; JIT role defaults to `user` |
 | E6 | CLI / config / env | host operator → process | local OS trust | n/a (deployer is trusted) |
 | E7 | Unauthenticated probes `/healthz` `/readyz` `/metrics` | public | none / optional bearer | redacted output; `/metrics` opt-in auth |
+| E8 | Agent import `POST /api/v1/agent/import/*` | public → importing host | reusable `nmi_` session token + one-time X25519 host-key proof | token bound to session/CA/Network; certificate must verify under exact imported CA |
 
 ## 4. STRIDE per entry point
 
@@ -104,6 +106,13 @@ Trust zones, from least to most trusted:
 ### E7 — Unauthenticated probes
 - `/readyz` redacts DB error text (#187); `/debug/vars` and `/metrics` are bearer-gated / opt-in auth (#187).
 
+### E8 — Existing mesh import
+- **Spoofing**: the reusable token alone is insufficient. Registration requires a short-lived server challenge and X25519/HMAC proof from the private key matching the submitted, CA-verified host certificate; the private key is never uploaded.
+- **Replay / token theft**: `nmi_` tokens are random, hashed at rest, TTL- and session-bound, rotatable, and invalid after cancel/finalize. Challenges are single-use and bind the certificate fingerprint, Ed25519 signing key and sanitized payload hash. Expected host count limits fleet expansion.
+- **Information disclosure**: discovery constructs an allowlist snapshot. It uploads public certificates, routes, endpoints and normalized policy, but no host private key, CA private key, inline secrets or unsupported setting values. Request bodies and raw tokens are not audited.
+- **Tampering / cutover**: imported hosts remain `importing`, and signed polls return `import_pending` without updates. Preview exposes conflicts; finalize requires inventory confirmation, warning acknowledgements and revision compare-and-swap, then validates the frozen CA/Network/Host set in one transaction.
+- **DoS**: public challenge and registration bodies are capped and use the shared per-IP limiter. Operators can rotate the token or cancel the session; ordinary mutations remain frozen only while collection is active.
+
 ## 5. Cross-cutting mitigations
 
 - **Transport**: TLS by default; non-loopback plaintext bind refused unless opted in (#179).
@@ -120,6 +129,8 @@ Trust zones, from least to most trusted:
 | Pre-fix orphan blocklist rows (host already deleted, no `ca_id`) are broadcast to all CAs | Cannot recover the CA for an orphan; never weaken revocation | Fail-safe broadcast only; all new revocations are CA-scoped (#203) |
 | TOCTOU between admin re-check and a mutating SQL statement | Window is small and the action still requires a valid admin session | `isActiveAdmin` re-reads role from DB per request (#147) |
 | Plaintext / no-TLS deployments | Out of scope when not following the README | TLS-by-default + loopback-only insecure bind (#179) |
+| A stolen live `nmi_` token lets an attacker submit certificates whose private keys they control under the imported CA | A fleet token must be reusable during asynchronous collection | Short TTL, exact CA/session scope, host-key proof, expected count, preview and operator-controlled finalize |
+| Finalized server-rendered config can still break data-plane connectivity despite semantic validation | The control plane cannot observe end-to-end Nebula health | Explicit finalize, per-host pre-import config backup, at-least-once config delivery and documented rollback |
 | Upstream `slackhq/nebula` data-plane issues | Out of scope — report upstream | n/a |
 
 ## 7. References

@@ -4,6 +4,7 @@
 <div class="header-actions">
     <h1>{{.Host.Name}}</h1>
     <div>
+        {{if ne (printf "%s" .Host.Status) "importing"}}
         <a href="/ui/hosts/{{.Host.ID}}/edit" class="btn btn-sm">Edit</a>
         {{if ne (printf "%s" .Host.Status) "blocked"}}
         <button class="btn btn-danger btn-sm"
@@ -13,8 +14,13 @@
         <button class="btn btn-danger btn-sm"
                 hx-delete="/ui/hosts/{{.Host.ID}}"
                 hx-confirm="Delete host {{.Host.Name}}? This cannot be undone.">Delete</button>
+        {{end}}
     </div>
 </div>
+
+{{if eq (printf "%s" .Host.Status) "importing"}}
+<div class="flash">This host is read-only while its mesh import is collecting.</div>
+{{end}}
 
 {{if and .Token (ne (printf "%s" .Host.Kind) "mobile")}}
 <div class="flash flash-success">
@@ -23,7 +29,7 @@
 </div>
 {{end}}
 
-{{if eq (printf "%s" .Host.Kind) "mobile"}}
+{{if and (eq (printf "%s" .Host.Kind) "mobile") (ne (printf "%s" .Host.Status) "importing")}}
 <div class="card">
     <h3>Mobile Bundle ({{if eq (printf "%s" .Host.Variant) "ios"}}iOS{{else}}Android{{end}})</h3>
     <p class="help-text">Generate a self-contained Nebula YAML config + QR code for this device.

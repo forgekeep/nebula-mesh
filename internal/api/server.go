@@ -13,11 +13,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/forgekeep/nebula-mesh/internal/auth"
+	"github.com/forgekeep/nebula-mesh/internal/caimport"
 	"github.com/forgekeep/nebula-mesh/internal/configgen"
 	"github.com/forgekeep/nebula-mesh/internal/enrollment"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
+	"github.com/forgekeep/nebula-mesh/internal/secretingress"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
@@ -27,6 +29,9 @@ type Server struct {
 	store              store.Store
 	caResolver         *pki.CAResolver // resolves CAs by id from the store (multi-CA)
 	master             *keystore.Master
+	caImporter         caimport.Importer
+	caImportLimits     caimport.Limits
+	secretIngress      secretingress.Policy
 	defaultCAID        string // id of the seeded default CA (when imported)
 	logger             *slog.Logger
 	metrics            *metrics
@@ -81,6 +86,7 @@ func NewServer(s store.Store, logger *slog.Logger) *Server {
 		metricsEnabled:     true,
 		passwordPolicy:     auth.Default(),
 		enrollmentTokenTTL: 24 * time.Hour,
+		caImportLimits:     caimport.DefaultLimits(),
 	}
 	srv.setupRoutes()
 	return srv
@@ -109,8 +115,37 @@ func (s *Server) WithCAResolver(r *pki.CAResolver) {
 	s.caResolver = r
 }
 
-// WithMaster sets the master keystore used to create new CAs.
-func (s *Server) WithMaster(m *keystore.Master) { s.master = m }
+// WithMaster sets the master keystore used to create and import CAs.
+func (s *Server) WithMaster(m *keystore.Master) {
+	s.master = m
+	s.configureCAImporter()
+}
+
+// WithCAImportLimits sets server-side encrypted-key resource caps.
+func (s *Server) WithCAImportLimits(limits caimport.Limits) {
+	s.caImportLimits = limits
+	s.configureCAImporter()
+}
+
+// WithCAImporter installs the process-shared importer used by every
+// secret-ingress surface.
+func (s *Server) WithCAImporter(importer caimport.Importer) {
+	s.caImporter = importer
+}
+
+// WithSecretIngressPolicy sets the request-level transport guard used by
+// endpoints that receive private key material.
+func (s *Server) WithSecretIngressPolicy(policy secretingress.Policy) {
+	s.secretIngress = policy
+}
+
+func (s *Server) configureCAImporter() {
+	if s.master == nil {
+		s.caImporter = nil
+		return
+	}
+	s.caImporter = caimport.NewService(s.store, s.master, s.caImportLimits)
+}
 
 // RecordLogin records an operator login attempt against the server's
 // Prometheus metrics. Exposed so the Web UI handlers (a separate package)
@@ -193,6 +228,12 @@ func (s *Server) setupRoutes() {
 	r.Group(func(r chi.Router) {
 		r.Use(s.rateLimitMiddleware("agent_poll"))
 		r.Get("/api/v1/agent/updates", s.handleAgentUpdates)
+		r.Post("/api/v1/agent/config-ack/{version}", s.handleAgentConfigAck)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(s.rateLimitMiddleware("agent_import"))
+		r.Post("/api/v1/agent/import/challenge", s.handleAgentImportChallenge)
+		r.Post("/api/v1/agent/import", s.handleAgentImport)
 	})
 
 	// Protected endpoints (require API key)
@@ -235,9 +276,16 @@ func (s *Server) setupRoutes() {
 		r.Delete("/api/v1/operators/{id}/api-keys/{kid}", s.handleRevokeOperatorAPIKey)
 		r.Get("/api/v1/cas", s.handleListCAs)
 		r.Post("/api/v1/cas", s.handleCreateCA)
+		r.Post("/api/v1/cas/import", s.handleImportCA)
 		r.Get("/api/v1/cas/{id}", s.handleGetCAByID)
 		r.Delete("/api/v1/cas/{id}", s.handleDeleteCA)
 		r.Post("/api/v1/cas/{id}/rotate", s.handleRotateCA)
+		r.Post("/api/v1/mesh-imports", s.handleCreateMeshImport)
+		r.Get("/api/v1/mesh-imports", s.handleListMeshImports)
+		r.Get("/api/v1/mesh-imports/{id}", s.handleGetMeshImport)
+		r.Post("/api/v1/mesh-imports/{id}/rotate-token", s.handleRotateMeshImportToken)
+		r.Post("/api/v1/mesh-imports/{id}/cancel", s.handleCancelMeshImport)
+		r.Post("/api/v1/mesh-imports/{id}/finalize", s.handleFinalizeMeshImport)
 		r.Get("/api/v1/settings", s.handleGetSettings)
 		r.Patch("/api/v1/settings", s.handlePatchSettings)
 

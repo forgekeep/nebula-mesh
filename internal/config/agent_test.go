@@ -159,6 +159,37 @@ func TestSaveAgentConfig_AtomicWriteAndMode(t *testing.T) {
 	}
 }
 
+func TestAgentConfigImportProfileRoundTripAndLegacyDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.yml")
+	cfg := DefaultAgentConfig()
+	cfg.ServerURL = "https://mesh.example.test"
+	cfg.DataDir = filepath.Join(dir, "data")
+	cfg.NebulaConfigPath = "/custom/nebula/node.yml"
+	cfg.NebulaCAPath = "/custom/pki/root.pem"
+	cfg.NebulaCertPath = "/custom/pki/node.pem"
+	cfg.NebulaKeyPath = "/custom/pki/node.key"
+	cfg.ImportSessionID = "import-session"
+	if err := SaveAgentConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadAgentConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ResolvedNebulaCAPath() != cfg.NebulaCAPath || loaded.ResolvedNebulaCertPath() != cfg.NebulaCertPath ||
+		loaded.ResolvedNebulaKeyPath() != cfg.NebulaKeyPath || loaded.ImportSessionID != cfg.ImportSessionID {
+		t.Fatalf("round-trip profile = %#v", loaded)
+	}
+
+	legacy := &AgentConfig{DataDir: "/legacy/nebula"}
+	if legacy.ResolvedNebulaCAPath() != "/legacy/nebula/ca.crt" ||
+		legacy.ResolvedNebulaCertPath() != "/legacy/nebula/host.crt" ||
+		legacy.ResolvedNebulaKeyPath() != "/legacy/nebula/host.key" {
+		t.Fatalf("legacy resolved paths: ca=%q cert=%q key=%q", legacy.ResolvedNebulaCAPath(), legacy.ResolvedNebulaCertPath(), legacy.ResolvedNebulaKeyPath())
+	}
+}
+
 func TestSaveAgentConfig_Overwrite(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "agent.yml")

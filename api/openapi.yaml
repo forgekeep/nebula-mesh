@@ -74,6 +74,103 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
 
+  /api/v1/agent/config-ack/{version}:
+    post:
+      operationId: acknowledgeAgentConfig
+      summary: Acknowledge a locally validated and written config version.
+      description: Uses the same signed proof-of-possession headers as agent polling.
+      security: []
+      parameters:
+        - { in: path, name: version, required: true, schema: { type: integer, minimum: 1 } }
+        - { in: header, name: X-Nebula-Fingerprint, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Timestamp, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Nonce, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Signature, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Version applied or already acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [config_version]
+                properties:
+                  config_version: { type: integer, minimum: 1 }
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/agent/import/challenge:
+    post:
+      operationId: createAgentImportChallenge
+      summary: Validate an existing Nebula host snapshot and create a proof-of-possession challenge.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentImportPayload"
+      responses:
+        "201":
+          description: Short-lived host-key challenge created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentImportChallengeResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "410":
+          $ref: "#/components/responses/Error"
+        "413":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/agent/import:
+    post:
+      operationId: registerAgentImport
+      summary: Register a validated existing Nebula host in a collecting import session.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentImportRequest"
+      responses:
+        "200":
+          description: Idempotent retry returned the existing imported host.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentImportResponse"
+        "201":
+          description: Existing host registered in importing state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentImportResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "410":
+          $ref: "#/components/responses/Error"
+        "413":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
   /api/v1/networks:
     get:
       operationId: listNetworks
@@ -104,6 +201,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/Network"
         "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
           $ref: "#/components/responses/Error"
 
   /api/v1/networks/{id}:
@@ -278,6 +379,191 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
+  /api/v1/cas/import:
+    post:
+      operationId: importCA
+      summary: Import an existing Nebula CA certificate and signing key.
+      description: >
+        This secret-bearing endpoint requires direct TLS, literal-loopback
+        HTTP, or an explicitly trusted local TLS-terminating proxy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CAImportRequest"
+      responses:
+        "201":
+          description: Existing CA imported.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CA"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "413":
+          $ref: "#/components/responses/Error"
+        "426":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/mesh-imports:
+    get:
+      operationId: listMeshImports
+      summary: List existing-mesh import sessions visible to the operator.
+      responses:
+        "200":
+          description: Import sessions. Bootstrap token hashes are never returned.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MeshImport"
+        "401":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createMeshImport
+      summary: Start collecting an existing Nebula mesh.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMeshImportRequest"
+      responses:
+        "201":
+          description: Session created. The reusable bootstrap token is returned only in this response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeshImportTokenResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/mesh-imports/{id}:
+    get:
+      operationId: getMeshImport
+      summary: Get an existing-mesh import session without its bootstrap token.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Import session with a deterministic reconciliation preview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeshImportDetail"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/mesh-imports/{id}/rotate-token:
+    post:
+      operationId: rotateMeshImportToken
+      summary: Replace a collecting session's reusable bootstrap token.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "201":
+          description: Token rotated. The new token is returned only in this response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeshImportTokenResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/mesh-imports/{id}/cancel:
+    post:
+      operationId: cancelMeshImport
+      summary: Cancel a collecting import and remove only its temporary hosts.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Canceled import session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeshImport"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/mesh-imports/{id}/finalize:
+    post:
+      operationId: finalizeMeshImport
+      summary: Atomically accept the current reconciliation preview and begin managed operation.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeshImportFinalizeRequest"
+      responses:
+        "200":
+          description: Finalized import session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeshImport"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
 # Outbound webhooks the server POSTs to an operator-configured endpoint (#256).
 # Each delivery carries X-Nebula-Event (type), X-Nebula-Delivery (id), and
 # X-Nebula-Signature (sha256=<hmac> over the raw body). The handler/scanner emit
@@ -293,6 +579,19 @@ webhooks:
           application/json:
             schema:
               $ref: "#/components/schemas/HostEnrolledEvent"
+      responses:
+        "2XX":
+          description: Acknowledged.
+  mesh_import.finalized:
+    post:
+      operationId: webhookMeshImportFinalized
+      summary: An existing-mesh import was atomically finalized.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeshImportFinalizedEvent"
       responses:
         "2XX":
           description: Acknowledged.
@@ -385,16 +684,69 @@ components:
         error:
           type: string
 
+    CAImportRequest:
+      type: object
+      required: [name, certificate_pem, private_key_pem]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        certificate_pem:
+          type: string
+        private_key_pem:
+          type: string
+          description: Nebula CA signing key PEM. Treat as secret.
+        passphrase:
+          type: string
+          description: Optional passphrase for encrypted key PEM. Treat as secret.
+
+    CA:
+      type: object
+      required: [id, name, owner_operator_id, cert_pem, fingerprint, not_before, not_after, status, created_at, updated_at, is_default]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        owner_operator_id:
+          type: string
+        cert_pem:
+          type: string
+        fingerprint:
+          type: string
+        not_before:
+          type: string
+          format: date-time
+        not_after:
+          type: string
+          format: date-time
+        status:
+          type: string
+        predecessor_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        is_default:
+          type: boolean
+
     EnrollRequest:
       type: object
       required: [token, public_key_pem, signing_public_key_pem]
       properties:
         token:
           type: string
+          description: Single-use enrollment token. New tokens start with nme_; legacy unprefixed tokens remain valid until expiry.
         public_key_pem:
           type: string
         signing_public_key_pem:
           type: string
+        profile:
+          $ref: "#/components/schemas/AgentImportProfile"
+          description: Optional absolute Nebula file paths and agent capabilities. Omission preserves the /etc/nebula defaults.
 
     EnrollResponse:
       type: object
@@ -406,10 +758,13 @@ components:
           type: string
         config_yaml:
           type: string
+        config_version:
+          type: integer
+          minimum: 1
 
     AgentUpdatesResponse:
       type: object
-      required: [has_updates, blocklist]
+      required: [has_updates]
       properties:
         has_updates:
           type: boolean
@@ -419,14 +774,164 @@ components:
           type: string
         config_yaml:
           type: string
+        config_version:
+          type: integer
+          minimum: 1
         blocklist:
           type: array
           items:
             type: string
+        import_pending:
+          type: boolean
         rekey_required:
           type: boolean
         enrollment_token:
           type: string
+
+    AgentImportProfile:
+      type: object
+      additionalProperties: false
+      required: [nebula_config_path, nebula_ca_path, nebula_cert_path, nebula_key_path, config_ack_v1]
+      properties:
+        nebula_config_path: { type: string }
+        nebula_ca_path: { type: string }
+        nebula_cert_path: { type: string }
+        nebula_key_path: { type: string }
+        config_ack_v1: { type: boolean }
+
+    AgentImportFirewallRule:
+      type: object
+      additionalProperties: false
+      required: [port, proto, group]
+      properties:
+        port: { type: string }
+        proto: { type: string }
+        group: { type: string }
+
+    AgentImportFirewallPolicy:
+      type: object
+      additionalProperties: false
+      required: [inbound, outbound]
+      properties:
+        inbound:
+          type: [array, "null"]
+          items: { $ref: "#/components/schemas/AgentImportFirewallRule" }
+        outbound:
+          type: [array, "null"]
+          items: { $ref: "#/components/schemas/AgentImportFirewallRule" }
+
+    AgentImportUnsafeRoute:
+      type: object
+      additionalProperties: false
+      required: [route, via]
+      properties:
+        route: { type: string }
+        via: { type: string }
+
+    AgentImportConfigSnapshot:
+      type: object
+      additionalProperties: false
+      required: [firewall]
+      properties:
+        reported_name: { type: string }
+        ca_root_fingerprints:
+          type: array
+          items: { type: string }
+        blocklist:
+          type: array
+          items: { type: string }
+        static_host_map:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+        lighthouse_hosts:
+          type: array
+          items: { type: string }
+        relays:
+          type: array
+          items: { type: string }
+        am_lighthouse: { type: boolean }
+        am_relay: { type: boolean }
+        listen_host: { type: string }
+        listen_port: { type: integer }
+        punchy: { type: boolean }
+        mtu: { type: integer }
+        tun_device: { type: string }
+        unsafe_routes:
+          type: array
+          items: { $ref: "#/components/schemas/AgentImportUnsafeRoute" }
+        firewall:
+          $ref: "#/components/schemas/AgentImportFirewallPolicy"
+        unsupported_keys:
+          type: array
+          items: { type: string }
+
+    AgentImportSnapshot:
+      type: object
+      additionalProperties: false
+      required: [id, host_id, certificate_pem, profile, config]
+      properties:
+        id: { type: string }
+        host_id: { type: string }
+        certificate_pem: { type: string }
+        profile: { $ref: "#/components/schemas/AgentImportProfile" }
+        config: { $ref: "#/components/schemas/AgentImportConfigSnapshot" }
+
+    AgentImportPayload:
+      type: object
+      additionalProperties: false
+      required: [token, ca_certificate_pem, agent_signing_public_key_pem, payload_hash, snapshot]
+      properties:
+        token:
+          type: string
+          pattern: ^nmi_[A-Za-z0-9_-]+$
+        ca_certificate_pem: { type: string }
+        agent_signing_public_key_pem: { type: string }
+        payload_hash:
+          type: string
+          pattern: ^[a-fA-F0-9]{64}$
+        snapshot: { $ref: "#/components/schemas/AgentImportSnapshot" }
+
+    AgentImportRequest:
+      type: object
+      additionalProperties: false
+      required: [token, ca_certificate_pem, agent_signing_public_key_pem, payload_hash, snapshot, challenge_id, proof]
+      properties:
+        token:
+          type: string
+          pattern: ^nmi_[A-Za-z0-9_-]+$
+        ca_certificate_pem: { type: string }
+        agent_signing_public_key_pem: { type: string }
+        payload_hash:
+          type: string
+          pattern: ^[a-fA-F0-9]{64}$
+        snapshot: { $ref: "#/components/schemas/AgentImportSnapshot" }
+        challenge_id: { type: string }
+        proof: { type: string }
+
+    AgentImportChallengeResponse:
+      type: object
+      required: [challenge_id, session_id, server_public_key, server_nonce, expires_at]
+      properties:
+        challenge_id: { type: string }
+        session_id: { type: string }
+        server_public_key: { type: string }
+        server_nonce: { type: string }
+        expires_at:
+          type: string
+          format: date-time
+
+    AgentImportResponse:
+      type: object
+      required: [host_id, certificate_fingerprint, status, created]
+      properties:
+        host_id: { type: string }
+        certificate_fingerprint: { type: string }
+        status:
+          type: string
+          enum: [importing]
+        created: { type: boolean }
 
     CreateNetworkRequest:
       type: object
@@ -438,6 +943,8 @@ components:
           type: array
           items:
             type: string
+        ca_id:
+          type: string
 
     Network:
       type: object
@@ -488,6 +995,162 @@ components:
           $ref: "#/components/schemas/Host"
         enrollment_token:
           type: string
+          pattern: ^nme_[A-Za-z0-9_-]+$
+
+    CreateMeshImportRequest:
+      type: object
+      required: [network_id, ca_id]
+      additionalProperties: false
+      properties:
+        network_id:
+          type: string
+        ca_id:
+          type: string
+        expected_hosts:
+          type: integer
+          minimum: 1
+
+    MeshImport:
+      type: object
+      required:
+        - id
+        - network_id
+        - ca_id
+        - owner_operator_id
+        - ca_fingerprint
+        - status
+        - revision
+        - token_expires_at
+        - captured_network_config_version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        network_id:
+          type: string
+        ca_id:
+          type: string
+        owner_operator_id:
+          type: string
+        ca_fingerprint:
+          type: string
+        status:
+          type: string
+          enum: [collecting, finalized, canceled]
+        expected_hosts:
+          type: integer
+          minimum: 1
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        token_expires_at:
+          type: string
+          format: date-time
+        captured_network_config_version:
+          type: integer
+          minimum: 0
+        terminal_reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        finalized_at:
+          type: string
+          format: date-time
+        canceled_at:
+          type: string
+          format: date-time
+
+    MeshImportIssue:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        snapshot_id: { type: string }
+        host_name: { type: string }
+        field: { type: string }
+        message: { type: string }
+
+    MeshImportHostProposal:
+      type: object
+      required: [snapshot_id, profile, host]
+      properties:
+        snapshot_id: { type: string }
+        profile: { $ref: "#/components/schemas/AgentImportProfile" }
+        host: { $ref: "#/components/schemas/Host" }
+
+    MeshImportProposal:
+      type: object
+      required: [hosts, firewall, blocklist]
+      properties:
+        hosts:
+          type: array
+          items: { $ref: "#/components/schemas/MeshImportHostProposal" }
+        firewall: { $ref: "#/components/schemas/AgentImportFirewallPolicy" }
+        blocklist:
+          type: array
+          items: { type: string }
+
+    MeshImportReport:
+      type: object
+      required: [blockers, warnings, proposal]
+      properties:
+        blockers:
+          type: [array, "null"]
+          items: { $ref: "#/components/schemas/MeshImportIssue" }
+        warnings:
+          type: [array, "null"]
+          items: { $ref: "#/components/schemas/MeshImportIssue" }
+        proposal: { $ref: "#/components/schemas/MeshImportProposal" }
+
+    MeshImportWarningAcknowledgement:
+      type: object
+      required: [key, issue]
+      properties:
+        key:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        issue: { $ref: "#/components/schemas/MeshImportIssue" }
+
+    MeshImportDetail:
+      type: object
+      required: [mesh_import, host_count, expected_count_satisfied, report, warning_acknowledgements]
+      properties:
+        mesh_import: { $ref: "#/components/schemas/MeshImport" }
+        host_count: { type: integer, minimum: 0 }
+        expected_count_satisfied: { type: boolean }
+        report: { $ref: "#/components/schemas/MeshImportReport" }
+        warning_acknowledgements:
+          type: array
+          items: { $ref: "#/components/schemas/MeshImportWarningAcknowledgement" }
+
+    MeshImportFinalizeRequest:
+      type: object
+      additionalProperties: false
+      required: [revision, inventory_complete]
+      properties:
+        revision: { type: integer, format: int64, minimum: 0 }
+        inventory_complete: { type: boolean }
+        acknowledged_warnings:
+          type: [array, "null"]
+          items:
+            type: string
+            pattern: ^[a-f0-9]{64}$
+
+    MeshImportTokenResponse:
+      type: object
+      required: [mesh_import, token]
+      properties:
+        mesh_import:
+          $ref: "#/components/schemas/MeshImport"
+        token:
+          type: string
+          pattern: ^nmi_[A-Za-z0-9_-]+$
 
     Host:
       type: object
@@ -609,6 +1272,15 @@ components:
         fingerprint:
           type: string
 
+    MeshImportFinalizedData:
+      type: object
+      required: [mesh_import_id, network_id, ca_id, host_count]
+      properties:
+        mesh_import_id: { type: string }
+        network_id: { type: string }
+        ca_id: { type: string }
+        host_count: { type: integer, minimum: 1 }
+
     CertExpiringData:
       type: object
       required: [host_id, host_name, network_id, ca_id, fingerprint, not_after, seconds_until_expiry]
@@ -656,6 +1328,15 @@ components:
           format: date-time
         data:
           $ref: "#/components/schemas/HostEnrolledData"
+
+    MeshImportFinalizedEvent:
+      type: object
+      required: [id, type, created_at, data]
+      properties:
+        id: { type: string }
+        type: { type: string }
+        created_at: { type: string, format: date-time }
+        data: { $ref: "#/components/schemas/MeshImportFinalizedData" }
 
     CertRotatedEvent:
       type: object

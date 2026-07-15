@@ -133,7 +133,9 @@ on the host key and for sending `SIGHUP` to Nebula), and is hardened with the us
 ```sh
 sudo install -m 0644 deploy/systemd/nebula-agent.service /etc/systemd/system/
 # First run enrolls the host and writes /etc/nebula-agent/agent.yml (mode 0600):
-sudo nebula-agent --server https://mgmt.example.com:8080 --token "$ENROLL_TOKEN"
+sudo install -m 0600 /dev/stdin /run/nebula-enroll.token <<<"$ENROLL_TOKEN"
+sudo nebula-agent --server https://mgmt.example.com:8080 --token-file /run/nebula-enroll.token
+sudo rm /run/nebula-enroll.token
 sudo systemctl daemon-reload
 sudo systemctl enable --now nebula-agent.service
 journalctl -u nebula-agent.service -f
@@ -142,6 +144,23 @@ journalctl -u nebula-agent.service -f
 The unit declares `PartOf=nebula.service`, so `systemctl stop nebula` stops the agent
 too, and `systemctl restart nebula-agent` does **not** restart Nebula (only the agent
 itself).
+
+The supplied unit grants writes only below `/etc/nebula`. If an imported or
+fresh installation keeps its config or PKI in another directory, add that
+directory through a systemd drop-in; the agent does not edit the unit:
+
+```ini
+# sudo systemctl edit nebula-agent.service
+[Service]
+ReadWritePaths=/srv/nebula
+```
+
+Then run `sudo systemctl daemon-reload && sudo systemctl restart
+nebula-agent.service`. Include the parent directory of every configured
+`nebula_config_path`, `nebula_ca_path`, `nebula_cert_path` and
+`nebula_key_path`. The first managed config replacement also creates the
+owner-only backup `<nebula_config_path>.pre-nebula-mesh.<import_session_id>` in
+the config directory.
 
 ### 3. Docker / sidecar
 
@@ -345,6 +364,147 @@ sudo nebula-agent run --config /etc/nebula-agent/agent.yml
 It prints a deprecation warning on stderr; switch to the unified form when
 convenient.
 
+## Import an existing mesh
+
+Use a mesh import when Nebula already runs on the hosts and you want the server
+to adopt its CA, certificates, routes, lighthouses, relays, firewall and
+blocklist.
+
+### 1. Import the existing CA
+
+Open `/ui/cas/import`, or run:
+
+```sh
+nebula-mgmt ca import \
+  --server https://mgmt.example.com:8080 \
+  --api-key "$API_KEY" \
+  --name production-existing \
+  --cert-file /secure/ca.crt \
+  --key-file /secure/ca.key
+```
+
+For an encrypted CA key, add `--passphrase-file /secure/ca.passphrase`. The CLI
+decrypts the key locally and never puts the passphrase in argv or the request.
+The server requires HTTPS, except for a literal loopback HTTP URL.
+
+Create an empty Network bound to the imported CA. The server rejects a Network
+that already has hosts, shares its CA with another Network, has a CA-scoped
+blocklist, or uses a retired CA or a CA with an active successor.
+
+### 2. Start collection
+
+Open `/ui/mesh-imports/new`, select the Network and CA, and set the expected host
+count when you know it. The server shows an `nmi_` import token once. This token
+can register several hosts in that session until it expires, reaches the
+configured host count, or an operator cancels or finalizes the session.
+
+The import token only authorizes registration. After registration, the agent
+uses its Ed25519 signing key for polls and config acknowledgements. You do not
+need to reauthorize it with an enrollment token.
+
+### 3. Run the agent on each existing host
+
+Put the token in an owner-controlled file and point the agent at the config that
+the running Nebula daemon uses:
+
+```sh
+sudo nebula-agent enroll \
+  --server https://mgmt.example.com:8080 \
+  --token-file /run/secrets/nebula-import-token \
+  --nebula-config-path /etc/nebula/config.yml
+```
+
+The first run reads the effective config and prints the discovered files. It
+stops before contacting the server. Review the manifest, then confirm the same
+discovery:
+
+```sh
+sudo nebula-agent enroll \
+  --server https://mgmt.example.com:8080 \
+  --token-file /run/secrets/nebula-import-token \
+  --nebula-config-path /etc/nebula/config.yml \
+  --yes
+```
+
+The agent accepts a complete file-backed installation with clean absolute paths
+for `pki.ca`, `pki.cert` and `pki.key`. It verifies the host key against the
+certificate and the certificate against the imported CA. A partial install,
+inline PKI or a mismatched key stops before a network request.
+
+Compatibility is intentionally narrow for the first adoption flow:
+
+| Existing installation | Import behavior |
+|---|---|
+| One Curve25519 CA certificate and one X25519 host certificate/key in regular files | Supported |
+| `static_host_map`, lighthouse/relay roles, `listen`, `punchy`, `tun`, `unsafe_routes`, firewall and CA blocklist | Imported and reconciled |
+| Logging, stats and SSH daemon settings | Reported as warnings; server does not manage them |
+| Other unsupported connectivity settings | Blocking preview issue |
+| P256 CA, host certificate or private key | Rejected before registration |
+| Inline PEM in `pki.ca`, `pki.cert` or `pki.key`, or `pkcs11:` keys | Rejected before registration |
+| Directory/fragment-based Nebula configuration | Rejected; point `--nebula-config-path` at one effective file |
+| Multiple CA roots in `pki.ca` | Rejected; import requires one exact current root |
+
+Registration uploads a sanitized snapshot. The agent does not upload private
+keys or arbitrary YAML values. It preserves the existing CA, certificate, key
+and config files while the session has status `collecting`; signed polls return
+`import_pending` without writing those files.
+
+### 4. Review and finalize
+
+The session page shows a normalized Host proposal with source snapshot IDs.
+Resolve blockers such as missing lighthouse or relay endpoints, divergent
+firewalls, divergent blocklists and unsupported connectivity settings.
+Warnings for certificate expiry or optional settings require a checkbox
+acknowledgement.
+
+Finalize after the displayed count matches `expected_hosts`, when set, and you
+have confirmed the inventory checkbox. The server rejects a stale revision or
+any Network, CA, Host-set or blocklist change since collection began. A
+successful finalize commits roles, endpoints, advanced settings, firewall and
+blocklist in one transaction, enrolls the imported hosts and increments the
+Network config version.
+
+The next poll validates and writes the server-rendered config. Before replacing
+an imported config, the agent creates an owner-only backup named
+`<nebula_config_path>.pre-nebula-mesh.<import_session_id>`. It keeps the imported
+certificate and key paths from the discovery profile. Certificate renewal then
+uses the managed lifecycle.
+
+The REST workflow uses these protected endpoints:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v1/mesh-imports` | Start collection and return the import token once. |
+| `GET /api/v1/mesh-imports/{id}` | Read the current revision, blockers, warnings and normalized proposal. |
+| `POST /api/v1/mesh-imports/{id}/rotate-token` | Replace the reusable import token. |
+| `POST /api/v1/mesh-imports/{id}/cancel` | Cancel collection and remove its temporary importing hosts. |
+| `POST /api/v1/mesh-imports/{id}/finalize` | Commit the acknowledged current proposal. |
+
+### Token selection, retries and rollback
+
+The operation chooses the token type; the UI has no generic token selector.
+`Add Host` and re-enrollment issue single-host `nme_` enrollment tokens.
+`Import existing mesh` and session token rotation issue reusable, session-bound
+`nmi_` tokens. The agent checks local state and the prefix before network I/O:
+an `nmi_` token without a complete existing installation is rejected, while an
+`nme_` token on an existing installation requires explicit destructive
+`--force`.
+
+Retry `nebula-agent enroll ... --yes` with the same `nmi_` token and signing-key
+path after a timeout. Registration is idempotent only for the same host
+certificate and Ed25519 signing key. A prefix/state mismatch, expired or rotated
+token, different signing key, duplicate overlay address, or completed session
+returns an error instead of creating another identity.
+
+Before finalize, use Cancel in the session page or
+`POST /api/v1/mesh-imports/{id}/cancel`. Cancellation removes temporary
+`importing` hosts and records tombstones; it does not touch Nebula files. Start a
+new session to retry. After finalize there is no conversion back to
+`collecting`: stop the agents, restore each
+`<nebula_config_path>.pre-nebula-mesh.<import_session_id>` if connectivity was
+lost, and either fix the managed topology or restore the server database from a
+pre-finalize backup. Never replace `host.key` during this rollback.
+
 ## Agent authorization (ADR 0004)
 
 Every poll request the agent sends to the management server is cryptographically
@@ -367,7 +527,7 @@ The two keys share lifetime — force-rotate and re-enroll regenerate both toget
 
 ### Headers on every poll
 
-Every `GET /api/v1/agent/updates` carries four headers:
+Every `GET /api/v1/agent/updates` and config acknowledgement carries four headers:
 
 | Header | Value |
 |---|---|
@@ -474,12 +634,20 @@ Each `poll_interval` the agent:
    half-written one.
 4. If any file changed and `nebula_pid_file` is set, the agent reads the PID and
    sends `SIGHUP`, prompting Nebula to reload without dropping tunnels.
+5. For agents advertising `config_ack_v1`, the server keeps the delivered
+   `config_version` pending. After validation, atomic write, and successful
+   `SIGHUP` delivery, the agent sends a signed
+   `POST /api/v1/agent/config-ack/<version>`. Without `nebula_pid_file`, the ack
+   means only that the config was validated and written. It does not prove that
+   Nebula accepted the reload or that the tunnel is healthy. Until the ack is
+   committed, later polls receive the newest config again; duplicate ack
+   requests are idempotent when signed with a fresh nonce.
 
 Certificate renewal is part of this same flow: when the server signs a new cert for
 the host (e.g. because the previous one is within its 30-day expiry window), the
 agent picks it up on the next poll.
 
-### Lighthouse routing is automatic
+### Lighthouse and relay routing is automatic
 
 Operators no longer wire lighthouse IPs into every peer host. The server resolves
 the network's currently enrolled `role: lighthouse` hosts (excluding `pending`
@@ -488,6 +656,9 @@ and `blocked` ones) and embeds them in each peer's rendered `config.yml` under
 or deleted, the server bumps the network's `config_version`; each peer's next
 agent poll observes the version change and receives an updated `config.yml` in
 the same response — no manual reconfiguration required.
+
+The server resolves enrolled `role: relay` hosts and writes their overlay
+addresses to `relay.relays`. It excludes pending, importing and blocked relays.
 
 ## Troubleshooting
 

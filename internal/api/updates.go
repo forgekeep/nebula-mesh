@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/slackhq/nebula/cert"
 
 	apipop "github.com/forgekeep/nebula-mesh/internal/api/pop"
+	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
@@ -22,7 +22,9 @@ type agentUpdatesResponse struct {
 	CertificatePEM  *string  `json:"certificate_pem,omitempty"`
 	CACertPEM       *string  `json:"ca_certificate_pem,omitempty"`
 	ConfigYAML      *string  `json:"config_yaml,omitempty"`
+	ConfigVersion   int      `json:"config_version,omitempty"`
 	Blocklist       []string `json:"blocklist"`
+	ImportPending   bool     `json:"import_pending,omitempty"`
 	RekeyRequired   bool     `json:"rekey_required,omitempty"`
 	EnrollmentToken string   `json:"enrollment_token,omitempty"`
 }
@@ -38,23 +40,30 @@ const pollClockSkew = 5 * time.Minute
 func overlapWindow() time.Duration { return 2 * time.Minute }
 
 func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
-	fingerprint := r.Header.Get(corepop.HeaderFingerprint)
-	timestamp := r.Header.Get(corepop.HeaderTimestamp)
-	nonce := r.Header.Get(corepop.HeaderNonce)
-	signatureB64 := r.Header.Get(corepop.HeaderSignature)
-	if fingerprint == "" || timestamp == "" || nonce == "" || signatureB64 == "" {
-		// Deliberately NOT audited: this branch needs no valid token,
-		// fingerprint, or signature, so writing a DB row per request lets
-		// an unauthenticated sender bloat the audit table at line rate,
-		// bounded only by the agent_poll bucket. Flood visibility stays
-		// available via the HTTP request counter (route + status 400);
-		// every branch after the fingerprint lookup still audits.
-		writeError(w, http.StatusBadRequest, "missing_signature")
+	headers, ok := readAgentAuthHeaders(w, r)
+	if !ok {
 		return
 	}
+	fingerprint := headers.fingerprint
 
 	host, err := s.store.GetHostByFingerprint(r.Context(), fingerprint)
 	if errors.Is(err, store.ErrNotFound) {
+		if tombstone, tombstoneErr := s.store.GetMeshImportTombstone(r.Context(), fingerprint); tombstoneErr == nil {
+			if !s.authenticateMeshImportTombstonePoll(w, r, tombstone, headers.timestamp, headers.nonce, headers.signature) {
+				return
+			}
+			s.recordAuditAction(r.Context(), auditHostAuthFailed, tombstone.FormerHostID, "import_canceled")
+			writeRevocation(w, http.StatusGone, revocationGoneResponse{
+				Reason:  "import_canceled",
+				Message: tombstone.TerminalReason,
+				At:      s.now().UTC(),
+			})
+			return
+		} else if !errors.Is(tombstoneErr, store.ErrNotFound) {
+			s.logger.Error("get mesh import tombstone", "error", tombstoneErr)
+			writeError(w, http.StatusInternalServerError, "failed to authenticate host")
+			return
+		}
 		// The fingerprint is not bound to any live host row. If it shows
 		// up in the blocklist the row was deleted after enrollment — in
 		// that case the agent gets a structured 410 gone so it stops the
@@ -78,57 +87,10 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the proof-of-possession signature against the stored Ed25519
-	// signing public key. host.SigningPubPEM is empty for legacy host rows
-	// that pre-date the ADR 0004 enrollment, in which case verification is
-	// impossible — answer 401 with reason=bad_signature so the operator can
-	// re-enroll the host via POST /hosts/{id}/reenroll.
-	signingPub, err := decodeSigningPublicKeyPEM(host.SigningPubPEM)
-	if err != nil {
-		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonBadSignature)
-		writeError(w, http.StatusUnauthorized, "bad_signature")
-		return
-	}
-	sigBytes, err := decodeSigBase64(signatureB64)
-	if err != nil {
-		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonBadSignature)
-		writeError(w, http.StatusUnauthorized, "bad_signature")
-		return
-	}
-	canonical := corepop.CanonicalString(r.Method, r.URL.Path, r.Host, timestamp, nonce)
-	if err := apipop.Verify(signingPub, canonical, sigBytes); err != nil {
-		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonBadSignature)
-		writeError(w, http.StatusUnauthorized, "bad_signature")
-		return
-	}
-
-	// Timestamp window.
-	ts, err := time.Parse(time.RFC3339, timestamp)
-	if err != nil {
-		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonTimestampSkew)
-		writeError(w, http.StatusUnauthorized, "timestamp_skew")
+	if !s.authenticateKnownAgentRequest(w, r, host, headers) {
 		return
 	}
 	now := s.now()
-	if diff := now.Sub(ts); diff > pollClockSkew || diff < -pollClockSkew {
-		s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonTimestampSkew)
-		writeError(w, http.StatusUnauthorized, "timestamp_skew")
-		return
-	}
-
-	// Replay protection — persist (host, nonce) for the skew window so a
-	// replay survives restart and can't be evicted by a noisy neighbor.
-	// GHSA-v2jf-442r-6mjh. Fail closed on store error.
-	if err := s.store.AddPopNonce(r.Context(), host.ID, nonce, ts.Add(pollClockSkew)); err != nil {
-		if errors.Is(err, store.ErrReplayedNonce) {
-			s.recordAuditAction(r.Context(), auditHostAuthFailed, host.ID, authReasonReplayedNonce)
-			writeError(w, http.StatusUnauthorized, "replayed_nonce")
-			return
-		}
-		s.logger.Error("record poll nonce", "host", host.ID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to check replay")
-		return
-	}
 
 	// Revocation signal. Blocked hosts get a structured 403 with a
 	// machine-readable body so the agent can log loudly and exit (ADR 0004
@@ -143,6 +105,21 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if host.Status == models.HostStatusImporting {
+		writeJSON(w, http.StatusOK, struct {
+			HasUpdates    bool `json:"has_updates"`
+			ImportPending bool `json:"import_pending"`
+		}{ImportPending: true})
+		return
+	}
+	profile, profileErr := s.store.GetHostAgentProfile(r.Context(), host.ID)
+	if profileErr != nil && !errors.Is(profileErr, store.ErrNotFound) {
+		s.logger.Error("get host agent profile", "host", host.ID, "error", profileErr)
+		writeError(w, http.StatusInternalServerError, "failed to get agent profile")
+		return
+	}
+	configAckV1 := profileErr == nil && profile.ConfigAckV1
+	pollingPrevious := host.PrevCertFingerprint != "" && fingerprint == host.PrevCertFingerprint
 
 	// Cert-rotation overlap window (ADR 0004 §7.1).
 	//
@@ -157,7 +134,7 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 			if err := s.store.ClearPrevFingerprint(r.Context(), host.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
 				s.logger.Error("clear prev fingerprint", "error", err)
 			}
-		} else if host.CertRotatedAt != nil && now.Sub(*host.CertRotatedAt) > overlapWindow() {
+		} else if !configAckV1 && host.CertRotatedAt != nil && now.Sub(*host.CertRotatedAt) > overlapWindow() {
 			if err := s.store.ClearPrevFingerprint(r.Context(), host.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
 				s.logger.Error("clear prev fingerprint (timeout)", "error", err)
 			}
@@ -189,10 +166,22 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	resp := agentUpdatesResponse{
 		Blocklist: blocklist,
 	}
+	needsCABundle := false
+	if pollingPrevious && configAckV1 {
+		currentCertificate, currentErr := s.store.GetCurrentCertificate(r.Context(), host.ID)
+		if currentErr != nil {
+			s.logger.Error("load current certificate for reliable redelivery", "host", host.ID, "error", currentErr)
+			writeError(w, http.StatusInternalServerError, "failed to load current certificate")
+			return
+		}
+		certificate := string(currentCertificate)
+		resp.CertificatePEM = &certificate
+		needsCABundle = true
+	}
 
 	// Check if certificate needs renewal
 	certInfo, err := s.store.GetCertificateInfo(r.Context(), host.ID)
-	if err == nil && pki.ShouldRenewAt(certInfo.NotBefore, certInfo.NotAfter, now) {
+	if !pollingPrevious && err == nil && pki.ShouldRenewAt(certInfo.NotBefore, certInfo.NotAfter, now) {
 		signed, renewErr := s.signHostCert(r.Context(), host, certInfo, now)
 
 		if renewErr != nil {
@@ -210,24 +199,28 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 			s.metrics.recordRenewal(resultOK)
 			certStr := string(signed.certPEM)
 			resp.CertificatePEM = &certStr
-			caStr := string(signed.caCertPEM)
-			resp.CACertPEM = &caStr
+			needsCABundle = true
 			s.logger.Info("certificate renewed", "host", host.Name)
 		}
 	}
 
-	// If host's CA has a successor, include trust bundle in response.
-	// Trust bundle allows agents to accept both old and new CA certs during rotation.
-	if host.CAID != "" && resp.CACertPEM == nil {
-		successor, ferr := s.store.FindCAByPredecessor(r.Context(), host.CAID)
-		if ferr == nil && successor != nil {
-			oldCA, oerr := s.store.GetCA(r.Context(), host.CAID)
-			if oerr == nil && oldCA != nil {
-				bundle := oldCA.CertPEM + "\n" + successor.CertPEM
-				resp.CACertPEM = &bundle
-				s.logger.Info("returning trust bundle", "host_id", host.ID, "old_ca", host.CAID, "successor_ca", successor.ID)
-			}
+	// A successor-only rotation is itself an update. Renewal and reliable
+	// old-fingerprint redelivery use the same lossless current+successor bundle.
+	if host.CAID != "" {
+		if successor, successorErr := s.store.FindCAByPredecessor(r.Context(), host.CAID); successorErr == nil && successor != nil {
+			needsCABundle = true
+		} else if successorErr != nil && !errors.Is(successorErr, store.ErrNotFound) {
+			s.logger.Error("find CA successor", "host", host.ID, "error", successorErr)
 		}
+	}
+	if needsCABundle {
+		bundle, bundleErr := s.renderAgentCABundle(r.Context(), host.CAID)
+		if bundleErr != nil {
+			s.logger.Error("render agent CA bundle", "host", host.ID, "error", bundleErr)
+			writeError(w, http.StatusInternalServerError, "failed to render CA bundle")
+			return
+		}
+		resp.CACertPEM = &bundle
 	}
 
 	// Check if the network config version moved since this host's last poll.
@@ -245,7 +238,16 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 			if cfgErr != nil {
 				s.logger.Error("render host config", "host", host.Name, "error", cfgErr)
 			} else {
-				if uvErr := s.store.UpdateHostConfigVersion(r.Context(), host.ID, netVersion); uvErr != nil {
+				if configAckV1 {
+					if pendingErr := s.store.SetPendingHostConfigVersion(r.Context(), host.ID, netVersion); pendingErr != nil {
+						s.logger.Error("set pending host config version", "host", host.Name, "error", pendingErr)
+					} else {
+						cfgStr := string(configYAML)
+						resp.ConfigYAML = &cfgStr
+						resp.ConfigVersion = netVersion
+						s.logger.Info("config delivery pending ack", "host", host.Name, "from_version", hostVersion, "to_version", netVersion)
+					}
+				} else if uvErr := s.store.UpdateHostConfigVersion(r.Context(), host.ID, netVersion); uvErr != nil {
 					s.logger.Error("update host config version", "host", host.Name, "error", uvErr)
 				} else {
 					cfgStr := string(configYAML)
@@ -262,20 +264,81 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	// keypair. The pending_rekey flag is cleared once the token is minted
 	// so a follow-up poll doesn't re-issue another token.
 	if host.PendingRekey {
-		tokenStr := uuid.New().String()
-		expiresAt := now.Add(s.tokenTTLFor(r.Context(), host.NetworkID))
-		if err := s.store.CreateTokenForHost(r.Context(), host.ID, tokenStr, expiresAt); err != nil {
-			s.logger.Error("mint rekey token", "host", host.ID, "error", err)
-		} else if err := s.store.ClearPendingRekey(r.Context(), host.ID); err != nil {
-			s.logger.Error("clear pending_rekey", "host", host.ID, "error", err)
+		tokenStr, tokenErr := bootstraptoken.Generate(bootstraptoken.PurposeEnrollment)
+		if tokenErr != nil {
+			s.logger.Error("generate rekey token", "host", host.ID, "error", tokenErr)
 		} else {
-			resp.RekeyRequired = true
-			resp.EnrollmentToken = tokenStr
+			expiresAt := now.Add(s.tokenTTLFor(r.Context(), host.NetworkID))
+			if err := s.store.CreateTokenForHost(r.Context(), host.ID, tokenStr, expiresAt); err != nil {
+				s.logger.Error("mint rekey token", "host", host.ID, "error", err)
+			} else if err := s.store.ClearPendingRekey(r.Context(), host.ID); err != nil {
+				s.logger.Error("clear pending_rekey", "host", host.ID, "error", err)
+			} else {
+				resp.RekeyRequired = true
+				resp.EnrollmentToken = tokenStr
+			}
 		}
 	}
 
-	resp.HasUpdates = len(blocklist) > 0 || resp.CertificatePEM != nil || resp.ConfigYAML != nil || resp.RekeyRequired
+	resp.HasUpdates = len(blocklist) > 0 || resp.CertificatePEM != nil || resp.CACertPEM != nil || resp.ConfigYAML != nil || resp.RekeyRequired
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) renderAgentCABundle(ctx context.Context, caID string) (string, error) {
+	current, err := s.store.GetCA(ctx, caID)
+	if err != nil {
+		return "", err
+	}
+	bundle := current.CertPEM
+	successor, err := s.store.FindCAByPredecessor(ctx, caID)
+	if err == nil && successor != nil {
+		bundle += "\n" + successor.CertPEM
+	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	return bundle, nil
+}
+
+func (s *Server) authenticateMeshImportTombstonePoll(
+	w http.ResponseWriter,
+	r *http.Request,
+	tombstone *models.MeshImportTombstone,
+	timestamp, nonce, signatureB64 string,
+) bool {
+	signingPub, err := decodeSigningPublicKeyPEM(tombstone.AgentSigningPubPEM)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "bad_signature")
+		return false
+	}
+	signature, err := decodeSigBase64(signatureB64)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "bad_signature")
+		return false
+	}
+	canonical := corepop.CanonicalString(r.Method, r.URL.Path, r.Host, timestamp, nonce)
+	if err := apipop.Verify(signingPub, canonical, signature); err != nil {
+		writeError(w, http.StatusUnauthorized, "bad_signature")
+		return false
+	}
+	ts, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "timestamp_skew")
+		return false
+	}
+	if diff := s.now().Sub(ts); diff > pollClockSkew || diff < -pollClockSkew {
+		writeError(w, http.StatusUnauthorized, "timestamp_skew")
+		return false
+	}
+	if err := s.store.AddPopNonce(r.Context(), tombstone.FormerHostID, nonce, ts.Add(pollClockSkew)); err != nil {
+		if errors.Is(err, store.ErrReplayedNonce) {
+			writeError(w, http.StatusUnauthorized, "replayed_nonce")
+			return false
+		}
+		s.logger.Error("record canceled import poll nonce", "host", tombstone.FormerHostID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to check replay")
+		return false
+	}
+	return true
 }
 
 // signResult holds the output of signing a host certificate.
@@ -284,11 +347,10 @@ type signResult struct {
 	fp        string
 	notBefore time.Time
 	notAfter  time.Time
-	caCertPEM []byte
 }
 
 // signHostCert re-signs the host certificate with the same public key and fresh expiry.
-// CA lock is held only during crypto operations (Sign + CACertPEM).
+// CA key material is held only during the signing operation.
 func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *models.CertificateInfo, now time.Time) (*signResult, error) {
 	// Durable revocation (GHSA-339v-266x-79xr): do not renew/re-sign for a
 	// blocked host or a disabled operator's host. Auto-renewal callers treat a
@@ -322,27 +384,16 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 		return nil, fmt.Errorf("resolve host CA: %w", err)
 	}
 	defer caMgr.Wipe() // GHSA-8h84-fhqq-q58v: zeroise plaintext CA key on return.
-	// CA operations — sign and retrieve CA certificate
-	newCert, caCertPEM, caErr := func() (cert.Certificate, []byte, error) {
-		c, signErr := caMgr.Sign(pki.SignRequest{
-			Name:      host.Name,
-			PublicKey: currentCert.PublicKey(),
-			Networks:  prefixes,
-			Groups:    host.Groups,
-			Duration:  pki.DefaultAgentCertDuration,
-			Now:       now,
-		})
-		if signErr != nil {
-			return nil, nil, fmt.Errorf("sign renewed cert: %w", signErr)
-		}
-		ca, err := caMgr.CACertPEM()
-		if err != nil {
-			return nil, nil, fmt.Errorf("get CA cert PEM: %w", err)
-		}
-		return c, ca, nil
-	}()
-	if caErr != nil {
-		return nil, caErr
+	newCert, err := caMgr.Sign(pki.SignRequest{
+		Name:      host.Name,
+		PublicKey: currentCert.PublicKey(),
+		Networks:  prefixes,
+		Groups:    host.Groups,
+		Duration:  pki.DefaultAgentCertDuration,
+		Now:       now,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sign renewed cert: %w", err)
 	}
 
 	// Post-sign work — no CA lock needed
@@ -361,6 +412,5 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 		fp:        fp,
 		notBefore: newCert.NotBefore(),
 		notAfter:  newCert.NotAfter(),
-		caCertPEM: caCertPEM,
 	}, nil
 }

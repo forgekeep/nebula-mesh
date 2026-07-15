@@ -2,5 +2,11 @@ server_url: "https://mgmt.example.com:8080"
 data_dir: "/etc/nebula"
 poll_interval: "30s"
 nebula_config_path: "/etc/nebula/config.yml"
+# Imported installations persist their exact existing PKI paths here. When
+# omitted, old configs continue to use <data_dir>/ca.crt, host.crt and host.key.
+# nebula_ca_path: "/etc/nebula/ca.crt"
+# nebula_cert_path: "/etc/nebula/host.crt"
+# nebula_key_path: "/etc/nebula/host.key"
+# import_session_id: ""  # managed by nebula-agent during mesh import
 nebula_pid_file: "/run/nebula.pid"
 # signing_key_path: "/etc/nebula-agent/host.signing.key"  # default; override for non-root setups (parent dir must be writable by the agent user)

@@ -66,6 +66,7 @@ var protectedGETScoping = map[string]listScoping{
 	"/api/v1/networks":              scopedToOwner,
 	"/api/v1/hosts":                 scopedToOwner,
 	"/api/v1/cas":                   scopedToOwner,
+	"/api/v1/mesh-imports":          scopedToOwner,
 	"/api/v1/webhook-subscriptions": scopedToOwner,
 
 	// Admin-only reads — non-admin gets 403, no tenant data in the body.
@@ -80,6 +81,7 @@ var protectedGETScoping = map[string]listScoping{
 	"/api/v1/networks/{id}/firewall":     singleResource,
 	"/api/v1/hosts/{id}":                 singleResource,
 	"/api/v1/cas/{id}":                   singleResource,
+	"/api/v1/mesh-imports/{id}":          singleResource,
 	"/api/v1/webhook-subscriptions/{id}": singleResource,
 }
 
@@ -120,6 +122,8 @@ func TestListEndpointsScopeToOwner(t *testing.T) {
 
 	keyA, opA, caA := createOperatorWithCA(t, srv)
 	keyB, opB, caB := createOperatorWithCA(t, srv)
+	seedCanceledMeshImport(t, st, opA.ID, caA)
+	seedCanceledMeshImport(t, st, opB.ID, caB)
 	// Distinct CIDRs/IPs so the seed is robust to any nebula_ip uniqueness
 	// scheme; ownership is what the test cares about, not addressing.
 	seedNetworkAndHost(t, st, caA.ID, "a", "10.10.0.0/24", "10.10.0.10")
@@ -162,6 +166,23 @@ func TestListEndpointsScopeToOwner(t *testing.T) {
 			})
 		}
 	}
+}
+
+func seedCanceledMeshImport(t *testing.T, st *store.SQLiteStore, ownerID string, ca *models.CA) {
+	t.Helper()
+	now := time.Now()
+	network := &models.Network{
+		ID: uuid.NewString(), Name: "import-marker-" + ca.ID,
+		CIDRs: []string{"172.31.0.0/16"}, CAID: ca.ID, CreatedAt: now,
+	}
+	require.NoError(t, st.CreateNetwork(context.Background(), network))
+	item := &models.MeshImport{
+		ID: uuid.NewString(), NetworkID: network.ID, CAID: ca.ID, OwnerOperatorID: ownerID,
+		Status: models.MeshImportStatusCollecting, TokenHash: uuid.NewString(),
+		TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, st.CreateMeshImport(context.Background(), item))
+	require.NoError(t, st.CancelMeshImport(context.Background(), item.ID, "scoping fixture", now))
 }
 
 // authedGET issues GET against the route as the bearer of key and returns the

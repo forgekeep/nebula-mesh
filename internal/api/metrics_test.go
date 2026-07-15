@@ -155,7 +155,7 @@ func TestMetricsEndpoint_HostsGauge(t *testing.T) {
 
 	// Seed two hosts in different statuses so the gauge has at least two
 	// labelsets to scrape.
-	for _, s := range []models.HostStatus{models.HostStatusPending, models.HostStatusEnrolled} {
+	for _, s := range []models.HostStatus{models.HostStatusPending, models.HostStatusEnrolled, models.HostStatusImporting} {
 		h := &models.Host{
 			ID: "h_" + string(s), NetworkID: netID, Name: "h-" + string(s),
 			NebulaIPs: []string{"192.168.100." + string(s[0:1]) + "0"},
@@ -172,6 +172,9 @@ func TestMetricsEndpoint_HostsGauge(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, `nebula_mgmt_hosts{`) {
 		t.Errorf("hosts gauge missing in /metrics:\n%s", body)
+	}
+	if !strings.Contains(body, `status="importing"`) {
+		t.Errorf("importing host gauge missing in /metrics:\n%s", body)
 	}
 }
 

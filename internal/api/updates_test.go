@@ -6,16 +6,64 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
+
+func TestPollRenewalWithSuccessorReturnsBothCARoots(t *testing.T) {
+	srv, st := newTestServer(t)
+	agentIdentity := enrolledFixture(t, srv)
+	renewalNow := time.Now().Add(4 * time.Minute)
+	srv.WithClock(func() time.Time { return renewalNow })
+	ctx := context.Background()
+	host, err := st.GetHostByFingerprint(ctx, agentIdentity.fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentCA, err := st.GetCA(ctx, host.CAID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	master, _ := keystore.NewMaster(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
+	successor, err := pki.RotateAndStoreCA(ctx, st, master, logger, currentCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec(`UPDATE certificates SET not_before = ?, not_after = ? WHERE host_id = ? AND is_current = 1`,
+		renewalNow.Add(-time.Hour), renewalNow.Add(time.Minute), host.ID); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
+	signPoll(t, request, agentIdentity)
+	recorder := httptest.NewRecorder()
+	srv.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("poll: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var response agentUpdatesResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.CertificatePEM == nil || response.CACertPEM == nil || !response.HasUpdates {
+		t.Fatalf("renewal response = %#v", response)
+	}
+	if !strings.Contains(*response.CACertPEM, currentCA.CertPEM) || !strings.Contains(*response.CACertPEM, successor.CertPEM) ||
+		strings.Count(*response.CACertPEM, "-----BEGIN NEBULA CERTIFICATE") != 2 {
+		t.Fatalf("CA bundle did not preserve both roots: %s", *response.CACertPEM)
+	}
+}
 
 // TestTrustBundleLogic_FindsSuccessor verifies trust bundle creation logic.
 // This test checks that when a CA has a successor, the trust bundle is created correctly.

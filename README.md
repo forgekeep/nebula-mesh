@@ -333,6 +333,11 @@ With `NEBULA_MGMT_MASTER_KEY` configured, operators can run their networks under
 nebula-mgmt ca create --server ... --api-key "$OPERATOR_KEY" --name tenant-a
 # → prints CA id + fingerprint
 
+# Import an existing Nebula CA from local PEM files
+nebula-mgmt ca import --server https://mgmt.example.com:8080 \
+  --api-key "$OPERATOR_KEY" --name existing-production \
+  --cert-file /secure/ca.crt --key-file /secure/ca.key
+
 nebula-mgmt ca list   --server ... --api-key "$OPERATOR_KEY"
 nebula-mgmt ca delete --server ... --api-key "$OPERATOR_KEY" --id "$CA_ID"
 ```
@@ -340,6 +345,11 @@ nebula-mgmt ca delete --server ... --api-key "$OPERATOR_KEY" --id "$CA_ID"
 Non-admin operators see and manage only the CAs they own; admins see all. Hosts enrolled under a tenant CA receive **that** CA's certificate, not the default one. Audit log entries (`ca.created`, `ca.deleted`, plus existing `host.*` events with the host's `ca_id`) record both the actor and the affected CA. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the encryption-at-rest design.
 
 **CA rotation**: when a CA approaches its expiry (≤20% lifetime remaining), the UI shows a warning badge on the CA pages. Operators can click **Rotate** to create a successor CA; existing host certificates remain valid until their natural expiry. CLI: `nebula-mgmt ca rotate <id>`. Optional opt-in auto-rotation: set `ca_auto_rotate.enabled: true` in `server.yaml` to enable automatic rotation (disabled by default). See [ADR 0008](docs/adr/0008-ca-rotation.md) for the hybrid model and trust bundle distribution.
+
+To adopt hosts that already run Nebula, import their CA, create an empty Network,
+then use `/ui/mesh-imports`. The agent discovers the existing config and keeps
+its files unchanged until you approve the reconciliation preview. See
+[Import an existing mesh](docs/agent.md#import-an-existing-mesh).
 
 </details>
 

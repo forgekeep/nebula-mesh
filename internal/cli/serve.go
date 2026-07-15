@@ -13,11 +13,13 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/alerts"
 	"github.com/forgekeep/nebula-mesh/internal/api"
 	"github.com/forgekeep/nebula-mesh/internal/auth"
+	"github.com/forgekeep/nebula-mesh/internal/caimport"
 	"github.com/forgekeep/nebula-mesh/internal/cawatch"
 	"github.com/forgekeep/nebula-mesh/internal/config"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
+	"github.com/forgekeep/nebula-mesh/internal/secretingress"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 	"github.com/forgekeep/nebula-mesh/internal/web"
 	"github.com/forgekeep/nebula-mesh/internal/webhook"
@@ -201,7 +203,22 @@ func Serve(configPath string, insecureHTTP bool) error {
 		}
 	}
 	apiSrv.WithCAResolver(caResolver)
+	caImportLimits := caimport.DefaultLimits()
+	if cfg.CAImport.MaxArgon2MemoryKiB != 0 {
+		caImportLimits.MaxArgon2MemoryKiB = cfg.CAImport.MaxArgon2MemoryKiB
+	}
+	if cfg.CAImport.MaxArgon2Iterations != 0 {
+		caImportLimits.MaxArgon2Iterations = cfg.CAImport.MaxArgon2Iterations
+	}
+	if cfg.CAImport.MaxArgon2Parallelism != 0 {
+		caImportLimits.MaxArgon2Parallelism = cfg.CAImport.MaxArgon2Parallelism
+	}
+	secretIngressPolicy := secretingress.NewPolicy(cfg.Listen, cfg.TrustedSecretIngressProxy)
+	sharedCAImporter := caimport.NewService(s, master, caImportLimits)
+	apiSrv.WithCAImportLimits(caImportLimits)
+	apiSrv.WithSecretIngressPolicy(secretIngressPolicy)
 	apiSrv.WithMaster(master)
+	apiSrv.WithCAImporter(sharedCAImporter)
 
 	// Safety net: ensure admin operator has a default CA (idempotent).
 	adminOp, err := s.GetOperatorByUsername(migrateCtx, DefaultAdminUsername)
@@ -229,11 +246,15 @@ func Serve(configPath string, insecureHTTP bool) error {
 	if err != nil {
 		return fmt.Errorf("init web UI: %w", err)
 	}
+	webUI.WithLifecycleEventEmitter(webhookDispatcher)
 	webUI.AllowSelfRegistration(cfg.AllowSelfRegistration)
 	webUI.WithLoginRecorder(apiSrv.RecordLogin)
 	webUI.WithRateLimiter(limiter)
 	webUI.WithPasswordPolicy(pwPolicy)
+	webUI.WithCAImportLimits(caImportLimits)
+	webUI.WithSecretIngressPolicy(secretIngressPolicy)
 	webUI.WithMaster(master)
+	webUI.WithCAImporter(sharedCAImporter)
 	webUI.WithCAResolver(caResolver)
 	webUI.WithEnrollmentTokenTTL(cfg.EnrollmentTokenTTLDuration())
 

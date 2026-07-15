@@ -347,6 +347,37 @@ bundles become stale.
 There is no automatic update mechanism for mobile clients; manual re-import is
 required each time the underlying network configuration changes.
 
+## Adopting an existing mesh
+
+Import the current Nebula CA through `/ui/cas/import` or `nebula-mgmt ca
+import`, then create an empty Network bound to that CA. Keep a database backup
+and the original host configurations before starting. The server rejects an
+import target with existing hosts, another Network using the CA, an existing CA
+blocklist, a retired CA, or a CA successor.
+
+Create the collection session at `/ui/mesh-imports/new`. Set
+`expected_hosts` when the inventory is known and distribute the displayed
+`nmi_` token only to those hosts. The token is reusable only for that session;
+it is stored as a hash and stops working at expiry, rotation, cancel, expected
+count, or finalize. Registered agents immediately switch to signed Ed25519
+polls and do not need another token.
+
+During collection the target Network and CA are frozen against ordinary host,
+firewall, rotation and attachment mutations. Hosts remain `importing`; the
+server does not send configuration, renew certificates or change their Nebula
+files. Review the session preview, resolve every blocker, acknowledge the exact
+current warnings and confirm the inventory. Finalize compares the displayed
+revision and commits the complete Host set, firewall, blocklist and next
+Network config version in one transaction.
+
+Cancel a failed collection instead of editing its temporary rows. Cancellation
+removes the staged hosts without touching remote files; create a new session
+for another attempt. After finalize, recover connectivity from each agent's
+one-time config backup and restore a pre-finalize control-plane backup if the
+committed topology itself must be reverted. The full host procedure and
+compatibility matrix are in [docs/agent.md](agent.md#import-an-existing-mesh);
+database recovery is in [docs/backup.md](backup.md#mesh-import-recovery).
+
 ## CA Rotation
 
 ### Overview

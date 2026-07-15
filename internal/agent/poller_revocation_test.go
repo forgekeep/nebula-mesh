@@ -51,7 +51,7 @@ func TestPoll_ReturnsRevocationErrorOn403(t *testing.T) {
 func TestPoll_ReturnsRevocationErrorOn410(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusGone)
-		_, _ = w.Write([]byte(`{"reason":"gone"}`))
+		_, _ = w.Write([]byte(`{"reason":"import_canceled"}`))
 	}))
 	defer server.Close()
 
@@ -72,6 +72,10 @@ func TestPoll_ReturnsRevocationErrorOn410(t *testing.T) {
 	pollErr := p.poll(context.Background())
 	if !IsRevoked(pollErr) {
 		t.Fatalf("IsRevoked(err) = false; want true, err = %v", pollErr)
+	}
+	var re *RevocationError
+	if !errors.As(pollErr, &re) || re.Reason != "import_canceled" {
+		t.Fatalf("reason = %#v, want import_canceled", re)
 	}
 }
 

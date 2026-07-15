@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"sort"
 
 	"github.com/slackhq/nebula/cert"
 
+	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
 	"github.com/forgekeep/nebula-mesh/internal/configgen"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
@@ -17,15 +19,17 @@ import (
 )
 
 type enrollRequest struct {
-	Token         string `json:"token"`
-	PublicKeyPEM  string `json:"public_key_pem"`
-	SigningPubPEM string `json:"signing_public_key_pem"`
+	Token         string              `json:"token"`
+	PublicKeyPEM  string              `json:"public_key_pem"`
+	SigningPubPEM string              `json:"signing_public_key_pem"`
+	Profile       models.AgentProfile `json:"profile,omitempty"`
 }
 
 type enrollResponse struct {
 	CertificatePEM   string `json:"certificate_pem"`
 	CACertificatePEM string `json:"ca_certificate_pem"`
 	ConfigYAML       string `json:"config_yaml"`
+	ConfigVersion    int    `json:"config_version,omitempty"`
 }
 
 func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
@@ -39,9 +43,20 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "token and public_key_pem are required")
 		return
 	}
+	if err := bootstraptoken.ValidatePurpose(req.Token, bootstraptoken.PurposeEnrollment, true); err != nil {
+		s.metrics.recordEnrollment(resultDenied)
+		writeError(w, http.StatusUnauthorized, "invalid enrollment token purpose")
+		return
+	}
 	if _, err := decodeSigningPublicKeyPEM(req.SigningPubPEM); err != nil {
 		s.metrics.recordEnrollment(resultDenied)
 		writeError(w, http.StatusBadRequest, "signing_public_key_pem is required and must be Ed25519")
+		return
+	}
+	profile, err := req.Profile.WithDefaults()
+	if err != nil {
+		s.metrics.recordEnrollment(resultDenied)
+		writeError(w, http.StatusBadRequest, "invalid agent profile")
 		return
 	}
 
@@ -189,7 +204,9 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	// freshly-signed cert. Consuming here (rather than up front) means a
 	// transient failure during signing leaves the token usable for retry; a
 	// concurrent enrollment that already consumed it loses the CAS and gets 409.
-	if err := s.store.ConsumeTokenAndEnrollHost(r.Context(), host.ID, req.Token, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
+	configVersion, err := s.store.ConsumeTokenAndEnrollHostWithProfile(r.Context(), host.ID, req.Token, certPEM, fp,
+		hostCert.NotBefore(), hostCert.NotAfter(), req.SigningPubPEM, profile)
+	if err != nil {
 		if errors.Is(err, store.ErrTokenUsed) {
 			s.metrics.recordEnrollment(resultDenied)
 			writeError(w, http.StatusConflict, "enrollment token already used")
@@ -197,32 +214,6 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		}
 		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("consume token and enroll host", "error", err)
-		writeError(w, http.StatusInternalServerError, "enrollment failed")
-		return
-	}
-
-	// Bind the Ed25519 signing public key to the host so subsequent poll
-	// signatures verify against it (ADR 0004 §7.1).
-	if err := s.store.UpdateHostSigningPub(r.Context(), host.ID, req.SigningPubPEM); err != nil {
-		s.metrics.recordEnrollment(resultError)
-		s.logger.Error("update host signing pub", "error", err)
-		writeError(w, http.StatusInternalServerError, "enrollment failed")
-		return
-	}
-
-	// Pin the freshly-enrolled host to the current network config version so the
-	// next agent poll does not redundantly re-send the same config we already
-	// embedded in the enrollment response below.
-	networkVersion, err := s.store.GetNetworkConfigVersion(r.Context(), host.NetworkID)
-	if err != nil {
-		s.metrics.recordEnrollment(resultError)
-		s.logger.Error("get network config version", "error", err)
-		writeError(w, http.StatusInternalServerError, "enrollment failed")
-		return
-	}
-	if err := s.store.UpdateHostConfigVersion(r.Context(), host.ID, networkVersion); err != nil {
-		s.metrics.recordEnrollment(resultError)
-		s.logger.Error("update host config version", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}
@@ -243,19 +234,34 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		"ca_id":       host.CAID,
 		"fingerprint": fp,
 	})
+	if !profile.ConfigAckV1 {
+		configVersion = 0
+	}
 	writeJSON(w, http.StatusOK, enrollResponse{
 		CertificatePEM:   string(certPEM),
 		CACertificatePEM: string(caCertPEM),
 		ConfigYAML:       string(configYAML),
+		ConfigVersion:    configVersion,
 	})
 }
 
 // renderHostConfig produces the Nebula config.yml for the given host, resolving
 // the network's enrolled lighthouses and applying per-host advanced overrides.
 func (s *Server) renderHostConfig(ctx context.Context, host *models.Host) ([]byte, error) {
+	profile := models.DefaultAgentProfile()
+	storedProfile, profileErr := s.store.GetHostAgentProfile(ctx, host.ID)
+	if profileErr == nil {
+		profile = storedProfile.AgentProfile()
+	} else if !errors.Is(profileErr, store.ErrNotFound) {
+		return nil, fmt.Errorf("get host agent profile: %w", profileErr)
+	}
 	lighthouses, err := s.getLighthouses(ctx, host.NetworkID)
 	if err != nil {
 		return nil, fmt.Errorf("get lighthouses: %w", err)
+	}
+	relays, err := s.getRelays(ctx, host.NetworkID)
+	if err != nil {
+		return nil, fmt.Errorf("get relays: %w", err)
 	}
 
 	// Validate family-match for unsafe_routes
@@ -305,11 +311,12 @@ func (s *Server) renderHostConfig(ctx context.Context, host *models.Host) ([]byt
 		NebulaIPs:        host.NebulaIPs,
 		IsLighthouse:     host.IsLighthouse,
 		IsRelay:          host.IsRelay,
-		CACertPath:       "/etc/nebula/ca.crt",
-		CertPath:         "/etc/nebula/host.crt",
-		KeyPath:          "/etc/nebula/host.key",
+		CACertPath:       profile.NebulaCAPath,
+		CertPath:         profile.NebulaCertPath,
+		KeyPath:          profile.NebulaKeyPath,
 		ListenPort:       host.ListenPort,
 		Lighthouses:      lighthouses,
+		Relays:           relays,
 		FirewallInbound:  fwInbound,
 		FirewallOutbound: fwOutbound,
 	}
@@ -334,6 +341,30 @@ func (s *Server) renderHostConfig(ctx context.Context, host *models.Host) ([]byt
 	}
 
 	return configgen.Generate(input)
+}
+
+// getRelays returns overlay addresses of enrolled relay hosts. Pending,
+// importing and blocked rows are excluded until they are safe to advertise.
+func (s *Server) getRelays(ctx context.Context, networkID string) ([]string, error) {
+	hosts, err := s.store.ListHosts(ctx, store.HostFilter{NetworkID: networkID, Status: models.HostStatusEnrolled})
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]struct{})
+	for _, host := range hosts {
+		if host.Role != models.HostRoleRelay && !host.IsRelay {
+			continue
+		}
+		for _, address := range host.NebulaIPs {
+			set[address] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(set))
+	for address := range set {
+		result = append(result, address)
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 // getLighthouses returns every enrolled lighthouse in the given network. Pending

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,9 +13,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/forgekeep/nebula-mesh/internal/caimport"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/secretingress"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
@@ -33,6 +36,41 @@ var ErrCAMasterNotConfigured = errors.New("ca master key not configured")
 // NEBULA_MGMT_MASTER_KEY docs instead of failing with a 500.
 func (w *Web) WithMaster(m *keystore.Master) {
 	w.caMaster = m
+	w.configureCAImporter()
+}
+
+// WithCAImportLimits sets server-side encrypted-key resource caps.
+func (w *Web) WithCAImportLimits(limits caimport.Limits) {
+	w.caImportLimits = limits
+	w.configureCAImporter()
+}
+
+// WithCAImporter installs the process-shared importer used by API and Web.
+func (w *Web) WithCAImporter(importer caimport.Importer) {
+	w.caImporter = importer
+}
+
+// WithSecretIngressPolicy sets the transport guard for private-key uploads.
+func (w *Web) WithSecretIngressPolicy(policy secretingress.Policy) {
+	w.secretIngress = policy
+}
+
+func (w *Web) configureCAImporter() {
+	if w.caMaster == nil {
+		w.caImporter = nil
+		return
+	}
+	w.caImporter = caimport.NewService(w.store, w.caMaster, w.caImportLimits)
+}
+
+func (w *Web) secretIngressMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/ui/cas/import" && !w.secretIngress.Allows(r) {
+			http.Error(rw, "CA private key import requires direct TLS, literal-loopback HTTP, or an explicitly trusted local TLS proxy", http.StatusUpgradeRequired)
+			return
+		}
+		next.ServeHTTP(rw, r)
+	})
 }
 
 func (w *Web) handleCAsList(rw http.ResponseWriter, r *http.Request) {
@@ -76,6 +114,117 @@ func (w *Web) handleCANewPage(rw http.ResponseWriter, r *http.Request) {
 		"Error":       "",
 		"MasterReady": w.caMaster != nil,
 	})
+}
+
+func (w *Web) handleCAImportPage(rw http.ResponseWriter, r *http.Request) {
+	w.renderForRequest(rw, r, "ca_import.html", map[string]any{
+		"Active":      "cas",
+		"Error":       "",
+		"MasterReady": w.caImporter != nil,
+	})
+}
+
+func (w *Web) handleCAImport(rw http.ResponseWriter, r *http.Request) {
+	if w.caImporter == nil {
+		w.renderCAImportError(rw, r, http.StatusServiceUnavailable, "CA import requires NEBULA_MGMT_MASTER_KEY to be configured")
+		return
+	}
+	if err := r.ParseMultipartForm(1 << 20); err != nil { // #nosec G120 -- web router caps the complete body with MaxBytesReader.
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			http.Error(rw, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.renderCAImportError(rw, r, http.StatusBadRequest, "Invalid multipart form")
+		return
+	}
+	if r.MultipartForm != nil {
+		defer func() {
+			if err := r.MultipartForm.RemoveAll(); err != nil {
+				w.logger.Error("remove CA import multipart files", "error", err)
+			}
+		}()
+	}
+	certificatePEM, err := readCAImportPart(r, "certificate")
+	if err != nil {
+		w.renderCAImportError(rw, r, http.StatusBadRequest, "CA certificate file is required")
+		return
+	}
+	privateKeyPEM, err := readCAImportPart(r, "private_key")
+	if err != nil {
+		w.renderCAImportError(rw, r, http.StatusBadRequest, "CA private key file is required")
+		return
+	}
+	defer keystore.Zeroize(privateKeyPEM)
+	passphrase := []byte(r.FormValue("passphrase"))
+	defer keystore.Zeroize(passphrase)
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	imported, err := w.caImporter.Import(r.Context(), caimport.Request{
+		Name:            strings.TrimSpace(r.FormValue("name")),
+		OwnerOperatorID: op.ID,
+		CertificatePEM:  certificatePEM,
+		PrivateKeyPEM:   privateKeyPEM,
+		Passphrase:      passphrase,
+	})
+	if err != nil {
+		status, message := webCAImportError(err)
+		if errors.Is(err, caimport.ErrDecryptBusy) {
+			rw.Header().Set("Retry-After", "1")
+		}
+		w.renderCAImportError(rw, r, status, message)
+		return
+	}
+	_ = w.store.AddAuditEntry(r.Context(), op.Username, "ca.imported", imported.ID, "fingerprint="+imported.Fingerprint)
+	http.Redirect(rw, r, "/ui/cas/"+imported.ID, http.StatusSeeOther)
+}
+
+func (w *Web) renderCAImportError(rw http.ResponseWriter, r *http.Request, status int, message string) {
+	w.renderForRequestWithStatus(rw, r, status, "ca_import.html", map[string]any{
+		"Active":      "cas",
+		"Error":       message,
+		"MasterReady": w.caImporter != nil,
+	})
+}
+
+func readCAImportPart(r *http.Request, field string) ([]byte, error) {
+	file, _, err := r.FormFile(field)
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, (1<<20)+1))
+	closeErr := file.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(data) > 1<<20 {
+		keystore.Zeroize(data)
+		return nil, caimport.ErrInputTooLarge
+	}
+	return data, nil
+}
+
+func webCAImportError(err error) (int, string) {
+	switch {
+	case errors.Is(err, caimport.ErrDuplicateCA):
+		return http.StatusConflict, "CA already imported"
+	case errors.Is(err, caimport.ErrDecryptBusy):
+		return http.StatusTooManyRequests, "Another encrypted CA key import is in progress"
+	case errors.Is(err, caimport.ErrInputTooLarge):
+		return http.StatusRequestEntityTooLarge, "CA import input is too large"
+	case errors.Is(err, caimport.ErrKDFLimits):
+		return http.StatusBadRequest, "Encrypted private key exceeds configured KDF limits"
+	case errors.Is(err, caimport.ErrMasterKeyUnavailable):
+		return http.StatusServiceUnavailable, "CA import requires NEBULA_MGMT_MASTER_KEY to be configured"
+	default:
+		return http.StatusBadRequest, "Invalid CA certificate, private key, or passphrase"
+	}
 }
 
 // mintCAForOperator generates a fresh per-operator CA with the given name
@@ -258,6 +407,10 @@ func (w *Web) handleCARetire(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := w.store.UpdateCAStatus(r.Context(), c.ID, models.CAStatusRetired); err != nil {
+		if errors.Is(err, store.ErrMeshImportInProgress) {
+			http.Error(rw, "Mesh import collection is in progress for this CA", http.StatusConflict)
+			return
+		}
 		w.logger.Error("retire ca", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
@@ -301,6 +454,10 @@ func (w *Web) handleCARotate(rw http.ResponseWriter, r *http.Request) {
 	}
 	newCA, err := pki.RotateAndStoreCA(r.Context(), w.store, w.caMaster, w.logger, c)
 	if err != nil {
+		if errors.Is(err, store.ErrMeshImportInProgress) {
+			http.Error(rw, "Mesh import collection is in progress for this CA", http.StatusConflict)
+			return
+		}
 		w.logger.Error("rotate ca", "error", err)
 		redirectCAError(rw, r, c.ID, http.StatusText(http.StatusInternalServerError)+": "+err.Error())
 		return

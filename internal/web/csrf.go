@@ -15,11 +15,10 @@
 //     SameSite=Lax does not prevent this. This is an inherent limitation
 //     of stateless double-submit; mitigations would require server-side
 //     token storage and are out of scope for this fix.
-//   - The middleware calls r.ParseForm() for non-GET requests so the
-//     _csrf form field can be read. This is safe for application/x-www-
-//     form-urlencoded bodies (Go caches the parsed form). For future
-//     multipart/JSON endpoints under /ui/*, the X-CSRF-Token header
-//     path is the only supported mechanism — extend accordingly.
+//   - The middleware calls r.ParseForm() for URL-encoded requests and bounded
+//     ParseMultipartForm for multipart requests so the _csrf field can be
+//     read. The router's 1 MiB MaxBytesReader runs first, and multipart keeps
+//     that bounded payload in memory. JSON endpoints must use the header.
 //   - HttpOnly is intentionally false on _csrf cookie: the layout script
 //     reads it from document.cookie / meta tag to inject into htmx
 //     hx-headers. This means an XSS bug degrades CSRF protection to
@@ -35,6 +34,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"strings"
 )
 
 const csrfCookieName = "nebula_csrf"
@@ -80,7 +80,12 @@ func (w *Web) csrfMiddleware(next http.Handler) http.Handler {
 
 		// If not in header, try form field
 		if bodyToken == "" {
-			err := r.ParseForm()
+			var err error
+			if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+				err = r.ParseMultipartForm(1 << 20) // #nosec G120 -- web router caps the complete body with MaxBytesReader.
+			} else {
+				err = r.ParseForm()
+			}
 			if err != nil {
 				http.Error(rw, "Bad Request", http.StatusBadRequest)
 				return

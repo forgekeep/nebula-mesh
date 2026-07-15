@@ -10,7 +10,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <script src="/static/htmx.min.js"></script>
     <script>
-    document.body.addEventListener('htmx:configRequest', function(evt) {
+    document.addEventListener('htmx:configRequest', function(evt) {
         var m = document.querySelector('meta[name="csrf-token"]');
         if (m) { evt.detail.headers['X-CSRF-Token'] = m.content; }
     });

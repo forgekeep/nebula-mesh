@@ -58,6 +58,61 @@ func TestHostDetail_HasEditButton(t *testing.T) {
 	}
 }
 
+func TestHostDetail_PendingHostCanBeDeleted(t *testing.T) {
+	w, s := newTestWeb(t)
+	cookies := loginSession(t, w)
+
+	ctx := context.Background()
+	if err := s.CreateNetwork(ctx, &models.Network{
+		ID: "n-delete-pending", Name: "test-net", CIDRs: []string{"192.168.100.0/24"}, CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	host := &models.Host{
+		ID: "h-delete-pending", NetworkID: "n-delete-pending", Name: "pending-host",
+		NebulaIPs: []string{"192.168.100.11"}, Role: models.HostRoleHost, Status: models.HostStatusPending,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.CreateHost(ctx, host); err != nil {
+		t.Fatal(err)
+	}
+
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/hosts/"+host.ID, cookies)
+	req := httptest.NewRequest(http.MethodDelete, "/ui/hosts/"+host.ID, nil)
+	req.Header.Set(csrfHeaderName, csrfToken)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if redirect := rec.Header().Get("HX-Redirect"); redirect != "/ui/hosts" {
+		t.Errorf("HX-Redirect = %q, want /ui/hosts", redirect)
+	}
+	if _, err := s.GetHost(ctx, host.ID); err == nil {
+		t.Error("pending host still exists after delete")
+	}
+}
+
+func TestLayout_RegistersHTMXCSRFListenerOnDocument(t *testing.T) {
+	w, _ := newTestWeb(t)
+	cookies := loginSession(t, w)
+
+	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+
+	if !strings.Contains(rec.Body.String(), "document.addEventListener('htmx:configRequest'") {
+		t.Error("layout must register the HTMX CSRF listener on document")
+	}
+}
+
 func TestHostDetail_RendersAdvanced(t *testing.T) {
 	w, s := newTestWeb(t)
 	cookies := loginSession(t, w)

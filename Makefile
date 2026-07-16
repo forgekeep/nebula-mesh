@@ -5,6 +5,7 @@ GOVULNCHECK_VERSION ?= v1.1.4
 
 TOOLS_BIN := $(CURDIR)/.tools
 GOLANGCI_LINT := $(TOOLS_BIN)/golangci-lint
+GOLANGCI_LINT_CACHE := $(TOOLS_BIN)/golangci-cache
 GOSEC := $(TOOLS_BIN)/gosec
 GOVULNCHECK := $(TOOLS_BIN)/govulncheck
 
@@ -30,7 +31,7 @@ test:
 	go test -v -race ./...
 
 lint: tools
-	$(GOLANGCI_LINT) run --timeout=5m ./...
+	GOLANGCI_LINT_CACHE="$(GOLANGCI_LINT_CACHE)" $(GOLANGCI_LINT) run --timeout=5m ./...
 
 ci: vet build test lint gosec govulncheck
 

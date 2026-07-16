@@ -137,9 +137,10 @@ func TestContract_AdminEndpoints(t *testing.T) {
 func TestContract_CAImport(t *testing.T) {
 	v := loadContract(t)
 	srv, apiKey := newServerWithMaster(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(testCAImportJSON(t, "contract-import")))
+	body, contentType := testCAImportMultipart(t, "contract-import")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	req.TLS = &tls.ConnectionState{}
 	rec := serve(srv, req)
 	if rec.Code != http.StatusCreated {

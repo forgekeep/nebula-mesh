@@ -407,7 +407,7 @@ paths:
       requestBody:
         required: true
         content:
-          application/json:
+          multipart/form-data:
             schema:
               $ref: "#/components/schemas/CAImportRequest"
       responses:
@@ -704,19 +704,23 @@ components:
 
     CAImportRequest:
       type: object
-      required: [name, certificate_pem, private_key_pem]
+      required: [name, certificate, private_key]
       additionalProperties: false
       properties:
         name:
           type: string
-        certificate_pem:
+        certificate:
           type: string
-        private_key_pem:
+          format: binary
+          description: Nebula CA certificate PEM.
+        private_key:
           type: string
+          format: binary
           description: Nebula CA signing key PEM. Treat as secret.
         passphrase:
           type: string
-          description: Optional passphrase for encrypted key PEM. Treat as secret.
+          format: binary
+          description: Optional passphrase bytes for encrypted key PEM. Treat as secret.
 
     CA:
       type: object

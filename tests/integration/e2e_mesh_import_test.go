@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/netip"
 	"os"
@@ -51,10 +52,7 @@ func TestE2EMeshImportPreservesKeysUntilAtomicFinalize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp := apiCall(t, ts, http.MethodPost, "/api/v1/cas/import", map[string]any{
-		"name": "imported-e2e-ca", "certificate_pem": string(caPEM),
-		"private_key_pem": string(encryptedKey), "passphrase": string(passphrase),
-	})
+	resp := caImportCall(t, ts.URL, "imported-e2e-ca", caPEM, encryptedKey, passphrase)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("import CA: HTTP %d: %s", resp.StatusCode, readResponse(t, resp))
 	}
@@ -193,6 +191,43 @@ func TestE2EMeshImportPreservesKeysUntilAtomicFinalize(t *testing.T) {
 			t.Fatalf("backup %s: info=%v err=%v", host.name, info, err)
 		}
 	}
+}
+
+func caImportCall(t *testing.T, serverURL, name string, certificatePEM, privateKeyPEM, passphrase []byte) *http.Response {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for _, field := range []struct {
+		name  string
+		value []byte
+	}{
+		{name: "name", value: []byte(name)},
+		{name: "certificate", value: certificatePEM},
+		{name: "private_key", value: privateKeyPEM},
+		{name: "passphrase", value: passphrase},
+	} {
+		part, err := writer.CreateFormField(field.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(field.value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, serverURL+"/api/v1/cas/import", bytes.NewReader(body.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
 }
 
 func createExistingMeshHost(t *testing.T, manager *pki.CAManager, caPEM []byte, root, name, overlay string, lighthouse bool) *existingMeshHost {

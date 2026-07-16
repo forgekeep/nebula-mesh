@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -22,13 +23,6 @@ import (
 type caCreateRequest struct {
 	Name     string `json:"name"`
 	Duration string `json:"duration,omitempty"`
-}
-
-type importCARequest struct {
-	Name           string `json:"name"`
-	CertificatePEM string `json:"certificate_pem"`
-	PrivateKeyPEM  string `json:"private_key_pem"`
-	Passphrase     string `json:"passphrase,omitempty"`
 }
 
 type caInfo struct {
@@ -152,21 +146,41 @@ func CAImport(serverURL, apiKey, name, certFile, keyFile, passphraseFile string)
 		}
 	}
 
-	body, err := json.Marshal(importCARequest{
-		Name:           strings.TrimSpace(name),
-		CertificatePEM: string(certificatePEM),
-		PrivateKeyPEM:  string(uploadKeyPEM),
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+	var body bytes.Buffer
+	body.Grow(len(name) + len(certificatePEM) + len(uploadKeyPEM) + 1024)
+	defer func() { keystore.Zeroize(body.Bytes()) }()
+	writer := multipart.NewWriter(&body)
+	for _, field := range []struct {
+		name     string
+		filename string
+		value    []byte
+	}{
+		{name: "name", value: []byte(strings.TrimSpace(name))},
+		{name: "certificate", filename: "ca.crt", value: certificatePEM},
+		{name: "private_key", filename: "ca.key", value: uploadKeyPEM},
+	} {
+		var part io.Writer
+		if field.filename == "" {
+			part, err = writer.CreateFormField(field.name)
+		} else {
+			part, err = writer.CreateFormFile(field.name, field.filename)
+		}
+		if err != nil {
+			return fmt.Errorf("create multipart field %s: %w", field.name, err)
+		}
+		if _, err := part.Write(field.value); err != nil {
+			return fmt.Errorf("write multipart field %s: %w", field.name, err)
+		}
 	}
-	defer keystore.Zeroize(body)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, strings.TrimRight(serverURL, "/")+"/api/v1/cas/import", bytes.NewReader(body))
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("close multipart request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, strings.TrimRight(serverURL, "/")+"/api/v1/cas/import", bytes.NewReader(body.Bytes()))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	client := *httpClient
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {

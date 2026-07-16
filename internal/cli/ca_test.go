@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -136,16 +137,37 @@ func TestCAImport_DecryptsEncryptedKeyLocally(t *testing.T) {
 	require.NoError(t, os.WriteFile(keyPath, encryptedKeyPEM, 0o600))
 	require.NoError(t, os.WriteFile(passphrasePath, append(append([]byte(nil), passphrase...), '\n'), 0o600))
 
-	var received importCARequest
+	var receivedName string
+	var receivedCertificate, receivedPrivateKey, receivedPassphrase []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, "/api/v1/cas/import", r.URL.Path)
 		require.Equal(t, "Bearer api-key", r.Header.Get("Authorization"))
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&received))
-		_, _, curve, parseErr := cert.UnmarshalSigningPrivateKeyFromPEM([]byte(received.PrivateKeyPEM))
+		reader, err := r.MultipartReader()
+		require.NoError(t, err)
+		for {
+			part, err := reader.NextPart()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			require.NoError(t, err)
+			value, err := io.ReadAll(part)
+			require.NoError(t, err)
+			switch part.FormName() {
+			case "name":
+				receivedName = string(value)
+			case "certificate":
+				receivedCertificate = value
+			case "private_key":
+				receivedPrivateKey = value
+			case "passphrase":
+				receivedPassphrase = value
+			}
+		}
+		_, _, curve, parseErr := cert.UnmarshalSigningPrivateKeyFromPEM(receivedPrivateKey)
 		require.NoError(t, parseErr)
 		require.Equal(t, cert.Curve_CURVE25519, curve)
-		require.Empty(t, received.Passphrase)
+		require.Empty(t, receivedPassphrase)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		require.NoError(t, json.NewEncoder(w).Encode(caInfo{ID: "ca-id", Name: "existing", Fingerprint: "fp", Status: "active"}))
@@ -158,8 +180,8 @@ func TestCAImport_DecryptsEncryptedKeyLocally(t *testing.T) {
 	output := captureCLIStdout(t, func() error {
 		return CAImport(server.URL, "api-key", "existing", certPath, keyPath, passphrasePath)
 	})
-	require.Equal(t, "existing", received.Name)
-	require.Equal(t, string(certificatePEM), received.CertificatePEM)
+	require.Equal(t, "existing", receivedName)
+	require.Equal(t, certificatePEM, receivedCertificate)
 	require.Equal(t, 1, strings.Count(output, "ca-id"))
 	require.Equal(t, 1, strings.Count(output, "fp"))
 }

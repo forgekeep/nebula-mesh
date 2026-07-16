@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,10 +112,10 @@ func TestImportCA_TransportPolicyAndOwnership(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			srv, opKey := newServerWithMaster(t)
 			srv.WithSecretIngressPolicy(testCase.policy)
-			body := testCAImportJSON(t, "existing-mesh")
+			body, contentType := testCAImportMultipart(t, "existing-mesh")
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
 			req.Header.Set("Authorization", "Bearer "+opKey)
-			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", contentType)
 			req.Header.Set("X-Forwarded-Proto", testCase.forwarded)
 			req.RemoteAddr = testCase.remoteAddr
 			req.Host = testCase.host
@@ -160,13 +162,115 @@ func TestImportCA_RejectsInsecureTransportBeforeReadingBody(t *testing.T) {
 	}
 }
 
+func TestImportCA_RejectsJSONSecretIngress(t *testing.T) {
+	srv, opKey := newServerWithMaster(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", strings.NewReader(`{"name":"existing","private_key_pem":"secret"}`))
+	req.Header.Set("Authorization", "Bearer "+opKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.TLS = &tls.ConnectionState{}
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestReadCAImportMultipart_FailsClosed(t *testing.T) {
+	tests := []struct {
+		name    string
+		fields  []multipartTestField
+		wantErr error
+	}{
+		{
+			name: "unknown field",
+			fields: []multipartTestField{
+				{name: "name", value: []byte("existing")},
+				{name: "certificate", value: []byte("certificate")},
+				{name: "private_key", value: []byte("private key")},
+				{name: "unexpected", value: []byte("value")},
+			},
+		},
+		{
+			name: "duplicate field",
+			fields: []multipartTestField{
+				{name: "name", value: []byte("existing")},
+				{name: "certificate", value: []byte("certificate")},
+				{name: "private_key", value: []byte("private key")},
+				{name: "private_key", value: []byte("second private key")},
+			},
+		},
+		{
+			name: "missing field",
+			fields: []multipartTestField{
+				{name: "name", value: []byte("existing")},
+				{name: "certificate", value: []byte("certificate")},
+			},
+		},
+		{
+			name: "oversized passphrase",
+			fields: []multipartTestField{
+				{name: "name", value: []byte("existing")},
+				{name: "certificate", value: []byte("certificate")},
+				{name: "private_key", value: []byte("private key")},
+				{name: "passphrase", value: bytes.Repeat([]byte{'x'}, (64<<10)+1)},
+			},
+			wantErr: caimport.ErrInputTooLarge,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			body, contentType := testMultipartBody(t, testCase.fields)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+			req.Header.Set("Content-Type", contentType)
+			request, err := readCAImportMultipart(req)
+			request.zeroizeSecrets()
+			if err == nil {
+				t.Fatal("expected malformed multipart input to fail")
+			}
+			if testCase.wantErr != nil && !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("error = %v, want %v", err, testCase.wantErr)
+			}
+		})
+	}
+}
+
+func TestImportCA_ZeroizesSecretBuffersAfterImporterReturns(t *testing.T) {
+	srv, opKey := newServerWithMaster(t)
+	importer := &recordingCAImporter{err: caimport.ErrInvalidMaterial}
+	srv.caImporter = importer
+	body, contentType := testMultipartBody(t, []multipartTestField{
+		{name: "name", value: []byte("existing")},
+		{name: "certificate", value: []byte("certificate")},
+		{name: "private_key", value: []byte("private key")},
+		{name: "passphrase", value: []byte("passphrase")},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+opKey)
+	req.Header.Set("Content-Type", contentType)
+	req.TLS = &tls.ConnectionState{}
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	for name, secret := range map[string][]byte{
+		"private key": importer.request.PrivateKeyPEM,
+		"passphrase":  importer.request.Passphrase,
+	} {
+		if !bytes.Equal(secret, make([]byte, len(secret))) {
+			t.Fatalf("%s buffer was not zeroized", name)
+		}
+	}
+}
+
 func TestImportCA_DuplicateAndAudit(t *testing.T) {
 	srv, opKey := newServerWithMaster(t)
-	body := testCAImportJSON(t, "existing-mesh")
+	body, contentType := testCAImportMultipart(t, "existing-mesh")
 	post := func() *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+opKey)
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 		req.TLS = &tls.ConnectionState{}
 		rec := httptest.NewRecorder()
 		srv.ServeHTTP(rec, req)
@@ -215,9 +319,10 @@ func TestImportCA_ErrorMappingAndAuth(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			srv, opKey := newServerWithMaster(t)
 			srv.caImporter = failingCAImporter{err: testCase.err}
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(testCAImportJSON(t, "existing-mesh")))
+			body, contentType := testCAImportMultipart(t, "existing-mesh")
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
 			req.Header.Set("Authorization", "Bearer "+opKey)
-			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", contentType)
 			req.TLS = &tls.ConnectionState{}
 			rec := httptest.NewRecorder()
 			srv.ServeHTTP(rec, req)
@@ -231,8 +336,9 @@ func TestImportCA_ErrorMappingAndAuth(t *testing.T) {
 	}
 
 	srv, _ := newServerWithMaster(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(testCAImportJSON(t, "existing-mesh")))
-	req.Header.Set("Content-Type", "application/json")
+	body, contentType := testCAImportMultipart(t, "existing-mesh")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
 	req.TLS = &tls.ConnectionState{}
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -242,8 +348,9 @@ func TestImportCA_ErrorMappingAndAuth(t *testing.T) {
 
 	srv, _ = newTestServer(t)
 	srv.WithMaster(nil)
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(testCAImportJSON(t, "existing-mesh")))
-	req.Header.Set("Content-Type", "application/json")
+	body, contentType = testCAImportMultipart(t, "existing-mesh")
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
 	req.TLS = &tls.ConnectionState{}
 	authRequest(req)
 	rec = httptest.NewRecorder()
@@ -266,7 +373,41 @@ func (f failingCAImporter) Import(context.Context, caimport.Request) (*models.CA
 	return nil, f.err
 }
 
-func testCAImportJSON(t *testing.T, name string) []byte {
+type recordingCAImporter struct {
+	request caimport.Request
+	err     error
+}
+
+func (f *recordingCAImporter) Import(_ context.Context, request caimport.Request) (*models.CA, error) {
+	f.request = request
+	return nil, f.err
+}
+
+type multipartTestField struct {
+	name  string
+	value []byte
+}
+
+func testMultipartBody(t *testing.T, fields []multipartTestField) ([]byte, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for _, field := range fields {
+		part, err := writer.CreateFormField(field.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(field.value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return body.Bytes(), writer.FormDataContentType()
+}
+
+func testCAImportMultipart(t *testing.T, name string) ([]byte, string) {
 	t.Helper()
 	manager, err := pki.NewCA(name, time.Hour)
 	if err != nil {
@@ -278,15 +419,11 @@ func testCAImportJSON(t *testing.T, name string) []byte {
 		t.Fatal(err)
 	}
 	privateKeyPEM := cert.MarshalSigningPrivateKeyToPEM(cert.Curve_CURVE25519, manager.RawKey())
-	body, err := json.Marshal(importCARequest{
-		Name:           name,
-		CertificatePEM: string(certificatePEM),
-		PrivateKeyPEM:  string(privateKeyPEM),
+	return testMultipartBody(t, []multipartTestField{
+		{name: "name", value: []byte(name)},
+		{name: "certificate", value: certificatePEM},
+		{name: "private_key", value: privateKeyPEM},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return body
 }
 
 func requireDecodeJSON(t *testing.T, body []byte, target any) {

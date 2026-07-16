@@ -24,10 +24,15 @@ type createCARequest struct {
 }
 
 type importCARequest struct {
-	Name           string `json:"name"`
-	CertificatePEM string `json:"certificate_pem"`
-	PrivateKeyPEM  string `json:"private_key_pem"`
-	Passphrase     string `json:"passphrase,omitempty"`
+	Name           string
+	CertificatePEM []byte
+	PrivateKeyPEM  []byte
+	Passphrase     []byte
+}
+
+func (r *importCARequest) zeroizeSecrets() {
+	keystore.Zeroize(r.PrivateKeyPEM)
+	keystore.Zeroize(r.Passphrase)
 }
 
 type caResponse struct {
@@ -177,24 +182,24 @@ func (s *Server) handleImportCA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var request importCARequest
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil {
+	request, err := readCAImportMultipart(r)
+	if err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.Is(err, caimport.ErrInputTooLarge) || errors.As(err, &maxBytesError) {
+			writeError(w, http.StatusRequestEntityTooLarge, "CA import input is too large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, "request body must contain one JSON object")
-		return
-	}
+	defer request.zeroizeSecrets()
 	actor := ActorOf(r.Context())
 	imported, err := s.caImporter.Import(r.Context(), caimport.Request{
 		Name:            request.Name,
 		OwnerOperatorID: actor.ID,
-		CertificatePEM:  []byte(request.CertificatePEM),
-		PrivateKeyPEM:   []byte(request.PrivateKeyPEM),
-		Passphrase:      []byte(request.Passphrase),
+		CertificatePEM:  request.CertificatePEM,
+		PrivateKeyPEM:   request.PrivateKeyPEM,
+		Passphrase:      request.Passphrase,
 	})
 	if err != nil {
 		s.writeCAImportError(w, err)
@@ -202,6 +207,81 @@ func (s *Server) handleImportCA(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAuditAction(r.Context(), auditCAImported, imported.ID, "fingerprint="+imported.Fingerprint)
 	writeJSON(w, http.StatusCreated, s.toCAResponse(imported))
+}
+
+func readCAImportMultipart(r *http.Request) (importCARequest, error) {
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return importCARequest{}, err
+	}
+
+	var request importCARequest
+	seen := make(map[string]struct{}, 4)
+	fail := func(err error) (importCARequest, error) {
+		request.zeroizeSecrets()
+		return importCARequest{}, err
+	}
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fail(err)
+		}
+
+		field := part.FormName()
+		if _, duplicate := seen[field]; duplicate {
+			_ = part.Close()
+			return fail(fmt.Errorf("duplicate multipart field %q", field))
+		}
+		var maxBytes int64
+		switch field {
+		case "name":
+			maxBytes = 4 << 10
+		case "certificate", "private_key":
+			maxBytes = 1 << 20
+		case "passphrase":
+			maxBytes = 64 << 10
+		default:
+			_ = part.Close()
+			return fail(fmt.Errorf("unknown multipart field %q", field))
+		}
+
+		value, readErr := io.ReadAll(io.LimitReader(part, maxBytes+1))
+		closeErr := part.Close()
+		if readErr != nil {
+			keystore.Zeroize(value)
+			return fail(readErr)
+		}
+		if closeErr != nil {
+			keystore.Zeroize(value)
+			return fail(closeErr)
+		}
+		if int64(len(value)) > maxBytes {
+			keystore.Zeroize(value)
+			return fail(caimport.ErrInputTooLarge)
+		}
+		seen[field] = struct{}{}
+		switch field {
+		case "name":
+			request.Name = string(value)
+			keystore.Zeroize(value)
+		case "certificate":
+			request.CertificatePEM = value
+		case "private_key":
+			request.PrivateKeyPEM = value
+		case "passphrase":
+			request.Passphrase = value
+		}
+	}
+
+	for _, required := range []string{"name", "certificate", "private_key"} {
+		if _, ok := seen[required]; !ok {
+			return fail(fmt.Errorf("missing multipart field %q", required))
+		}
+	}
+	return request, nil
 }
 
 func (s *Server) writeCAImportError(w http.ResponseWriter, err error) {

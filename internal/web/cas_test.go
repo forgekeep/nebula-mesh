@@ -1,7 +1,11 @@
 package web
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,7 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/slackhq/nebula/cert"
+
+	"github.com/forgekeep/nebula-mesh/internal/caimport"
 	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // TestRedirectCAError_EscapesMessage verifies that store-layer error text is
@@ -174,6 +183,259 @@ func TestCAs_New_WithoutMaster_InlineError(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "NEBULA_MGMT_MASTER_KEY") {
 		t.Errorf("expected master-key hint in body, got %s", rec.Body.String())
 	}
+}
+
+func TestCAImport_WebSuccessOwnershipAndAudit(t *testing.T) {
+	w, s := newOperatorsWebWithMaster(t)
+	cookie := mintSession(t, s, "bob", "user")
+	csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/cas/import", []*http.Cookie{cookie})
+	body, contentType := webCAImportMultipart(t, "existing-mesh", csrfToken)
+	req := httptest.NewRequest(http.MethodPost, "/ui/cas/import", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	req.TLS = &tls.ConnectionState{}
+	for _, currentCookie := range cookies {
+		req.AddCookie(currentCookie)
+	}
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303; body=%s", rec.Code, rec.Body.String())
+	}
+
+	cas, err := s.ListCAsByOwner(context.Background(), "op-bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cas) != 1 || cas[0].Name != "existing-mesh" {
+		t.Fatalf("imported CAs = %+v", cas)
+	}
+	if rec.Header().Get("Location") != "/ui/cas/"+cas[0].ID {
+		t.Fatalf("redirect = %q", rec.Header().Get("Location"))
+	}
+	entries, err := s.ListAuditEntries(context.Background(), store.AuditFilter{Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Action == "ca.imported" && entry.Resource == cas[0].ID && entry.Details == "fingerprint="+cas[0].Fingerprint {
+			return
+		}
+	}
+	t.Fatal("ca.imported audit entry not found")
+}
+
+// SEC-SECRET-001: Web secret ingress must not retain multipart form copies,
+// and every mutable key/passphrase buffer handed to the importer is zeroized.
+func TestCAImport_WebDoesNotRetainSecretFormCopies(t *testing.T) {
+	w, s := newOperatorsWebWithMaster(t)
+	cookie := mintSession(t, s, "bob", "user")
+	body, contentType := webCAImportMultipartMaterialWithPassphrase(
+		t,
+		"existing-mesh",
+		"",
+		[]byte("certificate"),
+		[]byte("private-key-marker"),
+		[]byte("passphrase-marker"),
+	)
+	importer := &webRecordingCAImporter{err: caimport.ErrInvalidMaterial}
+	w.caImporter = importer
+	req := httptest.NewRequest(http.MethodPost, "/ui/cas/import", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	w.handleCAImport(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(req.PostForm) != 0 || (req.MultipartForm != nil && (len(req.MultipartForm.Value) != 0 || len(req.MultipartForm.File) != 0)) {
+		t.Fatal("secret multipart fields retained in Request form structures")
+	}
+	for name, secret := range map[string][]byte{
+		"private key": importer.request.PrivateKeyPEM,
+		"passphrase":  importer.request.Passphrase,
+	} {
+		if !bytes.Equal(secret, make([]byte, len(secret))) {
+			t.Fatalf("%s buffer was not zeroized", name)
+		}
+	}
+}
+
+func TestCAImport_WebTransportCSRFAndBodyLimit(t *testing.T) {
+	t.Run("insecure transport rejected before body read", func(t *testing.T) {
+		w, s := newOperatorsWebWithMaster(t)
+		cookie := mintSession(t, s, "bob", "user")
+		body := &webCountingReader{}
+		req := httptest.NewRequest(http.MethodPost, "/ui/cas/import", body)
+		req.Header.Set("Content-Type", "multipart/form-data; boundary=x")
+		req.RemoteAddr = "203.0.113.5:1234"
+		req.Host = "mesh.example.com"
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		w.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUpgradeRequired {
+			t.Fatalf("status = %d, want 426", rec.Code)
+		}
+		if body.reads != 0 {
+			t.Fatalf("body read %d time(s)", body.reads)
+		}
+	})
+
+	t.Run("unauthenticated request rejected before body read", func(t *testing.T) {
+		w, _ := newOperatorsWebWithMaster(t)
+		body := &webCountingReader{}
+		req := httptest.NewRequest(http.MethodPost, "/ui/cas/import", body)
+		req.Header.Set("Content-Type", "multipart/form-data; boundary=x")
+		req.TLS = &tls.ConnectionState{}
+		req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "attacker-selected-token"})
+		rec := httptest.NewRecorder()
+		w.ServeHTTP(rec, req)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/ui/login" {
+			t.Fatalf("status = %d, location = %q; want login redirect", rec.Code, rec.Header().Get("Location"))
+		}
+		if body.reads != 0 {
+			t.Fatalf("body read %d time(s) before authentication refusal", body.reads)
+		}
+	})
+
+	t.Run("missing CSRF", func(t *testing.T) {
+		w, s := newOperatorsWebWithMaster(t)
+		cookie := mintSession(t, s, "bob", "user")
+		body, contentType := webCAImportMultipart(t, "existing-mesh", "")
+		req := httptest.NewRequest(http.MethodPost, "/ui/cas/import", bytes.NewReader(body))
+		req.Header.Set("Content-Type", contentType)
+		req.TLS = &tls.ConnectionState{}
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		w.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403", rec.Code)
+		}
+	})
+
+	t.Run("body over global limit", func(t *testing.T) {
+		w, _ := newOperatorsWebWithMaster(t)
+		req := httptest.NewRequest(http.MethodPost, "/ui/cas/import", bytes.NewReader(make([]byte, (1<<20)+1)))
+		req.Header.Set("Content-Type", "multipart/form-data; boundary=x")
+		req.TLS = &tls.ConnectionState{}
+		rec := httptest.NewRecorder()
+		w.ServeHTTP(rec, req)
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want 413", rec.Code)
+		}
+	})
+}
+
+func TestCAImport_WebDuplicateRendersConflict(t *testing.T) {
+	w, s := newOperatorsWebWithMaster(t)
+	cookie := mintSession(t, s, "bob", "user")
+	manager, err := pki.NewCA("existing-mesh", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Wipe()
+	certificatePEM, err := manager.CACertPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKeyPEM := cert.MarshalSigningPrivateKeyToPEM(cert.Curve_CURVE25519, manager.RawKey())
+
+	post := func() *httptest.ResponseRecorder {
+		csrfToken, cookies := getCSRFTokenFromCookies(t, w, "/ui/cas/import", []*http.Cookie{cookie})
+		body, contentType := webCAImportMultipartMaterial(t, "existing-mesh", csrfToken, certificatePEM, privateKeyPEM)
+		req := httptest.NewRequest(http.MethodPost, "/ui/cas/import", bytes.NewReader(body))
+		req.Header.Set("Content-Type", contentType)
+		req.TLS = &tls.ConnectionState{}
+		for _, currentCookie := range cookies {
+			req.AddCookie(currentCookie)
+		}
+		rec := httptest.NewRecorder()
+		w.ServeHTTP(rec, req)
+		return rec
+	}
+	if first := post(); first.Code != http.StatusSeeOther {
+		t.Fatalf("first status = %d; body=%s", first.Code, first.Body.String())
+	}
+	second := post()
+	if second.Code != http.StatusConflict || !strings.Contains(second.Body.String(), "already imported") {
+		t.Fatalf("duplicate status = %d; body=%s", second.Code, second.Body.String())
+	}
+}
+
+type webCountingReader struct{ reads int }
+
+func (r *webCountingReader) Read(_ []byte) (int, error) {
+	r.reads++
+	return 0, io.EOF
+}
+
+type webRecordingCAImporter struct {
+	request caimport.Request
+	err     error
+}
+
+func (f *webRecordingCAImporter) Import(_ context.Context, request caimport.Request) (*models.CA, error) {
+	f.request = request
+	return nil, f.err
+}
+
+func webCAImportMultipart(t *testing.T, name, csrfToken string) ([]byte, string) {
+	t.Helper()
+	manager, err := pki.NewCA(name, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Wipe()
+	certificatePEM, err := manager.CACertPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKeyPEM := cert.MarshalSigningPrivateKeyToPEM(cert.Curve_CURVE25519, manager.RawKey())
+	return webCAImportMultipartMaterial(t, name, csrfToken, certificatePEM, privateKeyPEM)
+}
+
+func webCAImportMultipartMaterial(t *testing.T, name, csrfToken string, certificatePEM, privateKeyPEM []byte) ([]byte, string) {
+	return webCAImportMultipartMaterialWithPassphrase(t, name, csrfToken, certificatePEM, privateKeyPEM, nil)
+}
+
+func webCAImportMultipartMaterialWithPassphrase(t *testing.T, name, csrfToken string, certificatePEM, privateKeyPEM, passphrase []byte) ([]byte, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("name", name); err != nil {
+		t.Fatal(err)
+	}
+	if csrfToken != "" {
+		if err := writer.WriteField("_csrf", csrfToken); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if passphrase != nil {
+		passphrasePart, err := writer.CreateFormField("passphrase")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := passphrasePart.Write(passphrase); err != nil {
+			t.Fatal(err)
+		}
+	}
+	certificatePart, err := writer.CreateFormFile("certificate", "ca.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := certificatePart.Write(certificatePEM); err != nil {
+		t.Fatal(err)
+	}
+	keyPart, err := writer.CreateFormFile("private_key", "ca.key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keyPart.Write(privateKeyPEM); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return body.Bytes(), writer.FormDataContentType()
 }
 
 // Task 5.1 + 5.2: Test warning badge rendering when CA is expiring soon.

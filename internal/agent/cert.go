@@ -10,7 +10,12 @@ import (
 
 // ReadCertFingerprint reads the host certificate from dataDir and returns its fingerprint.
 func ReadCertFingerprint(dataDir string) (string, error) {
-	certPEM, err := os.ReadFile(filepath.Join(dataDir, "host.crt")) // #nosec G304 -- operator-controlled data dir from agent config, documented API contract; filename is hardcoded
+	return ReadCertFingerprintAt(filepath.Join(dataDir, "host.crt"))
+}
+
+// ReadCertFingerprintAt reads the host certificate from an explicit path.
+func ReadCertFingerprintAt(path string) (string, error) {
+	certPEM, err := os.ReadFile(path) // #nosec G304 -- operator-controlled certificate path from agent config, documented API contract
 	if err != nil {
 		return "", fmt.Errorf("read host certificate: %w", err)
 	}

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -304,8 +305,8 @@ func TestCreateAndGetHost(t *testing.T) {
 	if resp.Host.Name != "web-1" {
 		t.Errorf("name = %q, want web-1", resp.Host.Name)
 	}
-	if resp.EnrollmentToken == "" {
-		t.Error("enrollment token is empty")
+	if !strings.HasPrefix(resp.EnrollmentToken, "nme_") {
+		t.Errorf("enrollment token = %q, want nme_ prefix", resp.EnrollmentToken)
 	}
 
 	// Get host

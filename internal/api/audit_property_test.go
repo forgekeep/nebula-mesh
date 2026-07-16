@@ -188,6 +188,12 @@ var auditActionsExercisedElsewhere = map[string]string{
 	auditHostMobileBundleIssued:    "mobile_bundle_test.go",
 	auditHostMobileBundleForbidden: "mobile_bundle_test.go",
 	auditCARotated:                 "cas_test.go",
+	auditCAImported:                "cas_test.go",
+	auditMeshImportCreated:         "mesh_imports_test.go",
+	auditMeshImportTokenRotated:    "mesh_imports_test.go",
+	auditMeshImportCanceled:        "mesh_imports_test.go",
+	auditMeshImportHostRegistered:  "agent_import_test.go",
+	auditMeshImportFinalized:       "mesh_imports_test.go",
 }
 
 // auditActionsPendingImplementation lists audit constants that were

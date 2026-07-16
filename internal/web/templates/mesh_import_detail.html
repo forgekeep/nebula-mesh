@@ -1,0 +1,76 @@
+{{define "title"}}Mesh import — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>Mesh import</h1>
+    <a href="/ui/mesh-imports">← Back</a>
+</div>
+
+{{if .Error}}<div class="card error">{{.Error}}</div>{{end}}
+{{if .Token}}
+<div class="card">
+    <h2>Bootstrap token</h2>
+    <p>Shown once. Store it now.</p>
+    <pre><code>{{.Token}}</code></pre>
+</div>
+{{end}}
+
+<div class="card">
+    <dl>
+        <dt>Status</dt><dd>{{.MeshImport.Status}}</dd>
+        <dt>Network</dt><dd><code>{{.MeshImport.NetworkID}}</code></dd>
+        <dt>CA</dt><dd><code>{{.MeshImport.CAID}}</code></dd>
+        <dt>Hosts</dt><dd>{{.HostCount}}{{if .MeshImport.ExpectedHosts}} / {{.MeshImport.ExpectedHosts}}{{end}}</dd>
+        <dt>Revision</dt><dd>{{.MeshImport.Revision}}</dd>
+        <dt>Token expires</dt><dd>{{.MeshImport.TokenExpiresAt.Format "2006-01-02 15:04 MST"}}</dd>
+    </dl>
+    {{if eq (printf "%s" .MeshImport.Status) "collecting"}}
+    <div class="row" style="margin-top:1em">
+        <form method="POST" action="/ui/mesh-imports/{{.MeshImport.ID}}/rotate-token">
+            {{ csrfField }}
+            <button type="submit" class="btn btn-primary">Rotate token</button>
+        </form>
+        <form method="POST" action="/ui/mesh-imports/{{.MeshImport.ID}}/cancel">
+            {{ csrfField }}
+            <button type="submit" class="btn btn-danger" onclick="return confirm('Cancel this import?')">Cancel</button>
+        </form>
+    </div>
+    {{end}}
+</div>
+
+{{if .Report.Blockers}}
+<div class="card error">
+    <h2>Blockers</h2>
+    <ul>{{range .Report.Blockers}}<li><code>{{.Code}}</code>{{if .HostName}} — {{.HostName}}{{end}}: {{.Message}} {{if .SnapshotID}}<small>(snapshot {{.SnapshotID}})</small>{{end}}</li>{{end}}</ul>
+</div>
+{{end}}
+
+{{if .Report.Proposal.Hosts}}
+<div class="card">
+    <h2>Normalized proposal</h2>
+    <table><thead><tr><th>Source</th><th>Name</th><th>Status</th><th>Role</th><th>Overlay addresses</th><th>Endpoint</th></tr></thead>
+    <tbody>{{range .Report.Proposal.Hosts}}<tr><td><code>{{.SnapshotID}}</code></td><td>{{.Host.Name}}</td><td>{{.Host.Status}}</td><td>{{.Host.Role}}</td><td>{{range .Host.NebulaIPs}}<code>{{.}}</code> {{end}}</td><td>{{.Host.PublicIP}}:{{.Host.ListenPort}}</td></tr>{{end}}</tbody></table>
+</div>
+{{end}}
+
+{{if and (eq (printf "%s" .MeshImport.Status) "collecting") .Report.Proposal.Hosts}}
+<form method="POST" action="/ui/mesh-imports/{{.MeshImport.ID}}/finalize" class="card">
+    {{ csrfField }}
+    <input type="hidden" name="revision" value="{{.MeshImport.Revision}}">
+    <h2>Finalize takeover</h2>
+    {{if not .ExpectedSatisfied}}<p class="error">Expected host count is not satisfied.</p>{{end}}
+    {{range .Warnings}}
+    <label><input type="checkbox" name="acknowledged_warnings" value="{{.Key}}"> Acknowledge <code>{{.Issue.Code}}</code>: {{.Issue.Message}}</label><br>
+    {{end}}
+    <label><input type="checkbox" name="inventory_complete" value="true"> I confirm that all existing mesh hosts have reported.</label>
+    <div style="margin-top:1em"><button type="submit" class="btn btn-danger" {{if or .Report.Blockers (not .ExpectedSatisfied)}}disabled{{end}}>Finalize and enable management</button></div>
+</form>
+{{end}}
+
+{{if .Snapshots}}
+<div class="card">
+    <table><thead><tr><th>Host</th><th>Certificate fingerprint</th></tr></thead>
+    <tbody>{{range .Snapshots}}<tr><td><code>{{.HostID}}</code></td><td><code>{{.CertificateFingerprint}}</code></td></tr>{{end}}</tbody></table>
+</div>
+{{end}}
+{{end}}

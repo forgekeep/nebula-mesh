@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -109,6 +110,55 @@ func TestPoll_RejectsStalePrevFingerprintAfterTimeout(t *testing.T) {
 	}
 	if got.PrevCertFingerprint != "" {
 		t.Errorf("PrevCertFingerprint = %q, want empty after timeout-clear", got.PrevCertFingerprint)
+	}
+}
+
+func TestPoll_AckCapableAgentGetsCertificateBeyondLegacyOverlap(t *testing.T) {
+	srv, st := newTestServer(t)
+	agentIdentity := enrolledFixture(t, srv)
+	ctx := context.Background()
+	host, err := st.GetHostByFingerprint(ctx, agentIdentity.fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec(`UPDATE host_agent_profiles SET config_ack_v1 = 1 WHERE host_id = ?`, host.ID); err != nil {
+		t.Fatal(err)
+	}
+	certificateInfo, err := st.GetCertificateInfo(ctx, host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := srv.signHostCert(ctx, host, certificateInfo, time.Now().Add(10*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveCertificateAndUpdateHostCert(ctx, host.ID, signed.certPEM, signed.fp, signed.notBefore, signed.notAfter); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec(`UPDATE hosts SET cert_rotated_at = ? WHERE id = ?`, time.Now().Add(-time.Hour), host.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
+	signPoll(t, request, agentIdentity)
+	recorder := httptest.NewRecorder()
+	srv.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("old fingerprint reliable poll: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var updates agentUpdatesResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&updates); err != nil {
+		t.Fatal(err)
+	}
+	if updates.CertificatePEM == nil || *updates.CertificatePEM != string(signed.certPEM) || updates.CACertPEM == nil || !updates.HasUpdates {
+		t.Fatalf("reliable renewal response = %#v", updates)
+	}
+	after, err := st.GetHost(ctx, host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.PrevCertFingerprint != agentIdentity.fingerprint {
+		t.Fatalf("previous fingerprint cleared before new identity poll: %q", after.PrevCertFingerprint)
 	}
 }
 

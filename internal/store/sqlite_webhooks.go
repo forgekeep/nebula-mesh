@@ -122,9 +122,14 @@ func (s *SQLiteStore) ListWebhookSubscriptionsByOwner(ctx context.Context, owner
 	return s.queryWebhookSubscriptions(ctx, `SELECT `+webhookSubColumns+` FROM webhook_subscriptions WHERE owner_operator_id = ? ORDER BY created_at`, ownerID)
 }
 
-// ListActiveWebhookSubscriptions returns active subscriptions for delivery.
-func (s *SQLiteStore) ListActiveWebhookSubscriptions(ctx context.Context) ([]*models.WebhookSubscription, error) {
-	return s.queryWebhookSubscriptions(ctx, `SELECT `+webhookSubColumns+` FROM webhook_subscriptions WHERE active = 1`)
+// ListActiveWebhookSubscriptionsForCA returns active subscriptions owned by
+// the operator that owns caID. An unknown or empty CA id matches no owner.
+func (s *SQLiteStore) ListActiveWebhookSubscriptionsForCA(ctx context.Context, caID string) ([]*models.WebhookSubscription, error) {
+	return s.queryWebhookSubscriptions(ctx, `SELECT `+webhookSubColumns+`
+		FROM webhook_subscriptions
+		WHERE active = 1
+		AND owner_operator_id = (SELECT owner_operator_id FROM cas WHERE id = ?)
+		ORDER BY created_at, id`, caID)
 }
 
 // UpdateWebhookSubscription writes the mutable fields (url, events, active,

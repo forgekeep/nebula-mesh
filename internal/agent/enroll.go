@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/curve25519"
 
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // SigningPublicKeyPEMType is the PEM block type used by the agent for its
@@ -35,15 +36,34 @@ type EnrollResponse struct {
 	CertificatePEM   string `json:"certificate_pem"`
 	CACertificatePEM string `json:"ca_certificate_pem"`
 	ConfigYAML       string `json:"config_yaml"`
+	ConfigVersion    int    `json:"config_version,omitempty"`
 }
 
-// Reenroll runs the enrollment flow against an existing data directory. It
-// is a thin alias of Enroll: the server side decides whether the token is
-// fresh (rekey) or bound to an unenrolled host (initial enroll), so the
-// agent path is identical. Exposed separately so the cmd-side rekey loop
-// reads cleanly.
-func Reenroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath, nebulaConfigPath string) error {
-	return Enroll(ctx, serverURL, token, dataDir, signingKeyPath, nebulaConfigPath)
+// ReenrollOptions preserves the resolved paths of an existing agent during a
+// server-requested rekey.
+type ReenrollOptions struct {
+	DataDir        string
+	SigningKeyPath string
+	PIDFile        string
+	Profile        models.AgentProfile
+}
+
+// Reenroll replaces an existing agent identity using its current profile.
+func Reenroll(ctx context.Context, serverURL, token string, options ReenrollOptions) error {
+	return reenrollWithSignal(ctx, serverURL, token, options, signalNebulaFromPID)
+}
+
+func reenrollWithSignal(
+	ctx context.Context,
+	serverURL, token string,
+	options ReenrollOptions,
+	signal func(string) error,
+) error {
+	var reload func() error
+	if options.PIDFile != "" {
+		reload = func() error { return signal(options.PIDFile) }
+	}
+	return enrollWithProfile(ctx, serverURL, token, options.DataDir, options.SigningKeyPath, options.Profile, reload)
 }
 
 // enrollmentSecrets collects every heap copy of private key material made
@@ -86,22 +106,38 @@ var enrollSecretsObserverForTest func(*enrollmentSecrets)
 // lives next to agent.yml (default /etc/nebula-agent/host.signing.key). The
 // parent directory of signingKeyPath is created with mode 0o755 if missing.
 func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath, nebulaConfigPath string) error {
-	if signingKeyPath == "" {
-		return fmt.Errorf("signingKeyPath is required")
-	}
 	if nebulaConfigPath == "" {
 		nebulaConfigPath = filepath.Join(dataDir, "config.yml")
 	}
+	profile := models.AgentProfile{
+		NebulaConfigPath: nebulaConfigPath,
+		NebulaCAPath:     filepath.Join(dataDir, "ca.crt"),
+		NebulaCertPath:   filepath.Join(dataDir, "host.crt"),
+		NebulaKeyPath:    filepath.Join(dataDir, "host.key"),
+		ConfigAckV1:      true,
+	}
+	return enrollWithProfile(ctx, serverURL, token, dataDir, signingKeyPath, profile, nil)
+}
+
+func enrollWithProfile(
+	ctx context.Context,
+	serverURL, token, dataDir, signingKeyPath string,
+	profile models.AgentProfile,
+	reload func() error,
+) error {
+	if dataDir == "" {
+		return fmt.Errorf("dataDir is required")
+	}
+	if signingKeyPath == "" {
+		return fmt.Errorf("signingKeyPath is required")
+	}
+	if err := profile.Validate(); err != nil {
+		return err
+	}
 	// Pre-flight: verify every target directory is writable BEFORE the POST
 	// so a permission error does not burn the single-use enrollment token.
-	if err := preflightWritable(dataDir); err != nil {
-		return fmt.Errorf("data dir: %w", err)
-	}
-	if err := preflightWritable(filepath.Dir(nebulaConfigPath)); err != nil {
-		return fmt.Errorf("nebula config dir: %w", err)
-	}
-	if err := preflightWritable(filepath.Dir(signingKeyPath)); err != nil {
-		return fmt.Errorf("signing key dir: %w", err)
+	if err := preflightEnrollmentTargets(dataDir, signingKeyPath, profile); err != nil {
+		return err
 	}
 	// Generate X25519 keypair (for the Nebula handshake cert). The private
 	// material exists in this function only long enough to reach disk —
@@ -136,10 +172,13 @@ func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath, nebu
 	signingPubPEM := pem.EncodeToMemory(&pem.Block{Type: SigningPublicKeyPEMType, Bytes: signingPub})
 
 	// Send enrollment request
-	reqBody, err := json.Marshal(map[string]string{
-		"token":                  token,
-		"public_key_pem":         string(pubKeyPEM),
-		"signing_public_key_pem": string(signingPubPEM),
+	reqBody, err := json.Marshal(struct {
+		Token         string              `json:"token"`
+		PublicKeyPEM  string              `json:"public_key_pem"`
+		SigningPubPEM string              `json:"signing_public_key_pem"`
+		Profile       models.AgentProfile `json:"profile"`
+	}{
+		Token: token, PublicKeyPEM: string(pubKeyPEM), SigningPubPEM: string(signingPubPEM), Profile: profile,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -185,7 +224,7 @@ func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath, nebu
 	// Save private key. The PEM encoding is a second heap copy of the
 	// secret — tracked in secrets and wiped with the raw bytes.
 	secrets.privKeyPEM = cert.MarshalPrivateKeyToPEM(cert.Curve_CURVE25519, secrets.privKey)
-	if err := os.WriteFile(filepath.Join(dataDir, "host.key"), secrets.privKeyPEM, 0o600); err != nil {
+	if err := os.WriteFile(profile.NebulaKeyPath, secrets.privKeyPEM, 0o600); err != nil {
 		return fmt.Errorf("write host key: %w", err)
 	}
 
@@ -200,12 +239,12 @@ func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath, nebu
 	}
 
 	// Save certificate
-	if err := os.WriteFile(filepath.Join(dataDir, "host.crt"), []byte(enrollResp.CertificatePEM), 0o644); err != nil { // #nosec G306 -- host certificate is public PEM material; 0o644 is intentional
+	if err := os.WriteFile(profile.NebulaCertPath, []byte(enrollResp.CertificatePEM), 0o644); err != nil { // #nosec G306 -- host certificate is public PEM material; 0o644 is intentional
 		return fmt.Errorf("write host cert: %w", err)
 	}
 
 	// Save CA certificate
-	if err := os.WriteFile(filepath.Join(dataDir, "ca.crt"), []byte(enrollResp.CACertificatePEM), 0o644); err != nil { // #nosec G306 -- CA certificate is public PEM material; 0o644 is intentional
+	if err := os.WriteFile(profile.NebulaCAPath, []byte(enrollResp.CACertificatePEM), 0o644); err != nil { // #nosec G306 -- CA certificate is public PEM material; 0o644 is intentional
 		return fmt.Errorf("write CA cert: %w", err)
 	}
 
@@ -213,10 +252,63 @@ func Enroll(ctx context.Context, serverURL, token, dataDir, signingKeyPath, nebu
 	// nebula IPs, lighthouse list, firewall rules, paths to key/cert
 	// files). No secrets in the file itself; the actual private key
 	// lives in host.key, written above at 0o600.
-	if err := os.WriteFile(nebulaConfigPath, []byte(enrollResp.ConfigYAML), 0o640); err != nil { // #nosec G306 -- rendered Nebula config: host name, IPs, lighthouse, firewall rules, paths to key/cert files — no secrets; the actual private key is host.key (0o600)
+	if err := os.WriteFile(profile.NebulaConfigPath, []byte(enrollResp.ConfigYAML), 0o640); err != nil { // #nosec G306 -- rendered Nebula config: host name, IPs, lighthouse, firewall rules, paths to key/cert files — no secrets; the actual private key is host.key (0o600)
 		return fmt.Errorf("write config: %w", err)
 	}
+	if reload != nil {
+		if err := reload(); err != nil {
+			return fmt.Errorf("reload nebula after re-enrollment: %w", err)
+		}
+	}
+	if enrollResp.ConfigVersion > 0 {
+		hostCertificate, remainder, err := cert.UnmarshalCertificateFromPEM([]byte(enrollResp.CertificatePEM))
+		if err != nil || len(bytes.TrimSpace(remainder)) != 0 {
+			return fmt.Errorf("parse enrolled certificate for config ack")
+		}
+		fingerprint, err := hostCertificate.Fingerprint()
+		if err != nil {
+			return fmt.Errorf("fingerprint enrolled certificate for config ack: %w", err)
+		}
+		poller, err := NewPoller(PollerConfig{
+			ServerURL: serverURL, Fingerprint: fingerprint, DataDir: dataDir,
+			SigningKeyPath: signingKeyPath, NebulaConfigPath: profile.NebulaConfigPath,
+			NebulaCAPath: profile.NebulaCAPath, NebulaCertPath: profile.NebulaCertPath,
+			NebulaKeyPath: profile.NebulaKeyPath,
+		}, slog.Default())
+		if err != nil {
+			slog.Warn("initial config ack skipped", "error", err)
+		} else if err := poller.acknowledgeConfig(ctx, enrollResp.ConfigVersion); err != nil {
+			// Enrollment files are already durable. The server keeps the version
+			// pending and the first ordinary poll will redeliver it.
+			slog.Warn("initial config ack failed; server will redeliver", "error", err)
+		}
+	}
 
+	return nil
+}
+
+func preflightEnrollmentTargets(dataDir, signingKeyPath string, profile models.AgentProfile) error {
+	targets := []struct {
+		name string
+		dir  string
+	}{
+		{name: "data dir", dir: dataDir},
+		{name: "signing key dir", dir: filepath.Dir(signingKeyPath)},
+		{name: "nebula config dir", dir: filepath.Dir(profile.NebulaConfigPath)},
+		{name: "nebula CA dir", dir: filepath.Dir(profile.NebulaCAPath)},
+		{name: "nebula cert dir", dir: filepath.Dir(profile.NebulaCertPath)},
+		{name: "nebula key dir", dir: filepath.Dir(profile.NebulaKeyPath)},
+	}
+	seen := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		if _, ok := seen[target.dir]; ok {
+			continue
+		}
+		seen[target.dir] = struct{}{}
+		if err := preflightWritable(target.dir); err != nil {
+			return fmt.Errorf("%s: %w", target.name, err)
+		}
+	}
 	return nil
 }
 

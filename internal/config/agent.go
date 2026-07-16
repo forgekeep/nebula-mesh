@@ -20,6 +20,10 @@ type AgentConfig struct {
 	SigningKeyPath   string        `yaml:"signing_key_path"`
 	PollInterval     time.Duration `yaml:"poll_interval"`
 	NebulaConfigPath string        `yaml:"nebula_config_path"`
+	NebulaCAPath     string        `yaml:"nebula_ca_path,omitempty"`
+	NebulaCertPath   string        `yaml:"nebula_cert_path,omitempty"`
+	NebulaKeyPath    string        `yaml:"nebula_key_path,omitempty"`
+	ImportSessionID  string        `yaml:"import_session_id,omitempty"`
 	NebulaPIDFile    string        `yaml:"nebula_pid_file"`
 
 	// AllowInsecureHTTP opts out of the https-required guard on server_url.
@@ -29,6 +33,27 @@ type AgentConfig struct {
 	// where an on-path attacker can steal the token or inject a malicious
 	// config. Mirrors the server's allow_insecure_http (#179).
 	AllowInsecureHTTP bool `yaml:"allow_insecure_http,omitempty"`
+}
+
+func (c *AgentConfig) ResolvedNebulaCAPath() string {
+	if c.NebulaCAPath != "" {
+		return c.NebulaCAPath
+	}
+	return filepath.Join(c.DataDir, "ca.crt")
+}
+
+func (c *AgentConfig) ResolvedNebulaCertPath() string {
+	if c.NebulaCertPath != "" {
+		return c.NebulaCertPath
+	}
+	return filepath.Join(c.DataDir, "host.crt")
+}
+
+func (c *AgentConfig) ResolvedNebulaKeyPath() string {
+	if c.NebulaKeyPath != "" {
+		return c.NebulaKeyPath
+	}
+	return filepath.Join(c.DataDir, "host.key")
 }
 
 // DefaultAgentConfig returns a config populated with the defaults the agent

@@ -9,9 +9,10 @@ import (
 type HostStatus string
 
 const (
-	HostStatusPending  HostStatus = "pending"
-	HostStatusEnrolled HostStatus = "enrolled"
-	HostStatusBlocked  HostStatus = "blocked"
+	HostStatusPending   HostStatus = "pending"
+	HostStatusEnrolled  HostStatus = "enrolled"
+	HostStatusBlocked   HostStatus = "blocked"
+	HostStatusImporting HostStatus = "importing"
 )
 
 type HostRole string

@@ -11,8 +11,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/webhook"
 )
 
 type createHostRequest struct {
@@ -187,7 +189,12 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rawToken := uuid.New().String()
+	rawToken, err := bootstraptoken.Generate(bootstraptoken.PurposeEnrollment)
+	if err != nil {
+		s.logger.Error("generate enrollment token", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create enrollment token")
+		return
+	}
 	token := &models.EnrollmentToken{
 		ID:        uuid.New().String(),
 		HostID:    host.ID,
@@ -196,6 +203,10 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: now,
 	}
 	if err := s.store.CreateHostAndToken(r.Context(), host, token); err != nil {
+		if errors.Is(err, store.ErrMeshImportInProgress) {
+			writeError(w, http.StatusConflict, "mesh import collection is in progress for this network")
+			return
+		}
 		// Reachable only via a TOCTOU race between concurrent host writes: the
 		// validateHostIPs fast-path above returns 400 for any collision visible
 		// at request time, so reaching the store's UNIQUE(network_id, address)
@@ -309,6 +320,9 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	if rejectImportingHost(w, host) {
+		return
+	}
 	if err := s.store.DeleteHostAndBlockCert(r.Context(), id, "host deleted"); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "host not found")
@@ -319,7 +333,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAuditAction(r.Context(), auditHostDelete, id, "")
-	s.emit("host.deleted", hostEventData(host))
+	s.emit(webhook.Scope{CAID: host.CAID}, "host.deleted", hostEventData(host))
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -356,6 +370,9 @@ func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	if rejectImportingHost(w, existing) {
+		return
+	}
 	host, err := s.store.BlockHostAndAddToBlocklist(r.Context(), id, "manually blocked")
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "host not found")
@@ -367,7 +384,7 @@ func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAuditAction(r.Context(), auditHostBlock, id, "")
-	s.emit("host.blocked", hostEventData(host))
+	s.emit(webhook.Scope{CAID: host.CAID}, "host.blocked", hostEventData(host))
 
 	writeJSON(w, http.StatusOK, host)
 }
@@ -394,6 +411,9 @@ func (s *Server) handleUnblockHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	if rejectImportingHost(w, existing) {
+		return
+	}
 	host, err := s.store.UnblockHostAndRemoveFromBlocklist(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "host not found")
@@ -405,7 +425,7 @@ func (s *Server) handleUnblockHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAuditAction(r.Context(), auditHostUnblock, id, "")
-	s.emit("host.unblocked", hostEventData(host))
+	s.emit(webhook.Scope{CAID: host.CAID}, "host.unblocked", hostEventData(host))
 
 	writeJSON(w, http.StatusOK, host)
 }
@@ -472,6 +492,9 @@ func (s *Server) handleRotateCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	if rejectImportingHost(w, host) {
+		return
+	}
 
 	// Durable revocation (GHSA-339v-266x-79xr): a blocked host must be explicitly
 	// unblocked before any cert rotation/re-issuance.
@@ -516,12 +539,18 @@ func (s *Server) handleRotateCert(w http.ResponseWriter, r *http.Request) {
 	s.recordAuditAction(r.Context(), auditHostRotateCertRequested, host.ID, "new_key=false")
 	rotated := hostEventData(host)
 	rotated["fingerprint"] = signed.fp
-	s.emit("cert.rotated", rotated)
+	s.emit(webhook.Scope{CAID: host.CAID}, "cert.rotated", rotated)
+	caBundle, err := s.renderAgentCABundle(r.Context(), host.CAID)
+	if err != nil {
+		s.logger.Error("render CA bundle for rotated cert", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to render CA bundle")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, rotateCertResponse{
 		NewKey:         false,
 		CertificatePEM: string(signed.certPEM),
-		CACertPEM:      string(signed.caCertPEM),
+		CACertPEM:      caBundle,
 	})
 }
 
@@ -569,6 +598,9 @@ func (s *Server) mintEnrollmentTokenForHost(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	if rejectImportingHost(w, host) {
+		return
+	}
 
 	// Durable revocation (GHSA-339v-266x-79xr): never mint a re-enroll token for
 	// a blocked host. The enroll handler enforces the same guard, but failing
@@ -578,7 +610,12 @@ func (s *Server) mintEnrollmentTokenForHost(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	tokenStr := uuid.New().String()
+	tokenStr, err := bootstraptoken.Generate(bootstraptoken.PurposeEnrollment)
+	if err != nil {
+		s.logger.Error("generate enrollment token", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to mint token")
+		return
+	}
 	expiresAt := time.Now().Add(s.tokenTTLFor(r.Context(), host.NetworkID))
 	if err := s.store.CreateTokenForHost(r.Context(), host.ID, tokenStr, expiresAt); err != nil {
 		s.logger.Error("create enrollment token", "error", err)
@@ -619,6 +656,9 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ok {
 		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if rejectImportingHost(w, host) {
 		return
 	}
 
@@ -786,4 +826,12 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	s.recordAuditAction(r.Context(), auditHostUpdate, host.ID, string(diffJSON))
 
 	writeJSON(w, http.StatusOK, host)
+}
+
+func rejectImportingHost(w http.ResponseWriter, host *models.Host) bool {
+	if host.Status != models.HostStatusImporting {
+		return false
+	}
+	writeError(w, http.StatusConflict, "host is managed by an active mesh import")
+	return true
 }

@@ -1,0 +1,25 @@
+{{define "title"}}Import CA — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>Import existing CA</h1>
+    <a href="/ui/cas">← Back to CAs</a>
+</div>
+
+<form method="POST" action="/ui/cas/import" enctype="multipart/form-data" class="card">
+    {{ csrfField }}
+    {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+    {{if not .MasterReady}}
+    <div class="error">
+        CA import requires <code>NEBULA_MGMT_MASTER_KEY</code> to be set at startup.
+    </div>
+    {{end}}
+    <label>Name <input type="text" name="name" required></label>
+    <label>CA certificate <input type="file" name="certificate" accept=".crt,.pem" required></label>
+    <label>CA private key <input type="file" name="private_key" accept=".key,.pem" required></label>
+    <label>Passphrase for encrypted key <input type="password" name="passphrase" autocomplete="off"></label>
+    <p class="hint">The server validates the private key in memory and stores only envelope-encrypted key material.</p>
+    <p class="hint">Use HTTPS, a literal loopback URL such as <code>http://127.0.0.1</code>, or a configured trusted local TLS proxy.</p>
+    <button type="submit" class="btn btn-primary" {{if not .MasterReady}}disabled{{end}}>Import</button>
+</form>
+{{end}}

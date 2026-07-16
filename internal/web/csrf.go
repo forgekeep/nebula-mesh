@@ -15,11 +15,10 @@
 //     SameSite=Lax does not prevent this. This is an inherent limitation
 //     of stateless double-submit; mitigations would require server-side
 //     token storage and are out of scope for this fix.
-//   - The middleware calls r.ParseForm() for non-GET requests so the
-//     _csrf form field can be read. This is safe for application/x-www-
-//     form-urlencoded bodies (Go caches the parsed form). For future
-//     multipart/JSON endpoints under /ui/*, the X-CSRF-Token header
-//     path is the only supported mechanism — extend accordingly.
+//   - The middleware calls r.ParseForm() for URL-encoded requests. Multipart
+//     bodies are scanned without populating MultipartForm/PostForm, restored
+//     for the handler, and zeroized after the handler returns. The router's
+//     1 MiB MaxBytesReader runs first. JSON endpoints must use the header.
 //   - HttpOnly is intentionally false on _csrf cookie: the layout script
 //     reads it from document.cookie / meta tag to inject into htmx
 //     hx-headers. This means an XSS bug degrades CSRF protection to
@@ -28,13 +27,20 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"strings"
+
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
 )
 
 const csrfCookieName = "nebula_csrf"
@@ -77,15 +83,31 @@ func (w *Web) csrfMiddleware(next http.Handler) http.Handler {
 
 		// Try to read token from header first (for htmx)
 		bodyToken := r.Header.Get(csrfHeaderName)
+		var multipartBody []byte
 
 		// If not in header, try form field
 		if bodyToken == "" {
-			err := r.ParseForm()
+			var err error
+			if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+				bodyToken, multipartBody, err = readMultipartCSRFToken(r)
+			} else {
+				err = r.ParseForm()
+			}
+			if multipartBody != nil {
+				defer keystore.Zeroize(multipartBody)
+			}
 			if err != nil {
+				var maxBytesError *http.MaxBytesError
+				if errors.As(err, &maxBytesError) {
+					http.Error(rw, "request body too large", http.StatusRequestEntityTooLarge)
+					return
+				}
 				http.Error(rw, "Bad Request", http.StatusBadRequest)
 				return
 			}
-			bodyToken = r.PostForm.Get(csrfFormField)
+			if multipartBody == nil {
+				bodyToken = r.PostForm.Get(csrfFormField)
+			}
 		}
 
 		if bodyToken == "" {
@@ -103,6 +125,61 @@ func (w *Web) csrfMiddleware(next http.Handler) http.Handler {
 		r = r.WithContext(context.WithValue(r.Context(), csrfContextKey{}, cookieToken))
 		next.ServeHTTP(rw, r)
 	})
+}
+
+func readMultipartCSRFToken(r *http.Request) (string, []byte, error) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", body, err
+	}
+	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "multipart/form-data" || params["boundary"] == "" {
+		return "", body, fmt.Errorf("invalid multipart content type")
+	}
+
+	reader := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+	var token string
+	seen := false
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", body, err
+		}
+		if part.FormName() != csrfFormField {
+			if err := part.Close(); err != nil {
+				return "", body, err
+			}
+			continue
+		}
+		if seen {
+			_ = part.Close()
+			return "", body, fmt.Errorf("duplicate CSRF field")
+		}
+		value, readErr := io.ReadAll(io.LimitReader(part, 4097))
+		closeErr := part.Close()
+		if readErr != nil {
+			keystore.Zeroize(value)
+			return "", body, readErr
+		}
+		if closeErr != nil {
+			keystore.Zeroize(value)
+			return "", body, closeErr
+		}
+		if len(value) > 4096 {
+			keystore.Zeroize(value)
+			return "", body, fmt.Errorf("CSRF field too large")
+		}
+		token = string(value)
+		keystore.Zeroize(value)
+		seen = true
+	}
+
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.ContentLength = int64(len(body))
+	return token, body, nil
 }
 
 // rejectCSRF logs a CSRF rejection and returns 403 Forbidden.

@@ -17,7 +17,7 @@ type certExpiryWebhookSink struct {
 }
 
 func (s certExpiryWebhookSink) Notify(_ context.Context, a alerts.Alert) error {
-	s.dispatcher.Emit("cert.expiring", map[string]any{
+	s.dispatcher.Emit(webhook.Scope{CAID: a.CAID}, "cert.expiring", map[string]any{
 		"host_id":              a.HostID,
 		"host_name":            a.HostName,
 		"network_id":           a.NetworkID,

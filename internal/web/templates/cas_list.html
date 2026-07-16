@@ -3,7 +3,10 @@
 {{define "content"}}
 <div class="header-actions">
     <h1>CAs</h1>
-    <a href="/ui/cas/new" class="btn btn-primary">+ New CA</a>
+    <div>
+        <a href="/ui/cas/import" class="btn">Import existing CA</a>
+        <a href="/ui/cas/new" class="btn btn-primary">+ New CA</a>
+    </div>
 </div>
 
 {{if .CAs}}

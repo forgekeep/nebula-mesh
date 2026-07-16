@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +18,8 @@ import (
 	validator "github.com/pb33f/libopenapi-validator"
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
+
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 const specPath = "../../api/openapi.yaml"
@@ -129,6 +134,114 @@ func TestContract_AdminEndpoints(t *testing.T) {
 	}
 }
 
+func TestContract_CAImport(t *testing.T) {
+	v := loadContract(t)
+	srv, apiKey := newServerWithMaster(t)
+	body, contentType := testCAImportMultipart(t, "contract-import")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", contentType)
+	req.TLS = &tls.ConnectionState{}
+	rec := serve(srv, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("import CA: %d / %s", rec.Code, rec.Body.String())
+	}
+	assertContract(t, v, req, rec)
+}
+
+func TestContract_MeshImports(t *testing.T) {
+	v := loadContract(t)
+	srv, st := newTestServer(t)
+	network, ca := seedAPIMeshImportScope(t, st, "contract")
+
+	body, _ := json.Marshal(createMeshImportRequest{NetworkID: network.ID, CAID: ca.ID, ExpectedHosts: intPointer(2)})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mesh-imports", bytes.NewReader(body))
+	authRequest(req)
+	rec := serve(srv, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create mesh import: %d / %s", rec.Code, rec.Body.String())
+	}
+	assertContract(t, v, req, rec)
+	var created meshImportTokenResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/api/v1/mesh-imports", "/api/v1/mesh-imports/" + created.MeshImport.ID} {
+		req = httptest.NewRequest(http.MethodGet, path, nil)
+		authRequest(req)
+		rec = serve(srv, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s: %d / %s", path, rec.Code, rec.Body.String())
+		}
+		assertContract(t, v, req, rec)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/mesh-imports/"+created.MeshImport.ID+"/rotate-token", nil)
+	authRequest(req)
+	rec = serve(srv, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("rotate mesh import token: %d / %s", rec.Code, rec.Body.String())
+	}
+	assertContract(t, v, req, rec)
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/mesh-imports/"+created.MeshImport.ID+"/cancel", nil)
+	authRequest(req)
+	rec = serve(srv, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel mesh import: %d / %s", rec.Code, rec.Body.String())
+	}
+	assertContract(t, v, req, rec)
+}
+
+func TestContract_AgentImport(t *testing.T) {
+	v := loadContract(t)
+	fixture := newAgentImportFixture(t)
+	payload := map[string]any{
+		"token": fixture.token, "ca_certificate_pem": fixture.caPEM,
+		"agent_signing_public_key_pem": fixture.signingPEM,
+		"payload_hash":                 fixture.payloadHash, "snapshot": fixture.snapshot,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/agent/import/challenge", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := serve(fixture.server, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("challenge: %d / %s", response.Code, response.Body.String())
+	}
+	assertContract(t, v, request, response)
+	var challenge testAgentImportChallengeResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &challenge); err != nil {
+		t.Fatal(err)
+	}
+	for attempt, wantStatus := range []int{http.StatusCreated, http.StatusTooManyRequests} {
+		quotaRequest := httptest.NewRequest(http.MethodPost, "/api/v1/agent/import/challenge", bytes.NewReader(body))
+		quotaRequest.Header.Set("Content-Type", "application/json")
+		quotaResponse := serve(fixture.server, quotaRequest)
+		if quotaResponse.Code != wantStatus {
+			t.Fatalf("quota challenge attempt %d: %d / %s", attempt+2, quotaResponse.Code, quotaResponse.Body.String())
+		}
+		assertContract(t, v, quotaRequest, quotaResponse)
+	}
+	proof := computeAgentImportProof(t, fixture, challenge)
+	payload["challenge_id"] = challenge.ChallengeID
+	payload["proof"] = base64.RawURLEncoding.EncodeToString(proof)
+	body, err = json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/agent/import", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response = serve(fixture.server, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("register: %d / %s", response.Code, response.Body.String())
+	}
+	assertContract(t, v, request, response)
+}
+
 // TestContract_AgentEndpoints validates the enroll + signed-poll responses the
 // fleet depends on — the endpoints where silent drift hurts most.
 func TestContract_AgentEndpoints(t *testing.T) {
@@ -163,10 +276,13 @@ func TestContract_AgentEndpoints(t *testing.T) {
 	signingPubPEM := pem.EncodeToMemory(&pem.Block{Type: SigningPublicKeyPEMType, Bytes: edPub})
 
 	// Enroll.
+	profile := models.DefaultAgentProfile()
+	profile.ConfigAckV1 = true
 	enrollBody, _ := json.Marshal(enrollRequest{
 		Token:         created.EnrollmentToken,
 		PublicKeyPEM:  string(pubKeyPEM),
 		SigningPubPEM: string(signingPubPEM),
+		Profile:       profile,
 	})
 	ereq := httptest.NewRequest(http.MethodPost, "/api/v1/enroll", bytes.NewReader(enrollBody))
 	erec := serve(srv, ereq)
@@ -196,4 +312,17 @@ func TestContract_AgentEndpoints(t *testing.T) {
 		t.Fatalf("agent updates: %d / %s", prec.Code, prec.Body.String())
 	}
 	assertContract(t, v, preq, prec)
+	var updates agentUpdatesResponse
+	_ = json.Unmarshal(prec.Body.Bytes(), &updates)
+	if updates.ConfigVersion <= 0 {
+		t.Fatalf("agent updates omitted pending config version: %s", prec.Body.String())
+	}
+	ackPath := fmt.Sprintf("/api/v1/agent/config-ack/%d", updates.ConfigVersion)
+	ackRequest := httptest.NewRequest(http.MethodPost, ackPath, nil)
+	signPoll(t, ackRequest, enrolledAgent{hostID: created.Host.ID, fingerprint: fp, signingPub: edPub, signingPriv: edPriv})
+	ackResponse := serve(srv, ackRequest)
+	if ackResponse.Code != http.StatusOK {
+		t.Fatalf("config ack: %d / %s", ackResponse.Code, ackResponse.Body.String())
+	}
+	assertContract(t, v, ackRequest, ackResponse)
 }

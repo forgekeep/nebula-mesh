@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/forgekeep/nebula-mesh/internal/caimport"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
@@ -19,6 +21,18 @@ import (
 type createCARequest struct {
 	Name     string `json:"name"`
 	Duration string `json:"duration,omitempty"` // e.g. "8760h"
+}
+
+type importCARequest struct {
+	Name           string
+	CertificatePEM []byte
+	PrivateKeyPEM  []byte
+	Passphrase     []byte
+}
+
+func (r *importCARequest) zeroizeSecrets() {
+	keystore.Zeroize(r.PrivateKeyPEM)
+	keystore.Zeroize(r.Passphrase)
 }
 
 type caResponse struct {
@@ -158,6 +172,142 @@ func (s *Server) handleCreateCA(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, s.toCAResponse(c))
 }
 
+func (s *Server) handleImportCA(w http.ResponseWriter, r *http.Request) {
+	if !s.secretIngress.Allows(r) {
+		writeError(w, http.StatusUpgradeRequired, "CA private key import requires direct TLS, literal-loopback HTTP, or an explicitly trusted local TLS proxy")
+		return
+	}
+	if s.caImporter == nil {
+		writeError(w, http.StatusServiceUnavailable, "CA import requires NEBULA_MGMT_MASTER_KEY to be configured")
+		return
+	}
+
+	request, err := readCAImportMultipart(r)
+	if err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.Is(err, caimport.ErrInputTooLarge) || errors.As(err, &maxBytesError) {
+			writeError(w, http.StatusRequestEntityTooLarge, "CA import input is too large")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	defer request.zeroizeSecrets()
+	actor := ActorOf(r.Context())
+	imported, err := s.caImporter.Import(r.Context(), caimport.Request{
+		Name:            request.Name,
+		OwnerOperatorID: actor.ID,
+		CertificatePEM:  request.CertificatePEM,
+		PrivateKeyPEM:   request.PrivateKeyPEM,
+		Passphrase:      request.Passphrase,
+	})
+	if err != nil {
+		s.writeCAImportError(w, err)
+		return
+	}
+	s.recordAuditAction(r.Context(), auditCAImported, imported.ID, "fingerprint="+imported.Fingerprint)
+	writeJSON(w, http.StatusCreated, s.toCAResponse(imported))
+}
+
+func readCAImportMultipart(r *http.Request) (importCARequest, error) {
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return importCARequest{}, err
+	}
+
+	var request importCARequest
+	seen := make(map[string]struct{}, 4)
+	fail := func(err error) (importCARequest, error) {
+		request.zeroizeSecrets()
+		return importCARequest{}, err
+	}
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fail(err)
+		}
+
+		field := part.FormName()
+		if _, duplicate := seen[field]; duplicate {
+			_ = part.Close()
+			return fail(fmt.Errorf("duplicate multipart field %q", field))
+		}
+		var maxBytes int64
+		switch field {
+		case "name":
+			maxBytes = 4 << 10
+		case "certificate", "private_key":
+			maxBytes = 1 << 20
+		case "passphrase":
+			maxBytes = 64 << 10
+		default:
+			_ = part.Close()
+			return fail(fmt.Errorf("unknown multipart field %q", field))
+		}
+
+		value, readErr := io.ReadAll(io.LimitReader(part, maxBytes+1))
+		closeErr := part.Close()
+		if readErr != nil {
+			keystore.Zeroize(value)
+			return fail(readErr)
+		}
+		if closeErr != nil {
+			keystore.Zeroize(value)
+			return fail(closeErr)
+		}
+		if int64(len(value)) > maxBytes {
+			keystore.Zeroize(value)
+			return fail(caimport.ErrInputTooLarge)
+		}
+		seen[field] = struct{}{}
+		switch field {
+		case "name":
+			request.Name = string(value)
+			keystore.Zeroize(value)
+		case "certificate":
+			request.CertificatePEM = value
+		case "private_key":
+			request.PrivateKeyPEM = value
+		case "passphrase":
+			request.Passphrase = value
+		}
+	}
+
+	for _, required := range []string{"name", "certificate", "private_key"} {
+		if _, ok := seen[required]; !ok {
+			return fail(fmt.Errorf("missing multipart field %q", required))
+		}
+	}
+	return request, nil
+}
+
+func (s *Server) writeCAImportError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, caimport.ErrDuplicateCA):
+		writeError(w, http.StatusConflict, "CA already imported")
+	case errors.Is(err, caimport.ErrDecryptBusy):
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusTooManyRequests, "another encrypted CA key import is in progress")
+	case errors.Is(err, caimport.ErrInputTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, "CA import input is too large")
+	case errors.Is(err, caimport.ErrKDFLimits):
+		writeError(w, http.StatusBadRequest, "encrypted private key exceeds configured KDF limits")
+	case errors.Is(err, caimport.ErrInvalidMaterial),
+		errors.Is(err, caimport.ErrUnsupportedCurve),
+		errors.Is(err, caimport.ErrInvalidValidity),
+		errors.Is(err, caimport.ErrKeyMismatch):
+		writeError(w, http.StatusBadRequest, "invalid CA certificate or private key")
+	case errors.Is(err, caimport.ErrMasterKeyUnavailable):
+		writeError(w, http.StatusServiceUnavailable, "CA import requires NEBULA_MGMT_MASTER_KEY to be configured")
+	default:
+		s.logger.Error("import CA", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to import CA")
+	}
+}
+
 func (s *Server) handleDeleteCA(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	c, err := s.store.GetCA(r.Context(), id)
@@ -212,6 +362,10 @@ func (s *Server) handleRotateCA(w http.ResponseWriter, r *http.Request) {
 
 	newCA, err := pki.RotateAndStoreCA(r.Context(), s.store, s.master, s.logger, oldCA)
 	if err != nil {
+		if errors.Is(err, store.ErrMeshImportInProgress) {
+			writeError(w, http.StatusConflict, "mesh import collection is in progress for this CA")
+			return
+		}
 		if errors.Is(err, pki.ErrMasterRequired) {
 			writeError(w, http.StatusBadRequest, "master key not configured")
 			return

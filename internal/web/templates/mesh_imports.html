@@ -1,0 +1,29 @@
+{{define "title"}}Mesh imports — Nebula Mesh{{end}}
+
+{{define "content"}}
+<div class="header-actions">
+    <h1>Mesh imports</h1>
+    <a href="/ui/mesh-imports/new" class="btn btn-primary">New import</a>
+</div>
+
+{{if .MeshImports}}
+<div class="card">
+    <table>
+        <thead><tr><th>ID</th><th>Network</th><th>Status</th><th>Hosts</th><th>Token expires</th></tr></thead>
+        <tbody>
+        {{range .MeshImports}}
+        <tr>
+            <td><a href="/ui/mesh-imports/{{.ID}}"><code>{{.ID}}</code></a></td>
+            <td><code>{{.NetworkID}}</code></td>
+            <td><span class="badge">{{.Status}}</span></td>
+            <td>{{.Revision}}{{if .ExpectedHosts}} / {{.ExpectedHosts}}{{end}}</td>
+            <td>{{.TokenExpiresAt.Format "2006-01-02 15:04 MST"}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{else}}
+<div class="card empty">No mesh imports.</div>
+{{end}}
+{{end}}

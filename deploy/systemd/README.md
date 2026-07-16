@@ -43,3 +43,19 @@ sudo install -m 0644 deploy/systemd/nebula-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now nebula-agent
 ```
+
+The unit uses `ProtectSystem=strict` and grants writes only under
+`/etc/nebula`. For an imported installation whose config or PKI files live
+elsewhere, add every parent directory with a drop-in before finalize:
+
+```ini
+# sudo systemctl edit nebula-agent.service
+[Service]
+ReadWritePaths=/srv/nebula
+ReadWritePaths=/opt/nebula/pki
+```
+
+Run `sudo systemctl daemon-reload` and restart the agent. The config directory
+must also be writable because the first managed apply creates
+`<nebula_config_path>.pre-nebula-mesh.<import_session_id>` there. Keep the
+default `/etc/nebula` entry when any managed file remains below it.

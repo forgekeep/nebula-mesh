@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +17,9 @@ import (
 // at DataDir/config.yml. Before the fix the poller wrote DataDir/config.yml
 // unconditionally and silently ignored the configured path.
 func TestPoller_WritesConfigToNebulaConfigPath(t *testing.T) {
-	rendered := "pki:\n  cert: /etc/nebula/host.crt\n"
+	dir := t.TempDir()
+	rendered := fmt.Sprintf("pki:\n  ca: %s\n  cert: %s\n  key: %s\n",
+		filepath.Join(dir, "ca.crt"), filepath.Join(dir, "host.crt"), filepath.Join(dir, "host.key"))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(UpdatesResponse{
 			HasUpdates: true,
@@ -25,7 +28,6 @@ func TestPoller_WritesConfigToNebulaConfigPath(t *testing.T) {
 	}))
 	defer server.Close()
 
-	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
 	customDir := t.TempDir()
 	customPath := filepath.Join(customDir, "nebula.yml")
@@ -62,7 +64,9 @@ func TestPoller_WritesConfigToNebulaConfigPath(t *testing.T) {
 // TestPoller_NebulaConfigPathFallback covers the empty-path default: the
 // rendered config lands at DataDir/config.yml for backward compatibility.
 func TestPoller_NebulaConfigPathFallback(t *testing.T) {
-	rendered := "static_host_map: {}\n"
+	dir := t.TempDir()
+	rendered := fmt.Sprintf("pki:\n  ca: %s\n  cert: %s\n  key: %s\nstatic_host_map: {}\n",
+		filepath.Join(dir, "ca.crt"), filepath.Join(dir, "host.crt"), filepath.Join(dir, "host.key"))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(UpdatesResponse{
 			HasUpdates: true,
@@ -71,7 +75,6 @@ func TestPoller_NebulaConfigPathFallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
 	p := newTestPoller(t, PollerConfig{
 		ServerURL:   server.URL,

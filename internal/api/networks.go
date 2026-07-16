@@ -15,6 +15,7 @@ import (
 type createNetworkRequest struct {
 	Name  string   `json:"name"`
 	CIDRs []string `json:"cidrs"`
+	CAID  string   `json:"ca_id,omitempty"`
 }
 
 func (s *Server) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
@@ -36,15 +37,36 @@ func (s *Server) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if req.CAID != "" {
+		ca, err := s.store.GetCA(r.Context(), req.CAID)
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "CA not found")
+			return
+		}
+		if err != nil {
+			s.logger.Error("load network CA", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to load CA")
+			return
+		}
+		if ca.Status != models.CAStatusActive {
+			writeError(w, http.StatusConflict, "CA must be active")
+			return
+		}
+	}
 
 	network := &models.Network{
 		ID:        uuid.New().String(),
 		Name:      req.Name,
 		CIDRs:     req.CIDRs,
+		CAID:      req.CAID,
 		CreatedAt: time.Now(),
 	}
 
 	if err := s.store.CreateNetwork(r.Context(), network); err != nil {
+		if errors.Is(err, store.ErrMeshImportInProgress) {
+			writeError(w, http.StatusConflict, "mesh import collection is in progress for this CA")
+			return
+		}
 		s.logger.Error("create network", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to create network")
 		return

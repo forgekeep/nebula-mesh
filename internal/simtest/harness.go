@@ -319,7 +319,7 @@ func (h *Harness) CreateNetwork(name string, cidrs ...string) string {
 	h.tb.Helper()
 	var net models.Network
 	code := h.API(http.MethodPost, "/api/v1/networks", map[string]any{
-		"name": name, "cidrs": cidrs,
+		"name": name, "cidrs": cidrs, "ca_id": h.CA.ID,
 	}, &net)
 	if code != http.StatusCreated {
 		h.tb.Fatalf("create network %q: HTTP %d", name, code)

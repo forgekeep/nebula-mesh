@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -133,6 +134,9 @@ func TestPoll_EmitsRekeyToken_WhenPending(t *testing.T) {
 	}
 	if resp.EnrollmentToken == "" {
 		t.Error("EnrollmentToken empty")
+	}
+	if !strings.HasPrefix(resp.EnrollmentToken, "nme_") {
+		t.Errorf("EnrollmentToken = %q, want nme_ prefix", resp.EnrollmentToken)
 	}
 
 	// Pending flag must be cleared so a follow-up poll does not mint a

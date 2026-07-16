@@ -67,6 +67,32 @@ func TestLoadServerConfig_Defaults(t *testing.T) {
 	}
 }
 
+func TestLoadServerConfig_CAImportSecuritySettings(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+	data := []byte(`listen: "127.0.0.1:8080"
+trusted_secret_ingress_proxy: true
+ca_import:
+  max_argon2_memory_kib: 131072
+  max_argon2_iterations: 3
+  max_argon2_parallelism: 2
+`)
+	if err := os.WriteFile(cfgPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadServerConfig(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.TrustedSecretIngressProxy {
+		t.Fatal("TrustedSecretIngressProxy = false, want true")
+	}
+	if cfg.CAImport.MaxArgon2MemoryKiB != 131072 || cfg.CAImport.MaxArgon2Iterations != 3 || cfg.CAImport.MaxArgon2Parallelism != 2 {
+		t.Fatalf("CAImport = %+v", cfg.CAImport)
+	}
+}
+
 func TestMetricsConfig_RequireAuthEnabled(t *testing.T) {
 	// Default (omitted) gates /metrics behind bearer auth (#262): the metric
 	// labels expose host/network/CA IDs, so unauthenticated scraping is now

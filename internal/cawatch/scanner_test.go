@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,6 +124,50 @@ func TestScanner_Run_RotatesApproachingExpiry(t *testing.T) {
 	}
 	if freshSuccessor != nil {
 		t.Errorf("fresh CA was rotated, but should not have been")
+	}
+}
+
+func TestScanner_Run_DoesNotRotateCAWhileMeshImportCollects(t *testing.T) {
+	ctx := context.Background()
+	st, opID := newTestStore(t)
+	now := time.Now()
+	approaching := &models.CA{
+		ID: "import-ca", Name: "Import CA", OwnerOperatorID: opID,
+		Fingerprint: "fp_import", Status: models.CAStatusActive,
+		NotBefore: now.AddDate(-10, 0, 0), NotAfter: now.Add(365 * 24 * time.Hour),
+		CertPEM:         "-----BEGIN NEBULA CERTIFICATE-----\nimport\n-----END NEBULA CERTIFICATE-----\n",
+		EncryptedKeyDEK: []byte("key"), NonceDEK: []byte("nonce"),
+		EncryptedKeyMaterial: []byte("material"), NonceKey: []byte("nonce_key"),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := st.CreateCA(ctx, approaching); err != nil {
+		t.Fatalf("create approaching CA: %v", err)
+	}
+	network := &models.Network{ID: "import-network", Name: "Import Network", CIDRs: []string{"10.90.0.0/16"}, CAID: approaching.ID, CreatedAt: now}
+	if err := st.CreateNetwork(ctx, network); err != nil {
+		t.Fatalf("create import network: %v", err)
+	}
+	session := &models.MeshImport{
+		ID: "import-session", NetworkID: network.ID, CAID: approaching.ID,
+		OwnerOperatorID: opID, Status: models.MeshImportStatusCollecting,
+		TokenHash: "token-hash", TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
+	}
+	if err := st.CreateMeshImport(ctx, session); err != nil {
+		t.Fatalf("create mesh import: %v", err)
+	}
+
+	master, _ := keystore.NewMaster(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	scanner := &Scanner{Store: st, Master: master, Logger: logger, Threshold: 0.20}
+	if err := scanner.Run(ctx); err != nil {
+		t.Fatalf("scanner.Run: %v", err)
+	}
+	if _, err := st.FindCAByPredecessor(ctx, approaching.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("successor during collecting import: %v, want ErrNotFound", err)
+	}
+	if !strings.Contains(logs.String(), "skip auto-rotate ca during mesh import") {
+		t.Fatalf("scanner log = %q, want import skip", logs.String())
 	}
 }
 

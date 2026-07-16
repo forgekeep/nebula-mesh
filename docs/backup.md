@@ -92,3 +92,30 @@ A backup you have never restored is a hypothesis, not a backup.
 3. Copy the archive and set `NEBULA_MGMT_MASTER_KEY` to the original key.
 4. `nebula-mgmt ops restore --config … --input …`.
 5. Start the server and verify agents continue to poll and rotate.
+
+## Mesh import recovery
+
+Take a backup immediately before creating or finalizing an existing-mesh import
+session. The SQLite snapshot includes the imported encrypted CA, session token
+hash and expiry, collected sanitized snapshots, temporary hosts, revision and
+finalized topology. The raw `nmi_` token and every host private key are absent;
+keep neither in the backup archive.
+
+If collection fails before finalize, cancel the session. Remote Nebula files
+have not changed, so no database restore is needed. A retry uses a new session
+and new token; do not reuse a canceled session's token.
+
+If managed configuration breaks connectivity after finalize:
+
+1. Stop `nebula-agent` on affected hosts so it cannot reapply the same version.
+2. Restore `<nebula_config_path>.pre-nebula-mesh.<import_session_id>` atomically
+   as the active Nebula config and reload Nebula. Keep the existing CA,
+   certificate and private key files.
+3. Correct the topology in the control plane. If the entire finalized import
+   must be undone, stop `nebula-mgmt` and restore the pre-finalize archive with
+   the matching `NEBULA_MGMT_MASTER_KEY`.
+4. Verify the restored CA/Network/Host inventory before restarting agents.
+
+Restoring only the database does not roll back files already applied on hosts.
+Restoring only host configs does not roll back the server's finalized state;
+coordinate both sides when reverting the whole adoption.

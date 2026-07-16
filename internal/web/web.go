@@ -15,11 +15,14 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/forgekeep/nebula-mesh/internal/auth"
+	"github.com/forgekeep/nebula-mesh/internal/caimport"
 	"github.com/forgekeep/nebula-mesh/internal/enrollment"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
+	"github.com/forgekeep/nebula-mesh/internal/secretingress"
 	"github.com/forgekeep/nebula-mesh/internal/store"
+	"github.com/forgekeep/nebula-mesh/internal/webhook"
 )
 
 //go:embed templates/*.html
@@ -43,9 +46,13 @@ type Web struct {
 	allowSelfRegistration bool
 	loginRecorder         func(result, factor string)
 	events                *EventBus
+	lifecycleEvents       LifecycleEventEmitter
 	limiter               *ratelimit.Limiter
 	passwordPolicy        auth.Policy
 	caMaster              *keystore.Master
+	caImporter            caimport.Importer
+	caImportLimits        caimport.Limits
+	secretIngress         secretingress.Policy
 	caResolver            *pki.CAResolver
 	enrollmentTokenTTL    time.Duration
 
@@ -55,6 +62,20 @@ type Web struct {
 	// session-cookie value so a refresh on a different browser sees nothing.
 	apiKeyFlashMu sync.Mutex
 	apiKeyFlash   map[string]apiKeyFlashEntry
+}
+
+type LifecycleEventEmitter interface {
+	Emit(scope webhook.Scope, eventType string, data map[string]any)
+}
+
+func (w *Web) WithLifecycleEventEmitter(emitter LifecycleEventEmitter) {
+	w.lifecycleEvents = emitter
+}
+
+func (w *Web) emitLifecycle(scope webhook.Scope, eventType string, data map[string]any) {
+	if w.lifecycleEvents != nil {
+		w.lifecycleEvents.Emit(scope, eventType, data)
+	}
 }
 
 type apiKeyFlashEntry struct {
@@ -186,6 +207,7 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		session:        NewSessionManager(s),
 		templates:      make(map[string]*template.Template),
 		passwordPolicy: auth.Default(),
+		caImportLimits: caimport.DefaultLimits(),
 	}
 
 	// Parse each page template with layout
@@ -205,7 +227,11 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 		"operator_detail.html",
 		"cas_list.html",
 		"ca_new.html",
+		"ca_import.html",
 		"ca_detail.html",
+		"mesh_imports.html",
+		"mesh_import_new.html",
+		"mesh_import_detail.html",
 	}
 	funcMap := template.FuncMap{
 		"deref": func(p *bool) bool {
@@ -303,6 +329,7 @@ func (w *Web) setupRoutes() {
 	// to validate mutating requests. Double-submit cookie pattern: GET requests
 	// set the _csrf cookie; mutating requests validate token from cookie vs form/header.
 	r.Group(func(r chi.Router) {
+		r.Use(w.secretIngressMiddleware)
 		r.Use(w.csrfMiddleware)
 
 		// Login (public). Auth-group rate limit only on the form submissions
@@ -359,10 +386,19 @@ func (w *Web) setupRoutes() {
 			r.Get("/ui/cas", w.handleCAsList)
 			r.Get("/ui/cas/new", w.handleCANewPage)
 			r.Post("/ui/cas", w.handleCACreate)
+			r.Get("/ui/cas/import", w.handleCAImportPage)
+			r.Post("/ui/cas/import", w.handleCAImport)
 			r.Get("/ui/cas/{id}", w.handleCADetail)
 			r.Post("/ui/cas/{id}/retire", w.handleCARetire)
 			r.Post("/ui/cas/{id}/rotate", w.handleCARotate)
 			r.Post("/ui/cas/{id}/delete", w.handleCADelete)
+			r.Get("/ui/mesh-imports", w.handleMeshImportsList)
+			r.Get("/ui/mesh-imports/new", w.handleMeshImportNew)
+			r.Post("/ui/mesh-imports", w.handleMeshImportCreate)
+			r.Get("/ui/mesh-imports/{id}", w.handleMeshImportDetail)
+			r.Post("/ui/mesh-imports/{id}/rotate-token", w.handleMeshImportRotateToken)
+			r.Post("/ui/mesh-imports/{id}/cancel", w.handleMeshImportCancel)
+			r.Post("/ui/mesh-imports/{id}/finalize", w.handleMeshImportFinalize)
 			r.Post("/ui/2fa/setup", w.handleTwoFASetup)
 			r.Post("/ui/2fa/enable", w.handleTwoFAEnable)
 			r.Post("/ui/2fa/disable", w.handleTwoFADisable)

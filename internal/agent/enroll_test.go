@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 )
 
@@ -91,6 +92,37 @@ func TestEnroll_Success(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Errorf("host.signing.key permissions = %o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestEnrollAcknowledgesInitialConfigVersion(t *testing.T) {
+	dataDir := t.TempDir()
+	signingPath := filepath.Join(t.TempDir(), "host.signing.key")
+	certificatePEM := validPollerHostCertificate(t)
+	rendered := "pki:\n  ca: " + filepath.Join(dataDir, "ca.crt") + "\n  cert: " + filepath.Join(dataDir, "host.crt") + "\n  key: " + filepath.Join(dataDir, "host.key") + "\n"
+	var acknowledgements atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v1/enroll":
+			_ = json.NewEncoder(response).Encode(EnrollResponse{
+				CertificatePEM: certificatePEM, CACertificatePEM: "public-ca", ConfigYAML: rendered, ConfigVersion: 4,
+			})
+		case "/api/v1/agent/config-ack/4":
+			if request.Header.Get("X-Nebula-Signature") == "" || request.Header.Get("X-Nebula-Fingerprint") == "" {
+				t.Error("initial config ack is unsigned")
+			}
+			acknowledgements.Add(1)
+			response.WriteHeader(http.StatusOK)
+		default:
+			response.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	if err := Enroll(t.Context(), server.URL, "nme_token", dataDir, signingPath, ""); err != nil {
+		t.Fatal(err)
+	}
+	if acknowledgements.Load() != 1 {
+		t.Fatalf("initial acknowledgements = %d", acknowledgements.Load())
 	}
 }
 

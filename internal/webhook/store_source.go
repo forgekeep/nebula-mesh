@@ -16,7 +16,7 @@ var errMasterRequired = errors.New("webhook secret is encrypted but master key i
 
 // SubStore is the store surface a StoreSource needs.
 type SubStore interface {
-	ListActiveWebhookSubscriptions(ctx context.Context) ([]*models.WebhookSubscription, error)
+	ListActiveWebhookSubscriptionsForCA(ctx context.Context, caID string) ([]*models.WebhookSubscription, error)
 	RecordWebhookDelivery(ctx context.Context, id string, ok bool, errMsg string, at time.Time) error
 }
 
@@ -40,8 +40,8 @@ func NewStoreSource(s SubStore, master *keystore.Master, logger *slog.Logger) *S
 }
 
 // TargetsFor returns active subscriptions wanting eventType, secrets decrypted.
-func (s *StoreSource) TargetsFor(ctx context.Context, eventType string) ([]Target, error) {
-	subs, err := s.store.ListActiveWebhookSubscriptions(ctx)
+func (s *StoreSource) TargetsFor(ctx context.Context, scope Scope, eventType string) ([]Target, error) {
+	subs, err := s.store.ListActiveWebhookSubscriptionsForCA(ctx, scope.CAID)
 	if err != nil {
 		return nil, err
 	}

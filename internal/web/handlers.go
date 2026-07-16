@@ -14,8 +14,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
 	"github.com/forgekeep/nebula-mesh/internal/mobilebundle"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
@@ -631,12 +633,13 @@ func buildHostViews(hosts []*models.Host, networks []*models.Network) []hostView
 }
 
 type dashboardStats struct {
-	TotalHosts    int
-	EnrolledHosts int
-	PendingHosts  int
-	BlockedHosts  int
-	Networks      int
-	ExpiringCerts int
+	TotalHosts     int
+	EnrolledHosts  int
+	PendingHosts   int
+	ImportingHosts int
+	BlockedHosts   int
+	Networks       int
+	ExpiringCerts  int
 }
 
 func computeStats(hosts []*models.Host, networkCount int) dashboardStats {
@@ -653,6 +656,8 @@ func computeStats(hosts []*models.Host, networkCount int) dashboardStats {
 			}
 		case models.HostStatusPending:
 			stats.PendingHosts++
+		case models.HostStatusImporting:
+			stats.ImportingHosts++
 		case models.HostStatusBlocked:
 			stats.BlockedHosts++
 		}
@@ -972,6 +977,10 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	// self-contained YAML bundle on creation, so no enrollment token is needed.
 	if kind == models.HostKindMobile {
 		if err := w.store.CreateHost(r.Context(), host); err != nil {
+			if errors.Is(err, store.ErrMeshImportInProgress) {
+				http.Error(rw, "Mesh import collection is in progress for this network", http.StatusConflict)
+				return
+			}
 			w.logger.Error("create mobile host", "error", err)
 			http.Error(rw, "Failed to create host", http.StatusInternalServerError)
 			return
@@ -980,7 +989,12 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rawToken := uuid.New().String()
+	rawToken, err := bootstraptoken.Generate(bootstraptoken.PurposeEnrollment)
+	if err != nil {
+		w.logger.Error("generate enrollment token", "error", err)
+		http.Error(rw, "Failed to create enrollment token", http.StatusInternalServerError)
+		return
+	}
 	token := &models.EnrollmentToken{
 		ID:        uuid.New().String(),
 		HostID:    host.ID,
@@ -989,6 +1003,10 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		CreatedAt: now,
 	}
 	if err := w.store.CreateHostAndToken(r.Context(), host, token); err != nil {
+		if errors.Is(err, store.ErrMeshImportInProgress) {
+			http.Error(rw, "Mesh import collection is in progress for this network", http.StatusConflict)
+			return
+		}
 		w.logger.Error("create host and token", "error", err)
 		http.Error(rw, "Failed to create host", http.StatusInternalServerError)
 		return
@@ -1096,6 +1114,9 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 
 	host, ok := w.loadAccessibleHost(rw, r)
 	if !ok {
+		return
+	}
+	if rejectWebImportingHost(rw, host) {
 		return
 	}
 
@@ -1257,6 +1278,9 @@ func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if rejectWebImportingHost(rw, host) {
+		return
+	}
 	if _, err := w.store.BlockHostAndAddToBlocklist(r.Context(), host.ID, "blocked via UI"); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			http.NotFound(rw, r)
@@ -1274,6 +1298,9 @@ func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
 func (w *Web) handleHostDelete(rw http.ResponseWriter, r *http.Request) {
 	host, ok := w.loadAccessibleHost(rw, r)
 	if !ok {
+		return
+	}
+	if rejectWebImportingHost(rw, host) {
 		return
 	}
 	if err := w.store.DeleteHostAndBlockCert(r.Context(), host.ID, "deleted via UI"); err != nil {
@@ -1320,16 +1347,45 @@ func (w *Web) handleNetworks(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "Failed to load networks", http.StatusInternalServerError)
 		return
 	}
+	form := networkFormState{CIDRErrors: make(map[int]string)}
+	showCreate := false
+	if requestedCAID := strings.TrimSpace(r.URL.Query().Get("ca_id")); requestedCAID != "" {
+		for _, ca := range cas {
+			if ca.ID != requestedCAID {
+				continue
+			}
+			form.CAID = ca.ID
+			form.CIDRs = caNetworkConstraints(ca)
+			showCreate = true
+			break
+		}
+	}
 	w.renderForRequest(rw, r, "networks.html", map[string]any{
 		"Active":     "networks",
 		"Networks":   networks,
 		"CAs":        cas,
 		"HasCAs":     len(cas) > 0,
 		"IsAdmin":    op.Role == "admin",
-		"Form":       networkFormState{},
+		"Form":       form,
 		"Error":      "",
-		"ShowCreate": false,
+		"ShowCreate": showCreate,
 	})
+}
+
+func caNetworkConstraints(ca *models.CA) []string {
+	if ca == nil || strings.TrimSpace(ca.CertPEM) == "" {
+		return nil
+	}
+	certificate, _, err := cert.UnmarshalCertificateFromPEM([]byte(ca.CertPEM))
+	if err != nil || !certificate.IsCA() {
+		return nil
+	}
+	networks := certificate.Networks()
+	constraints := make([]string, 0, len(networks))
+	for _, network := range networks {
+		constraints = append(constraints, network.Masked().String())
+	}
+	return constraints
 }
 
 func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
@@ -1398,6 +1454,10 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := w.store.CreateNetwork(r.Context(), network); err != nil {
+		if errors.Is(err, store.ErrMeshImportInProgress) {
+			http.Error(rw, "Mesh import collection is in progress for this CA", http.StatusConflict)
+			return
+		}
 		w.logger.Error("create network", "error", err)
 		http.Error(rw, "Failed to create network", http.StatusInternalServerError)
 		return
@@ -1412,6 +1472,9 @@ func (w *Web) handleGenerateMobileBundle(rw http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if rejectWebImportingHost(rw, host) {
+		return
+	}
 
 	// Verify host is mobile. Checked after the ownership gate so a non-owner
 	// cannot probe another tenant's host kind.
@@ -1421,6 +1484,14 @@ func (w *Web) handleGenerateMobileBundle(rw http.ResponseWriter, r *http.Request
 	}
 
 	w.renderMobileBundle(rw, r, host)
+}
+
+func rejectWebImportingHost(rw http.ResponseWriter, host *models.Host) bool {
+	if host.Status != models.HostStatusImporting {
+		return false
+	}
+	http.Error(rw, "Host is managed by an active mesh import", http.StatusConflict)
+	return true
 }
 
 // renderMobileBundle builds a fresh certificate + YAML bundle for the given

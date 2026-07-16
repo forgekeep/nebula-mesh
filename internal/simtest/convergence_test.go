@@ -3,6 +3,7 @@ package simtest
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"testing"
 )
 
@@ -67,5 +68,43 @@ func TestSim_ConfigConvergence(t *testing.T) {
 			t.Errorf("CONFIG_CONVERGENCE violated: %q re-shipped config while already at version %d (churn)\n%s",
 				a.Name, want, h.Journal.Report(a.HostID))
 		}
+	}
+}
+
+func TestSim_AckCapableConfigConvergenceIsAtLeastOnceAndIdempotent(t *testing.T) {
+	ctx := context.Background()
+	h := New(t)
+	networkID := h.CreateNetwork("ack-net", "10.20.0.0/16")
+	agent := h.EnrollAckCapable(networkID, "ack-host", "10.20.0.10")
+	initial := agent.Poll(h)
+	if initial.ConfigYAML == nil || initial.ConfigVersion <= 0 {
+		t.Fatalf("initial config not pending: %#v", initial)
+	}
+	if status := agent.AckConfig(h, initial.ConfigVersion); status != http.StatusOK {
+		t.Fatalf("initial ack status = %d", status)
+	}
+	if err := h.Store.BumpNetworkConfigVersion(ctx, networkID); err != nil {
+		t.Fatal(err)
+	}
+	first := agent.Poll(h)
+	second := agent.Poll(h)
+	if first.ConfigYAML == nil || second.ConfigYAML == nil || first.ConfigVersion != second.ConfigVersion {
+		t.Fatalf("unacked config was not delivered at least once: first=%#v second=%#v", first, second)
+	}
+	beforeAck, _ := h.Store.GetHostConfigVersion(ctx, agent.HostID)
+	if beforeAck == first.ConfigVersion {
+		t.Fatalf("send advanced applied version before ack: %d", beforeAck)
+	}
+	if status := agent.AckConfig(h, first.ConfigVersion); status != http.StatusOK {
+		t.Fatalf("ack status = %d", status)
+	}
+	if status := agent.AckConfig(h, first.ConfigVersion); status != http.StatusOK {
+		t.Fatalf("idempotent ack retry status = %d", status)
+	}
+	if applied, _ := h.Store.GetHostConfigVersion(ctx, agent.HostID); applied != first.ConfigVersion {
+		t.Fatalf("applied version = %d, want %d", applied, first.ConfigVersion)
+	}
+	if converged := agent.Poll(h); converged.ConfigYAML != nil {
+		t.Fatalf("config re-delivered after ack: %#v", converged)
 	}
 }

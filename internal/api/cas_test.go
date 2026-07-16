@@ -4,18 +4,27 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/slackhq/nebula/cert"
 
+	"github.com/forgekeep/nebula-mesh/internal/caimport"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/secretingress"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
@@ -79,6 +88,348 @@ func TestCreateCA_OperatorCanCreate(t *testing.T) {
 	}
 	if resp.Fingerprint == "" {
 		t.Error("fingerprint missing")
+	}
+}
+
+func TestImportCA_TransportPolicyAndOwnership(t *testing.T) {
+	tests := []struct {
+		name       string
+		policy     secretingress.Policy
+		tls        bool
+		remoteAddr string
+		host       string
+		forwarded  string
+		wantStatus int
+	}{
+		{name: "direct TLS", policy: secretingress.NewPolicy(":8080", false), tls: true, remoteAddr: "203.0.113.5:1234", host: "mesh.example.com", wantStatus: http.StatusCreated},
+		{name: "direct loopback", policy: secretingress.NewPolicy("127.0.0.1:8080", false), remoteAddr: "127.0.0.1:1234", host: "127.0.0.1:8080", wantStatus: http.StatusCreated},
+		{name: "public plaintext", policy: secretingress.NewPolicy(":8080", false), remoteAddr: "203.0.113.5:1234", host: "mesh.example.com", wantStatus: http.StatusUpgradeRequired},
+		{name: "spoofed forwarded proto", policy: secretingress.NewPolicy("127.0.0.1:8080", false), remoteAddr: "127.0.0.1:1234", host: "mesh.example.com", forwarded: "https", wantStatus: http.StatusUpgradeRequired},
+		{name: "trusted local proxy", policy: secretingress.NewPolicy("127.0.0.1:8080", true), remoteAddr: "127.0.0.1:1234", host: "mesh.example.com", forwarded: "https", wantStatus: http.StatusCreated},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			srv, opKey := newServerWithMaster(t)
+			srv.WithSecretIngressPolicy(testCase.policy)
+			body, contentType := testCAImportMultipart(t, "existing-mesh")
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+opKey)
+			req.Header.Set("Content-Type", contentType)
+			req.Header.Set("X-Forwarded-Proto", testCase.forwarded)
+			req.RemoteAddr = testCase.remoteAddr
+			req.Host = testCase.host
+			if testCase.tls {
+				req.TLS = &tls.ConnectionState{}
+			}
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+			if rec.Code != testCase.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, testCase.wantStatus, rec.Body.String())
+			}
+			if rec.Code != http.StatusCreated {
+				return
+			}
+			var imported caResponse
+			requireDecodeJSON(t, rec.Body.Bytes(), &imported)
+			actor, err := srv.store.GetOperatorByUsername(context.Background(), "admin-cas")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if imported.OwnerOperatorID != actor.ID {
+				t.Fatalf("owner = %q, want actor %q", imported.OwnerOperatorID, actor.ID)
+			}
+		})
+	}
+}
+
+func TestImportCA_RejectsInsecureTransportBeforeReadingBody(t *testing.T) {
+	srv, opKey := newServerWithMaster(t)
+	srv.WithSecretIngressPolicy(secretingress.NewPolicy(":8080", false))
+	body := &countingReader{}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", body)
+	req.Header.Set("Authorization", "Bearer "+opKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "203.0.113.5:1234"
+	req.Host = "mesh.example.com"
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUpgradeRequired {
+		t.Fatalf("status = %d, want 426", rec.Code)
+	}
+	if body.reads != 0 {
+		t.Fatalf("request body read %d time(s) before transport refusal", body.reads)
+	}
+}
+
+func TestImportCA_RejectsJSONSecretIngress(t *testing.T) {
+	srv, opKey := newServerWithMaster(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", strings.NewReader(`{"name":"existing","private_key_pem":"secret"}`))
+	req.Header.Set("Authorization", "Bearer "+opKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.TLS = &tls.ConnectionState{}
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestReadCAImportMultipart_FailsClosed(t *testing.T) {
+	tests := []struct {
+		name    string
+		fields  []multipartTestField
+		wantErr error
+	}{
+		{
+			name: "unknown field",
+			fields: []multipartTestField{
+				{name: "name", value: []byte("existing")},
+				{name: "certificate", value: []byte("certificate")},
+				{name: "private_key", value: []byte("private key")},
+				{name: "unexpected", value: []byte("value")},
+			},
+		},
+		{
+			name: "duplicate field",
+			fields: []multipartTestField{
+				{name: "name", value: []byte("existing")},
+				{name: "certificate", value: []byte("certificate")},
+				{name: "private_key", value: []byte("private key")},
+				{name: "private_key", value: []byte("second private key")},
+			},
+		},
+		{
+			name: "missing field",
+			fields: []multipartTestField{
+				{name: "name", value: []byte("existing")},
+				{name: "certificate", value: []byte("certificate")},
+			},
+		},
+		{
+			name: "oversized passphrase",
+			fields: []multipartTestField{
+				{name: "name", value: []byte("existing")},
+				{name: "certificate", value: []byte("certificate")},
+				{name: "private_key", value: []byte("private key")},
+				{name: "passphrase", value: bytes.Repeat([]byte{'x'}, (64<<10)+1)},
+			},
+			wantErr: caimport.ErrInputTooLarge,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			body, contentType := testMultipartBody(t, testCase.fields)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+			req.Header.Set("Content-Type", contentType)
+			request, err := readCAImportMultipart(req)
+			request.zeroizeSecrets()
+			if err == nil {
+				t.Fatal("expected malformed multipart input to fail")
+			}
+			if testCase.wantErr != nil && !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("error = %v, want %v", err, testCase.wantErr)
+			}
+		})
+	}
+}
+
+func TestImportCA_ZeroizesSecretBuffersAfterImporterReturns(t *testing.T) {
+	srv, opKey := newServerWithMaster(t)
+	importer := &recordingCAImporter{err: caimport.ErrInvalidMaterial}
+	srv.caImporter = importer
+	body, contentType := testMultipartBody(t, []multipartTestField{
+		{name: "name", value: []byte("existing")},
+		{name: "certificate", value: []byte("certificate")},
+		{name: "private_key", value: []byte("private key")},
+		{name: "passphrase", value: []byte("passphrase")},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+opKey)
+	req.Header.Set("Content-Type", contentType)
+	req.TLS = &tls.ConnectionState{}
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	for name, secret := range map[string][]byte{
+		"private key": importer.request.PrivateKeyPEM,
+		"passphrase":  importer.request.Passphrase,
+	} {
+		if !bytes.Equal(secret, make([]byte, len(secret))) {
+			t.Fatalf("%s buffer was not zeroized", name)
+		}
+	}
+}
+
+func TestImportCA_DuplicateAndAudit(t *testing.T) {
+	srv, opKey := newServerWithMaster(t)
+	body, contentType := testCAImportMultipart(t, "existing-mesh")
+	post := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+opKey)
+		req.Header.Set("Content-Type", contentType)
+		req.TLS = &tls.ConnectionState{}
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		return rec
+	}
+	first := post()
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first status = %d; body=%s", first.Code, first.Body.String())
+	}
+	second := post()
+	if second.Code != http.StatusConflict {
+		t.Fatalf("duplicate status = %d, want 409; body=%s", second.Code, second.Body.String())
+	}
+
+	entries, err := srv.store.ListAuditEntries(context.Background(), storeAuditFilter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Action != auditCAImported {
+			continue
+		}
+		if entry.Resource == "" || entry.Details == "" {
+			t.Fatalf("incomplete ca.imported audit row: %+v", entry)
+		}
+		if bytes.Contains([]byte(entry.Details), []byte("BEGIN")) || bytes.Contains([]byte(entry.Details), []byte("PRIVATE")) {
+			t.Fatalf("secret material leaked into audit details: %q", entry.Details)
+		}
+		return
+	}
+	t.Fatal("ca.imported audit entry not found")
+}
+
+func TestImportCA_ErrorMappingAndAuth(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{name: "duplicate", err: caimport.ErrDuplicateCA, wantStatus: http.StatusConflict},
+		{name: "KDF policy", err: caimport.ErrKDFLimits, wantStatus: http.StatusBadRequest},
+		{name: "decrypt busy", err: caimport.ErrDecryptBusy, wantStatus: http.StatusTooManyRequests},
+		{name: "input too large", err: caimport.ErrInputTooLarge, wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "bad material", err: caimport.ErrInvalidMaterial, wantStatus: http.StatusBadRequest},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			srv, opKey := newServerWithMaster(t)
+			srv.caImporter = failingCAImporter{err: testCase.err}
+			body, contentType := testCAImportMultipart(t, "existing-mesh")
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+opKey)
+			req.Header.Set("Content-Type", contentType)
+			req.TLS = &tls.ConnectionState{}
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+			if rec.Code != testCase.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, testCase.wantStatus, rec.Body.String())
+			}
+			if errors.Is(testCase.err, caimport.ErrDecryptBusy) && rec.Header().Get("Retry-After") == "" {
+				t.Fatal("busy response missing Retry-After")
+			}
+		})
+	}
+
+	srv, _ := newServerWithMaster(t)
+	body, contentType := testCAImportMultipart(t, "existing-mesh")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	req.TLS = &tls.ConnectionState{}
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d, want 401", rec.Code)
+	}
+
+	srv, _ = newTestServer(t)
+	srv.WithMaster(nil)
+	body, contentType = testCAImportMultipart(t, "existing-mesh")
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/cas/import", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	req.TLS = &tls.ConnectionState{}
+	authRequest(req)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("missing master status = %d, want 503", rec.Code)
+	}
+}
+
+type countingReader struct{ reads int }
+
+func (r *countingReader) Read(_ []byte) (int, error) {
+	r.reads++
+	return 0, io.EOF
+}
+
+type failingCAImporter struct{ err error }
+
+func (f failingCAImporter) Import(context.Context, caimport.Request) (*models.CA, error) {
+	return nil, f.err
+}
+
+type recordingCAImporter struct {
+	request caimport.Request
+	err     error
+}
+
+func (f *recordingCAImporter) Import(_ context.Context, request caimport.Request) (*models.CA, error) {
+	f.request = request
+	return nil, f.err
+}
+
+type multipartTestField struct {
+	name  string
+	value []byte
+}
+
+func testMultipartBody(t *testing.T, fields []multipartTestField) ([]byte, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for _, field := range fields {
+		part, err := writer.CreateFormField(field.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(field.value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return body.Bytes(), writer.FormDataContentType()
+}
+
+func testCAImportMultipart(t *testing.T, name string) ([]byte, string) {
+	t.Helper()
+	manager, err := pki.NewCA(name, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Wipe()
+	certificatePEM, err := manager.CACertPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKeyPEM := cert.MarshalSigningPrivateKeyToPEM(cert.Curve_CURVE25519, manager.RawKey())
+	return testMultipartBody(t, []multipartTestField{
+		{name: "name", value: []byte(name)},
+		{name: "certificate", value: certificatePEM},
+		{name: "private_key", value: privateKeyPEM},
+	})
+}
+
+func requireDecodeJSON(t *testing.T, body []byte, target any) {
+	t.Helper()
+	if err := json.Unmarshal(body, target); err != nil {
+		t.Fatal(err)
 	}
 }
 

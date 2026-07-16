@@ -12,7 +12,11 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
-const caColumns = `id, name, owner_operator_id, cert_pem, fingerprint, not_before, not_after, status, predecessor_id, encrypted_key_dek, nonce_dek, encrypted_key_material, nonce_key, created_at, updated_at`
+const (
+	caColumns                  = `id, name, owner_operator_id, cert_pem, fingerprint, not_before, not_after, status, predecessor_id, encrypted_key_dek, nonce_dek, encrypted_key_material, nonce_key, created_at, updated_at`
+	sqliteConstraintPrimaryKey = 1555
+	sqliteConstraintUnique     = 2067
+)
 
 func scanCA(scanner interface {
 	Scan(dest ...any) error
@@ -48,16 +52,30 @@ func (s *SQLiteStore) CreateCA(ctx context.Context, c *models.CA) error {
 	if c.UpdatedAt.IsZero() {
 		c.UpdatedAt = now
 	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO cas (`+caColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	result, err := s.db.ExecContext(ctx,
+		`INSERT INTO cas (`+caColumns+`)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		 WHERE NOT EXISTS (
+			SELECT 1 FROM mesh_imports
+			WHERE ca_id = COALESCE(?, '') AND status = ?
+		 )`,
 		c.ID, c.Name, c.OwnerOperatorID, c.CertPEM, c.Fingerprint,
 		c.NotBefore, c.NotAfter, c.Status, c.PredecessorID,
 		c.EncryptedKeyDEK, c.NonceDEK,
 		c.EncryptedKeyMaterial, c.NonceKey,
-		c.CreatedAt, c.UpdatedAt,
+		c.CreatedAt, c.UpdatedAt, c.PredecessorID, models.MeshImportStatusCollecting,
 	)
 	if err != nil {
+		var sqliteErr interface{ Code() int }
+		if errors.As(err, &sqliteErr) && (sqliteErr.Code() == sqliteConstraintUnique || sqliteErr.Code() == sqliteConstraintPrimaryKey) {
+			return fmt.Errorf("insert CA: %w", ErrDuplicateEntry)
+		}
 		return fmt.Errorf("insert CA: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("insert CA rows: %w", err)
+	} else if rows == 0 {
+		return ErrMeshImportInProgress
 	}
 	return nil
 }
@@ -172,7 +190,10 @@ func (s *SQLiteStore) FindCAByPredecessor(ctx context.Context, predecessorID str
 }
 
 func (s *SQLiteStore) UpdateCAStatus(ctx context.Context, id string, status models.CAStatus) error {
-	result, err := s.db.ExecContext(ctx, `UPDATE cas SET status=?, updated_at=? WHERE id=?`, status, time.Now(), id)
+	result, err := s.db.ExecContext(ctx, `UPDATE cas SET status=?, updated_at=?
+		WHERE id=? AND NOT EXISTS (
+			SELECT 1 FROM mesh_imports WHERE ca_id = ? AND status = ?
+		)`, status, time.Now(), id, id, models.MeshImportStatusCollecting)
 	if err != nil {
 		return fmt.Errorf("update CA status: %w", err)
 	}
@@ -181,6 +202,15 @@ func (s *SQLiteStore) UpdateCAStatus(ctx context.Context, id string, status mode
 		return fmt.Errorf("update CA status rows: %w", err)
 	}
 	if rows == 0 {
+		var collecting int
+		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(
+			SELECT 1 FROM mesh_imports WHERE ca_id = ? AND status = ?
+		)`, id, models.MeshImportStatusCollecting).Scan(&collecting); err != nil {
+			return fmt.Errorf("check CA mesh import: %w", err)
+		}
+		if collecting != 0 {
+			return ErrMeshImportInProgress
+		}
 		return ErrNotFound
 	}
 	return nil

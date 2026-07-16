@@ -24,15 +24,22 @@ webhooks:
 `url` is validated at startup (must be http/https; loopback/private/link-local
 targets are rejected unless `allow_private: true`).
 
-The config webhook is a single static target. For multiple endpoints, runtime
-management, and per-endpoint delivery status, use **managed subscriptions**
-below — both are delivered through the same bus.
+The config webhook is a single deployer-owned static target. It receives
+matching events from every CA on the server. For operator-scoped endpoints,
+runtime management, and per-endpoint delivery status, use **managed
+subscriptions** below. Both target types use the same delivery bus.
 
 ## Managed subscriptions
 
 Subscriptions are operator-owned rows managed through the REST API; they need no
 config and take effect immediately (no restart). Each is one delivery target
 with its own URL, event filter, signing secret, and delivery status.
+
+A managed subscription receives events only for CAs owned by the subscription's
+operator. Admin visibility of all subscription rows does not make an admin's
+own subscription global. Events with an empty or unknown internal CA scope are
+not delivered to managed subscriptions. Use the static config webhook when one
+deployer-controlled receiver must observe every CA.
 
 ```
 GET    /api/v1/webhook-subscriptions          # list (admin: all; operator: own)

@@ -62,8 +62,14 @@ const (
 	auditHostMobileBundleIssued    = "host.mobile_bundle.issued"
 	auditHostMobileBundleForbidden = "host.mobile_bundle.forbidden"
 	auditCACreated                 = "ca.created"
+	auditCAImported                = "ca.imported"
 	auditCADeleted                 = "ca.deleted"
 	auditCARotated                 = "ca.rotated"
+	auditMeshImportCreated         = "mesh_import.created"
+	auditMeshImportTokenRotated    = "mesh_import.token_rotated" // #nosec G101 -- audit event name, not a credential.
+	auditMeshImportCanceled        = "mesh_import.canceled"
+	auditMeshImportHostRegistered  = "mesh_import.host_registered"
+	auditMeshImportFinalized       = "mesh_import.finalized"
 	auditNetworkCreate             = "network.create"
 	auditNetworkFirewallUpdate     = "network.firewall.update"
 	auditOperatorCreate            = "operator.create"
@@ -195,7 +201,8 @@ func newMetrics(s store.Store) *metrics {
 	m.caSignatures.WithLabelValues(caIDFallback).Add(0)
 	for _, action := range []string{
 		auditHostCreate, auditHostDelete, auditHostUpdate, auditHostBlock, auditHostUnblock,
-		auditCACreated, auditCADeleted, auditCARotated,
+		auditCACreated, auditCAImported, auditCADeleted, auditCARotated,
+		auditMeshImportCreated, auditMeshImportTokenRotated, auditMeshImportCanceled, auditMeshImportHostRegistered, auditMeshImportFinalized,
 		auditNetworkCreate, auditNetworkFirewallUpdate,
 		auditOperatorCreate, auditOperatorDisable, auditOperatorEnable,
 		auditOperatorAPIKeyCreate, auditOperatorAPIKeyRevoke,

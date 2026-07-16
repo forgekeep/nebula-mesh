@@ -25,6 +25,20 @@ type AuditFilter struct {
 	Limit  int
 }
 
+type MeshImportFinalizeHost struct {
+	SnapshotID string
+	Host       models.Host
+}
+
+type MeshImportFinalizeInput struct {
+	ID           string
+	Revision     int64
+	Hosts        []MeshImportFinalizeHost
+	FirewallJSON string
+	Blocklist    []string
+	Now          time.Time
+}
+
 // Store defines the persistence interface for the management server.
 type Store interface {
 	// CAs
@@ -43,7 +57,7 @@ type Store interface {
 	GetWebhookSubscription(ctx context.Context, id string) (*models.WebhookSubscription, error)
 	ListWebhookSubscriptions(ctx context.Context) ([]*models.WebhookSubscription, error)
 	ListWebhookSubscriptionsByOwner(ctx context.Context, ownerID string) ([]*models.WebhookSubscription, error)
-	ListActiveWebhookSubscriptions(ctx context.Context) ([]*models.WebhookSubscription, error)
+	ListActiveWebhookSubscriptionsForCA(ctx context.Context, caID string) ([]*models.WebhookSubscription, error)
 	UpdateWebhookSubscription(ctx context.Context, sub *models.WebhookSubscription) error
 	DeleteWebhookSubscription(ctx context.Context, id string) error
 	RecordWebhookDelivery(ctx context.Context, id string, ok bool, errMsg string, at time.Time) error
@@ -53,6 +67,24 @@ type Store interface {
 	GetNetwork(ctx context.Context, id string) (*models.Network, error)
 	ListNetworks(ctx context.Context) ([]*models.Network, error)
 	UpdateNetwork(ctx context.Context, n *models.Network) error
+
+	// Existing mesh adoption.
+	CreateMeshImport(ctx context.Context, item *models.MeshImport) error
+	GetMeshImport(ctx context.Context, id string) (*models.MeshImport, error)
+	GetMeshImportByTokenHash(ctx context.Context, tokenHash string, now time.Time) (*models.MeshImport, error)
+	ListMeshImports(ctx context.Context) ([]*models.MeshImport, error)
+	ListMeshImportsByOwner(ctx context.Context, ownerID string) ([]*models.MeshImport, error)
+	RotateMeshImportToken(ctx context.Context, id, tokenHash string, expiresAt, now time.Time) error
+	CancelMeshImport(ctx context.Context, id, reason string, now time.Time) error
+	CreateMeshImportChallenge(ctx context.Context, challenge *models.MeshImportChallenge, now time.Time) error
+	GetMeshImportChallenge(ctx context.Context, id string) (*models.MeshImportChallenge, error)
+	RegisterImportedHost(ctx context.Context, registration *models.MeshImportRegistration, now time.Time) (*models.MeshImportRegistrationResult, error)
+	ListMeshImportSnapshots(ctx context.Context, meshImportID string) ([]*models.MeshImportSnapshot, error)
+	FinalizeMeshImport(ctx context.Context, input MeshImportFinalizeInput) error
+	GetHostAgentProfile(ctx context.Context, hostID string) (*models.HostAgentProfile, error)
+	SetPendingHostConfigVersion(ctx context.Context, hostID string, version int) error
+	AcknowledgeHostConfigVersion(ctx context.Context, hostID string, version int) error
+	GetMeshImportTombstone(ctx context.Context, fingerprint string) (*models.MeshImportTombstone, error)
 
 	// Hosts
 	CreateHost(ctx context.Context, h *models.Host) error
@@ -102,6 +134,7 @@ type Store interface {
 	SaveCertificate(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	SaveCertificateAndEnrollHost(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	ConsumeTokenAndEnrollHost(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
+	ConsumeTokenAndEnrollHostWithProfile(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time, signingPubPEM string, profile models.AgentProfile) (int, error)
 	SaveCertificateAndUpdateHostCert(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	GetCurrentCertificate(ctx context.Context, hostID string) ([]byte, error)
 	GetCertificateInfo(ctx context.Context, hostID string) (*models.CertificateInfo, error)

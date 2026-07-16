@@ -19,6 +19,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/slackhq/nebula/cert"
+	nebulaconfig "github.com/slackhq/nebula/config"
+
 	agentpop "github.com/forgekeep/nebula-mesh/internal/agent/pop"
 	"github.com/forgekeep/nebula-mesh/internal/fsutil"
 	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
@@ -30,7 +34,9 @@ type UpdatesResponse struct {
 	CertificatePEM  *string  `json:"certificate_pem,omitempty"`
 	CACertPEM       *string  `json:"ca_certificate_pem,omitempty"`
 	ConfigYAML      *string  `json:"config_yaml,omitempty"`
+	ConfigVersion   int      `json:"config_version,omitempty"`
 	Blocklist       []string `json:"blocklist"`
+	ImportPending   bool     `json:"import_pending,omitempty"`
 	RekeyRequired   bool     `json:"rekey_required,omitempty"`
 	EnrollmentToken string   `json:"enrollment_token,omitempty"`
 }
@@ -77,6 +83,21 @@ type RevocationError struct {
 	StatusCode int
 	Reason     string
 	Body       string
+}
+
+// PollHTTPError preserves a non-terminal poll status so bootstrap recovery can
+// distinguish an unknown signing identity (401) from transport ambiguity.
+type PollHTTPError struct {
+	StatusCode int
+	Body       string
+	ReadErr    error
+}
+
+func (e *PollHTTPError) Error() string {
+	if e.ReadErr != nil {
+		return fmt.Sprintf("poll failed (HTTP %d, body unreadable: %v)", e.StatusCode, e.ReadErr)
+	}
+	return fmt.Sprintf("poll failed (HTTP %d): %s", e.StatusCode, e.Body)
 }
 
 func (e *RevocationError) Error() string {
@@ -127,6 +148,10 @@ type PollerConfig struct {
 	// nebula_config_path so the daemon writes the config to the file Nebula
 	// actually reads, not always DataDir/config.yml (#224).
 	NebulaConfigPath string
+	NebulaCAPath     string
+	NebulaCertPath   string
+	NebulaKeyPath    string
+	ImportSessionID  string
 	// HTTPTimeout bounds a single poll request. Zero or negative falls back
 	// to defaultAgentHTTPTimeout.
 	HTTPTimeout time.Duration
@@ -272,14 +297,17 @@ func (p *Poller) poll(ctx context.Context) error {
 		if resp.StatusCode == http.StatusGone {
 			reason = "gone"
 		}
+		var signal struct {
+			Reason string `json:"reason"`
+		}
+		if json.Unmarshal(body, &signal) == nil && signal.Reason != "" {
+			reason = signal.Reason
+		}
 		return &RevocationError{StatusCode: resp.StatusCode, Reason: reason, Body: string(body)}
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			return fmt.Errorf("poll failed (HTTP %d, body unreadable: %w)", resp.StatusCode, readErr)
-		}
-		return fmt.Errorf("poll failed (HTTP %d): %s", resp.StatusCode, string(body))
+		return &PollHTTPError{StatusCode: resp.StatusCode, Body: string(body), ReadErr: readErr}
 	}
 
 	var updates UpdatesResponse
@@ -302,17 +330,37 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 
 	needsReload := false
+	var renewedFingerprint string
+	if updates.CertificatePEM != nil {
+		certificate, remainder, err := cert.UnmarshalCertificateFromPEM([]byte(*updates.CertificatePEM))
+		if err != nil || strings.TrimSpace(string(remainder)) != "" || certificate.IsCA() {
+			return fmt.Errorf("validate returned certificate: invalid host certificate")
+		}
+		renewedFingerprint, err = certificate.Fingerprint()
+		if err != nil {
+			return fmt.Errorf("fingerprint returned certificate: %w", err)
+		}
+	}
+	if updates.ConfigYAML != nil {
+		if err := p.validateCandidateConfig(*updates.ConfigYAML); err != nil {
+			return err
+		}
+		if err := p.ensureImportBackup(); err != nil {
+			return err
+		}
+	}
 
 	if updates.CertificatePEM != nil {
-		if err := fsutil.AtomicWriteFile(filepath.Join(p.config.DataDir, "host.crt"), []byte(*updates.CertificatePEM), 0o644); err != nil {
+		if err := fsutil.AtomicWriteFile(p.nebulaCertPath(), []byte(*updates.CertificatePEM), 0o644); err != nil {
 			return fmt.Errorf("write cert: %w", err)
 		}
+		p.config.Fingerprint = renewedFingerprint
 		p.logger.Info("certificate updated")
 		needsReload = true
 	}
 
 	if updates.CACertPEM != nil {
-		if err := fsutil.AtomicWriteFile(filepath.Join(p.config.DataDir, "ca.crt"), []byte(*updates.CACertPEM), 0o644); err != nil {
+		if err := fsutil.AtomicWriteFile(p.nebulaCAPath(), []byte(*updates.CACertPEM), 0o644); err != nil {
 			return fmt.Errorf("write CA cert: %w", err)
 		}
 		p.logger.Info("CA certificate updated")
@@ -327,14 +375,150 @@ func (p *Poller) poll(ctx context.Context) error {
 		needsReload = true
 	}
 
+	reloadDelivered := true
 	if needsReload {
 		if err := p.signalFunc(); err != nil {
 			p.logger.Warn("failed to signal nebula", "error", err)
+			if p.config.PIDFile != "" {
+				reloadDelivered = false
+			}
 		} else {
 			p.logger.Info("nebula reloaded")
 		}
 	}
+	if updates.ConfigYAML != nil && updates.ConfigVersion > 0 && reloadDelivered {
+		if err := p.acknowledgeConfig(ctx, updates.ConfigVersion); err != nil {
+			return fmt.Errorf("acknowledge config version %d: %w", updates.ConfigVersion, err)
+		}
+	}
 
+	return nil
+}
+
+func (p *Poller) acknowledgeConfig(ctx context.Context, version int) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		fmt.Sprintf("%s/api/v1/agent/config-ack/%d", p.config.ServerURL, version), http.NoBody)
+	if err != nil {
+		return fmt.Errorf("create config ack request: %w", err)
+	}
+	if err := p.signRequest(request); err != nil {
+		return fmt.Errorf("sign config ack request: %w", err)
+	}
+	response, err := p.httpClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("config ack request: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+		return fmt.Errorf("config ack failed (HTTP %d): %s", response.StatusCode, body)
+	}
+	return nil
+}
+
+func (p *Poller) validateCandidateConfig(raw string) error {
+	directory := filepath.Dir(p.nebulaConfigPath())
+	file, err := os.CreateTemp(directory, ".nebula-agent-candidate-")
+	if err != nil {
+		return fmt.Errorf("create candidate config: %w", err)
+	}
+	path := file.Name()
+	defer os.Remove(path)
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("secure candidate config: %w", err)
+	}
+	if _, err := file.WriteString(raw); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("write candidate config: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync candidate config: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close candidate config: %w", err)
+	}
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	configuration := nebulaconfig.NewC(logger)
+	if err := configuration.Load(path); err != nil {
+		return fmt.Errorf("validate candidate config: %w", err)
+	}
+	expected := map[string]string{
+		"pki.ca": p.nebulaCAPath(), "pki.cert": p.nebulaCertPath(), "pki.key": p.nebulaKeyPath(),
+	}
+	for key, want := range expected {
+		if got := configuration.GetString(key, ""); got != want {
+			return fmt.Errorf("validate candidate config: %s path %q does not match configured path %q", key, got, want)
+		}
+	}
+	return nil
+}
+
+func (p *Poller) ensureImportBackup() error {
+	if p.config.ImportSessionID == "" {
+		return nil
+	}
+	if p.config.ImportSessionID == "." || p.config.ImportSessionID == ".." ||
+		strings.ContainsAny(p.config.ImportSessionID, `/\\`) {
+		return fmt.Errorf("invalid import session id for backup")
+	}
+	sourcePath := p.nebulaConfigPath()
+	backupPath := sourcePath + ".pre-nebula-mesh." + p.config.ImportSessionID
+	if info, err := os.Lstat(backupPath); err == nil {
+		if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+			return fmt.Errorf("import backup destination must be a regular owner-only file: %s", backupPath)
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect import backup: %w", err)
+	}
+	sourceInfo, err := os.Lstat(sourcePath)
+	if err != nil {
+		return fmt.Errorf("inspect source config for backup: %w", err)
+	}
+	if !sourceInfo.Mode().IsRegular() {
+		return fmt.Errorf("source config for backup is not a regular file: %s", sourcePath)
+	}
+	source, err := os.Open(sourcePath) // #nosec G304 -- validated operator-configured regular file
+	if err != nil {
+		return fmt.Errorf("open source config for backup: %w", err)
+	}
+	defer source.Close()
+	backup, err := os.OpenFile(backupPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- deterministic validated destination
+	if err != nil {
+		return fmt.Errorf("create import backup: %w", err)
+	}
+	complete := false
+	defer func() {
+		_ = backup.Close()
+		if !complete {
+			_ = os.Remove(backupPath)
+		}
+	}()
+	if err := backup.Chmod(0o600); err != nil {
+		return fmt.Errorf("secure import backup: %w", err)
+	}
+	if _, err := io.Copy(backup, source); err != nil {
+		return fmt.Errorf("copy import backup: %w", err)
+	}
+	if err := backup.Sync(); err != nil {
+		return fmt.Errorf("sync import backup: %w", err)
+	}
+	if err := backup.Close(); err != nil {
+		return fmt.Errorf("close import backup: %w", err)
+	}
+	directory, err := os.Open(filepath.Dir(backupPath))
+	if err != nil {
+		return fmt.Errorf("open import backup directory: %w", err)
+	}
+	err = directory.Sync()
+	_ = directory.Close()
+	if err != nil {
+		return fmt.Errorf("sync import backup directory: %w", err)
+	}
+	complete = true
 	return nil
 }
 
@@ -373,6 +557,27 @@ func (p *Poller) nebulaConfigPath() string {
 		return p.config.NebulaConfigPath
 	}
 	return filepath.Join(p.config.DataDir, "config.yml")
+}
+
+func (p *Poller) nebulaCAPath() string {
+	if p.config.NebulaCAPath != "" {
+		return p.config.NebulaCAPath
+	}
+	return filepath.Join(p.config.DataDir, "ca.crt")
+}
+
+func (p *Poller) nebulaCertPath() string {
+	if p.config.NebulaCertPath != "" {
+		return p.config.NebulaCertPath
+	}
+	return filepath.Join(p.config.DataDir, "host.crt")
+}
+
+func (p *Poller) nebulaKeyPath() string {
+	if p.config.NebulaKeyPath != "" {
+		return p.config.NebulaKeyPath
+	}
+	return filepath.Join(p.config.DataDir, "host.key")
 }
 
 // signalNebulaFromPID reads the PID from file and sends SIGHUP to the nebula process.

@@ -48,6 +48,29 @@ func seedCA(t *testing.T, s *SQLiteStore, caID string) {
 	}
 }
 
+func TestCreateCA_MapsDuplicateFingerprint(t *testing.T) {
+	s := newTestStore(t)
+	seedCA(t, s, "ca-first")
+
+	err := s.CreateCA(context.Background(), &models.CA{
+		ID:                   "ca-second",
+		Name:                 "ca-second",
+		OwnerOperatorID:      "op-ca-first",
+		Fingerprint:          "fp-ca-first",
+		CertPEM:              "pem",
+		Status:               models.CAStatusActive,
+		NotBefore:            time.Now(),
+		NotAfter:             time.Now().Add(time.Hour),
+		EncryptedKeyDEK:      []byte{1},
+		NonceDEK:             []byte{1},
+		EncryptedKeyMaterial: []byte{1},
+		NonceKey:             []byte{1},
+	})
+	if !errors.Is(err, ErrDuplicateEntry) {
+		t.Fatalf("CreateCA duplicate fingerprint error = %v, want ErrDuplicateEntry", err)
+	}
+}
+
 func mustExecStore(t *testing.T, s *SQLiteStore, query string, args ...any) {
 	t.Helper()
 	if _, err := s.db.ExecContext(context.Background(), query, args...); err != nil {

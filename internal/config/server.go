@@ -25,6 +25,14 @@ type CAAutoRotateConfig struct {
 	Threshold float64       `yaml:"threshold,omitempty"`
 }
 
+// CAImportConfig bounds server-side Argon2 work for encrypted CA keys.
+// Zero values use the conservative defaults from internal/caimport.
+type CAImportConfig struct {
+	MaxArgon2MemoryKiB   uint32 `yaml:"max_argon2_memory_kib,omitempty"`
+	MaxArgon2Iterations  uint32 `yaml:"max_argon2_iterations,omitempty"`
+	MaxArgon2Parallelism uint8  `yaml:"max_argon2_parallelism,omitempty"`
+}
+
 type ServerConfig struct {
 	Listen     string      `yaml:"listen"`
 	DataDir    string      `yaml:"data_dir"`
@@ -41,6 +49,15 @@ type ServerConfig struct {
 	// unless this is set true (or the --insecure-http flag is passed). Keep
 	// it false in production — credentials would otherwise transit in the clear.
 	AllowInsecureHTTP bool `yaml:"allow_insecure_http,omitempty"`
+
+	// TrustedSecretIngressProxy allows a local TLS-terminating proxy to mark
+	// private-key import requests with X-Forwarded-Proto: https. The request
+	// policy additionally requires a loopback listener and peer and a public
+	// Host value. The proxy must overwrite, not append, the header.
+	TrustedSecretIngressProxy bool `yaml:"trusted_secret_ingress_proxy,omitempty"`
+
+	// CAImport sets resource caps for encrypted CA private-key import.
+	CAImport CAImportConfig `yaml:"ca_import,omitempty"`
 
 	// MasterKey is a base64-encoded 32-byte AES-256 key used to wrap
 	// per-CA DEKs in the cas table. May be supplied via the
@@ -490,6 +507,9 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 
 	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
 		return nil, fmt.Errorf("tls_cert and tls_key must both be set or both empty")
+	}
+	if cfg.TrustedSecretIngressProxy && !listenIsLoopback(cfg.Listen) {
+		return nil, fmt.Errorf("trusted_secret_ingress_proxy requires a loopback listen address, got %q", cfg.Listen)
 	}
 
 	if err := cfg.OIDC.Validate(); err != nil {

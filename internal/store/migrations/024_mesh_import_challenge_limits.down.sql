@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_mesh_import_challenges_active_fingerprint;
+DROP INDEX IF EXISTS idx_mesh_import_challenges_active_session;

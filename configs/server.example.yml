@@ -19,6 +19,20 @@ tls_key: ""
 # address. Leave false in production — credentials would transit in the clear.
 # allow_insecure_http: false
 
+# Private-key import has a stricter request-level transport policy than the
+# general HTTP listener. Direct TLS and literal-loopback HTTP are accepted.
+# Set this only when a TLS-terminating proxy connects to a loopback listener,
+# uses a public Host, and OVERWRITES X-Forwarded-Proto with exactly "https".
+# Appending or passing through a client-supplied header is unsafe.
+# trusted_secret_ingress_proxy: false
+
+# Server-side caps for passphrase-encrypted Nebula CA keys. Omitted values use
+# 256 MiB memory, 4 iterations and parallelism 4. CLI import decrypts locally.
+# ca_import:
+#   max_argon2_memory_kib: 262144
+#   max_argon2_iterations: 4
+#   max_argon2_parallelism: 4
+
 # Base64-encoded 32-byte AES-256 master key used to wrap per-CA data keys
 # in the cas table (ADR 0002). May also be supplied via the
 # NEBULA_MGMT_MASTER_KEY env var. Required for per-operator CAs; when
@@ -76,6 +90,7 @@ allow_self_registration: false
 #     ui:          { rate: 30, burst: 60 }   # all other /ui/* routes
 #     api:         { rate: 30, burst: 60 }   # bearer-authenticated /api/v1/*
 #     enroll:      { rate: 2,  burst: 5 }    # /api/v1/enroll
+#     agent_import: { rate: 2,  burst: 5 }    # /api/v1/agent/import, /api/v1/agent/import/challenge
 #     agent_poll:  { rate: 60, burst: 120 }  # /api/v1/agent/updates
 
 # Password policy (issue #48). Defaults: min 10 chars, 3-of-4 character

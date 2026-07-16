@@ -124,6 +124,10 @@ func (s *Server) handleUpdateFirewall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.SetNetworkConfigAndBumpVersion(r.Context(), networkID, "firewall", string(rulesJSON)); err != nil {
+		if errors.Is(err, store.ErrMeshImportInProgress) {
+			writeError(w, http.StatusConflict, "mesh import collection is in progress for this network")
+			return
+		}
 		s.logger.Error("set firewall rules", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to update firewall rules")
 		return

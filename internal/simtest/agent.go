@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
 
 	agentpop "github.com/forgekeep/nebula-mesh/internal/agent/pop"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
 )
 
@@ -33,8 +35,10 @@ type Agent struct {
 type PollResponse struct {
 	Status         int
 	Reason         string   `json:"reason"` // set on 403/410 revocation bodies
+	ImportPending  bool     `json:"import_pending"`
 	HasUpdates     bool     `json:"has_updates"`
 	ConfigYAML     *string  `json:"config_yaml"`
+	ConfigVersion  int      `json:"config_version"`
 	CertificatePEM *string  `json:"certificate_pem"`
 	RekeyRequired  bool     `json:"rekey_required"`
 	Blocklist      []string `json:"blocklist"`
@@ -66,6 +70,15 @@ func (h *Harness) CreateHost(networkID, name, role, nebulaIP string) (hostID, to
 
 // Enroll creates and enrolls a regular host, returning a ready-to-poll Agent.
 func (h *Harness) Enroll(networkID, name, nebulaIP string) *Agent {
+	return h.enrollWithCapabilities(networkID, name, nebulaIP, false)
+}
+
+// EnrollAckCapable enrolls an agent that uses signed config delivery acks.
+func (h *Harness) EnrollAckCapable(networkID, name, nebulaIP string) *Agent {
+	return h.enrollWithCapabilities(networkID, name, nebulaIP, true)
+}
+
+func (h *Harness) enrollWithCapabilities(networkID, name, nebulaIP string, configAckV1 bool) *Agent {
 	h.tb.Helper()
 	hostID, token := h.CreateHost(networkID, name, "", nebulaIP)
 
@@ -89,11 +102,17 @@ func (h *Harness) Enroll(networkID, name, nebulaIP string) *Agent {
 	var enrollOut struct {
 		CertificatePEM string `json:"certificate_pem"`
 	}
-	if code := h.API(http.MethodPost, "/api/v1/enroll", map[string]string{
+	enrollRequest := map[string]any{
 		"token":                  token,
 		"public_key_pem":         string(pubPEM),
 		"signing_public_key_pem": string(signPubPEM),
-	}, &enrollOut); code != http.StatusOK {
+	}
+	if configAckV1 {
+		profile := models.DefaultAgentProfile()
+		profile.ConfigAckV1 = true
+		enrollRequest["profile"] = profile
+	}
+	if code := h.API(http.MethodPost, "/api/v1/enroll", enrollRequest, &enrollOut); code != http.StatusOK {
 		h.tb.Fatalf("enroll %q: HTTP %d", name, code)
 	}
 
@@ -108,6 +127,38 @@ func (h *Harness) Enroll(networkID, name, nebulaIP string) *Agent {
 
 	h.Journal.Add(Event{Actor: name, Action: "enroll", Target: hostID})
 	return &Agent{HostID: hostID, Name: name, Fingerprint: fp, signingPriv: signPriv}
+}
+
+// AckConfig sends the signed config delivery acknowledgement and returns its
+// HTTP status so convergence tests can simulate lost responses and retries.
+func (a *Agent) AckConfig(h *Harness, version int) int {
+	h.tb.Helper()
+	path := "/api/v1/agent/config-ack/" + strconv.Itoa(version)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, h.Server.URL+path, http.NoBody)
+	if err != nil {
+		h.tb.Fatalf("new config ack for %q: %v", a.Name, err)
+	}
+	ts := h.now().UTC().Format(time.RFC3339)
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		h.tb.Fatalf("config ack nonce: %v", err)
+	}
+	nonce := base64.StdEncoding.EncodeToString(nonceBytes)
+	canonical := corepop.CanonicalString(req.Method, req.URL.Path, req.URL.Host, ts, nonce)
+	signature, err := agentpop.Sign(a.signingPriv, canonical)
+	if err != nil {
+		h.tb.Fatalf("sign config ack for %q: %v", a.Name, err)
+	}
+	req.Header.Set(corepop.HeaderFingerprint, a.Fingerprint)
+	req.Header.Set(corepop.HeaderTimestamp, ts)
+	req.Header.Set(corepop.HeaderNonce, nonce)
+	req.Header.Set(corepop.HeaderSignature, agentpop.EncodeSignature(signature))
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.tb.Fatalf("do config ack for %q: %v", a.Name, err)
+	}
+	_ = response.Body.Close()
+	return response.StatusCode
 }
 
 // Poll performs one signed GET /api/v1/agent/updates, the real ADR 0004 poll.

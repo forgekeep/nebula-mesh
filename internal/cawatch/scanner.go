@@ -49,6 +49,10 @@ func (s *Scanner) Run(ctx context.Context) error {
 
 		_, rerr := pki.RotateAndStoreCA(ctx, s.Store, s.Master, s.logger(), ca)
 		if rerr != nil {
+			if errors.Is(rerr, store.ErrMeshImportInProgress) {
+				s.logger().Info("skip auto-rotate ca during mesh import", "id", ca.ID, "name", ca.Name)
+				continue
+			}
 			s.logger().Error("auto-rotate ca", "id", ca.ID, "name", ca.Name, "error", rerr)
 			// Continue loop — don't block on single failure
 			continue

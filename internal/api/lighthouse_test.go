@@ -161,6 +161,43 @@ func TestRenderHostConfig_EmitsAllEnrolledLighthouses(t *testing.T) {
 	}
 }
 
+func TestGetRelaysAndRenderHostConfigUseOnlyEnrolledRelayAddresses(t *testing.T) {
+	srv, st := newTestServer(t)
+	netID := createNetwork(t, srv)
+	ctx := context.Background()
+	now := time.Now()
+	for _, host := range []*models.Host{
+		{ID: "relay-b", NetworkID: netID, Name: "relay-b", NebulaIPs: []string{"192.168.100.30", "fd00::30"}, Role: models.HostRoleRelay, IsRelay: true, PublicIP: "203.0.113.30", ListenPort: 4242, Status: models.HostStatusEnrolled, CreatedAt: now, UpdatedAt: now},
+		{ID: "relay-a", NetworkID: netID, Name: "relay-a", NebulaIPs: []string{"192.168.100.20"}, Role: models.HostRoleRelay, IsRelay: true, PublicIP: "203.0.113.20", ListenPort: 4242, Status: models.HostStatusEnrolled, CreatedAt: now, UpdatedAt: now},
+		{ID: "relay-pending", NetworkID: netID, Name: "relay-pending", NebulaIPs: []string{"192.168.100.40"}, Role: models.HostRoleRelay, IsRelay: true, PublicIP: "203.0.113.40", ListenPort: 4242, Status: models.HostStatusPending, CreatedAt: now, UpdatedAt: now},
+	} {
+		if err := st.CreateHost(ctx, host); err != nil {
+			t.Fatal(err)
+		}
+	}
+	relays, err := srv.getRelays(ctx, netID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"192.168.100.20", "192.168.100.30", "fd00::30"}
+	if strings.Join(relays, ",") != strings.Join(want, ",") {
+		t.Fatalf("relays = %#v, want %#v", relays, want)
+	}
+	peer := &models.Host{ID: "relay-peer", NetworkID: netID, Name: "peer", NebulaIPs: []string{"192.168.100.50"}, Role: models.HostRoleHost, Status: models.HostStatusEnrolled, CreatedAt: now, UpdatedAt: now}
+	if err := st.CreateHost(ctx, peer); err != nil {
+		t.Fatal(err)
+	}
+	config, err := srv.renderHostConfig(ctx, peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, relay := range want {
+		if !strings.Contains(string(config), relay) {
+			t.Fatalf("rendered config missing relay %q:\n%s", relay, config)
+		}
+	}
+}
+
 // Task 2.4 tests: renderHostConfig with multi-address + family-match validation
 
 func TestRenderHostConfig_PassesAllAddresses(t *testing.T) {

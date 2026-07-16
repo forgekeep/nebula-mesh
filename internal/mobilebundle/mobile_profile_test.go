@@ -102,6 +102,43 @@ func TestBuild_SEC_PERSIST_001InvalidSettingsDoNotEnrollOrRotateCertificate(t *t
 	})
 }
 
+// SEC-PERSIST-001: blocking a Host after bundle generation starts must win
+// atomically over the final certificate persistence step.
+func TestBuild_SEC_PERSIST_001ConcurrentBlockCannotBeUndone(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, resolver, _, host := newMobileFixture(t, "concurrent-block")
+	paused := &pauseBeforeBlocklistStore{
+		Store:   s,
+		reached: make(chan struct{}),
+		resume:  make(chan struct{}),
+	}
+	type buildResult struct {
+		bundle []byte
+		err    error
+	}
+	resultCh := make(chan buildResult, 1)
+	go func() {
+		bundle, err := Build(ctx, paused, resolver, host)
+		resultCh <- buildResult{bundle: bundle, err: err}
+	}()
+
+	<-paused.reached
+	_, err := s.BlockHostAndAddToBlocklist(ctx, host.ID, "concurrent block")
+	require.NoError(t, err)
+	close(paused.resume)
+
+	result := <-resultCh
+	require.Error(t, result.err)
+	assert.Nil(t, result.bundle)
+	stored, err := s.GetHost(ctx, host.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.HostStatusBlocked, stored.Status)
+	_, err = s.GetCertificateInfo(ctx, host.ID)
+	require.ErrorIs(t, err, store.ErrNotFound)
+}
+
 func TestListLighthousesFormatsIPv6PublicAddress(t *testing.T) {
 	t.Parallel()
 
@@ -154,4 +191,16 @@ func loadBundle(t *testing.T, bundle []byte) *nebcfg.C {
 	var c nebcfg.C
 	require.NoError(t, c.LoadString(string(bundle)))
 	return &c
+}
+
+type pauseBeforeBlocklistStore struct {
+	store.Store
+	reached chan struct{}
+	resume  chan struct{}
+}
+
+func (s *pauseBeforeBlocklistStore) GetBlocklistForCA(ctx context.Context, caID string) ([]string, error) {
+	close(s.reached)
+	<-s.resume
+	return s.Store.GetBlocklistForCA(ctx, caID)
 }

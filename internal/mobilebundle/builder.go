@@ -176,14 +176,10 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 	// Persist only after every fallible bundle-generation step succeeds. The
 	// private key exists only in configYAML, so an earlier durable write could
 	// leave the host enrolled with a certificate it can never use.
-	if host.Status == models.HostStatusPending {
-		if err := s.SaveCertificateAndEnrollHost(ctx, host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
-			return nil, fmt.Errorf("save certificate: %w", err)
-		}
-	} else {
-		if err := s.SaveCertificateAndUpdateHostCert(ctx, host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
-			return nil, fmt.Errorf("rotate certificate: %w", err)
-		}
+	if err := s.SaveCertificateIfIssuanceAllowed(
+		ctx, host.ID, host.Status, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter(),
+	); err != nil {
+		return nil, fmt.Errorf("persist authorized certificate: %w", err)
 	}
 
 	// TODO: Bundle into QR code or download format

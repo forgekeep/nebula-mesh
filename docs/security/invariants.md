@@ -195,8 +195,8 @@ leave a weaker or partially applied security state.
 - Every certificate-signing path re-checks blocked Host and disabled owning
   Operator state from the store.
 - Mobile bundle generation reads the durable CA blocklist and current enrolled
-  relay inventory. It persists a newly issued certificate only after the full
-  bundle has been generated successfully.
+  relay inventory. After the full bundle has been generated, it atomically
+  re-checks the durable Host and owner status while persisting the certificate.
 - Migration tests exercise upgrade, repeated migrate, rollback, and foreign-key
   enforcement.
 
@@ -209,7 +209,10 @@ leave a weaker or partially applied security state.
   prevent enrollment, renewal, re-enrollment, and mobile bundle issuance.
 - `internal/mobilebundle/mobile_profile_test.go`:
   `TestBuild_SEC_PERSIST_001IncludesCurrentBlocklistAndEnrolledRelays` and
-  `TestBuild_SEC_PERSIST_001InvalidSettingsDoNotEnrollOrRotateCertificate`.
+  `TestBuild_SEC_PERSIST_001InvalidSettingsDoNotEnrollOrRotateCertificate`, and
+  `TestBuild_SEC_PERSIST_001ConcurrentBlockCannotBeUndone`.
+- `internal/store/sqlite_mobile_certificate_test.go`: the certificate write
+  rejects blocked Hosts and disabled owners.
 - `internal/store/sqlite_enroll_token_test.go`:
   `TestConsumeTokenAndEnrollHost_NoBurnOnEnrollFailure`.
 - `internal/store/migration_023_test.go`, `migration_024_test.go`, and

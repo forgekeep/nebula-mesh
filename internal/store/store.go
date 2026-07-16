@@ -133,6 +133,7 @@ type Store interface {
 	// Certificates
 	SaveCertificate(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	SaveCertificateAndEnrollHost(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
+	SaveCertificateIfIssuanceAllowed(ctx context.Context, hostID string, expectedStatus models.HostStatus, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	ConsumeTokenAndEnrollHost(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	ConsumeTokenAndEnrollHostWithProfile(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time, signingPubPEM string, profile models.AgentProfile) (int, error)
 	SaveCertificateAndUpdateHostCert(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error

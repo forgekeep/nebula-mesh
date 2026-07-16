@@ -40,6 +40,7 @@ var (
 	ErrConfigAckUnsupported           = errors.New("config acknowledgement is not supported by this host")
 	ErrConfigVersionMismatch          = errors.New("config acknowledgement version does not match pending delivery")
 	ErrHostNotEnrolled                = errors.New("host is not enrolled")
+	ErrIssuanceNotAllowed             = errors.New("certificate issuance is not allowed")
 	ErrMeshImportExpectedHostsReached = errors.New("mesh import expected host count reached")
 	ErrMeshImportScopeInvalid         = errors.New("mesh import scope is invalid")
 	ErrMeshImportConflict             = errors.New("mesh import changed since preview")
@@ -1817,6 +1818,59 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(ctx context.Context, hostID s
 	return nil
 }
 
+// SaveCertificateIfIssuanceAllowed atomically re-checks durable Host and owner
+// state and persists a mobile certificate only when both still authorize the
+// transition. expectedStatus prevents a stale builder from changing a Host
+// whose lifecycle state changed while the bundle was being rendered.
+func (s *SQLiteStore) SaveCertificateIfIssuanceAllowed(
+	ctx context.Context, hostID string, expectedStatus models.HostStatus,
+	certPEM []byte, fp string, notBefore, notAfter time.Time,
+) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	var hostStatus models.HostStatus
+	var ownerStatus models.OperatorStatus
+	err = tx.QueryRowContext(ctx, `
+		SELECT h.status, o.status
+		FROM hosts h
+		JOIN cas c ON c.id = h.ca_id
+		JOIN operators o ON o.id = c.owner_operator_id
+		WHERE h.id = ?`, hostID,
+	).Scan(&hostStatus, &ownerStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("get issuance state: %w", err)
+	}
+	if hostStatus != expectedStatus ||
+		(expectedStatus != models.HostStatusPending && expectedStatus != models.HostStatusEnrolled) ||
+		ownerStatus != models.OperatorStatusActive {
+		return ErrIssuanceNotAllowed
+	}
+
+	if expectedStatus == models.HostStatusPending {
+		err = s.enrollHostInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter)
+	} else {
+		err = s.updateHostCertificateInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter)
+	}
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit authorized certificate: %w", err)
+	}
+	return nil
+}
+
 // enrollHostInTx saves a freshly-signed certificate and flips the host to
 // enrolled within an existing transaction. If the host has role=lighthouse, the
 // network's config_version is bumped so peer agents pick up the new lighthouse
@@ -1994,6 +2048,20 @@ func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(ctx context.Context, host
 		}
 	}()
 
+	if err := s.updateHostCertificateInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit update host cert: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) updateHostCertificateInTx(
+	ctx context.Context, tx *sql.Tx, hostID string,
+	certPEM []byte, fp string, notBefore, notAfter time.Time,
+) error {
 	if err := s.saveCertificateInTx(ctx, tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
 		return err
 	}
@@ -2028,10 +2096,6 @@ func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(ctx context.Context, host
 	}
 	if rows == 0 {
 		return ErrNotFound
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit update host cert: %w", err)
 	}
 	return nil
 }

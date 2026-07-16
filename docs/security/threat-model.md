@@ -122,7 +122,7 @@ Trust zones, from least to most trusted:
   multipart parsing for cryptographic secret ingress; body caps and length
   bounds on cert-embedded fields (#186, #195; `SEC-SECRET-001`).
 - **Tenant isolation**: lifecycle events carry a non-serialized CA scope. Managed webhook targets are selected only from subscriptions owned by that CA's operator; empty or unknown scope selects none. The static config target is explicitly deployer-wide.
-- **Mobile bundles**: generation uses the current CA blocklist and enrolled relay inventory, applies the per-Network private-remote policy, and commits a newly issued certificate only after every bundle input and the rendered config succeed.
+- **Mobile bundles**: generation uses the current CA blocklist and enrolled relay inventory, applies the per-Network private-remote policy, and commits a newly issued certificate only after every bundle input and the rendered config succeed. The final certificate write atomically re-checks durable Host and owner status so concurrent revocation wins.
 - **Tooling baseline**: `golangci-lint` (pinned), standalone `gosec`, and `govulncheck` gate every PR, plus ADR-0009 generative fuzzing in CI.
 
 ## 6. Residual risks & accepted trade-offs

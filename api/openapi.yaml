@@ -171,7 +171,17 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
         "409":
-          $ref: "#/components/responses/Error"
+          description: Challenge replay returns `import_challenge_used`; other conflicts return `agent_import_conflict`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: A different snapshot for an already imported certificate returns `import_payload_conflict`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "410":
           $ref: "#/components/responses/Error"
         "413":

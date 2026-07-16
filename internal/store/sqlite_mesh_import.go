@@ -877,7 +877,7 @@ func (s *SQLiteStore) AcknowledgeHostConfigVersion(ctx context.Context, hostID s
 	} else if err != nil {
 		return fmt.Errorf("load config ack state: %w", err)
 	}
-	if status != models.HostStatusEnrolled {
+	if status != models.HostStatusEnrolled && status != models.HostStatusPending {
 		return ErrHostNotEnrolled
 	}
 	if !capable {

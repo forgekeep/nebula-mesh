@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -80,7 +81,7 @@ func TestImportExistingRecoversCommittedRegistrationAfterLostResponse(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Created || result.Status != "importing" || result.Fingerprint == "" || server.finalCalls != 1 || server.pollCalls != 1 {
+	if result.Created || result.Status != "importing" || result.Fingerprint == "" || server.finalCalls != 2 || server.pollCalls != 1 {
 		t.Fatalf("recovered result=%#v final_calls=%d poll_calls=%d", result, server.finalCalls, server.pollCalls)
 	}
 }
@@ -98,11 +99,34 @@ func TestImportExistingRetriesExactFinalOnlyAfterUnauthorizedPoll(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Created || server.finalCalls != 2 || server.pollCalls != 1 {
+	if !result.Created || server.finalCalls != 2 || server.pollCalls != 0 {
 		t.Fatalf("result=%#v final_calls=%d poll_calls=%d", result, server.finalCalls, server.pollCalls)
 	}
 	if len(server.finalBodies) != 2 || server.finalBodies[0] != server.finalBodies[1] {
 		t.Fatal("retry did not reuse the exact challenge proof payload")
+	}
+}
+
+func TestImportExistingDoesNotConfirmExplicitConflict(t *testing.T) {
+	for _, conflict := range []string{"agent_import_conflict", "import_challenge_used"} {
+		t.Run(conflict, func(t *testing.T) {
+			fixture := newDiscoveryFixture(t)
+			fixture.writeDefaultConfig(t)
+			server := newAgentImportMock(t)
+			server.registrationLive = true
+			server.finalConflict = conflict
+			discovery, err := DiscoverExisting(fixture.configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = ImportExisting(t.Context(), server.URL, "nmi_test-token", filepath.Join(t.TempDir(), "host.signing.key"), discovery)
+			if err == nil {
+				t.Fatal("ImportExisting succeeded for explicit conflict")
+			}
+			if server.finalCalls != 1 || server.pollCalls != 0 {
+				t.Fatalf("final_calls=%d poll_calls=%d, want 1/0", server.finalCalls, server.pollCalls)
+			}
+		})
 	}
 }
 
@@ -116,6 +140,7 @@ type agentImportMock struct {
 	loseFirstFinal    bool
 	commitLostFinal   bool
 	registrationLive  bool
+	finalConflict     string
 	finalCalls        int
 	finalBodies       []string
 	pollCalls         int
@@ -134,15 +159,13 @@ func newAgentImportMock(t *testing.T) *agentImportMock {
 			} `json:"snapshot"`
 			Proof string `json:"proof"`
 		}
-		if request.Method == http.MethodPost {
+		switch request.URL.Path {
+		case "/api/v1/agent/import/challenge":
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
-				t.Errorf("decode import request: %v", err)
+				t.Errorf("decode import challenge: %v", err)
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-		}
-		switch request.URL.Path {
-		case "/api/v1/agent/import/challenge":
 			hostCertificate, _, err := cert.UnmarshalCertificateFromPEM([]byte(body.Snapshot.CertificatePEM))
 			if err != nil {
 				t.Errorf("parse host cert: %v", err)
@@ -176,8 +199,18 @@ func newAgentImportMock(t *testing.T) *agentImportMock {
 			})
 		case "/api/v1/agent/import":
 			mock.finalCalls++
-			encodedBody, _ := json.Marshal(body)
-			mock.finalBodies = append(mock.finalBodies, string(encodedBody))
+			rawBody, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			mock.finalBodies = append(mock.finalBodies, string(rawBody))
+			if err := json.Unmarshal(rawBody, &body); err != nil {
+				t.Errorf("decode import request: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			proof, err := base64.RawURLEncoding.DecodeString(body.Proof)
 			if err != nil || len(proof) != sha256.Size || !importproof.VerifyHash(mock.expectedProofHash, proof) || body.PayloadHash != mock.payloadHash {
 				mock.proofFailures++
@@ -192,7 +225,12 @@ func newAgentImportMock(t *testing.T) *agentImportMock {
 			}
 			if mock.commitLostFinal && mock.registrationLive {
 				w.WriteHeader(http.StatusConflict)
-				_, _ = w.Write([]byte(`{"error":"agent_import_conflict"}`))
+				_, _ = w.Write([]byte(`{"error":"import_challenge_used"}`))
+				return
+			}
+			if mock.finalConflict != "" {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"error":"` + mock.finalConflict + `"}`))
 				return
 			}
 			mock.registrationLive = true

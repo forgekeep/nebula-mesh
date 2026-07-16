@@ -111,33 +111,30 @@ func ImportExisting(
 	defer clear(proof)
 	payload["challenge_id"] = challenge.ChallengeID
 	payload["proof"] = base64.RawURLEncoding.EncodeToString(proof)
+	finalPayload, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal final import request: %w", err)
+	}
 	var result ImportResult
-	if err := postImportJSON(ctx, client, serverURL+"/api/v1/agent/import", payload, 0, &result); err != nil {
+	initialErr := postImportBytes(ctx, client, serverURL+"/api/v1/agent/import", finalPayload, 0, &result)
+	if initialErr != nil {
 		var responseError *importHTTPError
-		if errors.As(err, &responseError) && responseError.Status != http.StatusConflict {
-			return nil, fmt.Errorf("register existing host: %w", err)
-		}
-		// The server may have committed registration while the response was
-		// lost. A signed poll with the stable key confirms that state without
-		// consuming the challenge again.
-		confirmErr := confirmImportedRegistration(ctx, serverURL, signingKeyPath, fingerprint, discovery)
-		if confirmErr == nil {
-			return recoveredImportResult(fingerprint, challenge.SessionID), nil
-		}
-		var pollError *PollHTTPError
-		if !errors.As(confirmErr, &pollError) || pollError.StatusCode != http.StatusUnauthorized {
-			return nil, fmt.Errorf("register existing host: %w; confirmation poll: %w", err, confirmErr)
+		if errors.As(initialErr, &responseError) {
+			return nil, fmt.Errorf("register existing host: %w", initialErr)
 		}
 		if !challenge.ExpiresAt.IsZero() && !time.Now().Before(challenge.ExpiresAt) {
-			return nil, fmt.Errorf("register existing host: %w; import challenge expired before retry", err)
+			return nil, fmt.Errorf("register existing host: %w; import challenge expired before retry", initialErr)
 		}
-		// A 401 means this signing identity is not registered. Only now retry
-		// the exact payload, while the server-provided challenge is still live.
-		if retryErr := postImportJSON(ctx, client, serverURL+"/api/v1/agent/import", payload, 0, &result); retryErr != nil {
-			if finalConfirmErr := confirmImportedRegistration(ctx, serverURL, signingKeyPath, fingerprint, discovery); finalConfirmErr == nil {
-				return recoveredImportResult(fingerprint, challenge.SessionID), nil
+		retryErr := postImportBytes(ctx, client, serverURL+"/api/v1/agent/import", finalPayload, 0, &result)
+		if retryErr != nil {
+			if isImportChallengeUsed(retryErr) {
+				confirmErr := confirmImportedRegistration(ctx, serverURL, signingKeyPath, fingerprint, discovery)
+				if confirmErr == nil {
+					return recoveredImportResult(fingerprint, challenge.SessionID), nil
+				}
+				return nil, fmt.Errorf("register existing host: %w; confirmation poll: %w", initialErr, confirmErr)
 			}
-			return nil, fmt.Errorf("register existing host retry: %w", retryErr)
+			return nil, fmt.Errorf("register existing host: %w; retry: %w", initialErr, retryErr)
 		}
 	}
 	if result.HostID == "" || result.Fingerprint == "" || result.Status == "" {
@@ -177,6 +174,10 @@ func postImportJSON(ctx context.Context, client *http.Client, url string, body a
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
+	return postImportBytes(ctx, client, url, encoded, wantStatus, output)
+}
+
+func postImportBytes(ctx context.Context, client *http.Client, url string, encoded []byte, wantStatus int, output any) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
@@ -199,6 +200,17 @@ func postImportJSON(ctx context.Context, client *http.Client, url string, body a
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
+}
+
+func isImportChallengeUsed(err error) bool {
+	var responseError *importHTTPError
+	if !errors.As(err, &responseError) || responseError.Status != http.StatusConflict {
+		return false
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	return json.Unmarshal([]byte(responseError.Body), &body) == nil && body.Error == "import_challenge_used"
 }
 
 func loadOrCreateSigningKey(path string) (ed25519.PrivateKey, error) {

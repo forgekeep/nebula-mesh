@@ -78,6 +78,83 @@ func TestConfigAckCapablePollAdvancesOnlyAfterSignedAck(t *testing.T) {
 	}
 }
 
+func TestPendingConfigAckAfterUnblockConverges(t *testing.T) {
+	srv, st := newTestServer(t)
+	agentIdentity := enrolledFixture(t, srv)
+	host, err := st.GetHost(t.Context(), agentIdentity.hostID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec(`UPDATE host_agent_profiles SET config_ack_v1 = 1 WHERE host_id = ?`, host.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BlockHostAndAddToBlocklist(t.Context(), host.ID, "test block"); err != nil {
+		t.Fatal(err)
+	}
+	unblocked, err := st.UnblockHostAndRemoveFromBlocklist(t.Context(), host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unblocked.Status != "pending" {
+		t.Fatalf("unblocked status = %q, want pending", unblocked.Status)
+	}
+
+	poll := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
+	signPoll(t, poll, agentIdentity)
+	recorder := httptest.NewRecorder()
+	srv.ServeHTTP(recorder, poll)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("poll: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var updates agentUpdatesResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&updates); err != nil {
+		t.Fatal(err)
+	}
+	if updates.ConfigYAML == nil || updates.ConfigVersion == 0 {
+		t.Fatalf("updates = %#v, want pending config", updates)
+	}
+
+	ack := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/agent/config-ack/%d", updates.ConfigVersion), nil)
+	signPoll(t, ack, agentIdentity)
+	recorder = httptest.NewRecorder()
+	srv.ServeHTTP(recorder, ack)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("ack: %d %s", recorder.Code, recorder.Body.String())
+	}
+	acknowledged, err := st.GetHost(t.Context(), host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acknowledged.Status != "pending" {
+		t.Fatalf("acknowledged status = %q, want pending", acknowledged.Status)
+	}
+	if applied, err := st.GetHostConfigVersion(t.Context(), host.ID); err != nil || applied != updates.ConfigVersion {
+		t.Fatalf("applied version = %d, %v; want %d", applied, err, updates.ConfigVersion)
+	}
+	profile, err := st.GetHostAgentProfile(t.Context(), host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.PendingConfigVersion != 0 {
+		t.Fatalf("pending version = %d, want 0", profile.PendingConfigVersion)
+	}
+
+	followUpPoll := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)
+	signPoll(t, followUpPoll, agentIdentity)
+	recorder = httptest.NewRecorder()
+	srv.ServeHTTP(recorder, followUpPoll)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("follow-up poll: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var followUp agentUpdatesResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&followUp); err != nil {
+		t.Fatal(err)
+	}
+	if followUp.ConfigYAML != nil {
+		t.Fatalf("follow-up updates = %#v, want no config", followUp)
+	}
+}
+
 func TestConfigAckRejectsUnsignedFutureAndImporting(t *testing.T) {
 	srv, st := newTestServer(t)
 	agentIdentity := enrolledFixture(t, srv)

@@ -38,7 +38,7 @@ func (s *Server) handleAgentConfigAck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "host_revoked")
 		return
 	}
-	if host.Status != models.HostStatusEnrolled {
+	if host.Status != models.HostStatusEnrolled && host.Status != models.HostStatusPending {
 		writeError(w, http.StatusConflict, "host_not_enrolled")
 		return
 	}

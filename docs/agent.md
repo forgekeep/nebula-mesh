@@ -509,6 +509,12 @@ certificate and Ed25519 signing key. A prefix/state mismatch, expired or rotated
 token, different signing key, duplicate overlay address, or completed session
 returns an error instead of creating another identity.
 
+The agent retries the final proof request once only when its accepted response
+cannot be decoded or a transport error makes the outcome ambiguous. It reuses
+the exact request bytes. An explicit response is never recovered through a poll:
+`409 import_challenge_used` is recoverable only on that retry, while
+`422 import_payload_conflict` and `409 agent_import_conflict` are errors.
+
 The server allows two outstanding proof challenges per host certificate. A
 `429 Too Many Requests` response leaves both existing challenges valid; wait
 for the `Retry-After` interval and run the same command again. The session also

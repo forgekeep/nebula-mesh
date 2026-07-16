@@ -339,7 +339,7 @@ func TestAgentImportChallengeExpiryReplayAndIdempotency(t *testing.T) {
 			t.Fatal(err)
 		}
 		replay := submitAgentImport(t, fixture, challenge, proof)
-		if replay.Code != http.StatusConflict {
+		if replay.Code != http.StatusConflict || !strings.Contains(replay.Body.String(), "import_challenge_used") {
 			t.Fatalf("challenge replay = %d %s", replay.Code, replay.Body.String())
 		}
 		retryChallenge := requestAgentImportChallenge(t, fixture, http.StatusCreated)
@@ -355,6 +355,19 @@ func TestAgentImportChallengeExpiryReplayAndIdempotency(t *testing.T) {
 			t.Fatalf("idempotent result = %#v, created = %#v", existing, created)
 		}
 	})
+}
+
+func TestAgentImportPayloadConflictIsUnprocessable(t *testing.T) {
+	fixture := newAgentImportFixture(t)
+	registerAgentImport(t, fixture)
+	fixture.snapshot.Config.ReportedName = "changed-existing-host"
+	rehashAgentImportFixture(t, &fixture)
+
+	challenge := requestAgentImportChallenge(t, fixture, http.StatusCreated)
+	response := submitAgentImport(t, fixture, challenge, computeAgentImportProof(t, fixture, challenge))
+	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "import_payload_conflict") {
+		t.Fatalf("payload conflict = %d %s", response.Code, response.Body.String())
+	}
 }
 
 func TestAgentImportChallengeLimitReturnsRetryAfterWithoutInvalidatingIssuedChallenges(t *testing.T) {

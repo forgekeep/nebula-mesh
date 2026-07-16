@@ -333,10 +333,12 @@ func (s *Server) writeAgentImportStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusGone, "import_challenge_expired")
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusUnauthorized, "invalid_import_token_or_challenge")
-	case errors.Is(err, store.ErrMeshImportChallengeUsed),
-		errors.Is(err, store.ErrMeshImportChallengeMismatch),
+	case errors.Is(err, store.ErrMeshImportChallengeUsed):
+		writeError(w, http.StatusConflict, "import_challenge_used")
+	case errors.Is(err, store.ErrMeshImportPayloadConflict):
+		writeError(w, http.StatusUnprocessableEntity, "import_payload_conflict")
+	case errors.Is(err, store.ErrMeshImportChallengeMismatch),
 		errors.Is(err, store.ErrMeshImportSigningKeyConflict),
-		errors.Is(err, store.ErrMeshImportPayloadConflict),
 		errors.Is(err, store.ErrMeshImportExpectedHostsReached),
 		errors.Is(err, store.ErrDuplicateEntry), errors.Is(err, store.ErrIPTaken):
 		writeError(w, http.StatusConflict, "agent_import_conflict")

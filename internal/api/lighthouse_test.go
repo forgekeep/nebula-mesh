@@ -127,6 +127,24 @@ func TestGetLighthouses_MultipleEnrolled(t *testing.T) {
 	}
 }
 
+func TestGetLighthouses_FormatsIPv6PublicAddress(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+
+	enrollLighthouse(t, srv, netID, "lh-v6", "lh-v6", "192.168.100.5", "2001:db8::1", "fp-v6")
+
+	lighthouses, err := srv.getLighthouses(context.Background(), netID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lighthouses) != 1 {
+		t.Fatalf("got %d lighthouses, want 1", len(lighthouses))
+	}
+	if got := lighthouses[0].PublicAddr; got != "[2001:db8::1]:4242" {
+		t.Fatalf("public_addr = %q, want bracketed IPv6 endpoint", got)
+	}
+}
+
 func TestRenderHostConfig_EmitsAllEnrolledLighthouses(t *testing.T) {
 	srv, _ := newTestServer(t)
 	netID := createNetwork(t, srv)

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"sort"
+	"strconv"
 
 	"github.com/slackhq/nebula/cert"
 
@@ -394,7 +396,7 @@ func (s *Server) getLighthouses(ctx context.Context, networkID string) ([]config
 		}
 		result = append(result, configgen.LighthouseInfo{
 			NebulaIPs:  h.NebulaIPs,
-			PublicAddr: fmt.Sprintf("%s:%d", h.PublicIP, port),
+			PublicAddr: net.JoinHostPort(h.PublicIP, strconv.Itoa(port)),
 		})
 	}
 	return result, nil

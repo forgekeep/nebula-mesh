@@ -6,13 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
+	"sort"
 	"strconv"
 
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
 
 	"github.com/forgekeep/nebula-mesh/internal/configgen"
+	"github.com/forgekeep/nebula-mesh/internal/mobileconfig"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/revocation"
@@ -98,17 +101,6 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 		return nil, fmt.Errorf("cert fingerprint: %w", err)
 	}
 
-	// Persist certificate.
-	if host.Status == models.HostStatusPending {
-		if err := s.SaveCertificateAndEnrollHost(ctx, host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
-			return nil, fmt.Errorf("save certificate: %w", err)
-		}
-	} else {
-		if err := s.SaveCertificateAndUpdateHostCert(ctx, host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
-			return nil, fmt.Errorf("rotate certificate: %w", err)
-		}
-	}
-
 	// Get CA cert PEM.
 	caPEM, err := caMgr.CACertPEM()
 	if err != nil {
@@ -122,6 +114,18 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 	lighthouses, err := listLighthouses(ctx, s, host.NetworkID)
 	if err != nil {
 		return nil, fmt.Errorf("list lighthouses: %w", err)
+	}
+	relays, err := listRelays(ctx, s, host.NetworkID)
+	if err != nil {
+		return nil, fmt.Errorf("list relays: %w", err)
+	}
+	blocklist, err := s.GetBlocklistForCA(ctx, host.CAID)
+	if err != nil {
+		return nil, fmt.Errorf("get blocklist for config: %w", err)
+	}
+	mobileSettings, err := loadMobileSettings(ctx, s, host.NetworkID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Resolve the network's firewall policy. Mirrors the agent enroll path
@@ -141,11 +145,18 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 		IsLighthouse:     host.IsLighthouse,
 		IsRelay:          host.IsRelay,
 		Lighthouses:      lighthouses,
+		Relays:           relays,
 		CACertPEM:        string(caPEM),
 		CertPEM:          string(certPEM),
 		KeyPEM:           string(privPEM),
 		FirewallInbound:  fwInbound,
 		FirewallOutbound: fwOutbound,
+		Blocklist:        blocklist,
+		Mobile: &configgen.MobileProfile{
+			DNSResolvers:        mobileSettings.DNSResolvers,
+			MatchDomains:        mobileSettings.MatchDomains,
+			AllowPrivateRemotes: mobileSettings.AllowPrivateRemotes,
+		},
 	}
 	if adv := host.Advanced; adv != nil {
 		input.PunchyOverride = adv.Punchy
@@ -162,9 +173,37 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 		return nil, fmt.Errorf("generate config: %w", err)
 	}
 
+	// Persist only after every fallible bundle-generation step succeeds. The
+	// private key exists only in configYAML, so an earlier durable write could
+	// leave the host enrolled with a certificate it can never use.
+	if host.Status == models.HostStatusPending {
+		if err := s.SaveCertificateAndEnrollHost(ctx, host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
+			return nil, fmt.Errorf("save certificate: %w", err)
+		}
+	} else {
+		if err := s.SaveCertificateAndUpdateHostCert(ctx, host.ID, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter()); err != nil {
+			return nil, fmt.Errorf("rotate certificate: %w", err)
+		}
+	}
+
 	// TODO: Bundle into QR code or download format
 	// For now, return the YAML
 	return configYAML, nil
+}
+
+func loadMobileSettings(ctx context.Context, s store.Store, networkID string) (mobileconfig.Settings, error) {
+	raw, err := s.GetNetworkConfig(ctx, networkID, mobileconfig.StoreKey)
+	if errors.Is(err, store.ErrNotFound) {
+		return mobileconfig.Default(), nil
+	}
+	if err != nil {
+		return mobileconfig.Settings{}, fmt.Errorf("get mobile config: %w", err)
+	}
+	settings, err := mobileconfig.Decode(raw)
+	if err != nil {
+		return mobileconfig.Settings{}, fmt.Errorf("decode mobile config: %w", err)
+	}
+	return settings, nil
 }
 
 // buildHostPrefixes mirrors the logic from internal/api/helpers.go.
@@ -234,8 +273,35 @@ func listLighthouses(ctx context.Context, s store.Store, networkID string) ([]co
 		}
 		result = append(result, configgen.LighthouseInfo{
 			NebulaIPs:  h.NebulaIPs,
-			PublicAddr: fmt.Sprintf("%s:%d", h.PublicIP, port),
+			PublicAddr: net.JoinHostPort(h.PublicIP, strconv.Itoa(port)),
 		})
 	}
+	return result, nil
+}
+
+// listRelays returns sorted overlay addresses for enrolled relay hosts.
+func listRelays(ctx context.Context, s store.Store, networkID string) ([]string, error) {
+	hosts, err := s.ListHosts(ctx, store.HostFilter{
+		NetworkID: networkID,
+		Status:    models.HostStatusEnrolled,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	set := make(map[string]struct{})
+	for _, host := range hosts {
+		if host.Role != models.HostRoleRelay && !host.IsRelay {
+			continue
+		}
+		for _, address := range host.NebulaIPs {
+			set[address] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(set))
+	for address := range set {
+		result = append(result, address)
+	}
+	sort.Strings(result)
 	return result, nil
 }

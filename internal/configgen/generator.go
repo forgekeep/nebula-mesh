@@ -19,6 +19,14 @@ type AdvancedUnsafeRoute struct {
 	Via   string
 }
 
+// MobileProfile enables defaults and settings used by Mobile Nebula clients.
+// A nil profile preserves the agent configuration shape.
+type MobileProfile struct {
+	DNSResolvers        []string
+	MatchDomains        []string
+	AllowPrivateRemotes bool
+}
+
 // GeneratorInput contains all parameters needed to generate a Nebula config.
 type GeneratorInput struct {
 	HostName         string
@@ -33,6 +41,7 @@ type GeneratorInput struct {
 	Relays           []string
 	FirewallInbound  []FirewallRule
 	FirewallOutbound []FirewallRule
+	Mobile           *MobileProfile
 
 	// Optional per-host overrides. Zero values mean "use the default".
 	PunchyOverride *bool

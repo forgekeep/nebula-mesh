@@ -15,6 +15,7 @@ import (
 
 	"github.com/slackhq/nebula/cert"
 
+	"github.com/forgekeep/nebula-mesh/internal/caimport"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/store"
@@ -223,6 +224,42 @@ func TestCAImport_WebSuccessOwnershipAndAudit(t *testing.T) {
 	t.Fatal("ca.imported audit entry not found")
 }
 
+// SEC-SECRET-001: Web secret ingress must not retain multipart form copies,
+// and every mutable key/passphrase buffer handed to the importer is zeroized.
+func TestCAImport_WebDoesNotRetainSecretFormCopies(t *testing.T) {
+	w, s := newOperatorsWebWithMaster(t)
+	cookie := mintSession(t, s, "bob", "user")
+	body, contentType := webCAImportMultipartMaterialWithPassphrase(
+		t,
+		"existing-mesh",
+		"",
+		[]byte("certificate"),
+		[]byte("private-key-marker"),
+		[]byte("passphrase-marker"),
+	)
+	importer := &webRecordingCAImporter{err: caimport.ErrInvalidMaterial}
+	w.caImporter = importer
+	req := httptest.NewRequest(http.MethodPost, "/ui/cas/import", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	w.handleCAImport(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(req.PostForm) != 0 || (req.MultipartForm != nil && (len(req.MultipartForm.Value) != 0 || len(req.MultipartForm.File) != 0)) {
+		t.Fatal("secret multipart fields retained in Request form structures")
+	}
+	for name, secret := range map[string][]byte{
+		"private key": importer.request.PrivateKeyPEM,
+		"passphrase":  importer.request.Passphrase,
+	} {
+		if !bytes.Equal(secret, make([]byte, len(secret))) {
+			t.Fatalf("%s buffer was not zeroized", name)
+		}
+	}
+}
+
 func TestCAImport_WebTransportCSRFAndBodyLimit(t *testing.T) {
 	t.Run("insecure transport rejected before body read", func(t *testing.T) {
 		w, s := newOperatorsWebWithMaster(t)
@@ -240,6 +277,23 @@ func TestCAImport_WebTransportCSRFAndBodyLimit(t *testing.T) {
 		}
 		if body.reads != 0 {
 			t.Fatalf("body read %d time(s)", body.reads)
+		}
+	})
+
+	t.Run("unauthenticated request rejected before body read", func(t *testing.T) {
+		w, _ := newOperatorsWebWithMaster(t)
+		body := &webCountingReader{}
+		req := httptest.NewRequest(http.MethodPost, "/ui/cas/import", body)
+		req.Header.Set("Content-Type", "multipart/form-data; boundary=x")
+		req.TLS = &tls.ConnectionState{}
+		req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "attacker-selected-token"})
+		rec := httptest.NewRecorder()
+		w.ServeHTTP(rec, req)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/ui/login" {
+			t.Fatalf("status = %d, location = %q; want login redirect", rec.Code, rec.Header().Get("Location"))
+		}
+		if body.reads != 0 {
+			t.Fatalf("body read %d time(s) before authentication refusal", body.reads)
 		}
 	})
 
@@ -314,6 +368,16 @@ func (r *webCountingReader) Read(_ []byte) (int, error) {
 	return 0, io.EOF
 }
 
+type webRecordingCAImporter struct {
+	request caimport.Request
+	err     error
+}
+
+func (f *webRecordingCAImporter) Import(_ context.Context, request caimport.Request) (*models.CA, error) {
+	f.request = request
+	return nil, f.err
+}
+
 func webCAImportMultipart(t *testing.T, name, csrfToken string) ([]byte, string) {
 	t.Helper()
 	manager, err := pki.NewCA(name, time.Hour)
@@ -330,6 +394,10 @@ func webCAImportMultipart(t *testing.T, name, csrfToken string) ([]byte, string)
 }
 
 func webCAImportMultipartMaterial(t *testing.T, name, csrfToken string, certificatePEM, privateKeyPEM []byte) ([]byte, string) {
+	return webCAImportMultipartMaterialWithPassphrase(t, name, csrfToken, certificatePEM, privateKeyPEM, nil)
+}
+
+func webCAImportMultipartMaterialWithPassphrase(t *testing.T, name, csrfToken string, certificatePEM, privateKeyPEM, passphrase []byte) ([]byte, string) {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -338,6 +406,15 @@ func webCAImportMultipartMaterial(t *testing.T, name, csrfToken string, certific
 	}
 	if csrfToken != "" {
 		if err := writer.WriteField("_csrf", csrfToken); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if passphrase != nil {
+		passphrasePart, err := writer.CreateFormField("passphrase")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := passphrasePart.Write(passphrase); err != nil {
 			t.Fatal(err)
 		}
 	}

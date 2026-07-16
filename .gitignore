@@ -19,6 +19,9 @@
 *.swp
 *.swo
 
+# Repository-wide agent instructions are intentionally versioned.
+!/AGENTS.md
+
 # OS
 .DS_Store
 Thumbs.db

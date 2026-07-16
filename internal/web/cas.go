@@ -65,8 +65,15 @@ func (w *Web) configureCAImporter() {
 
 func (w *Web) secretIngressMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && r.URL.Path == "/ui/cas/import" && !w.secretIngress.Allows(r) {
-			http.Error(rw, "CA private key import requires direct TLS, literal-loopback HTTP, or an explicitly trusted local TLS proxy", http.StatusUpgradeRequired)
+		if r.Method == http.MethodPost && r.URL.Path == "/ui/cas/import" {
+			if !w.secretIngress.Allows(r) {
+				http.Error(rw, "CA private key import requires direct TLS, literal-loopback HTTP, or an explicitly trusted local TLS proxy", http.StatusUpgradeRequired)
+				return
+			}
+			// SEC-SECRET-001: this middleware runs before the outer CSRF
+			// middleware, which may scan the multipart body for its token.
+			// Apply the protected-route authentication/2FA gate first.
+			w.requireAuth(next).ServeHTTP(rw, r)
 			return
 		}
 		next.ServeHTTP(rw, r)
@@ -129,46 +136,28 @@ func (w *Web) handleCAImport(rw http.ResponseWriter, r *http.Request) {
 		w.renderCAImportError(rw, r, http.StatusServiceUnavailable, "CA import requires NEBULA_MGMT_MASTER_KEY to be configured")
 		return
 	}
-	if err := r.ParseMultipartForm(1 << 20); err != nil { // #nosec G120 -- web router caps the complete body with MaxBytesReader.
+	request, err := readWebCAImportMultipart(r)
+	if err != nil {
 		var maxBytesError *http.MaxBytesError
-		if errors.As(err, &maxBytesError) {
+		if errors.Is(err, caimport.ErrInputTooLarge) || errors.As(err, &maxBytesError) {
 			http.Error(rw, "request body too large", http.StatusRequestEntityTooLarge)
 			return
 		}
 		w.renderCAImportError(rw, r, http.StatusBadRequest, "Invalid multipart form")
 		return
 	}
-	if r.MultipartForm != nil {
-		defer func() {
-			if err := r.MultipartForm.RemoveAll(); err != nil {
-				w.logger.Error("remove CA import multipart files", "error", err)
-			}
-		}()
-	}
-	certificatePEM, err := readCAImportPart(r, "certificate")
-	if err != nil {
-		w.renderCAImportError(rw, r, http.StatusBadRequest, "CA certificate file is required")
-		return
-	}
-	privateKeyPEM, err := readCAImportPart(r, "private_key")
-	if err != nil {
-		w.renderCAImportError(rw, r, http.StatusBadRequest, "CA private key file is required")
-		return
-	}
-	defer keystore.Zeroize(privateKeyPEM)
-	passphrase := []byte(r.FormValue("passphrase"))
-	defer keystore.Zeroize(passphrase)
+	defer request.zeroizeSecrets()
 	op := w.session.CurrentOperator(r)
 	if op == nil {
 		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 		return
 	}
 	imported, err := w.caImporter.Import(r.Context(), caimport.Request{
-		Name:            strings.TrimSpace(r.FormValue("name")),
+		Name:            strings.TrimSpace(request.Name),
 		OwnerOperatorID: op.ID,
-		CertificatePEM:  certificatePEM,
-		PrivateKeyPEM:   privateKeyPEM,
-		Passphrase:      passphrase,
+		CertificatePEM:  request.CertificatePEM,
+		PrivateKeyPEM:   request.PrivateKeyPEM,
+		Passphrase:      request.Passphrase,
 	})
 	if err != nil {
 		status, message := webCAImportError(err)
@@ -190,24 +179,95 @@ func (w *Web) renderCAImportError(rw http.ResponseWriter, r *http.Request, statu
 	})
 }
 
-func readCAImportPart(r *http.Request, field string) ([]byte, error) {
-	file, _, err := r.FormFile(field)
+type webCAImportRequest struct {
+	Name           string
+	CertificatePEM []byte
+	PrivateKeyPEM  []byte
+	Passphrase     []byte
+}
+
+func (r *webCAImportRequest) zeroizeSecrets() {
+	keystore.Zeroize(r.PrivateKeyPEM)
+	keystore.Zeroize(r.Passphrase)
+}
+
+func readWebCAImportMultipart(r *http.Request) (webCAImportRequest, error) {
+	reader, err := r.MultipartReader()
 	if err != nil {
-		return nil, err
+		return webCAImportRequest{}, err
 	}
-	data, readErr := io.ReadAll(io.LimitReader(file, (1<<20)+1))
-	closeErr := file.Close()
-	if readErr != nil {
-		return nil, readErr
+
+	var request webCAImportRequest
+	seen := make(map[string]struct{}, 5)
+	fail := func(err error) (webCAImportRequest, error) {
+		request.zeroizeSecrets()
+		return webCAImportRequest{}, err
 	}
-	if closeErr != nil {
-		return nil, closeErr
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fail(err)
+		}
+
+		field := part.FormName()
+		if _, duplicate := seen[field]; duplicate {
+			_ = part.Close()
+			return fail(fmt.Errorf("duplicate multipart field %q", field))
+		}
+		var maxBytes int64
+		switch field {
+		case "name":
+			maxBytes = 4 << 10
+		case "certificate", "private_key":
+			maxBytes = 1 << 20
+		case "passphrase":
+			maxBytes = 64 << 10
+		case csrfFormField:
+			maxBytes = 4 << 10
+		default:
+			_ = part.Close()
+			return fail(fmt.Errorf("unknown multipart field %q", field))
+		}
+
+		value, readErr := io.ReadAll(io.LimitReader(part, maxBytes+1))
+		closeErr := part.Close()
+		if readErr != nil {
+			keystore.Zeroize(value)
+			return fail(readErr)
+		}
+		if closeErr != nil {
+			keystore.Zeroize(value)
+			return fail(closeErr)
+		}
+		if int64(len(value)) > maxBytes {
+			keystore.Zeroize(value)
+			return fail(caimport.ErrInputTooLarge)
+		}
+		seen[field] = struct{}{}
+		switch field {
+		case "name":
+			request.Name = string(value)
+			keystore.Zeroize(value)
+		case "certificate":
+			request.CertificatePEM = value
+		case "private_key":
+			request.PrivateKeyPEM = value
+		case "passphrase":
+			request.Passphrase = value
+		case csrfFormField:
+			keystore.Zeroize(value)
+		}
 	}
-	if len(data) > 1<<20 {
-		keystore.Zeroize(data)
-		return nil, caimport.ErrInputTooLarge
+
+	for _, required := range []string{"name", "certificate", "private_key"} {
+		if _, ok := seen[required]; !ok {
+			return fail(fmt.Errorf("missing multipart field %q", required))
+		}
 	}
-	return data, nil
+	return request, nil
 }
 
 func webCAImportError(err error) (int, string) {

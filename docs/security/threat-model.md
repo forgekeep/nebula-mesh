@@ -118,7 +118,9 @@ Trust zones, from least to most trusted:
 
 - **Transport**: TLS by default; non-loopback plaintext bind refused unless opted in (#179).
 - **Crypto**: AES-256-GCM throughout; both CA-key envelope layers bind the owning `ca_id` as AAD, so an envelope copied between CA rows fails to decrypt (envelopes sealed before the binding load via a nil-AAD fallback and are backstopped by a key/cert public-key consistency check at load); key material zeroized (#181, #196).
-- **Input**: strict JSON decode, body caps, length bounds on cert-embedded fields (#186, #195).
+- **Input**: strict JSON decode for ordinary APIs; bounded, fail-closed
+  multipart parsing for cryptographic secret ingress; body caps and length
+  bounds on cert-embedded fields (#186, #195; `SEC-SECRET-001`).
 - **Tenant isolation**: lifecycle events carry a non-serialized CA scope. Managed webhook targets are selected only from subscriptions owned by that CA's operator; empty or unknown scope selects none. The static config target is explicitly deployer-wide.
 - **Tooling baseline**: `golangci-lint` (pinned), standalone `gosec`, and `govulncheck` gate every PR, plus ADR-0009 generative fuzzing in CI.
 

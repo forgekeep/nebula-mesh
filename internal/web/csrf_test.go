@@ -1,9 +1,12 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -143,6 +146,56 @@ func TestCSRF_POST_FormFieldMatch(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	require.True(t, nextCalled, "expected next handler to be called")
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// SEC-SECRET-001: multipart forms carrying secrets must not be parsed into
+// Request.MultipartForm/PostForm because those structures retain additional
+// application-owned copies, including immutable strings for ordinary fields.
+func TestCSRF_POST_MultipartSecretFieldsRemainStreamable(t *testing.T) {
+	w, _ := newTestWeb(t)
+	const token = "test-token-multipart-match"
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for name, value := range map[string][]byte{
+		"_csrf":       []byte(token),
+		"private_key": []byte("private-key-marker"),
+		"passphrase":  []byte("passphrase-marker"),
+	} {
+		part, err := writer.CreateFormField(name)
+		require.NoError(t, err)
+		_, err = part.Write(value)
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/cas/import", bytes.NewReader(body.Bytes()))
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: token})
+	rec := httptest.NewRecorder()
+	nextCalled := false
+	handler := w.csrfMiddleware(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		require.Nil(t, r.MultipartForm)
+		require.Nil(t, r.PostForm)
+		reader, err := r.MultipartReader()
+		require.NoError(t, err)
+		seen := make(map[string]bool)
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			require.NoError(t, err)
+			seen[part.FormName()] = true
+		}
+		require.True(t, seen["private_key"])
+		require.True(t, seen["passphrase"])
+		rw.WriteHeader(http.StatusOK)
+	}))
+
+	handler.ServeHTTP(rec, req)
+	require.True(t, nextCalled)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 

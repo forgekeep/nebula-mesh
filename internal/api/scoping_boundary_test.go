@@ -101,6 +101,7 @@ func TestGetByID_NonOwnerDoesNotLeak(t *testing.T) {
 	for _, c := range []struct{ name, path string }{
 		{"network-by-id", "/api/v1/networks/" + netA},
 		{"network-firewall", "/api/v1/networks/" + netA + "/firewall"},
+		{"network-mobile-config", "/api/v1/networks/" + netA + "/mobile-config"},
 		{"ca-by-id", "/api/v1/cas/" + caA.ID},
 	} {
 		t.Run(c.name, func(t *testing.T) {

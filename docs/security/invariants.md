@@ -37,6 +37,8 @@ broaden it.
   route without a scoping decision fails CI.
 - Managed webhook subscriptions are selected by CA owner; the deployer-owned
   static webhook is intentionally global.
+- Mobile profile settings are read and replaced only after authorization through
+  the owning Network and CA.
 
 ### Test anchors
 
@@ -44,6 +46,8 @@ broaden it.
   `TestProtectedGETRoutesAreClassified` and `TestListEndpointsScopeToOwner`.
 - `internal/api/scoping_boundary_test.go`: foreign filters and response-body
   non-disclosure.
+- `internal/api/mobile_config_authz_test.go`: foreign mobile profile reads do
+  not disclose settings and foreign writes do not mutate them.
 - `internal/web/tenant_scope_test.go`: Web read and mutation isolation.
 - `internal/webhook/fanout_test.go`:
   `TestDispatcher_ManagedTargetsAreCAOwnerScopedAndStaticTargetIsGlobal`.
@@ -190,6 +194,9 @@ leave a weaker or partially applied security state.
   challenge cleanup in one transaction with revision and scope checks.
 - Every certificate-signing path re-checks blocked Host and disabled owning
   Operator state from the store.
+- Mobile bundle generation reads the durable CA blocklist and current enrolled
+  relay inventory. After the full bundle has been generated, it atomically
+  re-checks the durable Host and owner status while persisting the certificate.
 - Migration tests exercise upgrade, repeated migrate, rollback, and foreign-key
   enforcement.
 
@@ -200,6 +207,12 @@ leave a weaker or partially applied security state.
   `TestFinalizeMeshImportRollsBackChallengeCleanup`.
 - `internal/api/durable_revocation_test.go`: blocked Host and disabled owner
   prevent enrollment, renewal, re-enrollment, and mobile bundle issuance.
+- `internal/mobilebundle/mobile_profile_test.go`:
+  `TestBuild_SEC_PERSIST_001IncludesCurrentBlocklistAndEnrolledRelays` and
+  `TestBuild_SEC_PERSIST_001InvalidSettingsDoNotEnrollOrRotateCertificate`, and
+  `TestBuild_SEC_PERSIST_001ConcurrentBlockCannotBeUndone`.
+- `internal/store/sqlite_mobile_certificate_test.go`: the certificate write
+  rejects blocked Hosts and disabled owners.
 - `internal/store/sqlite_enroll_token_test.go`:
   `TestConsumeTokenAndEnrollHost_NoBurnOnEnrollFailure`.
 - `internal/store/migration_023_test.go`, `migration_024_test.go`, and

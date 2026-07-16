@@ -72,6 +72,7 @@ const (
 	auditMeshImportFinalized       = "mesh_import.finalized"
 	auditNetworkCreate             = "network.create"
 	auditNetworkFirewallUpdate     = "network.firewall.update"
+	auditNetworkMobileConfigUpdate = "network.mobile_config.update"
 	auditOperatorCreate            = "operator.create"
 	auditOperatorDisable           = "operator.disable"
 	auditOperatorEnable            = "operator.enable"
@@ -203,7 +204,7 @@ func newMetrics(s store.Store) *metrics {
 		auditHostCreate, auditHostDelete, auditHostUpdate, auditHostBlock, auditHostUnblock,
 		auditCACreated, auditCAImported, auditCADeleted, auditCARotated,
 		auditMeshImportCreated, auditMeshImportTokenRotated, auditMeshImportCanceled, auditMeshImportHostRegistered, auditMeshImportFinalized,
-		auditNetworkCreate, auditNetworkFirewallUpdate,
+		auditNetworkCreate, auditNetworkFirewallUpdate, auditNetworkMobileConfigUpdate,
 		auditOperatorCreate, auditOperatorDisable, auditOperatorEnable,
 		auditOperatorAPIKeyCreate, auditOperatorAPIKeyRevoke,
 		auditSettingsEnforce2FA,

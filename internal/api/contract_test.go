@@ -105,6 +105,21 @@ func TestContract_AdminEndpoints(t *testing.T) {
 	authRequest(req)
 	assertContract(t, v, req, serve(srv, req))
 
+	// Read and update the mobile profile settings.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/networks/"+net.ID+"/mobile-config", nil)
+	authRequest(req)
+	assertContract(t, v, req, serve(srv, req))
+
+	mobileBody := []byte(`{"dns_resolvers":["1.1.1.1"],"match_domains":[],"allow_private_remotes":false}`)
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/networks/"+net.ID+"/mobile-config", bytes.NewReader(mobileBody))
+	authRequest(req)
+	req.Header.Set("Content-Type", "application/json")
+	rec = serve(srv, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update mobile config: %d / %s", rec.Code, rec.Body.String())
+	}
+	assertContract(t, v, req, rec)
+
 	// Create host.
 	hostBody, _ := json.Marshal(createHostRequest{NetworkID: net.ID, Name: "contract-host", NebulaIPs: []string{"192.168.50.10"}})
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/hosts", bytes.NewReader(hostBody))

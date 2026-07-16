@@ -77,12 +77,13 @@ var protectedGETScoping = map[string]listScoping{
 	"/api/v1/settings":                adminOnly,
 
 	// Single-resource reads — guarded per-row by canAccess*.
-	"/api/v1/networks/{id}":              singleResource,
-	"/api/v1/networks/{id}/firewall":     singleResource,
-	"/api/v1/hosts/{id}":                 singleResource,
-	"/api/v1/cas/{id}":                   singleResource,
-	"/api/v1/mesh-imports/{id}":          singleResource,
-	"/api/v1/webhook-subscriptions/{id}": singleResource,
+	"/api/v1/networks/{id}":               singleResource,
+	"/api/v1/networks/{id}/firewall":      singleResource,
+	"/api/v1/networks/{id}/mobile-config": singleResource,
+	"/api/v1/hosts/{id}":                  singleResource,
+	"/api/v1/cas/{id}":                    singleResource,
+	"/api/v1/mesh-imports/{id}":           singleResource,
+	"/api/v1/webhook-subscriptions/{id}":  singleResource,
 }
 
 // SEC-TENANT-001: TestProtectedGETRoutesAreClassified fails the moment setupRoutes registers

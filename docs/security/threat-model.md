@@ -72,9 +72,9 @@ Trust zones, from least to most trusted:
 
 ### E1 — Management API
 - **Spoofing**: API key required; keys hashed at rest, revocable; disabled operators rejected (re-check on every request, #147).
-- **Tampering**: write actions ownership-checked; input bounded (host name/groups #186, firewall selectors #195).
+- **Tampering**: write actions ownership-checked; input bounded (host name/groups #186, firewall selectors #195). Mobile profile settings reject unknown or missing fields, non-IP DNS resolvers, duplicates, and oversized lists or domains.
 - **Repudiation**: mutating actions write an audit-log entry; audit-log read is admin-gated.
-- **Information disclosure**: list/read scoped to owned CAs in SQL (#154); blocklist scoped per-CA (#203); no cross-tenant IDOR (403 not 404 side-channel documented & accepted).
+- **Information disclosure**: list/read scoped to owned CAs in SQL (#154); blocklist scoped per-CA (#203); mobile profile settings are scoped through their Network and owning CA; no cross-tenant IDOR (403 not 404 side-channel documented & accepted).
 - **DoS**: request body capped + HTTP timeouts (#185); per-IP rate limit (#52). Authenticated legitimate-use DoS is out of scope (SECURITY.md).
 - **Elevation**: no general "update operator" sink → no `role` mass-assignment (Netmaker CVE-2026-29195 class refuted); admin-only operator/settings endpoints.
 
@@ -122,6 +122,7 @@ Trust zones, from least to most trusted:
   multipart parsing for cryptographic secret ingress; body caps and length
   bounds on cert-embedded fields (#186, #195; `SEC-SECRET-001`).
 - **Tenant isolation**: lifecycle events carry a non-serialized CA scope. Managed webhook targets are selected only from subscriptions owned by that CA's operator; empty or unknown scope selects none. The static config target is explicitly deployer-wide.
+- **Mobile bundles**: generation uses the current CA blocklist and enrolled relay inventory, applies the per-Network private-remote policy, and commits a newly issued certificate only after every bundle input and the rendered config succeed. The final certificate write atomically re-checks durable Host and owner status so concurrent revocation wins.
 - **Tooling baseline**: `golangci-lint` (pinned), standalone `gosec`, and `govulncheck` gate every PR, plus ADR-0009 generative fuzzing in CI.
 
 ## 6. Residual risks & accepted trade-offs

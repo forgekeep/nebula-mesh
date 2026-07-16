@@ -48,6 +48,7 @@ var knownAuditActions = map[string]struct{}{
 	auditMeshImportFinalized:       {},
 	auditNetworkCreate:             {},
 	auditNetworkFirewallUpdate:     {},
+	auditNetworkMobileConfigUpdate: {},
 	auditOperatorCreate:            {},
 	auditOperatorDisable:           {},
 	auditOperatorEnable:            {},

@@ -46,6 +46,11 @@ func TestAuditRows_AllProductionPathsConform(t *testing.T) {
 		[]byte(`{"inbound":[{"port":"443","proto":"tcp","group":"servers"}],"outbound":[{"port":"any","proto":"any","group":"all"}]}`),
 		http.StatusOK)
 
+	// network.mobile_config.update — update settings used by future mobile bundles.
+	mustDo(t, srv, http.MethodPut, "/api/v1/networks/"+netID+"/mobile-config",
+		[]byte(`{"dns_resolvers":[],"match_domains":[],"allow_private_remotes":true}`),
+		http.StatusOK)
+
 	// host.create — normal create.
 	hostID := mustCreateHost(t, srv, netID, "audit-h1", "192.168.100.50")
 
@@ -167,6 +172,7 @@ var auditActionsExercisedByCoverageSweep = []string{
 	auditCADeleted,
 	auditNetworkCreate,
 	auditNetworkFirewallUpdate,
+	auditNetworkMobileConfigUpdate,
 	auditOperatorCreate,
 	auditOperatorDisable,
 	auditOperatorEnable,

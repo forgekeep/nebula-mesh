@@ -266,6 +266,8 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/v1/blocklist", s.handleGetBlocklist)
 		r.Get("/api/v1/networks/{id}/firewall", s.handleGetFirewall)
 		r.Put("/api/v1/networks/{id}/firewall", s.handleUpdateFirewall)
+		r.Get("/api/v1/networks/{id}/mobile-config", s.handleGetMobileConfig)
+		r.Put("/api/v1/networks/{id}/mobile-config", s.handleUpdateMobileConfig)
 		r.Get("/api/v1/audit-log", s.handleGetAuditLog)
 		r.Get("/api/v1/operators", s.handleListOperators)
 		r.Post("/api/v1/operators", s.handleCreateOperator)

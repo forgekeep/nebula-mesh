@@ -162,7 +162,83 @@ nebula-agent.service`. Include the parent directory of every configured
 owner-only backup `<nebula_config_path>.pre-nebula-mesh.<import_session_id>` in
 the config directory.
 
-### 3. Docker / sidecar
+### 3. As a Windows service
+
+The Windows archive contains the same `nebula-agent.exe` used interactively.
+Run the following commands from an elevated PowerShell session. Install the
+binary below `%ProgramFiles%` before registering the service: Windows runs it as
+`LocalSystem`, so a binary replaceable by ordinary users would be a local
+privilege-escalation path.
+
+```powershell
+$InstallDir = Join-Path $env:ProgramFiles 'Nebula Mesh'
+$AgentRoot = Join-Path $env:ProgramData 'Nebula Mesh\Agent'
+$NebulaRoot = Join-Path $env:ProgramData 'Nebula'
+$AgentExe = Join-Path $InstallDir 'nebula-agent.exe'
+$AgentConfig = Join-Path $AgentRoot 'agent.yml'
+
+New-Item -ItemType Directory -Force $InstallDir, $AgentRoot, $NebulaRoot | Out-Null
+Copy-Item .\nebula-agent.exe $AgentExe
+
+# Remove inherited write access. SYSTEM and local Administrators retain full control.
+icacls.exe $InstallDir /inheritance:r /grant:r `
+  '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C
+icacls.exe $AgentRoot /inheritance:r /grant:r `
+  '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C
+icacls.exe $NebulaRoot /inheritance:r /grant:r `
+  '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C
+```
+
+Enroll the host with a one-time token file supplied through your deployment
+system. Use the same config path that will be stored in the service definition,
+then remove the token file:
+
+```powershell
+$TokenFile = Join-Path $AgentRoot 'enroll.token'
+& $AgentExe enroll `
+  --server https://mgmt.example.com:8080 `
+  --token-file $TokenFile `
+  --config $AgentConfig `
+  --data-dir $NebulaRoot
+Remove-Item $TokenFile
+```
+
+Register and start the service:
+
+```powershell
+& $AgentExe service install --config $AgentConfig
+& $AgentExe service start
+Get-Service NebulaMeshAgent
+```
+
+`install` records an automatic-start `NebulaMeshAgent` service running as
+`LocalSystem`. Fatal exits are restarted after five seconds. You may also
+install before enrollment: the service stays in idle-standby and detects the
+new config and keys within about ten seconds after `enroll` completes.
+
+Agent logs are written to the Windows Application Event Log:
+
+```powershell
+Get-WinEvent -FilterHashtable @{
+  LogName = 'Application'
+  ProviderName = 'NebulaMeshAgent'
+} -MaxEvents 20
+```
+
+Control or remove the service with:
+
+```powershell
+& $AgentExe service restart
+& $AgentExe service stop
+& $AgentExe service uninstall
+```
+
+Uninstalling the service does not delete `agent.yml`, certificates, or private
+keys. Windows cannot use the Unix `SIGHUP` mechanism, so leave
+`nebula_pid_file` empty and restart the separate Nebula service after managed
+config updates when required.
+
+### 4. Docker / sidecar
 
 The agent is published as its own image, `ghcr.io/forgekeep/nebula-agent`
 (the server ships separately as `ghcr.io/forgekeep/nebula-mgmt`). The agent

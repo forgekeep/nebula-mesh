@@ -385,6 +385,14 @@ func (s *SQLiteStore) RegisterImportedHost(ctx context.Context, registration *mo
 			return nil, fmt.Errorf("check mesh import challenge: %w", err)
 		}
 		if exists == 0 {
+			var status models.MeshImportStatus
+			err := tx.QueryRowContext(ctx, `SELECT status FROM mesh_imports WHERE id = ?`, registration.Snapshot.MeshImportID).Scan(&status)
+			if err == nil && status != models.MeshImportStatusCollecting {
+				return nil, ErrMeshImportNotCollecting
+			}
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("check mesh import status after missing challenge: %w", err)
+			}
 			return nil, ErrNotFound
 		}
 		return nil, ErrMeshImportChallengeUsed

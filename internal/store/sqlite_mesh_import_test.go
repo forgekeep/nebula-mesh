@@ -989,6 +989,31 @@ func TestFinalizeAndArrivingHostSerialize(t *testing.T) {
 	}
 }
 
+// SEC-PERSIST-001: finalize removes outstanding challenges atomically with
+// the terminal session transition. A registration that loses that race must
+// observe the terminal session, not misclassify the deleted challenge as an
+// unknown proof.
+func TestRegisterImportedHostAfterFinalizeReturnsNotCollecting(t *testing.T) {
+	s, session, now := newMeshImportFixture(t, nil)
+	ctx := context.Background()
+	proposal := registerMeshImportTestHost(t, s, session, "one", "10.42.0.10", now)
+	challenge := meshImportChallenge(session.ID, "challenge-arriving", "fp-arriving", "signing-arriving", "payload-arriving", now)
+	if err := s.CreateMeshImportChallenge(ctx, challenge, now); err != nil {
+		t.Fatal(err)
+	}
+	registration := meshImportRegistration(session, challenge, "host-arriving", "10.42.0.11")
+	if err := s.FinalizeMeshImport(ctx, MeshImportFinalizeInput{
+		ID: session.ID, Revision: 1, Hosts: []MeshImportFinalizeHost{proposal},
+		FirewallJSON: `{"inbound":[],"outbound":[]}`, Now: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.RegisterImportedHost(ctx, registration, now.Add(2*time.Second)); !errors.Is(err, ErrMeshImportNotCollecting) {
+		t.Fatalf("registration after finalize: %v, want ErrMeshImportNotCollecting", err)
+	}
+}
+
 func TestFinalizeMeshImportRejectsStaleRevisionAndExpectedCount(t *testing.T) {
 	expected := 2
 	s, session, now := newMeshImportFixture(t, &expected)

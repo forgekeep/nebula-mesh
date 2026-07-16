@@ -861,6 +861,7 @@ func TestFinalizeMeshImportRejectsStaleOrDriftedScopeWithoutPartialWrites(t *tes
 	}
 }
 
+// SEC-PERSIST-001: a failed finalize must not expose any partial security state.
 func TestFinalizeMeshImportRollsBackAllWrites(t *testing.T) {
 	expected := 2
 	s, session, now := newMeshImportFixture(t, &expected)
@@ -889,6 +890,7 @@ func TestFinalizeMeshImportRollsBackAllWrites(t *testing.T) {
 	}
 }
 
+// SEC-PERSIST-001: proof cleanup and lifecycle state commit or roll back together.
 func TestFinalizeMeshImportRollsBackChallengeCleanup(t *testing.T) {
 	expected := 1
 	s, session, now := newMeshImportFixture(t, &expected)

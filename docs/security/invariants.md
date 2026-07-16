@@ -8,6 +8,98 @@ Each invariant has a stable ID. Code changes that touch its scope must include
 a negative regression test referencing that ID. Static analysis and review
 support the test; they do not replace it.
 
+## SEC-TENANT-001: actor-scoped resource access
+
+### Rule
+
+Every operator-facing read and mutation must derive its tenant scope from the
+authenticated actor. A request parameter may narrow that scope but must never
+broaden it.
+
+- Non-admin object access must verify ownership through the complete resource
+  chain before returning data or changing state.
+- Collection queries must apply owner scope before filtering, pagination, or
+  limits. Foreign filter IDs must not bypass that scope.
+- Admin access is an explicit exception. A missing, disabled, or non-admin
+  actor must fail closed.
+- Cross-tenant failures must not return the foreign resource body.
+- Events and managed webhook delivery require a known CA owner scope. Empty or
+  unknown scope selects no managed recipients.
+- Every new operator-facing GET route must be classified as owner-scoped,
+  admin-only, or single-resource before it can pass tests.
+
+### Current enforcement
+
+- API and Web handlers use actor-aware CA, Network, and Host authorization.
+- SQL collection queries scope non-admins to CAs owned by the actor before
+  applying caller-supplied filters and limits.
+- The API route-classification test walks the live chi router, so a new GET
+  route without a scoping decision fails CI.
+- Managed webhook subscriptions are selected by CA owner; the deployer-owned
+  static webhook is intentionally global.
+
+### Test anchors
+
+- `internal/api/scoping_property_test.go`:
+  `TestProtectedGETRoutesAreClassified` and `TestListEndpointsScopeToOwner`.
+- `internal/api/scoping_boundary_test.go`: foreign filters and response-body
+  non-disclosure.
+- `internal/web/tenant_scope_test.go`: Web read and mutation isolation.
+- `internal/webhook/fanout_test.go`:
+  `TestDispatcher_ManagedTargetsAreCAOwnerScopedAndStaticTargetIsGlobal`.
+
+### Review checklist
+
+1. Which authenticated actor and ownership chain authorize the operation?
+2. Is owner scope applied before every request-controlled filter and limit?
+3. Can a foreign identifier change state or appear in a response, event, or
+   managed webhook?
+4. Has every new operator-facing route received an explicit scope class?
+
+## SEC-REPLAY-001: single-use proofs and atomic consumption
+
+### Rule
+
+Replay-sensitive credentials and proofs — enrollment tokens, poll nonces,
+import challenges, and equivalent one-time values — must be purpose-, actor-,
+and resource-scoped, TTL-bounded, and accepted at most once.
+
+- Validation and consumption must form one atomic durable operation. Under
+  concurrent submissions, exactly one request may succeed.
+- A process restart must not reopen a still-valid replay window.
+- Rotation, cancel, finalize, and revocation must invalidate outstanding proof
+  state in the same transaction as the lifecycle change.
+- Retry recovery may accept only an explicitly defined idempotent result for
+  the exact prior payload. A payload conflict must remain a failure.
+
+### Current enforcement
+
+- Enrollment consumes a host-bound token in the same transaction that enrolls
+  the Host; failed enrollment does not burn the token.
+- Poll nonces are keyed by Host and stored in SQLite until expiry.
+- Mesh import challenges bind the session, certificate fingerprint, signing
+  key, and payload hash. Challenge use and Host registration are serialized.
+- Mesh import token rotation and terminal state changes delete challenges
+  transactionally.
+
+### Test anchors
+
+- `internal/store/sqlite_enroll_token_test.go`: rollback and concurrent
+  exactly-once enrollment.
+- `internal/store/sqlite_pop_nonces_test.go`: replay rejection, restart
+  durability, tenant namespacing, and concurrent exactly-once acceptance.
+- `internal/api/agent_import_test.go`:
+  `TestAgentImportChallengeExpiryReplayAndIdempotency`.
+- `internal/store/sqlite_mesh_import_test.go`: atomic rotation, challenge use,
+  registration, cancel, and finalize coverage.
+
+### Review checklist
+
+1. What actor, purpose, resource, payload, and expiry does the proof bind?
+2. Can validation race consumption or disappear on restart?
+3. Which lifecycle changes revoke outstanding proofs, and are they atomic?
+4. Does retry handling distinguish an exact replay from a conflicting payload?
+
 ## SEC-SECRET-001: mutable cryptographic secret ingress
 
 ### Rule
@@ -71,3 +163,52 @@ When a change touches secret ingress, verify:
 4. Are transport and identity checks executed before the first body read?
 5. Do negative tests prove rejection and cleanup, rather than only a successful
    round trip?
+
+## SEC-PERSIST-001: atomic durable security state
+
+### Rule
+
+Security-relevant state must be authoritative in durable storage and change as
+one atomic unit. Errors, conflicts, cancellation, and process restart must not
+leave a weaker or partially applied security state.
+
+- Multi-row security transitions must use one transaction and roll back every
+  write, including cleanup rows, version changes, and audit-visible state.
+- Certificate issuance and credential minting must re-read durable revocation
+  and owner status at the point of authorization. Cached or caller-supplied
+  state cannot override it.
+- A failed transition must preserve the last valid state. Partial data must not
+  become externally visible or usable for authorization.
+- Security migrations must be repeatable, preserve constraints, and fail
+  loudly when legacy data cannot be transformed safely.
+
+### Current enforcement
+
+- Enrollment, revocation, token rotation, and mesh import lifecycle changes use
+  transactional SQLite store methods.
+- Mesh import finalize applies Host state, firewall, blocklist, version, and
+  challenge cleanup in one transaction with revision and scope checks.
+- Every certificate-signing path re-checks blocked Host and disabled owning
+  Operator state from the store.
+- Migration tests exercise upgrade, repeated migrate, rollback, and foreign-key
+  enforcement.
+
+### Test anchors
+
+- `internal/store/sqlite_mesh_import_test.go`:
+  `TestFinalizeMeshImportRollsBackAllWrites` and
+  `TestFinalizeMeshImportRollsBackChallengeCleanup`.
+- `internal/api/durable_revocation_test.go`: blocked Host and disabled owner
+  prevent enrollment, renewal, re-enrollment, and mobile bundle issuance.
+- `internal/store/sqlite_enroll_token_test.go`:
+  `TestConsumeTokenAndEnrollHost_NoBurnOnEnrollFailure`.
+- `internal/store/migration_023_test.go`, `migration_024_test.go`, and
+  `migration_pinned_conn_test.go`: migration repeatability and constraints.
+
+### Review checklist
+
+1. Which rows form the security transition, and are all writes transactional?
+2. What remains after each error or conflict path?
+3. Is revocation and owner status read from durable storage at the final
+   authorization point?
+4. Can restart, migration, retry, or concurrent mutation expose partial state?

@@ -23,7 +23,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
-// GHSA-339v-266x-79xr: certificate issuance must re-check durable revocation
+// SEC-PERSIST-001 / GHSA-339v-266x-79xr: certificate issuance must re-check durable revocation
 // state (host blocked, owning operator disabled) at every signing path —
 // enrollment, re-enrollment, and auto-renewal — not only at poll time.
 

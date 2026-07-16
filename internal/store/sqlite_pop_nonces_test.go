@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// TestPopNonces_AcceptThenReplayRejected pins the headline invariant:
+// SEC-REPLAY-001: TestPopNonces_AcceptThenReplayRejected pins the headline invariant:
 // the same (host, nonce) is accepted exactly once inside its expiry
 // window. GHSA-v2jf-442r-6mjh.
 func TestPopNonces_AcceptThenReplayRejected(t *testing.T) {
@@ -130,7 +130,7 @@ func TestPopNonces_LazyPruneClearsStaleRows(t *testing.T) {
 	}
 }
 
-// TestPopNonces_SurvivesRestart is the structural fix to the GHSA-v2jf
+// SEC-REPLAY-001: TestPopNonces_SurvivesRestart is the structural fix to the GHSA-v2jf
 // restart-replay surface: an in-memory LRU lost all recorded nonces
 // at process restart, so a captured poll became replayable within
 // the timestamp window. The durable store must remember the nonce
@@ -168,7 +168,7 @@ func TestPopNonces_SurvivesRestart(t *testing.T) {
 	}
 }
 
-// TestPopNonces_ConcurrentSameNonceExactlyOneAccepted exercises the
+// SEC-REPLAY-001: TestPopNonces_ConcurrentSameNonceExactlyOneAccepted exercises the
 // linearization guarantee under contention. Many goroutines submit the
 // same (host, nonce); exactly one observes nil-error (fresh accept),
 // the rest are correctly classified as ErrReplayedNonce.

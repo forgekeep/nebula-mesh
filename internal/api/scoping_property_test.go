@@ -85,7 +85,7 @@ var protectedGETScoping = map[string]listScoping{
 	"/api/v1/webhook-subscriptions/{id}": singleResource,
 }
 
-// TestProtectedGETRoutesAreClassified fails the moment setupRoutes registers
+// SEC-TENANT-001: TestProtectedGETRoutesAreClassified fails the moment setupRoutes registers
 // a GET route that protectedGETScoping does not classify. It is the tripwire
 // that forces every future read endpoint to declare its tenant scoping.
 func TestProtectedGETRoutesAreClassified(t *testing.T) {
@@ -112,7 +112,7 @@ func TestProtectedGETRoutesAreClassified(t *testing.T) {
 	}
 }
 
-// TestListEndpointsScopeToOwner pins the read-side invariant for every
+// SEC-TENANT-001: TestListEndpointsScopeToOwner pins the read-side invariant for every
 // collection and admin-only route: operator A never sees operator B's data
 // and vice-versa, while an admin sees both. The CA id is used as the leak
 // marker because it surfaces in every scoped collection — as ca_id on hosts

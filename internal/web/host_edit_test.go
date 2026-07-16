@@ -86,6 +86,9 @@ func TestHostEdit_GET_AsAdmin(t *testing.T) {
 	if !strings.Contains(body, `value="web-1"`) {
 		t.Error("form should preserve host name")
 	}
+	if !strings.Contains(body, `value="test-net"`) {
+		t.Error("form should show the host network name")
+	}
 
 	if !strings.Contains(body, `value="192.168.100.10"`) {
 		t.Error("form should preserve nebula_ip")

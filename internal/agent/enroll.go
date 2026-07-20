@@ -266,6 +266,13 @@ func enrollWithProfile(
 		return fmt.Errorf("write CA cert: %w", err)
 	}
 
+	// Validate the config YAML PKI paths before writing (#300).
+	configDir := filepath.Dir(profile.NebulaConfigPath)
+	if err := validateConfigPKIPaths(enrollResp.ConfigYAML, configDir,
+		profile.NebulaCAPath, profile.NebulaCertPath, profile.NebulaKeyPath); err != nil {
+		return fmt.Errorf("enrollment config validation: %w", err)
+	}
+
 	// Save config. 0o640 — rendered Nebula daemon config (host name,
 	// nebula IPs, lighthouse list, firewall rules, paths to key/cert
 	// files). No secrets in the file itself; the actual private key

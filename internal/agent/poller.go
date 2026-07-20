@@ -19,9 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/slackhq/nebula/cert"
-	nebulaconfig "github.com/slackhq/nebula/config"
 
 	agentpop "github.com/forgekeep/nebula-mesh/internal/agent/pop"
 	"github.com/forgekeep/nebula-mesh/internal/fsutil"
@@ -424,43 +422,8 @@ func (p *Poller) acknowledgeConfig(ctx context.Context, version int) error {
 }
 
 func (p *Poller) validateCandidateConfig(raw string) error {
-	directory := filepath.Dir(p.nebulaConfigPath())
-	file, err := os.CreateTemp(directory, ".nebula-agent-candidate-")
-	if err != nil {
-		return fmt.Errorf("create candidate config: %w", err)
-	}
-	path := file.Name()
-	defer os.Remove(path)
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("secure candidate config: %w", err)
-	}
-	if _, err := file.WriteString(raw); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("write candidate config: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("sync candidate config: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close candidate config: %w", err)
-	}
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
-	configuration := nebulaconfig.NewC(logger)
-	if err := configuration.Load(path); err != nil {
-		return fmt.Errorf("validate candidate config: %w", err)
-	}
-	expected := map[string]string{
-		"pki.ca": p.nebulaCAPath(), "pki.cert": p.nebulaCertPath(), "pki.key": p.nebulaKeyPath(),
-	}
-	for key, want := range expected {
-		if got := configuration.GetString(key, ""); got != want {
-			return fmt.Errorf("validate candidate config: %s path %q does not match configured path %q", key, got, want)
-		}
-	}
-	return nil
+	return validateConfigPKIPaths(raw, filepath.Dir(p.nebulaConfigPath()),
+		p.nebulaCAPath(), p.nebulaCertPath(), p.nebulaKeyPath())
 }
 
 func (p *Poller) ensureImportBackup() error {

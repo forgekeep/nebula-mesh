@@ -51,7 +51,7 @@ func TestEnroll_ZeroizesPrivateKeys(t *testing.T) {
 		resp := EnrollResponse{
 			CertificatePEM:   hostCertPEM,
 			CACertificatePEM: caCertPEM,
-			ConfigYAML:       "pki:\n  ca: /etc/nebula/ca.crt\n",
+			ConfigYAML:       enrollConfigYAML(dir),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)

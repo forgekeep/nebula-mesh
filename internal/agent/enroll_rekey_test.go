@@ -25,7 +25,7 @@ func TestReenrollUsesProfilePaths(t *testing.T) {
 	}
 	signingKeyPath := filepath.Join(root, "agent", "signing.key")
 	hostCertPEM, caCertPEM := testEnrollCerts(t)
-	configYAML := "pki:\n  ca: " + profile.NebulaCAPath + "\n"
+	configYAML := profileConfigYAML(profile)
 	var submitted models.AgentProfile
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		var body struct {
@@ -83,7 +83,7 @@ func TestReenrollReloadsAfterWritesBeforeAck(t *testing.T) {
 		switch request.URL.Path {
 		case "/api/v1/enroll":
 			_ = json.NewEncoder(response).Encode(EnrollResponse{
-				CertificatePEM: certificatePEM, CACertificatePEM: caCertPEM, ConfigYAML: "config", ConfigVersion: 7,
+				CertificatePEM: certificatePEM, CACertificatePEM: caCertPEM, ConfigYAML: profileConfigYAML(profile), ConfigVersion: 7,
 			})
 		case "/api/v1/agent/config-ack/7":
 			acknowledgements.Add(1)
@@ -132,7 +132,7 @@ func TestReenrollReloadFailureSuppressesAck(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/api/v1/enroll" {
 			_ = json.NewEncoder(response).Encode(EnrollResponse{
-				CertificatePEM: certPEM3, CACertificatePEM: caPEM3, ConfigYAML: "config", ConfigVersion: 3,
+				CertificatePEM: certPEM3, CACertificatePEM: caPEM3, ConfigYAML: profileConfigYAML(profile), ConfigVersion: 3,
 			})
 			return
 		}
@@ -165,7 +165,7 @@ func TestReenrollWithoutPIDFileSkipsReloadAndAcknowledges(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/api/v1/enroll" {
 			_ = json.NewEncoder(response).Encode(EnrollResponse{
-				CertificatePEM: certPEM4, CACertificatePEM: caPEM4, ConfigYAML: "config", ConfigVersion: 2,
+				CertificatePEM: certPEM4, CACertificatePEM: caPEM4, ConfigYAML: profileConfigYAML(profile), ConfigVersion: 2,
 			})
 			return
 		}

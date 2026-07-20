@@ -56,6 +56,7 @@ type enrollMockServer struct {
 	updatesCalls atomic.Int32
 	updatesCode  atomic.Int32 // override status code for /agent/updates
 	signingPub   ed25519.PublicKey
+	configYAML   string // enrollment config YAML; set by tests to match data dir paths
 }
 
 func newEnrollMockServer(t *testing.T) *enrollMockServer {
@@ -111,7 +112,7 @@ func newEnrollMockServer(t *testing.T) *enrollMockServer {
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"certificate_pem":    string(hostCertPEM),
 				"ca_certificate_pem": string(caCertPEM),
-				"config_yaml":        "pki:\n  ca: /etc/nebula/ca.crt\n",
+				"config_yaml":        srv.configYAML,
 			})
 		case "/api/v1/agent/updates":
 			srv.updatesCalls.Add(1)
@@ -131,6 +132,14 @@ func newEnrollMockServer(t *testing.T) *enrollMockServer {
 // TestEnrollSubcommand_WritesFiles — happy path. enroll subcommand hits
 // both the enroll and updates endpoints, writes agent.yml + the five
 // enrollment files with the right modes, and exits 0.
+// testConfigYAML generates a Nebula config YAML with PKI paths matching
+// the default agent profile for the given data directory.
+func testConfigYAML(dataDir string) string {
+	return "pki:\n  ca: " + filepath.Join(dataDir, "ca.crt") +
+		"\n  cert: " + filepath.Join(dataDir, "host.crt") +
+		"\n  key: " + filepath.Join(dataDir, "host.key") + "\n"
+}
+
 func TestEnrollSubcommand_WritesFiles(t *testing.T) {
 	srv := newEnrollMockServer(t)
 
@@ -138,6 +147,7 @@ func TestEnrollSubcommand_WritesFiles(t *testing.T) {
 	cfgPath := filepath.Join(dir, "agent.yml")
 	dataDir := filepath.Join(dir, "nebula")
 	signingKeyPath := filepath.Join(dir, "agent", "host.signing.key")
+	srv.configYAML = testConfigYAML(dataDir)
 
 	var stdout, stderr bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -208,6 +218,7 @@ func TestEnrollSubcommand_FirstPollFailureIsNonFatal(t *testing.T) {
 	cfgPath := filepath.Join(dir, "agent.yml")
 	dataDir := filepath.Join(dir, "nebula")
 	signingKeyPath := filepath.Join(dir, "agent", "host.signing.key")
+	srv.configYAML = testConfigYAML(dataDir)
 
 	var stdout, stderr bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -243,6 +254,7 @@ func TestEnrollSubcommand_RefusesWhenAlreadyEnrolled(t *testing.T) {
 	cfgPath := filepath.Join(dir, "agent.yml")
 	dataDir := filepath.Join(dir, "nebula")
 	signingKeyPath := filepath.Join(dir, "agent", "host.signing.key")
+	srv.configYAML = testConfigYAML(dataDir)
 
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -352,6 +364,7 @@ func TestRun_LeavesStandbyAfterFilesAppear(t *testing.T) {
 	cfgPath := filepath.Join(dir, "agent.yml")
 	dataDir := filepath.Join(dir, "nebula")
 	signingKeyPath := filepath.Join(dir, "agent", "host.signing.key")
+	srv.configYAML = testConfigYAML(dataDir)
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

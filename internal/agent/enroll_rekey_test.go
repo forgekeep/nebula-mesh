@@ -24,6 +24,8 @@ func TestReenrollUsesProfilePaths(t *testing.T) {
 		ConfigAckV1:      true,
 	}
 	signingKeyPath := filepath.Join(root, "agent", "signing.key")
+	hostCertPEM, caCertPEM := testEnrollCerts(t)
+	configYAML := "pki:\n  ca: " + profile.NebulaCAPath + "\n"
 	var submitted models.AgentProfile
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		var body struct {
@@ -36,7 +38,7 @@ func TestReenrollUsesProfilePaths(t *testing.T) {
 		}
 		submitted = body.Profile
 		_ = json.NewEncoder(response).Encode(EnrollResponse{
-			CertificatePEM: "certificate", CACertificatePEM: "ca", ConfigYAML: "config",
+			CertificatePEM: hostCertPEM, CACertificatePEM: caCertPEM, ConfigYAML: configYAML,
 		})
 	}))
 	t.Cleanup(server.Close)
@@ -51,8 +53,8 @@ func TestReenrollUsesProfilePaths(t *testing.T) {
 		t.Fatalf("submitted profile = %#v, want %#v", submitted, profile)
 	}
 	for path, want := range map[string]string{
-		profile.NebulaConfigPath: "config", profile.NebulaCAPath: "ca",
-		profile.NebulaCertPath: "certificate",
+		profile.NebulaConfigPath: configYAML, profile.NebulaCAPath: caCertPEM,
+		profile.NebulaCertPath: hostCertPEM,
 	} {
 		contents, err := os.ReadFile(path)
 		if err != nil || string(contents) != want {
@@ -75,13 +77,13 @@ func TestReenrollReloadsAfterWritesBeforeAck(t *testing.T) {
 		NebulaKeyPath:    filepath.Join(root, "node.key"),
 		ConfigAckV1:      true,
 	}
-	certificatePEM := validPollerHostCertificate(t)
+	certificatePEM, caCertPEM := testEnrollCerts(t)
 	var acknowledgements atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/api/v1/enroll":
 			_ = json.NewEncoder(response).Encode(EnrollResponse{
-				CertificatePEM: certificatePEM, CACertificatePEM: "ca", ConfigYAML: "config", ConfigVersion: 7,
+				CertificatePEM: certificatePEM, CACertificatePEM: caCertPEM, ConfigYAML: "config", ConfigVersion: 7,
 			})
 		case "/api/v1/agent/config-ack/7":
 			acknowledgements.Add(1)
@@ -125,11 +127,12 @@ func TestReenrollReloadFailureSuppressesAck(t *testing.T) {
 		NebulaConfigPath: filepath.Join(root, "nebula.yml"), NebulaCAPath: filepath.Join(root, "root.pem"),
 		NebulaCertPath: filepath.Join(root, "node.pem"), NebulaKeyPath: filepath.Join(root, "node.key"), ConfigAckV1: true,
 	}
+	certPEM3, caPEM3 := testEnrollCerts(t)
 	var acknowledgements atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/api/v1/enroll" {
 			_ = json.NewEncoder(response).Encode(EnrollResponse{
-				CertificatePEM: validPollerHostCertificate(t), CACertificatePEM: "ca", ConfigYAML: "config", ConfigVersion: 3,
+				CertificatePEM: certPEM3, CACertificatePEM: caPEM3, ConfigYAML: "config", ConfigVersion: 3,
 			})
 			return
 		}
@@ -157,11 +160,12 @@ func TestReenrollWithoutPIDFileSkipsReloadAndAcknowledges(t *testing.T) {
 		NebulaConfigPath: filepath.Join(root, "nebula.yml"), NebulaCAPath: filepath.Join(root, "root.pem"),
 		NebulaCertPath: filepath.Join(root, "node.pem"), NebulaKeyPath: filepath.Join(root, "node.key"), ConfigAckV1: true,
 	}
+	certPEM4, caPEM4 := testEnrollCerts(t)
 	var acknowledgements atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/api/v1/enroll" {
 			_ = json.NewEncoder(response).Encode(EnrollResponse{
-				CertificatePEM: validPollerHostCertificate(t), CACertificatePEM: "ca", ConfigYAML: "config", ConfigVersion: 2,
+				CertificatePEM: certPEM4, CACertificatePEM: caPEM4, ConfigYAML: "config", ConfigVersion: 2,
 			})
 			return
 		}

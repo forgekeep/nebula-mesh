@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	crypto_rand "crypto/rand"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +20,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/curve25519"
+
+	"github.com/forgekeep/nebula-mesh/internal/pki"
 )
 
 // syncedBuffer is a tiny mutex-guarded byte buffer used by tests that read
@@ -54,6 +60,39 @@ type enrollMockServer struct {
 
 func newEnrollMockServer(t *testing.T) *enrollMockServer {
 	t.Helper()
+
+	// Generate a real CA and host certificate so the agent's enrollment
+	// validation accepts the response (#293).
+	caMgr, err := pki.NewCA("enroll-mock", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(caMgr.Wipe)
+	xPriv := make([]byte, 32)
+	if _, err := crypto_rand.Read(xPriv); err != nil {
+		t.Fatal(err)
+	}
+	xPub, err := curve25519.X25519(xPriv, curve25519.Basepoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostCert, err := caMgr.Sign(pki.SignRequest{
+		Name: "mock-host", PublicKey: xPub,
+		Networks: []netip.Prefix{netip.MustParsePrefix("10.99.0.1/16")},
+		Duration: time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostCertPEM, err := hostCert.MarshalPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	caCertPEM, err := caMgr.CACertPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	srv := &enrollMockServer{}
 	srv.updatesCode.Store(int32(http.StatusOK))
 	srv.ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,8 +109,8 @@ func newEnrollMockServer(t *testing.T) *enrollMockServer {
 				srv.signingPub = ed25519.PublicKey(block.Bytes)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]string{
-				"certificate_pem":    pemBlock("NEBULA CERTIFICATE", "cert-bytes"),
-				"ca_certificate_pem": pemBlock("NEBULA CERTIFICATE", "ca-bytes"),
+				"certificate_pem":    string(hostCertPEM),
+				"ca_certificate_pem": string(caCertPEM),
 				"config_yaml":        "pki:\n  ca: /etc/nebula/ca.crt\n",
 			})
 		case "/api/v1/agent/updates":
@@ -87,10 +126,6 @@ func newEnrollMockServer(t *testing.T) *enrollMockServer {
 	}))
 	t.Cleanup(srv.ts.Close)
 	return srv
-}
-
-func pemBlock(kind, body string) string {
-	return "-----BEGIN " + kind + "-----\n" + body + "\n-----END " + kind + "-----\n"
 }
 
 // TestEnrollSubcommand_WritesFiles — happy path. enroll subcommand hits

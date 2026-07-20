@@ -2,19 +2,63 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"golang.org/x/crypto/curve25519"
+
+	"github.com/forgekeep/nebula-mesh/internal/pki"
 )
+
+// testEnrollCerts generates a real CA and host certificate pair for
+// enrollment test fixtures. Returns (hostCertPEM, caCertPEM).
+func testEnrollCerts(t *testing.T) (hostCertPEM, caCertPEM string) {
+	t.Helper()
+	caMgr, err := pki.NewCA("enroll-test", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(caMgr.Wipe)
+	xPriv := make([]byte, 32)
+	if _, err := rand.Read(xPriv); err != nil {
+		t.Fatal(err)
+	}
+	xPub, err := curve25519.X25519(xPriv, curve25519.Basepoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostCert, err := caMgr.Sign(pki.SignRequest{
+		Name: "enroll-test-host", PublicKey: xPub,
+		Networks: []netip.Prefix{netip.MustParsePrefix("10.99.0.1/16")},
+		Duration: time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawHostPEM, err := hostCert.MarshalPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawCAPEM, err := caMgr.CACertPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(rawHostPEM), string(rawCAPEM)
+}
 
 func TestEnroll_Success(t *testing.T) {
 	dir := t.TempDir()
 	agentDir := t.TempDir()
 	signingKeyPath := filepath.Join(agentDir, "host.signing.key")
+	hostCertPEM, caCertPEM := testEnrollCerts(t)
 
 	// Mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -46,8 +90,8 @@ func TestEnroll_Success(t *testing.T) {
 		}
 
 		resp := EnrollResponse{
-			CertificatePEM:   "-----BEGIN NEBULA CERTIFICATE-----\ntest-cert\n-----END NEBULA CERTIFICATE-----",
-			CACertificatePEM: "-----BEGIN NEBULA CERTIFICATE-----\ntest-ca\n-----END NEBULA CERTIFICATE-----",
+			CertificatePEM:   hostCertPEM,
+			CACertificatePEM: caCertPEM,
 			ConfigYAML:       "pki:\n  ca: /etc/nebula/ca.crt\n",
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -98,14 +142,14 @@ func TestEnroll_Success(t *testing.T) {
 func TestEnrollAcknowledgesInitialConfigVersion(t *testing.T) {
 	dataDir := t.TempDir()
 	signingPath := filepath.Join(t.TempDir(), "host.signing.key")
-	certificatePEM := validPollerHostCertificate(t)
+	certificatePEM, caCertPEM := testEnrollCerts(t)
 	rendered := "pki:\n  ca: " + filepath.Join(dataDir, "ca.crt") + "\n  cert: " + filepath.Join(dataDir, "host.crt") + "\n  key: " + filepath.Join(dataDir, "host.key") + "\n"
 	var acknowledgements atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/api/v1/enroll":
 			_ = json.NewEncoder(response).Encode(EnrollResponse{
-				CertificatePEM: certificatePEM, CACertificatePEM: "public-ca", ConfigYAML: rendered, ConfigVersion: 4,
+				CertificatePEM: certificatePEM, CACertificatePEM: caCertPEM, ConfigYAML: rendered, ConfigVersion: 4,
 			})
 		case "/api/v1/agent/config-ack/4":
 			if request.Header.Get("X-Nebula-Signature") == "" || request.Header.Get("X-Nebula-Fingerprint") == "" {

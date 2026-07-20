@@ -145,7 +145,16 @@ func TestPoller_WithCertUpdate(t *testing.T) {
 }
 
 func TestPoller_WithCACertUpdate(t *testing.T) {
-	caCertPEM := "-----BEGIN NEBULA CERTIFICATE-----\nca-cert-data\n-----END NEBULA CERTIFICATE-----"
+	caManager, err := pki.NewCA("ca-update-test", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer caManager.Wipe()
+	caPEM, err := caManager.CACertPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	caCertPEM := string(caPEM)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(UpdatesResponse{
 			HasUpdates: true,
@@ -388,5 +397,94 @@ func TestSignalNebula_NoPIDFile(t *testing.T) {
 func TestNewPoller_MissingSigningKey(t *testing.T) {
 	if _, err := NewPoller(PollerConfig{DataDir: t.TempDir()}, slog.Default()); err == nil {
 		t.Fatal("expected error when host.signing.key missing")
+	}
+}
+
+// TestPoller_RejectsInvalidCACert verifies that a poll response carrying a
+// non-CA or malformed certificate is rejected and the on-disk CA file is
+// not overwritten (#293 M-1).
+func TestPoller_RejectsInvalidCACert(t *testing.T) {
+	// A valid host certificate (not a CA) must be rejected.
+	hostCertPEM := validPollerHostCertificate(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(UpdatesResponse{
+			HasUpdates: true,
+			CACertPEM:  &hostCertPEM,
+			Blocklist:  []string{},
+		})
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	seedSigningKeyAt(t, dir)
+	// Seed an existing CA file so we can verify it is not overwritten.
+	originalCA := []byte("original-ca")
+	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), originalCA, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newTestPoller(t, PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "test-fp",
+		DataDir:     dir,
+		Interval:    50 * time.Millisecond,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_ = p.Run(ctx)
+
+	data, err := os.ReadFile(filepath.Join(dir, "ca.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(originalCA) {
+		t.Errorf("CA file was overwritten with invalid cert; got %q", string(data))
+	}
+}
+
+// TestSignalNebula_InvalidPID verifies that PID values 0 and -1 are
+// rejected before sending SIGHUP (#293 M-5).
+func TestSignalNebula_InvalidPID(t *testing.T) {
+	for _, pidContent := range []string{"0", "-1", " 0 ", " -1 "} {
+		dir := t.TempDir()
+		pidFile := filepath.Join(dir, "nebula.pid")
+		if err := os.WriteFile(pidFile, []byte(pidContent), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := signalNebulaFromPID(pidFile); err == nil {
+			t.Errorf("expected error for PID content %q, got nil", pidContent)
+		}
+	}
+}
+
+// TestPoller_ZeroizesSigningKeyOnShutdown verifies that the signing key
+// is zeroed after Run returns (#293 L-2).
+func TestPoller_ZeroizesSigningKeyOnShutdown(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(UpdatesResponse{HasUpdates: false, Blocklist: []string{}})
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	seedSigningKeyAt(t, dir)
+	p := newTestPoller(t, PollerConfig{
+		ServerURL:   server.URL,
+		Fingerprint: "test-fp",
+		DataDir:     dir,
+		Interval:    50 * time.Millisecond,
+	})
+
+	// Capture a reference to the key bytes before Run.
+	keyBytes := p.signingKey
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	_ = p.Run(ctx)
+
+	for i, b := range keyBytes {
+		if b != 0 {
+			t.Fatalf("signing key byte %d = %d after Run, want 0", i, b)
+		}
 	}
 }

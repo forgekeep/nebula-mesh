@@ -209,8 +209,10 @@ func loadSigningKey(path string) (ed25519.PrivateKey, error) {
 	return ed25519.PrivateKey(block.Bytes), nil
 }
 
-// Run starts the poll loop, blocking until ctx is canceled.
+// Run starts the poll loop, blocking until ctx is canceled. The signing
+// key is zeroized on return so it does not linger in heap memory.
 func (p *Poller) Run(ctx context.Context) error {
+	defer clear(p.signingKey)
 	p.logger.Info("starting poll loop", "interval", p.config.Interval, "server", p.config.ServerURL)
 
 	ticker := time.NewTicker(p.config.Interval)
@@ -292,7 +294,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		return nil
 	}
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusGone {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		reason := "revoked"
 		if resp.StatusCode == http.StatusGone {
 			reason = "gone"
@@ -306,12 +308,12 @@ func (p *Poller) poll(ctx context.Context) error {
 		return &RevocationError{StatusCode: resp.StatusCode, Reason: reason, Body: string(body)}
 	}
 	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		return &PollHTTPError{StatusCode: resp.StatusCode, Body: string(body), ReadErr: readErr}
 	}
 
 	var updates UpdatesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&updates); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&updates); err != nil {
 		return fmt.Errorf("decode updates: %w", err)
 	}
 
@@ -360,6 +362,11 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 
 	if updates.CACertPEM != nil {
+		caCert, remainder, err := cert.UnmarshalCertificateFromPEM([]byte(*updates.CACertPEM))
+		if err != nil || strings.TrimSpace(string(remainder)) != "" || !caCert.IsCA() ||
+			caCert.Curve() != cert.Curve_CURVE25519 || caCert.Expired(time.Now()) {
+			return fmt.Errorf("validate returned CA certificate: invalid or expired CA")
+		}
 		if err := fsutil.AtomicWriteFile(p.nebulaCAPath(), []byte(*updates.CACertPEM), 0o644); err != nil {
 			return fmt.Errorf("write CA cert: %w", err)
 		}
@@ -594,6 +601,9 @@ func signalNebulaFromPID(pidFile string) error {
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
 		return fmt.Errorf("parse PID from %s: %w", pidFile, err)
+	}
+	if pid <= 1 {
+		return fmt.Errorf("invalid PID %d from %s: must be greater than 1", pid, pidFile)
 	}
 
 	proc, err := os.FindProcess(pid)

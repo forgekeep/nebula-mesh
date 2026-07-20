@@ -13,10 +13,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
 
+	"github.com/forgekeep/nebula-mesh/internal/fsutil"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
@@ -203,15 +206,18 @@ func enrollWithProfile(
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		if readErr != nil {
 			return fmt.Errorf("enrollment failed (HTTP %d, body unreadable: %w)", resp.StatusCode, readErr)
+		}
+		if len(body) > 512 {
+			body = body[:512]
 		}
 		return fmt.Errorf("enrollment failed (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
 	var enrollResp EnrollResponse
-	if err := json.NewDecoder(resp.Body).Decode(&enrollResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&enrollResp); err != nil {
 		return fmt.Errorf("decode enrollment response: %w", err)
 	}
 
@@ -224,7 +230,7 @@ func enrollWithProfile(
 	// Save private key. The PEM encoding is a second heap copy of the
 	// secret — tracked in secrets and wiped with the raw bytes.
 	secrets.privKeyPEM = cert.MarshalPrivateKeyToPEM(cert.Curve_CURVE25519, secrets.privKey)
-	if err := os.WriteFile(profile.NebulaKeyPath, secrets.privKeyPEM, 0o600); err != nil {
+	if err := fsutil.AtomicWriteFile(profile.NebulaKeyPath, secrets.privKeyPEM, 0o600); err != nil {
 		return fmt.Errorf("write host key: %w", err)
 	}
 
@@ -234,17 +240,29 @@ func enrollWithProfile(
 		return fmt.Errorf("create signing key dir: %w", err)
 	}
 	secrets.signingPrivPEM = pem.EncodeToMemory(&pem.Block{Type: SigningPrivateKeyPEMType, Bytes: secrets.signingPriv})
-	if err := os.WriteFile(signingKeyPath, secrets.signingPrivPEM, 0o600); err != nil {
+	if err := fsutil.AtomicWriteFile(signingKeyPath, secrets.signingPrivPEM, 0o600); err != nil {
 		return fmt.Errorf("write signing key: %w", err)
 	}
 
-	// Save certificate
-	if err := os.WriteFile(profile.NebulaCertPath, []byte(enrollResp.CertificatePEM), 0o644); err != nil { // #nosec G306 -- host certificate is public PEM material; 0o644 is intentional
+	// Validate the host certificate before writing: must be a valid
+	// non-CA Curve25519 certificate with no trailing PEM blocks.
+	hostCert, remainder, err := cert.UnmarshalCertificateFromPEM([]byte(enrollResp.CertificatePEM))
+	if err != nil || strings.TrimSpace(string(remainder)) != "" || hostCert.IsCA() ||
+		hostCert.Curve() != cert.Curve_CURVE25519 {
+		return fmt.Errorf("enrollment response contains an invalid host certificate")
+	}
+	if err := fsutil.AtomicWriteFile(profile.NebulaCertPath, []byte(enrollResp.CertificatePEM), 0o644); err != nil {
 		return fmt.Errorf("write host cert: %w", err)
 	}
 
-	// Save CA certificate
-	if err := os.WriteFile(profile.NebulaCAPath, []byte(enrollResp.CACertificatePEM), 0o644); err != nil { // #nosec G306 -- CA certificate is public PEM material; 0o644 is intentional
+	// Validate the CA certificate: must be a valid CA with Curve25519
+	// and not expired.
+	caCert, caRemainder, err := cert.UnmarshalCertificateFromPEM([]byte(enrollResp.CACertificatePEM))
+	if err != nil || strings.TrimSpace(string(caRemainder)) != "" || !caCert.IsCA() ||
+		caCert.Curve() != cert.Curve_CURVE25519 || caCert.Expired(time.Now()) {
+		return fmt.Errorf("enrollment response contains an invalid CA certificate")
+	}
+	if err := fsutil.AtomicWriteFile(profile.NebulaCAPath, []byte(enrollResp.CACertificatePEM), 0o644); err != nil {
 		return fmt.Errorf("write CA cert: %w", err)
 	}
 
@@ -252,7 +270,7 @@ func enrollWithProfile(
 	// nebula IPs, lighthouse list, firewall rules, paths to key/cert
 	// files). No secrets in the file itself; the actual private key
 	// lives in host.key, written above at 0o600.
-	if err := os.WriteFile(profile.NebulaConfigPath, []byte(enrollResp.ConfigYAML), 0o640); err != nil { // #nosec G306 -- rendered Nebula config: host name, IPs, lighthouse, firewall rules, paths to key/cert files — no secrets; the actual private key is host.key (0o600)
+	if err := fsutil.AtomicWriteFile(profile.NebulaConfigPath, []byte(enrollResp.ConfigYAML), 0o640); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	if reload != nil {

@@ -45,11 +45,12 @@ func captureEnrollSecrets(t *testing.T) **enrollmentSecrets {
 func TestEnroll_ZeroizesPrivateKeys(t *testing.T) {
 	dir := t.TempDir()
 	signingKeyPath := filepath.Join(t.TempDir(), "host.signing.key")
+	hostCertPEM, caCertPEM := testEnrollCerts(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		resp := EnrollResponse{
-			CertificatePEM:   "-----BEGIN NEBULA CERTIFICATE-----\ntest-cert\n-----END NEBULA CERTIFICATE-----",
-			CACertificatePEM: "-----BEGIN NEBULA CERTIFICATE-----\ntest-ca\n-----END NEBULA CERTIFICATE-----",
+			CertificatePEM:   hostCertPEM,
+			CACertificatePEM: caCertPEM,
 			ConfigYAML:       "pki:\n  ca: /etc/nebula/ca.crt\n",
 		}
 		w.Header().Set("Content-Type", "application/json")

@@ -74,15 +74,23 @@ jobs:
           go build -o $agentExe ./cmd/nebula-agent
           if ($LASTEXITCODE -ne 0) { throw "agent build failed" }
 
-          # Preserve access for the non-elevated Actions runner across workflow steps.
           $runnerSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-          $runnerGrant = "*${runnerSid}:(OI)(CI)F"
+          $runnerDirectoryGrant = "*${runnerSid}:(OI)(CI)F"
+          $runnerFileGrant = "*${runnerSid}:F"
           & icacls.exe $installDir /inheritance:r /grant:r `
-            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' $runnerGrant /T /C
+            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' $runnerDirectoryGrant /C
           if ($LASTEXITCODE -ne 0) { throw "failed to protect install directory" }
+          & icacls.exe $agentExe /inheritance:r /grant:r `
+            '*S-1-5-18:F' '*S-1-5-32-544:F' $runnerFileGrant /C
+          if ($LASTEXITCODE -ne 0) { throw "failed to protect agent executable" }
           & icacls.exe $dataDir /inheritance:r /grant:r `
-            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' $runnerGrant /T /C
+            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' $runnerDirectoryGrant /C
           if ($LASTEXITCODE -ne 0) { throw "failed to protect data directory" }
+
+          & icacls.exe $installDir
+          & icacls.exe $agentExe
+          & $agentExe service 2>$null
+          if ($LASTEXITCODE -ne 1) { throw "unexpected service usage exit code: $LASTEXITCODE" }
 
           $unsafeSids = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')
           $writeMask = [System.Security.AccessControl.FileSystemRights]::Write -bor `

@@ -2,13 +2,13 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -54,7 +54,10 @@ func TestListHosts_NonAdminNotUndercountedPastLimit(t *testing.T) {
 	srv.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	body := rec.Body.String()
-	assert.Contains(t, body, "zzz-mine", "owner's host dropped by LIMIT before ownership scoping (undercount)")
-	assert.NotContains(t, body, "aaa-", "foreign hosts must not leak to a non-owner")
+	var hosts []models.Host
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&hosts))
+	// SEC-TENANT-001: the response must contain only the caller's owned host.
+	require.Len(t, hosts, 1)
+	require.Equal(t, "h-mine", hosts[0].ID)
+	require.Equal(t, "zzz-mine", hosts[0].Name)
 }

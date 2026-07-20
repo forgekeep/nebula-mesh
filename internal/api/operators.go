@@ -30,12 +30,20 @@ func (s *Server) handleCreateOperator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req createOperatorRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONStrict(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Username == "" || req.Password == "" {
 		writeError(w, http.StatusBadRequest, "username and password are required")
+		return
+	}
+	if len(req.Username) > 255 {
+		writeError(w, http.StatusBadRequest, "username must be at most 255 characters")
+		return
+	}
+	if len(req.DisplayName) > 1024 {
+		writeError(w, http.StatusBadRequest, "display_name must be at most 1024 characters")
 		return
 	}
 	// An omitted role means least privilege; anything else must be a known

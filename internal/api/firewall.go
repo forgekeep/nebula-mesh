@@ -88,7 +88,7 @@ func (s *Server) handleUpdateFirewall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req firewallRulesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONStrict(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

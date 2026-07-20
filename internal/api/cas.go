@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -94,12 +93,16 @@ func (s *Server) handleCreateCA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req createCARequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONStrict(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if len(req.Name) > 255 {
+		writeError(w, http.StatusBadRequest, "name must be at most 255 characters")
 		return
 	}
 	duration := 365 * 24 * time.Hour

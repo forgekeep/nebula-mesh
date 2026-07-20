@@ -33,6 +33,10 @@ func (s *Server) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if len(req.Name) > 255 {
+		writeError(w, http.StatusBadRequest, "name must be at most 255 characters")
+		return
+	}
 	if err := models.ValidateNetworkCIDRs(req.CIDRs); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

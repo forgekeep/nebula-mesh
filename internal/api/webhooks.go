@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -66,7 +65,7 @@ func (s *Server) handleGetWebhookSubscription(w http.ResponseWriter, r *http.Req
 
 func (s *Server) handleCreateWebhookSubscription(w http.ResponseWriter, r *http.Request) {
 	var req webhookSubRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONStrict(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -117,7 +116,7 @@ func (s *Server) handleUpdateWebhookSubscription(w http.ResponseWriter, r *http.
 		return
 	}
 	var req webhookSubRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONStrict(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

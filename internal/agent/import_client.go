@@ -19,6 +19,7 @@ import (
 
 	"github.com/slackhq/nebula/cert"
 
+	"github.com/forgekeep/nebula-mesh/internal/fsutil"
 	"github.com/forgekeep/nebula-mesh/internal/importproof"
 )
 
@@ -269,16 +270,10 @@ func loadOrCreateSigningKey(path string) (ed25519.PrivateKey, error) {
 		clear(encoded)
 		return nil, err
 	}
-	directory, err := os.Open(filepath.Dir(path)) // #nosec G304 -- operator-controlled documented signing key directory
-	if err == nil {
-		err = directory.Sync()
-		_ = directory.Close()
-	}
-	if err != nil {
-		clear(generated)
-		clear(encoded)
-		return nil, fmt.Errorf("sync signing key directory: %w", err)
-	}
+	// fsync the directory so the hard link survives a crash. Best-effort and
+	// non-fatal: the link already landed, and on Windows directory fsync is not
+	// supported (see fsutil.SyncDir).
+	fsutil.SyncDir(filepath.Dir(path))
 	clear(encoded)
 	return generated, nil
 }

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
@@ -201,13 +202,13 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 		}
 		desc := r.URL.Query().Get("error_description")
 		o.logger.Warn("oidc provider error", "error", errParam, "description", desc)
-		http.Error(rw, "oidc provider error: "+errParam, http.StatusBadRequest)
+		http.Error(rw, "oidc login failed", http.StatusBadRequest)
 		return
 	}
 
 	state := r.URL.Query().Get("state")
 	cookie, err := r.Cookie(oidcStateCookieName)
-	if err != nil || cookie.Value == "" || cookie.Value != state || !o.consumeState(state) {
+	if err != nil || cookie.Value == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(state)) != 1 || !o.consumeState(state) {
 		http.Error(rw, "invalid oidc state", http.StatusBadRequest)
 		return
 	}
@@ -250,12 +251,14 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 	}
 	idToken, err := o.verifier.Verify(ctx, rawID)
 	if err != nil {
-		http.Error(rw, "oidc id_token verification failed: "+err.Error(), http.StatusBadGateway)
+		o.logger.Error("oidc id_token verification failed", "error", err)
+		http.Error(rw, "oidc verification failed", http.StatusBadGateway)
 		return
 	}
 	var claims map[string]any
 	if err := idToken.Claims(&claims); err != nil {
-		http.Error(rw, "oidc claims parse: "+err.Error(), http.StatusBadGateway)
+		o.logger.Error("oidc claims parse failed", "error", err)
+		http.Error(rw, "oidc verification failed", http.StatusBadGateway)
 		return
 	}
 

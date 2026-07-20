@@ -233,7 +233,9 @@ func (w *Web) handleRegister(rw http.ResponseWriter, r *http.Request) {
 	if _, err := w.store.GetOperatorByUsername(r.Context(), username); err == nil {
 		// Generic message so an unauthenticated caller cannot enumerate
 		// existing operator usernames via a distinct error (#260). The real
-		// reason is logged server-side.
+		// reason is logged server-side. Run a dummy bcrypt to equalize
+		// response time with the username-free path (#296).
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
 		w.renderForRequest(rw, r, "register.html", map[string]any{"Error": "Registration failed"})
 		w.logger.Info("register: username taken", "username", username)
 		return
@@ -533,12 +535,40 @@ func (w *Web) handleTwoFADisable(rw http.ResponseWriter, r *http.Request) {
 	}
 	password := r.FormValue("password")
 	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(password)); err != nil {
-		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.disable_failed", op.ID, "")
+		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.disable_failed", op.ID, "bad_password")
 		w.renderForRequest(rw, r, "twofa.html", map[string]any{
 			"Active":      "2fa",
 			"Operator":    op,
 			"TOTPEnabled": op.TOTPEnabled,
 			"Error":       "Password does not match",
+		})
+		return
+	}
+	// OWASP ASVS V2.1.7: require the current second factor when
+	// disabling MFA so a password-only compromise (phishing, credential
+	// stuffing) cannot silently remove 2FA (#296).
+	totpCode := r.FormValue("totp_code")
+	recoveryCode := r.FormValue("recovery_code")
+	secondFactorOK := false
+	if totpCode != "" {
+		timestep, valid := verifyTOTPWithTimestep(op.TOTPSecret, totpCode)
+		if valid {
+			if err := w.store.ConsumeOperatorTOTPTimestep(r.Context(), op.ID, timestep); err == nil {
+				secondFactorOK = true
+			}
+		}
+	} else if recoveryCode != "" {
+		if err := w.store.ConsumeOperatorRecoveryCode(r.Context(), op.ID, hashRecoveryCode(recoveryCode)); err == nil {
+			secondFactorOK = true
+		}
+	}
+	if !secondFactorOK {
+		_ = w.store.AddAuditEntry(r.Context(), op.Username, "operator.2fa.disable_failed", op.ID, "bad_second_factor")
+		w.renderForRequest(rw, r, "twofa.html", map[string]any{
+			"Active":      "2fa",
+			"Operator":    op,
+			"TOTPEnabled": op.TOTPEnabled,
+			"Error":       "Enter a valid TOTP or recovery code to confirm",
 		})
 		return
 	}

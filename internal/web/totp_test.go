@@ -351,7 +351,7 @@ func TestTwoFADisable_RequiresPassword(t *testing.T) {
 	cookies := loginSession(t, w)
 
 	// Pre-enable TOTP
-	_, _ = enableTOTPForAdmin(t, w)
+	secret, _ := enableTOTPForAdmin(t, w)
 
 	// Wrong password — should fail
 	// Get CSRF token for 2FA disable form
@@ -376,8 +376,7 @@ func TestTwoFADisable_RequiresPassword(t *testing.T) {
 		t.Error("TOTP should still be enabled after failed disable")
 	}
 
-	// Correct password — should succeed
-	// Get CSRF token for 2FA disable form
+	// Correct password but no TOTP code — should fail (#296)
 	csrfToken, updatedCookies = getCSRFTokenFromCookies(t, w, "/ui/2fa", cookies)
 
 	form = url.Values{
@@ -391,8 +390,31 @@ func TestTwoFADisable_RequiresPassword(t *testing.T) {
 	}
 	rec = httptest.NewRecorder()
 	w.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "Enter a valid TOTP or recovery code") {
+		t.Error("expected second factor required error")
+	}
+
+	// Correct password + valid TOTP code — should succeed
+	disableCode, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	csrfToken, updatedCookies = getCSRFTokenFromCookies(t, w, "/ui/2fa", cookies)
+
+	form = url.Values{
+		"password":  {testPassword},
+		"totp_code": {disableCode},
+		"_csrf":     {csrfToken},
+	}
+	req = httptest.NewRequest(http.MethodPost, "/ui/2fa/disable", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range updatedCookies {
+		req.AddCookie(c)
+	}
+	rec = httptest.NewRecorder()
+	w.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
-		t.Fatalf("disable status = %d", rec.Code)
+		t.Fatalf("disable status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 
 	op, _ = s.GetOperator(context.Background(), "admin-test-id")

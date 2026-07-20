@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 )
 
@@ -38,7 +37,7 @@ func (s *Server) handlePatchSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req settingsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONStrict(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

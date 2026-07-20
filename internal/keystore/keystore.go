@@ -167,9 +167,8 @@ func OpenWithDEK(dek []byte, w WrappedBlob, aad []byte) ([]byte, error) {
 }
 
 // Zeroize overwrites b with zeros. Use immediately after the plaintext
-// material is no longer required.
+// material is no longer required. Uses the clear builtin (Go 1.21+)
+// which the spec guarantees will not be optimized away (#297).
 func Zeroize(b []byte) {
-	for i := range b {
-		b[i] = 0
-	}
+	clear(b)
 }

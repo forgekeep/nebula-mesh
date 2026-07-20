@@ -122,6 +122,7 @@ type Dispatcher struct {
 	unguarded    *http.Client
 	now          func() time.Time
 	newID        func() string
+	staticSecret []byte // cached HMAC secret for the static config target (#297)
 
 	queue  chan Event
 	wg     sync.WaitGroup
@@ -173,6 +174,9 @@ func New(cfg Config, logger *slog.Logger) *Dispatcher {
 			d.staticEvents[e] = true
 		}
 	}
+	if cfg.HMACSecret != "" {
+		d.staticSecret = []byte(cfg.HMACSecret)
+	}
 	d.wg.Add(1)
 	go d.run()
 	return d
@@ -207,6 +211,7 @@ func (d *Dispatcher) Close() {
 	if d.closed.CompareAndSwap(false, true) {
 		close(d.queue)
 	}
+	clear(d.staticSecret)
 	d.wg.Wait()
 }
 
@@ -234,7 +239,7 @@ func (d *Dispatcher) dispatch(ev Event) {
 func (d *Dispatcher) targets(scope Scope, eventType string) []Target {
 	var out []Target
 	if d.cfg.URL != "" && (d.staticEvents == nil || d.staticEvents[eventType]) {
-		out = append(out, Target{URL: d.cfg.URL, Secret: []byte(d.cfg.HMACSecret), AllowPrivate: d.cfg.AllowPrivate})
+		out = append(out, Target{URL: d.cfg.URL, Secret: d.staticSecret, AllowPrivate: d.cfg.AllowPrivate})
 	}
 	if d.source != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), d.cfg.DeliveryTO)
@@ -253,6 +258,12 @@ func (d *Dispatcher) targets(scope Scope, eventType string) []Target {
 // backoff, aborting early if Close is signaled. The final outcome is recorded
 // against the subscription (managed targets only).
 func (d *Dispatcher) deliverWithRetry(tgt Target, payload []byte, eventType, id string) {
+	// Zeroize the decrypted HMAC secret after all delivery attempts.
+	// The static config secret is shared (cached in d.staticSecret) and
+	// zeroized in Close(); managed secrets are per-delivery copies (#297).
+	if tgt.ID != "" {
+		defer clear(tgt.Secret)
+	}
 	var lastErr error
 	for attempt := 0; attempt <= d.cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
@@ -308,7 +319,7 @@ func (d *Dispatcher) deliver(tgt Target, payload []byte, eventType, id string) e
 		return fmt.Errorf("POST: %w", err)
 	}
 	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode >= 400 {

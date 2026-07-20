@@ -113,7 +113,7 @@ func (w *WebhookSink) Notify(ctx context.Context, ev Alert) error {
 		// Drain the (small) body before closing so the underlying
 		// connection can return to the keep-alive pool for reuse rather
 		// than being discarded mid-response.
-		_, _ = io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		if err := resp.Body.Close(); err != nil {
 			_ = err // status already captured; nothing actionable on close failure
 		}

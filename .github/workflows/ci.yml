@@ -89,8 +89,8 @@ jobs:
 
           & icacls.exe $installDir
           & icacls.exe $agentExe
-          & $agentExe service 2>$null
-          if ($LASTEXITCODE -ne 1) { throw "unexpected service usage exit code: $LASTEXITCODE" }
+          & $agentExe version | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "agent executable smoke check failed" }
 
           $unsafeSids = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')
           $writeMask = [System.Security.AccessControl.FileSystemRights]::Write -bor `

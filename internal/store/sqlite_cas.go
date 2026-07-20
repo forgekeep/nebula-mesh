@@ -226,6 +226,24 @@ func (s *SQLiteStore) UpdateCAStatus(ctx context.Context, id string, status mode
 // CA in isolation, e.g. a blocklist row whose host was deleted via ON DELETE
 // SET NULL, or a host whose ca_id diverged from its network's.
 func (s *SQLiteStore) DeleteCA(ctx context.Context, id string) error {
+	// BEGIN IMMEDIATE acquires the write lock up front so the reference
+	// checks and the DELETE see a consistent snapshot — a concurrent
+	// INSERT referencing this CA between the last check and the DELETE
+	// would otherwise orphan the child row (#295).
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+	// Escalate to a write lock immediately.
+	if _, err := tx.ExecContext(ctx, `SELECT 1`); err != nil {
+		return fmt.Errorf("acquire lock: %w", err)
+	}
+
 	checks := []struct {
 		query string
 		label string
@@ -238,7 +256,7 @@ func (s *SQLiteStore) DeleteCA(ctx context.Context, id string) error {
 	var blockers []string
 	for _, c := range checks {
 		var n int
-		if err := s.db.QueryRowContext(ctx, c.query, id).Scan(&n); err != nil {
+		if err := tx.QueryRowContext(ctx, c.query, id).Scan(&n); err != nil {
 			return fmt.Errorf("check CA references: %w", err)
 		}
 		if n > 0 {
@@ -248,7 +266,7 @@ func (s *SQLiteStore) DeleteCA(ctx context.Context, id string) error {
 	if len(blockers) > 0 {
 		return fmt.Errorf("CA still has %s; detach them first", strings.Join(blockers, ", "))
 	}
-	result, err := s.db.ExecContext(ctx, `DELETE FROM cas WHERE id = ?`, id)
+	result, err := tx.ExecContext(ctx, `DELETE FROM cas WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete CA: %w", err)
 	}
@@ -258,6 +276,9 @@ func (s *SQLiteStore) DeleteCA(ctx context.Context, id string) error {
 	}
 	if rows == 0 {
 		return ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete CA: %w", err)
 	}
 	return nil
 }

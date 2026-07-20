@@ -168,6 +168,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"022_operator_lockout.up.sql",
 		"023_mesh_import.up.sql",
 		"024_mesh_import_challenge_limits.up.sql",
+		"025_oidc_unique.up.sql",
 	}
 
 	conn, err := s.db.Conn(ctx)

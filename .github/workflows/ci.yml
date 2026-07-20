@@ -74,11 +74,14 @@ jobs:
           go build -o $agentExe ./cmd/nebula-agent
           if ($LASTEXITCODE -ne 0) { throw "agent build failed" }
 
+          # Preserve access for the non-elevated Actions runner across workflow steps.
+          $runnerSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          $runnerGrant = "*${runnerSid}:(OI)(CI)F"
           & icacls.exe $installDir /inheritance:r /grant:r `
-            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C
+            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' $runnerGrant /T /C
           if ($LASTEXITCODE -ne 0) { throw "failed to protect install directory" }
           & icacls.exe $dataDir /inheritance:r /grant:r `
-            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C
+            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' $runnerGrant /T /C
           if ($LASTEXITCODE -ne 0) { throw "failed to protect data directory" }
 
           $unsafeSids = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')

@@ -48,6 +48,164 @@ jobs:
       - name: govulncheck
         run: make govulncheck
 
+  windows-agent:
+    name: Windows agent service
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          cache: true
+
+      - name: Test and build agent
+        shell: pwsh
+        run: |
+          go test -count=1 ./cmd/nebula-agent
+          if ($LASTEXITCODE -ne 0) { throw "agent tests failed" }
+
+          $suffix = "${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT}"
+          $installDir = Join-Path $env:ProgramFiles "Nebula Mesh CI-$suffix"
+          $dataDir = Join-Path $env:ProgramData "Nebula Mesh CI-$suffix"
+          New-Item -ItemType Directory -Force -Path $installDir, $dataDir | Out-Null
+
+          $agentExe = Join-Path $installDir 'nebula-agent.exe'
+          go build -o $agentExe ./cmd/nebula-agent
+          if ($LASTEXITCODE -ne 0) { throw "agent build failed" }
+
+          $runnerSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          $runnerDirectoryGrant = "*${runnerSid}:(OI)(CI)F"
+          $runnerFileGrant = "*${runnerSid}:F"
+          & icacls.exe $installDir /inheritance:r /grant:r `
+            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' $runnerDirectoryGrant /C
+          if ($LASTEXITCODE -ne 0) { throw "failed to protect install directory" }
+          & icacls.exe $agentExe /inheritance:r /grant:r `
+            '*S-1-5-18:F' '*S-1-5-32-544:F' $runnerFileGrant /C
+          if ($LASTEXITCODE -ne 0) { throw "failed to protect agent executable" }
+          & icacls.exe $dataDir /inheritance:r /grant:r `
+            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' $runnerDirectoryGrant /C
+          if ($LASTEXITCODE -ne 0) { throw "failed to protect data directory" }
+
+          & icacls.exe $installDir
+          & icacls.exe $agentExe
+          & $agentExe version | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "agent executable smoke check failed" }
+
+          $unsafeSids = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')
+          $writeMask = [System.Security.AccessControl.FileSystemRights]::Write -bor `
+            [System.Security.AccessControl.FileSystemRights]::Modify -bor `
+            [System.Security.AccessControl.FileSystemRights]::FullControl
+          foreach ($path in @($installDir, $agentExe)) {
+            foreach ($entry in (Get-Acl $path).Access) {
+              $sid = $entry.IdentityReference.Translate(
+                [System.Security.Principal.SecurityIdentifier]
+              ).Value
+              if ($sid -in $unsafeSids -and
+                  $entry.AccessControlType -eq 'Allow' -and
+                  ($entry.FileSystemRights -band $writeMask)) {
+                throw "unsafe write ACL for $sid on $path"
+              }
+            }
+          }
+
+          "AGENT_EXE=$agentExe" >> $env:GITHUB_ENV
+          "AGENT_INSTALL_DIR=$installDir" >> $env:GITHUB_ENV
+          "AGENT_DATA_DIR=$dataDir" >> $env:GITHUB_ENV
+          "AGENT_CONFIG=$(Join-Path $dataDir 'agent.yml')" >> $env:GITHUB_ENV
+
+      - name: Install, start, stop, and uninstall service
+        shell: pwsh
+        run: |
+          function Wait-ServiceStatus([string]$Name, [string]$Expected) {
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              $current = Get-Service -Name $Name -ErrorAction SilentlyContinue
+              if ($null -ne $current -and [string]$current.Status -eq $Expected) {
+                return
+              }
+              Start-Sleep -Seconds 1
+            }
+            throw "service $Name did not reach $Expected"
+          }
+
+          $startedAfter = Get-Date
+          & $env:AGENT_EXE service install --config $env:AGENT_CONFIG
+          if ($LASTEXITCODE -ne 0) { throw "service install failed" }
+
+          $registered = Get-CimInstance Win32_Service -Filter "Name='NebulaMeshAgent'"
+          if ($null -eq $registered) { throw "service was not registered" }
+          if (-not $registered.PathName.Contains($env:AGENT_EXE)) {
+            throw "unexpected ImagePath: $($registered.PathName)"
+          }
+          if (-not $registered.PathName.Contains($env:AGENT_CONFIG)) {
+            throw "config path missing from ImagePath: $($registered.PathName)"
+          }
+          if ($registered.StartMode -ne 'Auto') {
+            throw "StartMode = $($registered.StartMode), want Auto"
+          }
+          if ($registered.StartName -ne 'LocalSystem') {
+            throw "StartName = $($registered.StartName), want LocalSystem"
+          }
+          $failure = (& sc.exe qfailure NebulaMeshAgent | Out-String)
+          if ($failure -notmatch 'RESTART' -or $failure -notmatch '5000') {
+            throw "unexpected recovery policy: $failure"
+          }
+
+          & $env:AGENT_EXE service start
+          if ($LASTEXITCODE -ne 0) { throw "service start failed" }
+          Wait-ServiceStatus -Name NebulaMeshAgent -Expected Running
+          $running = Get-CimInstance Win32_Service -Filter "Name='NebulaMeshAgent'"
+          $serviceProcessId = [int]$running.ProcessId
+          if ($serviceProcessId -le 0) { throw "service has no process id" }
+
+          $standbyEvent = $null
+          for ($attempt = 0; $attempt -lt 20 -and $null -eq $standbyEvent; $attempt++) {
+            $standbyEvent = Get-WinEvent -FilterHashtable @{
+              LogName = 'Application'
+              ProviderName = 'NebulaMeshAgent'
+              StartTime = $startedAfter
+            } -ErrorAction SilentlyContinue | Where-Object {
+              $_.Message -like '*standby*'
+            } | Select-Object -First 1
+            if ($null -eq $standbyEvent) { Start-Sleep -Seconds 1 }
+          }
+          if ($null -eq $standbyEvent) { throw "standby Event Log record not found" }
+
+          & $env:AGENT_EXE service stop
+          if ($LASTEXITCODE -ne 0) { throw "service stop failed" }
+          Wait-ServiceStatus -Name NebulaMeshAgent -Expected Stopped
+          if ($null -ne (Get-Process -Id $serviceProcessId -ErrorAction SilentlyContinue)) {
+            throw "service process $serviceProcessId survived stop"
+          }
+
+          & $env:AGENT_EXE service uninstall
+          if ($LASTEXITCODE -ne 0) { throw "service uninstall failed" }
+          if ($null -ne (Get-Service -Name NebulaMeshAgent -ErrorAction SilentlyContinue)) {
+            throw "service still exists after uninstall"
+          }
+          $eventSource = 'HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\NebulaMeshAgent'
+          if (Test-Path $eventSource) { throw "Event Log source survived uninstall" }
+
+      - name: Cleanup Windows service
+        if: always()
+        shell: pwsh
+        run: |
+          $registered = Get-Service -Name NebulaMeshAgent -ErrorAction SilentlyContinue
+          if ($null -ne $registered -and (Test-Path $env:AGENT_EXE)) {
+            if ($registered.Status -ne 'Stopped') {
+              & $env:AGENT_EXE service stop 2>$null
+            }
+            & $env:AGENT_EXE service uninstall 2>$null
+          }
+          if ($null -ne (Get-Service -Name NebulaMeshAgent -ErrorAction SilentlyContinue)) {
+            & sc.exe delete NebulaMeshAgent | Out-Null
+          }
+          foreach ($path in @($env:AGENT_INSTALL_DIR, $env:AGENT_DATA_DIR)) {
+            if ($path -and (Test-Path $path)) {
+              Remove-Item -Recurse -Force $path
+            }
+          }
+
   readme-version:
     name: readme version pin
     runs-on: ubuntu-latest

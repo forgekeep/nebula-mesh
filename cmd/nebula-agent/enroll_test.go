@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -144,17 +145,20 @@ func TestEnrollSubcommand_WritesFiles(t *testing.T) {
 			t.Errorf("%s is empty", p)
 		}
 	}
-	// Private keys must be 0600.
-	for _, p := range []string{filepath.Join(dataDir, "host.key"), signingKeyPath} {
-		info, _ := os.Stat(p)
-		if info.Mode().Perm() != 0o600 {
-			t.Errorf("%s mode = %o, want 0600", p, info.Mode().Perm())
+	// Private keys must be 0600. Windows has no POSIX permission bits, so Go
+	// reports 0666 regardless of chmod; skip the check there.
+	if runtime.GOOS != "windows" {
+		for _, p := range []string{filepath.Join(dataDir, "host.key"), signingKeyPath} {
+			info, _ := os.Stat(p)
+			if info.Mode().Perm() != 0o600 {
+				t.Errorf("%s mode = %o, want 0600", p, info.Mode().Perm())
+			}
 		}
-	}
-	// agent.yml is also 0600.
-	info, _ := os.Stat(cfgPath)
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("agent.yml mode = %o, want 0600", info.Mode().Perm())
+		// agent.yml is also 0600.
+		info, _ := os.Stat(cfgPath)
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("agent.yml mode = %o, want 0600", info.Mode().Perm())
+		}
 	}
 }
 

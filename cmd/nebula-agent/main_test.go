@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -96,7 +97,8 @@ func TestResolveConfig_FileMissing_WritesFromFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat config: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows has no POSIX permission bits; Go reports 0666 regardless of chmod.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("config mode = %v, want 0600", info.Mode().Perm())
 	}
 }

@@ -52,6 +52,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		case "run":
 			_, _ = fmt.Fprintln(stderr, "warning: `nebula-agent run` is deprecated; invoke `nebula-agent` without a subcommand")
 			return runLegacyRun(ctx, args[1:], stderr)
+		case "service":
+			return runService(ctx, args[1:], stdout, stderr)
 		case "version", "--version", "-v":
 			version.Print(stdout, "nebula-agent", versionStr, commit, date)
 			return nil
@@ -67,6 +69,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage: nebula-agent [--config PATH] [--token-file PATH --server URL] [--nebula-config-path PATH] [--yes] [--force]")
 	_, _ = fmt.Fprintln(w, "       nebula-agent enroll --server URL --token-file PATH [--nebula-config-path PATH] [--yes] [--force]")
+	_, _ = fmt.Fprintln(w, "       nebula-agent service <install|start|stop|restart|uninstall> [--config PATH]")
 	_, _ = fmt.Fprintln(w, "       nebula-agent version")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "First run on a fresh host: nebula-agent --token-file PATH --server URL")
@@ -90,6 +93,11 @@ var standbyTick = 10 * time.Second
 // systemd setups and by `nebula-agent enroll` itself for its confirmation
 // poll.
 func runUnified(ctx context.Context, args []string, stderr io.Writer) error {
+	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	return runUnifiedWithLogger(ctx, args, stderr, logger)
+}
+
+func runUnifiedWithLogger(ctx context.Context, args []string, stderr io.Writer, logger *slog.Logger) error {
 	fs := flag.NewFlagSet("nebula-agent", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", defaultConfigPath, "config file path")
@@ -106,8 +114,6 @@ func runUnified(ctx context.Context, args []string, stderr io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-
-	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	// One-shot enroll+poll path — explicit operator intent on the command
 	// line. Preserves the pre-#88 behavior.

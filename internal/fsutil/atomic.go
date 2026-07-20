@@ -65,14 +65,16 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		cleanup()
 		return fmt.Errorf("rename temp to target: %w", err)
 	}
-	syncDir(dir)
+	SyncDir(dir)
 	return nil
 }
 
-// syncDir flushes the directory entry so a prior rename is durable. Best-effort:
-// directory fsync is unsupported on some platforms/filesystems, so errors are
-// logged at warn level rather than propagated.
-func syncDir(dir string) {
+// SyncDir flushes the directory entry so a prior create, rename, or link in dir
+// is durable. Best-effort: directory fsync is unsupported on some platforms and
+// filesystems (on Windows os.File.Sync on a directory returns "Access is
+// denied"), so errors are logged at warn level rather than propagated — by the
+// time it runs the rename/link has already succeeded and the data is in place.
+func SyncDir(dir string) {
 	d, err := os.Open(dir) // #nosec G304 -- dir is the parent of an operator-controlled config/data path, opened only to fsync the directory entry; no file contents are read
 
 	if err != nil {

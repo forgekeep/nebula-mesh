@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/crypto/curve25519"
 
+	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 )
 
@@ -52,6 +53,22 @@ func testEnrollCerts(t *testing.T) (hostCertPEM, caCertPEM string) {
 		t.Fatal(err)
 	}
 	return string(rawHostPEM), string(rawCAPEM)
+}
+
+// enrollConfigYAML generates a Nebula config YAML with PKI paths matching
+// the default Enroll() profile for the given data directory.
+func enrollConfigYAML(dataDir string) string {
+	return "pki:\n  ca: " + filepath.Join(dataDir, "ca.crt") +
+		"\n  cert: " + filepath.Join(dataDir, "host.crt") +
+		"\n  key: " + filepath.Join(dataDir, "host.key") + "\n"
+}
+
+// profileConfigYAML generates a Nebula config YAML with PKI paths matching
+// the given agent profile.
+func profileConfigYAML(p models.AgentProfile) string {
+	return "pki:\n  ca: " + p.NebulaCAPath +
+		"\n  cert: " + p.NebulaCertPath +
+		"\n  key: " + p.NebulaKeyPath + "\n"
 }
 
 func TestEnroll_Success(t *testing.T) {
@@ -92,7 +109,7 @@ func TestEnroll_Success(t *testing.T) {
 		resp := EnrollResponse{
 			CertificatePEM:   hostCertPEM,
 			CACertificatePEM: caCertPEM,
-			ConfigYAML:       "pki:\n  ca: /etc/nebula/ca.crt\n",
+			ConfigYAML:       enrollConfigYAML(dir),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)

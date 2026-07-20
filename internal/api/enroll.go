@@ -203,6 +203,11 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Capture rekey state before the atomic consume: the store clears
+	// pending_rekey inside the enrollment transaction, so the flag must
+	// be read before ConsumeTokenAndEnrollHostWithProfile runs.
+	isRekey := host.PendingRekey
+
 	// Atomically consume the single-use token and enroll the host with its
 	// freshly-signed cert. Consuming here (rather than up front) means a
 	// transient failure during signing leaves the token usable for retry; a
@@ -230,6 +235,13 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.metrics.recordEnrollment(resultOK)
+	if isRekey {
+		s.logger.Info("host rekey completed", "host", host.Name, "host_id", host.ID, "fingerprint", fp)
+		s.recordAuditAction(r.Context(), auditHostRekeyCompleted, host.ID, "fingerprint="+fp)
+	} else {
+		s.logger.Info("host enrolled", "host", host.Name, "host_id", host.ID, "fingerprint", fp)
+		s.recordAuditAction(r.Context(), auditHostEnrolled, host.ID, "fingerprint="+fp)
+	}
 	s.emit(webhook.Scope{CAID: host.CAID}, "host.enrolled", map[string]any{
 		"host_id":     host.ID,
 		"host_name":   host.Name,

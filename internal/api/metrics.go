@@ -56,6 +56,7 @@ const (
 	auditHostBlock                 = "host.block"
 	auditHostUnblock               = "host.unblock"
 	auditHostAuthFailed            = "host.auth.failed"
+	auditHostEnrolled              = "host.enrolled"
 	auditHostRotateCertRequested   = "host.rotate-cert.requested"
 	auditHostReenrollRequested     = "host.reenroll.requested"
 	auditHostRekeyCompleted        = "host.rekey.completed"
@@ -202,6 +203,7 @@ func newMetrics(s store.Store) *metrics {
 	m.caSignatures.WithLabelValues(caIDFallback).Add(0)
 	for _, action := range []string{
 		auditHostCreate, auditHostDelete, auditHostUpdate, auditHostBlock, auditHostUnblock,
+		auditHostEnrolled, auditHostRekeyCompleted,
 		auditCACreated, auditCAImported, auditCADeleted, auditCARotated,
 		auditMeshImportCreated, auditMeshImportTokenRotated, auditMeshImportCanceled, auditMeshImportHostRegistered, auditMeshImportFinalized,
 		auditNetworkCreate, auditNetworkFirewallUpdate, auditNetworkMobileConfigUpdate,

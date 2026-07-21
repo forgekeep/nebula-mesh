@@ -161,6 +161,47 @@ Automatic mobile renewal and configuration delivery would improve the product,
 but it is not a blocker for the initial scope when the manual contract is
 explicit and tested.
 
+### 7. Real-world operation
+
+The gates above are necessary but deductive: each can be satisfied without a
+single real operator. Production readiness is an empirical claim about the
+distribution of real inputs, failures, and operator behavior, and it can only
+be validated by sustained operation outside the lab. This gate is the
+sufficient condition that turns the technical qualification into a readiness
+claim. The activity may begin before the other gates complete (dogfooding is
+encouraged early), but the gate is satisfied only when the recorded evidence
+meets the acceptance criteria defined here.
+
+- [ ] Run `nebula-mesh` against real infrastructure under the maintainer's own
+  control (dogfooding), with real hosts depending on the control plane, for a
+  documented minimum duration. Roll out canary-style alongside any existing
+  solution so that a control-plane failure is not catastrophic.
+- [ ] Onboard at least one operator other than the maintainer (a trusted design
+  partner) running the system on real, non-critical infrastructure and
+  reporting back through a direct feedback channel, not only the public issue
+  tracker.
+- [ ] Define explicit acceptance criteria for "sufficient real operation"
+  (minimum duration, fleet size, and the conditions that must have been
+  observed) so this gate is checkable rather than a judgment call.
+- [ ] Record, as qualification evidence, that the deployment survived at least
+  one real upgrade, process restart, backup-to-restore recovery, CA rotation,
+  and an unplanned control-plane outage.
+- [ ] Measure and publish real RPO and RTO from the live deployment rather than
+  theoretical values, and confirm the cold-standby recovery procedure against a
+  live instance.
+- [ ] Put the operational structure around the deployment in place before
+  declaring readiness: a named owner; a documented support channel with a
+  stated best-effort response expectation; a rule that production failures
+  close only with a regression test and/or a runbook update; and a lightweight
+  incident-communication path (for example, GitHub Security Advisories).
+  Document that maintainer visibility into field deployments is partial because
+  telemetry is not mandatory, and how operators are expected to report
+  failures.
+
+Completion of this gate provides the empirical evidence the technical gates
+cannot: that the system has operated under real stakes and that someone stands
+behind the readiness claim operationally.
+
 ## Deployment readiness
 
 A production-ready project can still be deployed unsafely. Operators should not

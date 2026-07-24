@@ -1273,7 +1273,6 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update host; set PendingRekey if cert-bound fields (NebulaIPs, Name) changed
-	host.UpdatedAt = time.Now()
 	if !slicesEqual(before.NebulaIPs, host.NebulaIPs) || before.Name != host.Name {
 		host.PendingRekey = true
 	}
@@ -1288,10 +1287,7 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		w.logger.Error("add audit entry", "error", err)
 	}
 
-	// Config version: update_host_config_version triggers config re-publish
-	if err := w.store.UpdateHostConfigVersion(r.Context(), host.ID, 0); err != nil {
-		w.logger.Error("update host config version", "error", err)
-	}
+	// config_version reset now happens atomically inside UpdateHost (SEC-PERSIST-001).
 
 	// Role change bumps network config version for topology propagation
 	if before.Role != host.Role {

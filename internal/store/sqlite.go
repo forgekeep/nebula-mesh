@@ -1148,10 +1148,15 @@ func (s *SQLiteStore) UpdateHost(ctx context.Context, h *models.Host) error {
 		return err
 	}
 	h.UpdatedAt = time.Now()
+	// config_version=0 is part of the same statement (SEC-PERSIST-001): the
+	// mutated host state and the re-publish trigger must commit atomically.
+	// A separate best-effort reset could fail after commit, leaving an agent
+	// serving a stale — possibly more permissive — config forever.
 	result, err := tx.ExecContext(ctx,
 		`UPDATE hosts SET name=?, groups_json=?, role=?, is_lighthouse=?, is_relay=?,
 		 public_ip=?, listen_port=?, status=?, cert_fingerprint=?, cert_expires_at=?,
-		 last_seen_at=?, updated_at=?, advanced_json=?, kind=?, variant=?, pending_rekey=? WHERE id=?`,
+		 last_seen_at=?, updated_at=?, advanced_json=?, kind=?, variant=?, pending_rekey=?,
+		 config_version=0 WHERE id=?`,
 		h.Name, string(groupsJSON), h.Role, h.IsLighthouse, h.IsRelay,
 		h.PublicIP, h.ListenPort, h.Status, h.CertFingerprint, h.CertExpiresAt,
 		h.LastSeenAt, h.UpdatedAt, advancedJSON, string(h.Kind), string(h.Variant), h.PendingRekey, h.ID,

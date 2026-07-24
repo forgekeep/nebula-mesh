@@ -123,6 +123,14 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 		}
 	}
 
+	// FirewallInbound
+	if !hostFirewallRulesEqual(beforeAdv.FirewallInbound, afterAdv.FirewallInbound) {
+		changes["advanced.firewall_inbound"] = map[string]any{
+			"before": beforeAdv.FirewallInbound,
+			"after":  afterAdv.FirewallInbound,
+		}
+	}
+
 	// If no changes, return nil
 	if len(changes) == 0 {
 		return nil, false, nil
@@ -193,6 +201,20 @@ func unsafeRoutesEqual(a, b []UnsafeRoute) bool {
 	}
 	for i := range a {
 		if a[i].Route != b[i].Route || a[i].Via != b[i].Via {
+			return false
+		}
+	}
+	return true
+}
+
+// hostFirewallRulesEqual compares two HostFirewallRule slices (order matters,
+// as it is preserved into the rendered config).
+func hostFirewallRulesEqual(a, b []HostFirewallRule) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
 			return false
 		}
 	}

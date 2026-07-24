@@ -41,7 +41,10 @@ type GeneratorInput struct {
 	Relays           []string
 	FirewallInbound  []FirewallRule
 	FirewallOutbound []FirewallRule
-	Mobile           *MobileProfile
+	// HostFirewallInbound holds per-host inbound rules appended after the
+	// network-wide FirewallInbound policy in the rendered config.
+	HostFirewallInbound []FirewallRule
+	Mobile              *MobileProfile
 
 	// Optional per-host overrides. Zero values mean "use the default".
 	PunchyOverride *bool

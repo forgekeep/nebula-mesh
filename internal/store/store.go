@@ -91,6 +91,9 @@ type Store interface {
 	GetHost(ctx context.Context, id string) (*models.Host, error)
 	GetHostByFingerprint(ctx context.Context, fingerprint string) (*models.Host, error)
 	ListHosts(ctx context.Context, filter HostFilter) ([]*models.Host, error)
+	// UpdateHost persists the host row and atomically resets its
+	// config_version to 0 in the same transaction (SEC-PERSIST-001), so the
+	// agent re-renders its config on the next poll.
 	UpdateHost(ctx context.Context, h *models.Host) error
 	UpdateHostLastSeen(ctx context.Context, id string, t time.Time) error
 	UpdateHostCert(ctx context.Context, id, fingerprint string, expiresAt time.Time) error

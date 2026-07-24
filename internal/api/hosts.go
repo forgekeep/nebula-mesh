@@ -769,8 +769,6 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update timestamp and persist
-	host.UpdatedAt = time.Now()
 	if err := s.store.UpdateHost(r.Context(), host); err != nil {
 		// Reachable only via a TOCTOU race between concurrent host writes: the
 		// validateHostIPs fast-path above returns 400 for any collision visible
@@ -785,11 +783,7 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Task 1.4: Re-publish triggers
-	// Force re-publish config for this host
-	if err := s.store.UpdateHostConfigVersion(r.Context(), host.ID, 0); err != nil {
-		s.logger.Error("reset host config version", "host", host.ID, "error", err)
-	}
+	// config_version reset now happens atomically inside UpdateHost (SEC-PERSIST-001).
 
 	// If role changed, bump network config version for peer updates
 	if before.Role != host.Role {

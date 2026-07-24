@@ -57,6 +57,24 @@ func parseAdvancedFromForm(r *http.Request) (*models.HostAdvanced, error) {
 			used = true
 		}
 	}
+	if raw := strings.TrimSpace(r.FormValue("adv_firewall_inbound")); raw != "" {
+		for _, line := range strings.Split(raw, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			parts := strings.Fields(line)
+			var port, proto string
+			if len(parts) == 3 && parts[1] == "from" {
+				port, proto, _ = strings.Cut(parts[0], "/")
+			}
+			if port == "" || proto == "" || strings.Contains(proto, "/") {
+				return nil, fmt.Errorf("adv_firewall_inbound line %q: expected '<PORT>/<PROTO> from <GROUP>'", line)
+			}
+			adv.FirewallInbound = append(adv.FirewallInbound, models.HostFirewallRule{Port: port, Proto: proto, Group: parts[2]})
+			used = true
+		}
+	}
 
 	if !used {
 		return nil, nil

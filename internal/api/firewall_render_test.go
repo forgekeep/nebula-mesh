@@ -107,3 +107,43 @@ func TestRenderHostConfig_UnusableFirewallFallsBackToDefault(t *testing.T) {
 		t.Errorf("unusable rule was rendered instead of falling back\n%s", out)
 	}
 }
+
+// TestRenderHostConfig_AppendsHostFirewallInbound: per-host inbound rules
+// (advanced.firewall_inbound) must be rendered after the network-wide
+// policy, additively — the network baseline must remain present.
+func TestRenderHostConfig_AppendsHostFirewallInbound(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+	ctx := context.Background()
+
+	const policy = `{"inbound":[{"port":"443","proto":"tcp","group":"auditors-only"}],` +
+		`"outbound":[{"port":"any","proto":"any","group":"any"}]}`
+	if err := srv.store.SetNetworkConfig(ctx, netID, "firewall", policy); err != nil {
+		t.Fatal(err)
+	}
+
+	host := renderTestHost(t, srv, netID)
+	host.Advanced = &models.HostAdvanced{
+		FirewallInbound: []models.HostFirewallRule{
+			{Port: "22", Proto: "tcp", Group: "bastion-admins"},
+		},
+	}
+
+	cfg, err := srv.renderHostConfig(ctx, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(cfg)
+	if !strings.Contains(out, "auditors-only") {
+		t.Errorf("network policy rule missing from rendered config\n%s", out)
+	}
+	if !strings.Contains(out, "bastion-admins") {
+		t.Errorf("per-host firewall rule missing from rendered config\n%s", out)
+	}
+	if !strings.Contains(out, `port: "22"`) {
+		t.Errorf("per-host firewall port missing from rendered config\n%s", out)
+	}
+	if netIdx, hostIdx := strings.Index(out, "auditors-only"), strings.Index(out, "bastion-admins"); netIdx > hostIdx {
+		t.Errorf("network rule should render before the per-host rule\n%s", out)
+	}
+}

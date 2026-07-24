@@ -322,3 +322,51 @@ func TestBuild_AppliesStoredFirewallRules(t *testing.T) {
 		t.Errorf("mobile bundle does not contain the stored firewall group; rules not applied\n%s", bundle)
 	}
 }
+
+// TestBuild_AppendsHostFirewallInbound: per-host inbound rules must reach
+// the mobile bundle too, appended after the network policy.
+func TestBuild_AppendsHostFirewallInbound(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := store.NewSQLiteStore(":memory:")
+	require.NoError(t, err)
+	require.NoError(t, s.Migrate(ctx))
+
+	ca, err := pki.NewCA("test-ca", 365*24*time.Hour)
+	require.NoError(t, err)
+	resolver := &StubCAResolver{ca: ca}
+
+	network := &models.Network{ID: "net-hfw", Name: "hfw-network", CIDRs: []string{"10.0.0.0/8"}}
+	require.NoError(t, s.CreateNetwork(ctx, network))
+
+	const policy = `{"inbound":[{"port":"8443","proto":"tcp","group":"mobile-only"}],` +
+		`"outbound":[{"port":"any","proto":"any","group":"any"}]}`
+	require.NoError(t, s.SetNetworkConfig(ctx, network.ID, "firewall", policy))
+
+	host := &models.Host{
+		ID: "mobile-hfw", Name: "phone-hfw", NetworkID: network.ID,
+		NebulaIPs: []string{"10.0.0.10"}, Kind: models.HostKindMobile,
+		Variant: models.HostVariantIOS, Role: models.HostRoleHost,
+		Status: models.HostStatusPending, CAID: "test-ca-id", Groups: []string{"mobile"},
+		Advanced: &models.HostAdvanced{
+			FirewallInbound: []models.HostFirewallRule{
+				{Port: "5000", Proto: "udp", Group: "sync-peers"},
+			},
+		},
+	}
+	require.NoError(t, s.CreateHost(ctx, host))
+	seedActiveCAOwner(t, s, host.CAID)
+
+	bundle, err := Build(ctx, s, resolver, host)
+	require.NoError(t, err)
+	out := string(bundle)
+	if !strings.Contains(out, "mobile-only") {
+		t.Errorf("network firewall rule missing from bundle\n%s", out)
+	}
+	if !strings.Contains(out, "sync-peers") {
+		t.Errorf("per-host firewall rule missing from bundle\n%s", out)
+	}
+	if netIdx, hostIdx := strings.Index(out, "mobile-only"), strings.Index(out, "sync-peers"); netIdx > hostIdx {
+		t.Errorf("network rule should render before the per-host rule\n%s", out)
+	}
+}

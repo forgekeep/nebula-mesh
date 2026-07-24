@@ -61,7 +61,7 @@ you need them.
 | darwin | arm64 | `darwin_arm64.tar.gz` | Apple Silicon. |
 | freebsd | amd64 | `freebsd_amd64.tar.gz` | Built. Use with the FreeBSD Nebula port. |
 | freebsd | arm64 | `freebsd_arm64.tar.gz` | Built, not regularly tested. |
-| windows | amd64 | `windows_amd64.zip` | Built. SIGHUP-based reload is unavailable on Windows — leave `nebula_pid_file` empty and restart Nebula manually. |
+| windows | amd64 | `windows_amd64.zip` | Built. SIGHUP-based reload is unavailable on Windows — leave `nebula_pid_file` empty and set `nebula_reload_command` (e.g. a service restart), or restart Nebula manually. |
 
 Unsupported targets and reasoning:
 
@@ -235,8 +235,9 @@ Control or remove the service with:
 
 Uninstalling the service does not delete `agent.yml`, certificates, or private
 keys. Windows cannot use the Unix `SIGHUP` mechanism, so leave
-`nebula_pid_file` empty and restart the separate Nebula service after managed
-config updates when required.
+`nebula_pid_file` empty and either set `nebula_reload_command` to restart the
+Nebula service (e.g. `sc stop nebula & sc start nebula`) or restart it
+manually after managed config updates when required.
 
 ### 4. Docker / sidecar
 
@@ -358,6 +359,7 @@ data_dir: "/etc/nebula"                       # where host.crt/host.key/ca.crt/c
 poll_interval: "30s"                          # how often to ask for updates
 nebula_config_path: "/etc/nebula/config.yml"  # full path to the rendered nebula config
 nebula_pid_file: "/run/nebula.pid"            # optional — if set, SIGHUP'd on changes
+# nebula_reload_command: "systemctl reload nebula"  # optional — replaces the SIGHUP when set
 signing_key_path: "/etc/nebula-agent/host.signing.key"  # Ed25519 PoP signing key — parent dir must be writable by the agent user
 ```
 
@@ -368,6 +370,7 @@ signing_key_path: "/etc/nebula-agent/host.signing.key"  # Ed25519 PoP signing ke
 | `poll_interval` | `30s` | Lower values reduce convergence time but increase server load. 5s–5m is the practical range. |
 | `nebula_config_path` | `/etc/nebula/config.yml` | The agent overwrites this file atomically. |
 | `nebula_pid_file` | (empty) | When set and the file holds a numeric PID, the agent sends `SIGHUP` after every successful write. |
+| `nebula_reload_command` | (empty) | When set, run through the system shell (`sh -c`, `cmd /C` on Windows) after every successful write **instead of** the SIGHUP — takes precedence over `nebula_pid_file`. 30s timeout; a failing command blocks the config ack so the reload is retried on the next poll. Use it to hook a service manager, e.g. `systemctl reload nebula`. |
 | `signing_key_path` | `/etc/nebula-agent/host.signing.key` | Ed25519 PoP signing key (ADR 0004). Override for non-root setups so the parent directory is writable by the agent user. |
 | `allow_insecure_http` | `false` | Opts out of the `https`-required guard on `server_url` (or pass `--insecure-http`). Only for isolated lab networks; credentials transit in the clear. |
 
@@ -754,12 +757,14 @@ Each `poll_interval` the agent:
    sibling temp file with the same permissions, calls `fsync(2)`, then `rename(2)`s
    into place. A crash mid-write leaves either the old or the new file — never a
    half-written one.
-4. If any file changed and `nebula_pid_file` is set, the agent reads the PID and
-   sends `SIGHUP`, prompting Nebula to reload without dropping tunnels.
+4. If any file changed, the agent triggers a reload: with
+   `nebula_reload_command` set it runs that command through the system shell;
+   otherwise, with `nebula_pid_file` set, it reads the PID and sends `SIGHUP`,
+   prompting Nebula to reload without dropping tunnels.
 5. For agents advertising `config_ack_v1`, the server keeps the delivered
    `config_version` pending. After validation, atomic write, and successful
-   `SIGHUP` delivery, the agent sends a signed
-   `POST /api/v1/agent/config-ack/<version>`. Without `nebula_pid_file`, the ack
+   reload delivery (command or `SIGHUP`), the agent sends a signed
+   `POST /api/v1/agent/config-ack/<version>`. Without a configured reload, the ack
    means only that the config was validated and written. It does not prove that
    Nebula accepted the reload or that the tunnel is healthy. Until the ack is
    committed, later polls receive the newest config again; duplicate ack

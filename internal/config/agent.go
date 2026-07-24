@@ -26,6 +26,13 @@ type AgentConfig struct {
 	ImportSessionID  string        `yaml:"import_session_id,omitempty"`
 	NebulaPIDFile    string        `yaml:"nebula_pid_file"`
 
+	// NebulaReloadCommand, when set, is run through the system shell after
+	// config/cert changes instead of sending SIGHUP to nebula_pid_file
+	// (which it takes precedence over). Lets operators hook their service
+	// manager (e.g. "systemctl reload nebula") and gives Windows — where
+	// SIGHUP does not exist — a working reload path.
+	NebulaReloadCommand string `yaml:"nebula_reload_command,omitempty"`
+
 	// AllowInsecureHTTP opts out of the https-required guard on server_url.
 	// Without it a plaintext http:// URL is only accepted for loopback
 	// hosts — over any other network the enrollment token, certificates,

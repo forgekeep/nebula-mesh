@@ -141,6 +141,9 @@ type PollerConfig struct {
 	SigningKeyPath string
 	Interval       time.Duration
 	PIDFile        string
+	// ReloadCommand, when set, replaces the SIGHUP-to-PIDFile reload with a
+	// shell command (see nebulaReloader).
+	ReloadCommand string
 	// NebulaConfigPath is where the rendered Nebula config.yml is written.
 	// Empty falls back to DataDir/config.yml. Honors agent.yml's
 	// nebula_config_path so the daemon writes the config to the file Nebula
@@ -186,9 +189,7 @@ func NewPoller(cfg PollerConfig, logger *slog.Logger) (*Poller, error) {
 		signingKey: priv,
 		httpClient: &http.Client{Timeout: timeout},
 	}
-	p.signalFunc = func() error {
-		return signalNebulaFromPID(cfg.PIDFile)
-	}
+	p.signalFunc = nebulaReloader(cfg.ReloadCommand, cfg.PIDFile)
 	return p, nil
 }
 
@@ -384,7 +385,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	if needsReload {
 		if err := p.signalFunc(); err != nil {
 			p.logger.Warn("failed to signal nebula", "error", err)
-			if p.config.PIDFile != "" {
+			if p.config.ReloadCommand != "" || p.config.PIDFile != "" {
 				reloadDelivered = false
 			}
 		} else {

@@ -513,7 +513,7 @@ Compatibility is intentionally narrow for the first adoption flow:
 | Existing installation | Import behavior |
 |---|---|
 | One Curve25519 CA certificate and one X25519 host certificate/key in regular files | Supported |
-| `static_host_map`, lighthouse/relay roles, `listen`, `punchy`, `tun`, `unsafe_routes`, firewall and CA blocklist | Imported and reconciled |
+| `static_host_map`, `lighthouse`, `relay`, and `lighthouse+relay` roles, `listen`, `punchy`, `tun`, `unsafe_routes`, firewall and CA blocklist | Imported and reconciled |
 | Logging, stats and SSH daemon settings | Reported as warnings; server does not manage them |
 | Other unsupported connectivity settings | Blocking preview issue |
 | P256 CA, host certificate or private key | Rejected before registration |
@@ -762,6 +762,18 @@ the same response — no manual reconfiguration required.
 
 The server resolves enrolled `role: relay` hosts and writes their overlay
 addresses to `relay.relays`. It excludes pending, importing and blocked relays.
+
+Use `role: lighthouse+relay` when one Nebula instance should perform both
+duties. The server enables `lighthouse.am_lighthouse` and `relay.am_relay` in
+that host's config, and advertises the host to peers as both a lighthouse and a
+relay. Like the individual infrastructure roles, the combined role requires
+`public_ip` and `listen_port`.
+
+Starting with v0.10.0, the OpenAPI `Host.role` and `CreateHostRequest.role`
+enums include `lighthouse+relay`. JSON clients that treat `role` as an arbitrary
+string remain compatible. Clients generated with a closed enum, or clients
+with exhaustive switches over the previous values, must add the new value
+before creating or decoding combined-role hosts.
 
 ## Troubleshooting
 

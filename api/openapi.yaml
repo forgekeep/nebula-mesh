@@ -1288,6 +1288,9 @@ components:
         role:
           type: string
           enum: [host, lighthouse, relay, lighthouse+relay]
+          description: >-
+            Host role. Clients that model this enum as closed must include
+            `lighthouse+relay` before decoding hosts with the combined role.
         is_lighthouse:
           type: boolean
         is_relay:

@@ -769,11 +769,11 @@ that host's config, and advertises the host to peers as both a lighthouse and a
 relay. Like the individual infrastructure roles, the combined role requires
 `public_ip` and `listen_port`.
 
-Starting with v0.10.0, the OpenAPI `Host.role` and `CreateHostRequest.role`
-enums include `lighthouse+relay`. JSON clients that treat `role` as an arbitrary
-string remain compatible. Clients generated with a closed enum, or clients
-with exhaustive switches over the previous values, must add the new value
-before creating or decoding combined-role hosts.
+The OpenAPI `Host.role` and `CreateHostRequest.role` enums now include
+`lighthouse+relay`. JSON clients that treat `role` as an arbitrary string
+remain compatible. Clients generated with a closed enum, or clients with
+exhaustive switches over the previous values, must add the new value before
+creating or decoding combined-role hosts.
 
 ## Troubleshooting
 

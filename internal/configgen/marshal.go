@@ -339,7 +339,13 @@ func buildConfig(input GeneratorInput) nebulaConfig {
 	}
 
 	cfg.Firewall.Outbound = mapFirewallRules(input.FirewallOutbound)
-	cfg.Firewall.Inbound = mapFirewallRules(input.FirewallInbound)
+	// Network-wide policy first, then per-host additions. Composed into a
+	// fresh slice: appending to input.FirewallInbound could mutate the
+	// shared DefaultFirewallInbound backing array.
+	inbound := make([]FirewallRule, 0, len(input.FirewallInbound)+len(input.HostFirewallInbound))
+	inbound = append(inbound, input.FirewallInbound...)
+	inbound = append(inbound, input.HostFirewallInbound...)
+	cfg.Firewall.Inbound = mapFirewallRules(inbound)
 	if input.Mobile != nil {
 		applyMobileProfile(&cfg, *input.Mobile)
 	}

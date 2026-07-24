@@ -174,3 +174,65 @@ func TestValidateHostAdvanced_TunDeviceAccepts(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateHostAdvanced_FirewallInbound_AcceptsValid(t *testing.T) {
+	rules := []HostFirewallRule{
+		{Port: "443", Proto: "tcp", Group: "web"},
+		{Port: "8000-9000", Proto: "udp", Group: "monitoring"},
+		{Port: "any", Proto: "icmp", Group: "any"},
+		{Port: "22", Proto: "tcp", Group: "admin"},
+		{Port: "53", Proto: "any", Group: "ops"},
+	}
+	if err := ValidateHostAdvanced(&HostAdvanced{FirewallInbound: rules}); err != nil {
+		t.Errorf("valid firewall_inbound rejected: %v", err)
+	}
+	if err := ValidateHostAdvanced(&HostAdvanced{FirewallInbound: nil}); err != nil {
+		t.Errorf("nil firewall_inbound rejected: %v", err)
+	}
+	if err := ValidateHostAdvanced(&HostAdvanced{FirewallInbound: []HostFirewallRule{}}); err != nil {
+		t.Errorf("empty firewall_inbound rejected: %v", err)
+	}
+}
+
+func TestValidateHostAdvanced_FirewallInbound_Rejects(t *testing.T) {
+	longGroup := strings.Repeat("g", 65)
+	cases := []struct {
+		name string
+		rule HostFirewallRule
+	}{
+		{"empty port", HostFirewallRule{Port: "", Proto: "tcp", Group: "web"}},
+		{"empty proto", HostFirewallRule{Port: "443", Proto: "", Group: "web"}},
+		{"empty group", HostFirewallRule{Port: "443", Proto: "tcp", Group: ""}},
+		{"unknown proto", HostFirewallRule{Port: "443", Proto: "sctp", Group: "web"}},
+		{"port zero", HostFirewallRule{Port: "0", Proto: "tcp", Group: "web"}},
+		{"port too high", HostFirewallRule{Port: "70000", Proto: "tcp", Group: "web"}},
+		{"port not a number", HostFirewallRule{Port: "https", Proto: "tcp", Group: "web"}},
+		{"inverted range", HostFirewallRule{Port: "9000-8000", Proto: "tcp", Group: "web"}},
+		{"range with junk", HostFirewallRule{Port: "80-x", Proto: "tcp", Group: "web"}},
+		{"range out of bounds", HostFirewallRule{Port: "80-70000", Proto: "tcp", Group: "web"}},
+		{"overlong group", HostFirewallRule{Port: "443", Proto: "tcp", Group: longGroup}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateHostAdvanced(&HostAdvanced{FirewallInbound: []HostFirewallRule{tc.rule}})
+			if err == nil {
+				t.Errorf("rule %+v accepted, want error", tc.rule)
+			} else if !strings.Contains(err.Error(), "advanced.firewall_inbound[0]") {
+				t.Errorf("error %q should reference advanced.firewall_inbound[0]", err)
+			}
+		})
+	}
+}
+
+func TestValidateHostAdvanced_FirewallInbound_CapsRuleCount(t *testing.T) {
+	rules := make([]HostFirewallRule, MaxHostFirewallRules+1)
+	for i := range rules {
+		rules[i] = HostFirewallRule{Port: "443", Proto: "tcp", Group: "web"}
+	}
+	if err := ValidateHostAdvanced(&HostAdvanced{FirewallInbound: rules}); err == nil {
+		t.Error("expected error for too many firewall rules")
+	}
+	if err := ValidateHostAdvanced(&HostAdvanced{FirewallInbound: rules[:MaxHostFirewallRules]}); err != nil {
+		t.Errorf("exactly MaxHostFirewallRules rules rejected: %v", err)
+	}
+}

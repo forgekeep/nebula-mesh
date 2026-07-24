@@ -419,3 +419,45 @@ func TestHostDiff_RoleAndLighthouseFlags(t *testing.T) {
 		t.Fatalf("role change mismatch: %+v", roleChange)
 	}
 }
+
+func TestHostDiff_AdvancedFirewallInbound(t *testing.T) {
+	ruleA := HostFirewallRule{Port: "443", Proto: "tcp", Group: "web"}
+	ruleB := HostFirewallRule{Port: "22", Proto: "tcp", Group: "admin"}
+
+	cases := []struct {
+		name       string
+		before     *HostAdvanced
+		after      *HostAdvanced
+		wantChange bool
+	}{
+		{"add rule to nil advanced", nil, &HostAdvanced{FirewallInbound: []HostFirewallRule{ruleA}}, true},
+		{"remove all rules", &HostAdvanced{FirewallInbound: []HostFirewallRule{ruleA}}, &HostAdvanced{}, true},
+		{"change rule", &HostAdvanced{FirewallInbound: []HostFirewallRule{ruleA}}, &HostAdvanced{FirewallInbound: []HostFirewallRule{ruleB}}, true},
+		{"reorder rules", &HostAdvanced{FirewallInbound: []HostFirewallRule{ruleA, ruleB}}, &HostAdvanced{FirewallInbound: []HostFirewallRule{ruleB, ruleA}}, true},
+		{"identical rules", &HostAdvanced{FirewallInbound: []HostFirewallRule{ruleA}}, &HostAdvanced{FirewallInbound: []HostFirewallRule{ruleA}}, false},
+		{"both empty", &HostAdvanced{}, &HostAdvanced{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := &Host{Name: "h", Advanced: tc.before}
+			after := &Host{Name: "h", Advanced: tc.after}
+			diffJSON, hasChanges, err := HostDiff(before, after)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hasChanges != tc.wantChange {
+				t.Fatalf("hasChanges = %v, want %v (diff: %s)", hasChanges, tc.wantChange, diffJSON)
+			}
+			if !tc.wantChange {
+				return
+			}
+			var parsed map[string]map[string]any
+			if err := json.Unmarshal(diffJSON, &parsed); err != nil {
+				t.Fatalf("unmarshal diff: %v", err)
+			}
+			if _, ok := parsed["advanced.firewall_inbound"]; !ok {
+				t.Errorf("diff missing key advanced.firewall_inbound: %s", diffJSON)
+			}
+		})
+	}
+}

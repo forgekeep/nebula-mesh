@@ -285,6 +285,9 @@ object in the API:
     "punchy": false,              // disable hole-punching for this host
     "unsafe_routes": [
       { "route": "192.168.10.0/24", "via": "10.0.0.99" }
+    ],
+    "firewall_inbound": [
+      { "port": "22", "proto": "tcp", "group": "admin" }
     ]
   }
 }
@@ -297,7 +300,23 @@ advanced block. Server-side validation rejects:
 - `mtu` outside the 576–9216 range;
 - non-IP `listen_host`;
 - whitespace or slashes in `tun_device`;
-- malformed CIDR or non-IP `via` in `unsafe_routes`.
+- malformed CIDR or non-IP `via` in `unsafe_routes`;
+- `firewall_inbound` rules with a proto outside `any`/`tcp`/`udp`/`icmp`, a
+  port that is not `any`, a single port `1-65535` or an ascending range
+  `a-b`, an empty or overlong (>64 chars) group, or more than 64 rules.
+
+### Per-host inbound firewall rules
+
+`advanced.firewall_inbound` appends host-specific inbound rules **after** the
+network-wide firewall policy in the rendered `config.yml` — additive only,
+inbound only; the network policy and the outbound section are never modified.
+In the UI the rules are entered one per line as `PORT/PROTO from GROUP`
+(e.g. `443/tcp from web`, `8000-9000/udp from monitoring`). A rule with group
+`any` renders as `host: any` (matches every peer), same as the network
+policy. Changing these rules re-publishes only the affected host's config on
+its next poll. Mobile bundles include them too. Note that mesh import always
+captures firewall policy at network level — per-host rules are never derived
+from imported configs.
 
 ### Multiple overlay addresses per host
 

@@ -178,6 +178,20 @@ type UnsafeRoute struct {
 	Via   string `json:"via" yaml:"via"`     // Nebula IP of the gateway host
 }
 
+// HostFirewallRule is a single per-host inbound firewall rule, appended
+// after the network-wide policy in the rendered Nebula config. Group "any"
+// renders as `host: any` (match every peer), mirroring the network policy.
+type HostFirewallRule struct {
+	Port  string `json:"port" yaml:"port"`   // "any", a port, or a range "a-b"
+	Proto string `json:"proto" yaml:"proto"` // any | tcp | udp | icmp
+	Group string `json:"group" yaml:"group"`
+}
+
+// MaxHostFirewallRules caps advanced.firewall_inbound per host. Generous
+// relative to real use, but bounded so a single host cannot bloat its
+// rendered config without limit.
+const MaxHostFirewallRules = 64
+
 // HostAdvanced groups optional per-host overrides for the rendered Nebula
 // config. All fields are optional. A field set to its zero value means
 // "inherit network default"; a field set to a non-zero value overrides.
@@ -186,9 +200,10 @@ type UnsafeRoute struct {
 // hole-punching for a host (false) without it being indistinguishable from
 // "not set".
 type HostAdvanced struct {
-	Punchy       *bool         `json:"punchy,omitempty" yaml:"punchy,omitempty"`
-	ListenHost   string        `json:"listen_host,omitempty" yaml:"listen_host,omitempty"`
-	MTU          int           `json:"mtu,omitempty" yaml:"mtu,omitempty"`
-	TunDevice    string        `json:"tun_device,omitempty" yaml:"tun_device,omitempty"`
-	UnsafeRoutes []UnsafeRoute `json:"unsafe_routes,omitempty" yaml:"unsafe_routes,omitempty"`
+	Punchy          *bool              `json:"punchy,omitempty" yaml:"punchy,omitempty"`
+	ListenHost      string             `json:"listen_host,omitempty" yaml:"listen_host,omitempty"`
+	MTU             int                `json:"mtu,omitempty" yaml:"mtu,omitempty"`
+	TunDevice       string             `json:"tun_device,omitempty" yaml:"tun_device,omitempty"`
+	UnsafeRoutes    []UnsafeRoute      `json:"unsafe_routes,omitempty" yaml:"unsafe_routes,omitempty"`
+	FirewallInbound []HostFirewallRule `json:"firewall_inbound,omitempty" yaml:"firewall_inbound,omitempty"`
 }

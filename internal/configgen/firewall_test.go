@@ -1,6 +1,10 @@
 package configgen
 
-import "testing"
+import (
+	"testing"
+
+	"gopkg.in/yaml.v3"
+)
 
 func TestFirewallRulesFromJSON(t *testing.T) {
 	tests := []struct {
@@ -100,5 +104,84 @@ func TestFirewallRulesFromJSON_DefaultsRenderValidRules(t *testing.T) {
 		if r.Group == "" && r.Host == "" {
 			t.Errorf("default rule has neither group nor host (Nebula would reject): %+v", r)
 		}
+	}
+}
+
+func TestGenerate_HostFirewallInboundAppended(t *testing.T) {
+	input := GeneratorInput{
+		HostName:   "bastion",
+		NebulaIPs:  []string{"192.168.100.5"},
+		CACertPath: "/etc/nebula/ca.crt",
+		CertPath:   "/etc/nebula/host.crt",
+		KeyPath:    "/etc/nebula/host.key",
+		FirewallInbound: []FirewallRule{
+			{Port: "any", Proto: "icmp", Group: "any"},
+		},
+		FirewallOutbound: []FirewallRule{
+			{Port: "any", Proto: "any", Group: "any"},
+		},
+		HostFirewallInbound: []FirewallRule{
+			{Port: "22", Proto: "tcp", Group: "admin"},
+			{Port: "8000-9000", Proto: "udp", Group: "any"},
+		},
+	}
+
+	data, err := Generate(input)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	var parsed struct {
+		Firewall struct {
+			Inbound  []map[string]any `yaml:"inbound"`
+			Outbound []map[string]any `yaml:"outbound"`
+		} `yaml:"firewall"`
+	}
+	if err := yaml.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("invalid YAML: %v\n%s", err, string(data))
+	}
+
+	in := parsed.Firewall.Inbound
+	if len(in) != 3 {
+		t.Fatalf("inbound rules = %d, want 3 (network first, then host): %s", len(in), string(data))
+	}
+	// Network rule first.
+	if in[0]["proto"] != "icmp" || in[0]["host"] != "any" {
+		t.Errorf("inbound[0] should be the network icmp/any rule, got %v", in[0])
+	}
+	// Host rules appended in order.
+	if in[1]["port"] != 22 && in[1]["port"] != "22" {
+		t.Errorf("inbound[1].port = %v, want 22", in[1]["port"])
+	}
+	if in[1]["group"] != "admin" {
+		t.Errorf("inbound[1].group = %v, want admin", in[1]["group"])
+	}
+	// Host rule with group "any" renders as host: any (mapFirewallRules).
+	if in[2]["host"] != "any" {
+		t.Errorf("inbound[2] group any should render host: any, got %v", in[2])
+	}
+	if len(parsed.Firewall.Outbound) != 1 {
+		t.Errorf("outbound rules = %d, want 1 (untouched)", len(parsed.Firewall.Outbound))
+	}
+}
+
+func TestGenerate_HostFirewallInbound_DoesNotMutateDefaults(t *testing.T) {
+	input := GeneratorInput{
+		HostName:         "h",
+		NebulaIPs:        []string{"192.168.100.6"},
+		CACertPath:       "/etc/nebula/ca.crt",
+		CertPath:         "/etc/nebula/host.crt",
+		KeyPath:          "/etc/nebula/host.key",
+		FirewallInbound:  DefaultFirewallInbound,
+		FirewallOutbound: DefaultFirewallOutbound,
+		HostFirewallInbound: []FirewallRule{
+			{Port: "22", Proto: "tcp", Group: "admin"},
+		},
+	}
+	if _, err := Generate(input); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(DefaultFirewallInbound) != 1 {
+		t.Fatalf("DefaultFirewallInbound mutated: %#v", DefaultFirewallInbound)
 	}
 }

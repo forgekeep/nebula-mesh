@@ -72,7 +72,7 @@
             <input type="number" name="listen_port" class="form-control" placeholder="4242" value="{{.Form.ListenPort}}">
         </div>
 
-        <details style="margin: 16px 0;"{{if or .Form.AdvListenHost .Form.AdvMTU .Form.AdvTunDevice .Form.AdvPunchy .Form.AdvUnsafeRoutes}} open{{end}}>
+        <details style="margin: 16px 0;"{{if or .Form.AdvListenHost .Form.AdvMTU .Form.AdvTunDevice .Form.AdvPunchy .Form.AdvUnsafeRoutes .Form.AdvFirewallInbound}} open{{end}}>
             <summary style="cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 14px;">Advanced configuration (optional)</summary>
             <p style="font-size: 12px; color: var(--text-muted); margin: 8px 0;">Empty fields inherit the network default. See <a href="https://nebula.defined.net/docs/config" target="_blank">Nebula config docs</a>.</p>
             <div class="form-group"><label>Listen host (advanced.listen_host)</label><input type="text" name="adv_listen_host" class="form-control" placeholder="0.0.0.0" value="{{.Form.AdvListenHost}}"></div>
@@ -87,6 +87,7 @@
                 </select>
             </div>
             <div class="form-group"><label>Unsafe routes (one per line: <code>CIDR via NEBULA_IP</code>)</label><textarea name="adv_unsafe_routes" class="form-control" rows="3" placeholder="192.168.10.0/24 via 10.0.0.99">{{.Form.AdvUnsafeRoutes}}</textarea></div>
+            <div class="form-group"><label>Inbound firewall rules (one per line: <code>PORT/PROTO from GROUP</code>, added after the network policy)</label><textarea name="adv_firewall_inbound" class="form-control" rows="3" placeholder="443/tcp from web">{{.Form.AdvFirewallInbound}}</textarea></div>
         </details>
 
         <button type="submit" class="btn btn-primary">Save changes</button>

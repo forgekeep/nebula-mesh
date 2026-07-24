@@ -166,6 +166,9 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 		for _, u := range adv.UnsafeRoutes {
 			input.UnsafeRoutes = append(input.UnsafeRoutes, configgen.AdvancedUnsafeRoute{Route: u.Route, Via: u.Via})
 		}
+		for _, fr := range adv.FirewallInbound {
+			input.HostFirewallInbound = append(input.HostFirewallInbound, configgen.FirewallRule{Port: fr.Port, Proto: fr.Proto, Group: fr.Group})
+		}
 	}
 
 	configYAML, err := configgen.Generate(input)

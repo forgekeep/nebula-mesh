@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/netip"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -170,6 +171,69 @@ func ValidateHostAdvanced(adv *HostAdvanced) error {
 		if _, err := ValidateIPAddr(fmt.Sprintf("advanced.unsafe_routes[%d].via", i), r.Via); err != nil {
 			return err
 		}
+	}
+	if len(adv.FirewallInbound) > MaxHostFirewallRules {
+		return fmt.Errorf("advanced.firewall_inbound: at most %d rules allowed", MaxHostFirewallRules)
+	}
+	for i, r := range adv.FirewallInbound {
+		if err := validateHostFirewallRule(r); err != nil {
+			return fmt.Errorf("advanced.firewall_inbound[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// maxFirewallGroupLen mirrors the API-side cap on group names embedded in
+// certificates (maxGroupNameLen in internal/api).
+const maxFirewallGroupLen = 64
+
+func validateHostFirewallRule(r HostFirewallRule) error {
+	if r.Port == "" || r.Proto == "" || r.Group == "" {
+		return fmt.Errorf("port, proto and group are required")
+	}
+	switch r.Proto {
+	case "any", "tcp", "udp", "icmp":
+	default:
+		return fmt.Errorf("proto must be one of any, tcp, udp, icmp")
+	}
+	if len(r.Group) > maxFirewallGroupLen {
+		return fmt.Errorf("group must be at most %d characters", maxFirewallGroupLen)
+	}
+	if err := validateFirewallPort(r.Port); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateFirewallPort accepts "any", a single port 1-65535, or an
+// ascending range "a-b" within those bounds — the forms Nebula's firewall
+// accepts for the port field.
+func validateFirewallPort(port string) error {
+	if port == "any" {
+		return nil
+	}
+	parse := func(s string) (int, error) {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > 65535 {
+			return 0, fmt.Errorf("port must be \"any\", a port between 1 and 65535, or a range \"a-b\"")
+		}
+		return n, nil
+	}
+	lo, hi, isRange := strings.Cut(port, "-")
+	if !isRange {
+		_, err := parse(port)
+		return err
+	}
+	loN, err := parse(lo)
+	if err != nil {
+		return err
+	}
+	hiN, err := parse(hi)
+	if err != nil {
+		return err
+	}
+	if loN > hiN {
+		return fmt.Errorf("port range start must not exceed its end")
 	}
 	return nil
 }

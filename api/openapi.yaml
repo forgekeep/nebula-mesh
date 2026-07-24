@@ -1078,6 +1078,11 @@ components:
             type: string
         role:
           type: string
+          enum: [host, lighthouse, relay, lighthouse+relay]
+          description: >-
+            Host role. `lighthouse+relay` makes the host serve both duties at
+            once. `lighthouse`, `relay` and `lighthouse+relay` require
+            `public_ip` and `listen_port`.
         public_ip:
           type: string
         listen_port:
@@ -1282,6 +1287,7 @@ components:
             type: string
         role:
           type: string
+          enum: [host, lighthouse, relay, lighthouse+relay]
         is_lighthouse:
           type: boolean
         is_relay:

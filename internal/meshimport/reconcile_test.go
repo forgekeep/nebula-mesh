@@ -112,6 +112,39 @@ func TestReconcileTopologyAndEndpoints(t *testing.T) {
 	}
 }
 
+func TestReconcileCombinedLighthouseRelayRole(t *testing.T) {
+	fixture := newCertificateFixture(t)
+	both := fixture.snapshot(t, "lh-relay", "lh-relay", "10.42.0.1/24", []string{"infra"})
+	both.Config.AmLighthouse = true
+	both.Config.AmRelay = true
+	both.Config.ListenPort = 4242
+	client := fixture.snapshot(t, "client", "client", "10.42.0.2/24", nil)
+	client.Config.LighthouseHosts = []string{"10.42.0.1"}
+	client.Config.Relays = []string{"10.42.0.1"}
+	client.Config.StaticHostMap = map[string][]string{"10.42.0.1": {"203.0.113.10:4242"}}
+
+	report := fixture.reconcile(both, client)
+	if len(report.Blockers) != 0 {
+		t.Fatalf("blockers = %#v", report.Blockers)
+	}
+	var found bool
+	for _, proposal := range report.Proposal.Hosts {
+		if proposal.Host.Name == "lh-relay" {
+			found = true
+			if proposal.Host.Role != models.HostRoleLighthouseRelay {
+				t.Errorf("role = %q, want %q", proposal.Host.Role, models.HostRoleLighthouseRelay)
+			}
+			if !proposal.Host.IsLighthouse || !proposal.Host.IsRelay {
+				t.Errorf("IsLighthouse=%v IsRelay=%v, want true/true",
+					proposal.Host.IsLighthouse, proposal.Host.IsRelay)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("lh-relay host missing from proposal")
+	}
+}
+
 func TestReconcileRejectsTopologyConflicts(t *testing.T) {
 	fixture := newCertificateFixture(t)
 	lighthouse := fixture.snapshot(t, "lh", "lighthouse", "10.42.0.1/24", nil)

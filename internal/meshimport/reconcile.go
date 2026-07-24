@@ -308,16 +308,16 @@ func (r *reconcileState) reconcileEndpoints() {
 func (r *reconcileState) reconcileTopology() {
 	for i := range r.hosts {
 		host := &r.hosts[i]
-		if host.config.AmLighthouse {
-			host.proposal.Host.IsLighthouse = true
+		switch {
+		case host.config.AmLighthouse && host.config.AmRelay:
+			host.proposal.Host.Role = models.HostRoleLighthouseRelay
+		case host.config.AmLighthouse:
 			host.proposal.Host.Role = models.HostRoleLighthouse
+		case host.config.AmRelay:
+			host.proposal.Host.Role = models.HostRoleRelay
 		}
-		if host.config.AmRelay {
-			host.proposal.Host.IsRelay = true
-			if !host.config.AmLighthouse {
-				host.proposal.Host.Role = models.HostRoleRelay
-			}
-		}
+		host.proposal.Host.IsLighthouse = host.proposal.Host.Role.Lighthouse()
+		host.proposal.Host.IsRelay = host.proposal.Host.Role.Relay()
 		if host.config.AmLighthouse || host.config.AmRelay {
 			r.applyRoleEndpoint(host)
 		}

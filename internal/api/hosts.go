@@ -167,8 +167,8 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		NebulaIPs:    req.NebulaIPs,
 		Groups:       req.Groups,
 		Role:         role,
-		IsLighthouse: role == models.HostRoleLighthouse,
-		IsRelay:      role == models.HostRoleRelay,
+		IsLighthouse: role.Lighthouse(),
+		IsRelay:      role.Relay(),
 		PublicIP:     req.PublicIP,
 		ListenPort:   req.ListenPort,
 		Status:       models.HostStatusPending,
@@ -718,8 +718,8 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		host.Role = role
-		host.IsLighthouse = role == models.HostRoleLighthouse
-		host.IsRelay = role == models.HostRoleRelay
+		host.IsLighthouse = role.Lighthouse()
+		host.IsRelay = role.Relay()
 	}
 
 	if req.PublicIP != nil {

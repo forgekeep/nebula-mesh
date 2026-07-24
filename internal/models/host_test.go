@@ -16,10 +16,12 @@ func TestValidRole(t *testing.T) {
 		{HostRoleHost, true},
 		{HostRoleLighthouse, true},
 		{HostRoleRelay, true},
+		{"lighthouse+relay", true},
 		{"", true}, // empty = use default in handler
 		{"invalid", false},
 		{"admin", false},
-		{"HOST", false}, // case-sensitive
+		{"HOST", false},             // case-sensitive
+		{"relay+lighthouse", false}, // only the canonical ordering is valid
 	}
 
 	for _, tt := range tests {
@@ -51,6 +53,10 @@ func TestValidateRoleReachability(t *testing.T) {
 
 		{"relay: missing public_ip", HostRoleRelay, "", 4242, ErrRoleRequiresPublicIP},
 		{"relay: missing listen_port", HostRoleRelay, "203.0.113.1", 0, ErrRoleRequiresListenPort},
+
+		{"lighthouse+relay: both set", "lighthouse+relay", "203.0.113.3", 4242, nil},
+		{"lighthouse+relay: missing public_ip", "lighthouse+relay", "", 4242, ErrRoleRequiresPublicIP},
+		{"lighthouse+relay: missing listen_port", "lighthouse+relay", "203.0.113.3", 0, ErrRoleRequiresListenPort},
 	}
 
 	for _, tt := range tests {
@@ -129,6 +135,14 @@ func TestValidateMobileConstraints(t *testing.T) {
 			kind:    HostKindMobile,
 			variant: HostVariantAndroid,
 			role:    HostRoleRelay,
+			wantErr: true,
+			errIs:   ErrMobileRoleRestricted,
+		},
+		{
+			name:    "mobile with lighthouse+relay role",
+			kind:    HostKindMobile,
+			variant: HostVariantIOS,
+			role:    "lighthouse+relay",
 			wantErr: true,
 			errIs:   ErrMobileRoleRestricted,
 		},

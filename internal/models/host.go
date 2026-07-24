@@ -18,19 +18,30 @@ const (
 type HostRole string
 
 const (
-	HostRoleHost       HostRole = "host"
-	HostRoleLighthouse HostRole = "lighthouse"
-	HostRoleRelay      HostRole = "relay"
+	HostRoleHost            HostRole = "host"
+	HostRoleLighthouse      HostRole = "lighthouse"
+	HostRoleRelay           HostRole = "relay"
+	HostRoleLighthouseRelay HostRole = "lighthouse+relay"
 )
 
 // ValidRole reports whether r is a known host role or empty (meaning "use default").
 func ValidRole(r HostRole) bool {
 	switch r {
-	case "", HostRoleHost, HostRoleLighthouse, HostRoleRelay:
+	case "", HostRoleHost, HostRoleLighthouse, HostRoleRelay, HostRoleLighthouseRelay:
 		return true
 	default:
 		return false
 	}
+}
+
+// Lighthouse reports whether the role includes lighthouse duty.
+func (r HostRole) Lighthouse() bool {
+	return r == HostRoleLighthouse || r == HostRoleLighthouseRelay
+}
+
+// Relay reports whether the role includes relay duty.
+func (r HostRole) Relay() bool {
+	return r == HostRoleRelay || r == HostRoleLighthouseRelay
 }
 
 type HostKind string
@@ -116,7 +127,7 @@ var ErrRoleRequiresListenPort = errors.New("listen_port is required when role is
 // otherwise peer config.yml renders an empty static_host_map and the host
 // is never dialed (issue #94).
 func ValidateRoleReachability(role HostRole, publicIP string, listenPort int) error {
-	if role != HostRoleLighthouse && role != HostRoleRelay {
+	if !role.Lighthouse() && !role.Relay() {
 		return nil
 	}
 	if strings.TrimSpace(publicIP) == "" {

@@ -366,7 +366,7 @@ func (s *Server) getRelays(ctx context.Context, networkID string) ([]string, err
 	}
 	set := make(map[string]struct{})
 	for _, host := range hosts {
-		if host.Role != models.HostRoleRelay && !host.IsRelay {
+		if !host.Role.Relay() && !host.IsRelay {
 			continue
 		}
 		for _, address := range host.NebulaIPs {

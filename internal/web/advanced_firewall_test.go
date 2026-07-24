@@ -13,21 +13,6 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
-func findHostByName(t *testing.T, s *store.SQLiteStore, name string) *models.Host {
-	t.Helper()
-	hosts, err := s.ListHosts(context.Background(), store.HostFilter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, h := range hosts {
-		if h.Name == name {
-			return h
-		}
-	}
-	t.Fatalf("host %q not found", name)
-	return nil
-}
-
 func advForm(t *testing.T, values url.Values) *http.Request {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/ui/hosts", strings.NewReader(values.Encode()))
@@ -196,7 +181,20 @@ func TestCreateHostViaUI_FirewallInbound(t *testing.T) {
 		t.Fatalf("status = %d, want 200, body: %s", rec.Code, rec.Body.String())
 	}
 
-	created := findHostByName(t, s, "fw-created")
+	hosts, err := s.ListHosts(ctx, store.HostFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created *models.Host
+	for _, h := range hosts {
+		if h.Name == "fw-created" {
+			created = h
+			break
+		}
+	}
+	if created == nil {
+		t.Fatal("host \"fw-created\" not found")
+	}
 	want := []models.HostFirewallRule{
 		{Port: "22", Proto: "tcp", Group: "admin"},
 		{Port: "443", Proto: "tcp", Group: "web"},

@@ -192,6 +192,9 @@ leave a weaker or partially applied security state.
   transactional SQLite store methods.
 - Mesh import finalize applies Host state, firewall, blocklist, version, and
   challenge cleanup in one transaction with revision and scope checks.
+- Host updates persist Host fields and reset `config_version` in the same
+  transaction, so a failed update preserves both the previous firewall state
+  and its published version.
 - Every certificate-signing path re-checks blocked Host and disabled owning
   Operator state from the store.
 - Mobile bundle generation reads the durable CA blocklist and current enrolled
@@ -215,6 +218,9 @@ leave a weaker or partially applied security state.
   rejects blocked Hosts and disabled owners.
 - `internal/store/sqlite_enroll_token_test.go`:
   `TestConsumeTokenAndEnrollHost_NoBurnOnEnrollFailure`.
+- `internal/store/sqlite_update_host_atomic_test.go`:
+  `TestUpdateHost_ResetsConfigVersion` and
+  `TestUpdateHost_SECPERSIST001_RollbackIsAtomic`.
 - `internal/store/migration_023_test.go`, `migration_024_test.go`, and
   `migration_pinned_conn_test.go`: migration repeatability and constraints.
 

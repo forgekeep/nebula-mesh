@@ -290,7 +290,7 @@ func listRelays(ctx context.Context, s store.Store, networkID string) ([]string,
 
 	set := make(map[string]struct{})
 	for _, host := range hosts {
-		if host.Role != models.HostRoleRelay && !host.IsRelay {
+		if !host.Role.Relay() && !host.IsRelay {
 			continue
 		}
 		for _, address := range host.NebulaIPs {

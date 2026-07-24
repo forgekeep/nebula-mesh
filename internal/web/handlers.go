@@ -991,8 +991,8 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		NebulaIPs:    form.NebulaIPs,
 		Groups:       groups,
 		Role:         role,
-		IsLighthouse: role == models.HostRoleLighthouse,
-		IsRelay:      role == models.HostRoleRelay,
+		IsLighthouse: role.Lighthouse(),
+		IsRelay:      role.Relay(),
 		PublicIP:     form.PublicIP,
 		ListenPort:   listenPort,
 		Status:       models.HostStatusPending,
@@ -1252,8 +1252,8 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 	host.NebulaIPs = form.NebulaIPs
 	host.Groups = groups
 	host.Role = role
-	host.IsLighthouse = role == models.HostRoleLighthouse
-	host.IsRelay = role == models.HostRoleRelay
+	host.IsLighthouse = role.Lighthouse()
+	host.IsRelay = role.Relay()
 	host.PublicIP = form.PublicIP
 	host.ListenPort = listenPort
 	host.Advanced = advanced

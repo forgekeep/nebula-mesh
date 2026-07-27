@@ -1,0 +1,3 @@
+-- Intentionally no-op. The previous version cannot be reconstructed safely:
+-- a network may have received legitimate config changes after the release
+-- migration ran, and decrementing would discard that newer revision.

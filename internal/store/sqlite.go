@@ -169,6 +169,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"023_mesh_import.up.sql",
 		"024_mesh_import_challenge_limits.up.sql",
 		"025_oidc_unique.up.sql",
+		"026_redeliver_wdf_config.up.sql",
 	}
 
 	conn, err := s.db.Conn(ctx)
@@ -210,6 +211,12 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		if applied {
 			continue
 		}
+		if f == "026_redeliver_wdf_config.up.sql" {
+			if err := applyMigration026(ctx, conn, f); err != nil {
+				return err
+			}
+			continue
+		}
 		// Migration 018 enforces UNIQUE(network_id, address). Before applying it,
 		// resolve the data conditions that would otherwise make it fail with a raw
 		// SQLite error: a cross-host duplicate (a security defect with no safe
@@ -248,6 +255,47 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 	// next start.
 	if err := repairBlocklistCAID(ctx, conn); err != nil {
 		return fmt.Errorf("repair blocklist ca_id: %w", err)
+	}
+	return nil
+}
+
+// applyMigration026 records the migration and bumps config versions under one
+// SQLite write transaction. Migrate may be called by more than one process
+// during an upgrade; the initial marker check in Migrate is therefore not
+// enough to make this data migration exactly-once.
+func applyMigration026(ctx context.Context, conn *sql.Conn, migration string) (err error) {
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return fmt.Errorf("begin migration %s transaction: %w", migration, err)
+	}
+	defer func() {
+		if err == nil {
+			return
+		}
+		if _, rollbackErr := conn.ExecContext(context.WithoutCancel(ctx), `ROLLBACK`); rollbackErr != nil {
+			slog.Error("rollback migration transaction", "migration", migration, "error", rollbackErr)
+		}
+	}()
+
+	applied, err := migrationApplied(ctx, conn, migration)
+	if err != nil {
+		return fmt.Errorf("check migration %s in transaction: %w", migration, err)
+	}
+	if !applied {
+		sqlBytes, err := migrations.FS.ReadFile(migration)
+		if err != nil {
+			return fmt.Errorf("read migration %s: %w", migration, err)
+		}
+		for _, stmt := range splitSQLStatements(string(sqlBytes)) {
+			if _, err := conn.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("apply migration %s stmt %q: %w", migration, firstLine(stmt), err)
+			}
+		}
+		if _, err := conn.ExecContext(ctx, `INSERT INTO schema_migrations(name) VALUES (?)`, migration); err != nil {
+			return fmt.Errorf("record migration %s: %w", migration, err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return fmt.Errorf("commit migration %s transaction: %w", migration, err)
 	}
 	return nil
 }

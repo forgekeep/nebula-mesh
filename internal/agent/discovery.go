@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/slackhq/nebula/cert"
 	nebulaconfig "github.com/slackhq/nebula/config"
 	"golang.org/x/crypto/curve25519"
@@ -80,8 +80,7 @@ func DiscoverExisting(configPath string) (*ExistingDiscovery, error) {
 		return result, nil
 	}
 
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	configuration := nebulaconfig.NewC(logger)
 	if err := configuration.Load(configPath); err != nil {
 		result.Issues = []string{"cannot parse Nebula config"}

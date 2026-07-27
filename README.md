@@ -36,7 +36,11 @@ On a fresh Debian / Ubuntu VM (`amd64`):
 
 ```sh
 # 1. Install the server.
-VERSION=0.10.1
+VERSION="${VERSION:-$(curl -fsSL https://api.github.com/repos/forgekeep/nebula-mesh/releases/latest | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"v\([^"]*\)".*/\1/p')}"
+if [ -z "$VERSION" ]; then
+  echo "could not resolve the latest nebula-mesh release" >&2
+  exit 1
+fi
 curl -fsSLO "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_amd64.deb"
 sudo apt install -y "./nebula-mgmt_${VERSION}_linux_amd64.deb"
 
@@ -122,14 +126,18 @@ nebula-mesh ships **two** static binaries. Install whichever you need on each ma
 | `nebula-mgmt` | one server (the control plane) |
 | `nebula-agent` | every Nebula host, next to `nebula` |
 
-Pick an install method below. The examples assume `VERSION=0.10.1` — always replace with the latest from the [releases page](https://github.com/forgekeep/nebula-mesh/releases/latest). Each release ships a `checksums.txt` (SHA-256).
+Pick an install method below. Each resolves the latest stable release by default. For a reproducible install, set `VERSION=<semver>` in the environment first. Each release ships a `checksums.txt` (SHA-256).
 
 > ⚠️ **Install the latest release.** Versions older than the newest tag may be missing published security fixes — see the [security advisories](https://github.com/forgekeep/nebula-mesh/security/advisories). Do not pin to an old version unless you have verified it carries every advisory fix you need.
 
 ### Debian / Ubuntu (`.deb`)
 
 ```sh
-VERSION=0.10.1
+VERSION="${VERSION:-$(curl -fsSL https://api.github.com/repos/forgekeep/nebula-mesh/releases/latest | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"v\([^"]*\)".*/\1/p')}"
+if [ -z "$VERSION" ]; then
+  echo "could not resolve the latest nebula-mesh release" >&2
+  exit 1
+fi
 ARCH=$(dpkg --print-architecture)   # amd64 | arm64 | armhf (agent only)
 
 # Server (control plane):
@@ -144,7 +152,11 @@ sudo apt install -y "./nebula-agent_${VERSION}_linux_${ARCH}.deb"
 ### RHEL / Fedora / Rocky / Alma (`.rpm`)
 
 ```sh
-VERSION=0.10.1
+VERSION="${VERSION:-$(curl -fsSL https://api.github.com/repos/forgekeep/nebula-mesh/releases/latest | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"v\([^"]*\)".*/\1/p')}"
+if [ -z "$VERSION" ]; then
+  echo "could not resolve the latest nebula-mesh release" >&2
+  exit 1
+fi
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
 sudo rpm -i "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_${ARCH}.rpm"
@@ -158,7 +170,11 @@ sudo rpm -i "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSI
 Download a tarball from the [releases page](https://github.com/forgekeep/nebula-mesh/releases/latest) and extract:
 
 ```sh
-VERSION=0.10.1
+VERSION="${VERSION:-$(curl -fsSL https://api.github.com/repos/forgekeep/nebula-mesh/releases/latest | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"v\([^"]*\)".*/\1/p')}"
+if [ -z "$VERSION" ]; then
+  echo "could not resolve the latest nebula-mesh release" >&2
+  exit 1
+fi
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 

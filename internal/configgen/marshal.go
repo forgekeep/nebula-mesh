@@ -159,8 +159,9 @@ type localAllowListSection struct {
 }
 
 type listenSection struct {
-	Host safeString `yaml:"host"`
-	Port int        `yaml:"port"`
+	Host             safeString `yaml:"host"`
+	Port             int        `yaml:"port"`
+	WindowsBypassWDF bool       `yaml:"windows_bypass_wdf"`
 }
 
 type punchySection struct {
@@ -174,6 +175,8 @@ type tunSection struct {
 	DropMulticast      *bool         `yaml:"drop_multicast,omitempty"`
 	MTU                int           `yaml:"mtu,omitempty"`
 	UnsafeRoutes       []unsafeRoute `yaml:"unsafe_routes,omitempty"`
+	WindowsBypassWDF   bool          `yaml:"windows_bypass_wdf"`
+	NetworkCategory    safeString    `yaml:"network_category"`
 }
 
 type tunnelsSection struct {
@@ -288,7 +291,11 @@ func buildConfig(input GeneratorInput) nebulaConfig {
 	if listenPort == 0 && input.IsLighthouse && input.Mobile == nil {
 		listenPort = 4242
 	}
-	cfg.Listen = listenSection{Host: safeString(listenHost), Port: listenPort}
+	cfg.Listen = listenSection{
+		Host:             safeString(listenHost),
+		Port:             listenPort,
+		WindowsBypassWDF: false,
+	}
 
 	punch := true
 	if input.PunchyOverride != nil {
@@ -299,30 +306,33 @@ func buildConfig(input GeneratorInput) nebulaConfig {
 		cfg.Punchy.Respond = boolPtr(false)
 	}
 
-	if input.Mobile != nil || input.MTU != 0 || input.TunDevice != "" || len(input.UnsafeRoutes) > 0 {
-		dev := input.TunDevice
-		mtu := input.MTU
-		if input.Mobile != nil {
-			if dev == "" {
-				dev = "nebula1"
-			}
-			if mtu == 0 {
-				mtu = 1300
-			}
+	dev := input.TunDevice
+	mtu := input.MTU
+	if input.Mobile != nil {
+		if dev == "" {
+			dev = "nebula1"
 		}
-		ts := &tunSection{Dev: safeString(dev), MTU: mtu}
-		if input.Mobile != nil {
-			ts.DropLocalBroadcast = boolPtr(true)
-			ts.DropMulticast = boolPtr(true)
+		if mtu == 0 {
+			mtu = 1300
 		}
-		for _, r := range input.UnsafeRoutes {
-			ts.UnsafeRoutes = append(ts.UnsafeRoutes, unsafeRoute{
-				Route: safeString(r.Route),
-				Via:   safeString(r.Via),
-			})
-		}
-		cfg.Tun = ts
 	}
+	ts := &tunSection{
+		Dev:              safeString(dev),
+		MTU:              mtu,
+		WindowsBypassWDF: false,
+		NetworkCategory:  "unset",
+	}
+	if input.Mobile != nil {
+		ts.DropLocalBroadcast = boolPtr(true)
+		ts.DropMulticast = boolPtr(true)
+	}
+	for _, r := range input.UnsafeRoutes {
+		ts.UnsafeRoutes = append(ts.UnsafeRoutes, unsafeRoute{
+			Route: safeString(r.Route),
+			Via:   safeString(r.Via),
+		})
+	}
+	cfg.Tun = ts
 
 	if input.IsRelay {
 		cfg.Relay = &relaySection{AmRelay: boolPtr(true)}

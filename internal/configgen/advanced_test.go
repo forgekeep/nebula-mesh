@@ -25,11 +25,49 @@ func TestGenerate_DefaultsWhenNoAdvanced(t *testing.T) {
 	if !strings.Contains(s, "punch: true") {
 		t.Error("expected default punch: true")
 	}
-	if strings.Contains(s, "tun:") {
-		t.Error("tun block should not appear without advanced overrides")
+	if strings.Contains(s, "dev:") {
+		t.Error("tun.dev should not appear without advanced overrides")
 	}
 	if strings.Contains(s, "unsafe_routes") {
 		t.Error("unsafe_routes should not appear without advanced overrides")
+	}
+}
+
+func TestGenerate_WindowsV111CompatibilityDefaults(t *testing.T) {
+	out, err := Generate(GeneratorInput{
+		HostName:   "h",
+		NebulaIPs:  []string{"10.0.0.1"},
+		CACertPath: "/etc/nebula/ca.crt",
+		CertPath:   "/etc/nebula/host.crt",
+		KeyPath:    "/etc/nebula/host.key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := string(out)
+	if strings.Count(s, "windows_bypass_wdf: false") != 2 {
+		t.Errorf("expected listen and tun Windows WDF compatibility settings, got:\n%s", out)
+	}
+	if !strings.Contains(s, "network_category: unset") {
+		t.Errorf("expected legacy Windows network category setting, got:\n%s", out)
+	}
+
+	parsed := loadGenerated(t, GeneratorInput{
+		HostName:   "h",
+		NebulaIPs:  []string{"10.0.0.1"},
+		CACertPath: "/etc/nebula/ca.crt",
+		CertPath:   "/etc/nebula/host.crt",
+		KeyPath:    "/etc/nebula/host.key",
+	})
+	if parsed.GetBool("listen.windows_bypass_wdf", true) {
+		t.Error("v1.11 parser read listen.windows_bypass_wdf as true")
+	}
+	if parsed.GetBool("tun.windows_bypass_wdf", true) {
+		t.Error("v1.11 parser read tun.windows_bypass_wdf as true")
+	}
+	if got := parsed.GetString("tun.network_category", ""); got != "unset" {
+		t.Errorf("v1.11 parser read tun.network_category = %q, want unset", got)
 	}
 }
 

@@ -1900,9 +1900,17 @@ func (s *SQLiteStore) enrollHostInTx(ctx context.Context, tx *sql.Tx, hostID str
 		return err
 	}
 
-	// Update host: status=enrolled, cert_fingerprint, cert_expires_at
+	// Update host: status=enrolled, cert_fingerprint, cert_expires_at.
+	//
+	// pending_rekey clears here, in the same transaction as the certificate
+	// it was asking for, and nowhere else. Clearing it earlier — when the
+	// poll handler mints the rekey token — drops the request on the floor if
+	// the agent then fails to re-enroll: nothing retries, and the host row
+	// reads as settled while the agent keeps serving the superseded
+	// certificate. Enrollment completing is the only evidence the rekey
+	// actually happened.
 	result, err := tx.ExecContext(ctx,
-		`UPDATE hosts SET status=?, cert_fingerprint=?, cert_expires_at=?, updated_at=? WHERE id=?`,
+		`UPDATE hosts SET status=?, cert_fingerprint=?, cert_expires_at=?, pending_rekey=0, updated_at=? WHERE id=?`,
 		models.HostStatusEnrolled, fp, notAfter, time.Now(), hostID,
 	)
 	if err != nil {

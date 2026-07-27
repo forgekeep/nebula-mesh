@@ -5,6 +5,13 @@ After=network-online.target nebula.service
 Wants=network-online.target
 PartOf=nebula.service
 
+# Never give up restarting. The default start limit stops a unit for good
+# after a few rapid failures, and a stopped agent is silent: it goes on
+# neither applying config nor rotating certificates while the host keeps
+# serving the ones it already has. RestartSec below already bounds the retry
+# rate, so there is nothing to protect against by capping the count.
+StartLimitIntervalSec=0
+
 [Service]
 Type=simple
 # Agent needs to write to /etc/nebula and send SIGHUP to nebula.service —
@@ -34,7 +41,12 @@ SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
 SystemCallFilter=kill
 
-ReadWritePaths=/etc/nebula
+# Both directories the agent writes to. /etc/nebula-agent holds the PoP
+# signing key (the default signing_key_path) and agent.yml; leaving it out
+# made ProtectSystem=strict fail every re-enrollment at the preflight write
+# test, while ordinary polling — which only reads the existing key — kept
+# working and hid the problem.
+ReadWritePaths=/etc/nebula /etc/nebula-agent
 
 LimitNOFILE=65536
 

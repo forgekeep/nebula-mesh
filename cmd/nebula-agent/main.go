@@ -385,7 +385,16 @@ func startPoller(ctx context.Context, cfg *config.AgentConfig, logger *slog.Logg
 					ConfigAckV1: true,
 				},
 			}); err != nil {
-				return fmt.Errorf("rekey enrollment: %w", err)
+				// Keep polling rather than exiting. A rekey can fail for
+				// reasons the next attempt may not hit (an unwritable
+				// directory an operator is about to fix, a server blip), and
+				// the server re-offers it until the enrollment completes.
+				// Exiting instead handed the retry to the service manager,
+				// which restarts on a fixed delay and eventually hits its
+				// start limit — turning a recoverable rekey failure into an
+				// agent that is stopped for good and silently stops applying
+				// config and certificate updates.
+				logger.Error("rekey enrollment failed; continuing to poll and will retry", "error", err)
 			}
 			continue
 		}

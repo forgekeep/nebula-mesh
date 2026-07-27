@@ -139,10 +139,11 @@ func TestPoll_EmitsRekeyToken_WhenPending(t *testing.T) {
 		t.Errorf("EnrollmentToken = %q, want nme_ prefix", resp.EnrollmentToken)
 	}
 
-	// Pending flag must be cleared so a follow-up poll does not mint a
-	// second token.
+	// The flag deliberately survives minting: only a completed enrollment
+	// clears it, so a rekey the agent fails to finish is re-offered instead
+	// of being lost. See TestRekey_ReofferedUntilEnrollmentCompletes.
 	got, _ := st.GetHost(context.Background(), host.ID)
-	if got.PendingRekey {
-		t.Errorf("PendingRekey still true after rekey token was minted")
+	if !got.PendingRekey {
+		t.Errorf("PendingRekey cleared at token mint; the rekey would be lost if the agent never enrolls")
 	}
 }

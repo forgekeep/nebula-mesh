@@ -3,9 +3,9 @@ package agent
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
-	"github.com/sirupsen/logrus"
 	nebulaconfig "github.com/slackhq/nebula/config"
 )
 
@@ -35,8 +35,7 @@ func validateConfigPKIPaths(configYAML, configDir, caPath, certPath, keyPath str
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close temp config: %w", err)
 	}
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	configuration := nebulaconfig.NewC(logger)
 	if err := configuration.Load(path); err != nil {
 		return fmt.Errorf("invalid config YAML: %w", err)

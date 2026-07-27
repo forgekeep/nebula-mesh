@@ -39,7 +39,7 @@ func TestPoller_WritesConfigToNebulaConfigPath(t *testing.T) {
 		NebulaConfigPath: customPath,
 		Interval:         time.Hour, // immediate poll on Run is enough
 	})
-	p.signalFunc = func() error { return nil } // no real Nebula to SIGHUP
+	p.signalFunc = func(context.Context) error { return nil } // no real Nebula to SIGHUP
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
@@ -82,7 +82,7 @@ func TestPoller_NebulaConfigPathFallback(t *testing.T) {
 		DataDir:     dir,
 		Interval:    time.Hour,
 	})
-	p.signalFunc = func() error { return nil }
+	p.signalFunc = func(context.Context) error { return nil }
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()

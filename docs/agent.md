@@ -22,7 +22,7 @@ and troubleshooting. The 30-second walkthrough lives in the project [README](../
         ▼
    /etc/nebula/{config.yml, host.crt, host.key, ca.crt}
         │
-        │ SIGHUP (if pid file present)
+        │ nebula_reload_command, else SIGHUP to nebula_pid_file
         ▼
    nebula.service
 ```
@@ -39,6 +39,9 @@ running and continue to update certificates as they approach expiry.
 - Permission to read & write the agent's `data_dir` (`/etc/nebula` by default).
 - If signalling Nebula via PID file, permission to send `SIGHUP` to that PID
   (typically root, or `CAP_KILL`).
+- If reloading via `nebula_reload_command`, a `sh` (or `cmd.exe`) on the host and
+  whatever privileges the command itself needs — talking to the service manager
+  usually means root. See [Reload command contract](#reload-command-contract).
 - Write access to the parent directory of `signing_key_path` (`/etc/nebula-agent/` by default). For non-root deployments override this path to a directory the agent user owns.
 - ~10 MB of disk for the binary; runtime memory < 20 MB.
 
@@ -141,9 +144,12 @@ sudo systemctl enable --now nebula-agent.service
 journalctl -u nebula-agent.service -f
 ```
 
-The unit declares `PartOf=nebula.service`, so `systemctl stop nebula` stops the agent
-too, and `systemctl restart nebula-agent` does **not** restart Nebula (only the agent
-itself).
+The two units are independent: `systemctl restart nebula-agent` does **not** restart
+Nebula, and `systemctl stop nebula` leaves the agent polling — so it keeps collecting
+config updates while Nebula is down, and a `nebula_reload_command` that restarts
+Nebula does not take the agent down with it. The unit therefore declares no
+`PartOf=nebula.service`; see [Reload command contract](#reload-command-contract) before
+adding one in a drop-in.
 
 The supplied unit grants writes only below `/etc/nebula`. If an imported or
 fresh installation keeps its config or PKI in another directory, add that
@@ -370,9 +376,75 @@ signing_key_path: "/etc/nebula-agent/host.signing.key"  # Ed25519 PoP signing ke
 | `poll_interval` | `30s` | Lower values reduce convergence time but increase server load. 5s–5m is the practical range. |
 | `nebula_config_path` | `/etc/nebula/config.yml` | The agent overwrites this file atomically. |
 | `nebula_pid_file` | (empty) | When set and the file holds a numeric PID, the agent sends `SIGHUP` after every successful write. |
-| `nebula_reload_command` | (empty) | When set, run through the system shell (`sh -c`, `cmd /C` on Windows) after every successful write **instead of** the SIGHUP — takes precedence over `nebula_pid_file`. 30s timeout; a failing command blocks the config ack so the reload is retried on the next poll. Use it to hook a service manager, e.g. `systemctl reload nebula`. |
+| `nebula_reload_command` | (empty) | When set, run through the system shell (`sh -c`, `cmd /C` on Windows) after every successful write **instead of** the SIGHUP — takes precedence over `nebula_pid_file`. Use it to hook a service manager, e.g. `systemctl reload nebula`. See [Reload command contract](#reload-command-contract). |
 | `signing_key_path` | `/etc/nebula-agent/host.signing.key` | Ed25519 PoP signing key (ADR 0004). Override for non-root setups so the parent directory is writable by the agent user. |
 | `allow_insecure_http` | `false` | Opts out of the `https`-required guard on `server_url` (or pass `--insecure-http`). Only for isolated lab networks; credentials transit in the clear. |
+
+### Reload command contract
+
+`nebula_reload_command` replaces the SIGHUP for hosts where Nebula exposes no
+usable PID file, where a service manager owns the process, or on Windows where
+`SIGHUP` does not exist. It runs after every successful write and before the
+config acknowledgement, as the agent's own user and under whatever hardening
+its service unit applies.
+
+What the agent guarantees:
+
+- **Bounded.** The command gets 30 seconds. On expiry the agent terminates the
+  whole process group — `taskkill /T` on Windows — not just the shell, then
+  stops draining output 2s later. A single stuck grandchild cannot wedge the
+  poll loop. Stopping the agent applies the same termination immediately
+  rather than waiting the timeout out.
+- **Load-bearing.** A non-zero exit *or* a timeout suppresses the config ack.
+  The server keeps the version pending and redelivers it on the next poll, so
+  a failed reload is retried instead of being silently recorded as applied.
+- **Bounded output.** Up to 8 KiB of combined stdout/stderr is quoted in the
+  `failed to reload nebula` log line. Beyond that the agent counts and drops
+  rather than buffers, so a chatty or runaway hook cannot grow its memory.
+- **Verbatim.** The string reaches the interpreter exactly as written in
+  `agent.yml`, quotes and redirections included.
+
+What the command must not do:
+
+> **The command must not stop or restart `nebula-agent`, directly or
+> indirectly.** The hook runs inside the agent's own process tree — under
+> systemd, its control group. Anything that takes the agent down kills the hook
+> mid-flight, before the ack: the restarted agent is handed the same config
+> version again and runs the same command again. That is a restart loop, and it
+> presents as a flapping tunnel rather than as a configuration mistake.
+
+This is why the shipped
+[`nebula-agent.service`](../deploy/systemd/nebula-agent.service) deliberately
+declares no `PartOf=`, `BindsTo=` or `Requires=nebula.service`: with any of
+those, `systemctl restart nebula` inside the hook tears down the agent as
+collateral. If you replaced the unit or added a drop-in that couples them, pick
+one of:
+
+| Situation | Safe command |
+|---|---|
+| Nebula supports reload (preferred) | `systemctl reload nebula` — `reload` is propagated by no dependency type, so it stays safe even under a unit that couples the two. |
+| Restart needed, shipped unit | `systemctl restart nebula` — the units are independent, so the agent survives to send the ack. |
+| Restart needed, units coupled | None. Drop the coupling; there is no command that makes this safe. |
+
+That last row is not a hedge. Moving the restart out of the agent's control
+group — `systemd-run --collect --wait …`, the obvious workaround — does not
+help: it keeps the *restart* alive, but the propagation still tears the agent
+down before it acks, so the loop is unchanged. Measured on a coupled pair, both
+the plain and the `systemd-run` form produced three restarts in three seconds
+and zero acks.
+
+Smaller sharp edges, in rough order of how often they bite:
+
+- **Exit status is the only signal.** A command that returns 0 without having
+  reloaded anything is acknowledged as delivered.
+- **Polling is serialized.** A slow hook delays the next poll by however long
+  it runs. Shutdown is not delayed: stopping the agent cancels an in-flight
+  hook, terminates its process group, and suppresses the ack, so the next
+  start re-applies and retries.
+- **Do not leave background processes on the hook's stdout/stderr.** The agent
+  stops reading shortly after the command exits, so anything still holding
+  that pipe gets `EPIPE`/`SIGPIPE` on its next write. Hand long-lived
+  processes to a service manager, or redirect them (`>/dev/null 2>&1 &`).
 
 ## Enrollment
 
@@ -827,8 +899,22 @@ to enroll, or check that `data_dir/host.crt` exists (the path in `agent.yml`).
 
 ### Nebula keeps using the old config
 
-`nebula_pid_file` is empty or points at a non-existent PID. Either set it
-correctly, or restart `nebula.service` manually after the agent updates the config.
+No reload is configured, or the one that is configured is failing.
+
+- Neither `nebula_reload_command` nor `nebula_pid_file` is set, or the PID file
+  is empty / points at a dead PID. Set one correctly, or restart
+  `nebula.service` manually after each update.
+- `journalctl -u nebula-agent` shows `failed to reload nebula`. The `via=`
+  field names the mechanism that failed (`nebula_reload_command` or
+  `sighup`). The quoted
+  command output (up to 8 KiB) says why. Until it succeeds the agent does not
+  acknowledge the config version, so it retries every poll — a steady stream of
+  identical warnings means the hook itself is broken, not the config.
+- The warning is `timed out after 30s`. The hook did not finish in its budget;
+  the agent killed its whole process group and will retry. Reach for
+  `systemctl reload nebula` over anything that blocks on a full restart.
+- The agent keeps restarting alongside Nebula. The reload command is taking the
+  agent down with it — see [Reload command contract](#reload-command-contract).
 
 ### `permission denied: /etc/nebula/host.key`
 
@@ -900,11 +986,12 @@ Useful after the host's keys are believed compromised. Two flavours:
    `data_dir`. The agent checks every destination directory before consuming
    the single-use token, then writes the files individually.
 
-   When `nebula_pid_file` is configured, the agent sends `SIGHUP` after all
-   writes and before acknowledging the config version. A signal error leaves
+   When a reload is configured, the agent triggers it after all writes and
+   before acknowledging the config version: `nebula_reload_command` if set,
+   otherwise `SIGHUP` to `nebula_pid_file`. A failing command or signal leaves
    the version pending; the next signed poll returns the current config again.
-   With no PID file, management re-enrollment and acknowledgement complete, and
-   you must restart Nebula to load the new identity.
+   With neither configured, management re-enrollment and acknowledgement
+   complete, and you must restart Nebula to load the new identity.
 
 3. **Hard reset** (last resort, churns the host row). `host delete` the
    old record on the server and create a new one; agent steps as in

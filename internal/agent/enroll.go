@@ -66,16 +66,19 @@ func reenrollWithSignal(
 	signal func(string) error,
 ) error {
 	return enrollWithProfile(ctx, serverURL, token, options.DataDir, options.SigningKeyPath, options.Profile,
-		reenrollReload(options, signal))
+		reenrollReload(ctx, options, signal))
 }
 
 // reenrollReload picks the reload hook for a re-enrollment: the shell
 // command when configured (taking precedence over the PID file), the
-// SIGHUP seam when only a PID file is set, nil when neither is.
-func reenrollReload(options ReenrollOptions, signal func(string) error) func() error {
+// SIGHUP seam when only a PID file is set, nil when neither is. The command
+// hook is bound to the re-enrollment's context so an abandoned rekey does
+// not leave a hook running.
+func reenrollReload(ctx context.Context, options ReenrollOptions, signal func(string) error) func() error {
 	switch {
 	case options.ReloadCommand != "":
-		return nebulaReloader(options.ReloadCommand, "")
+		reload := nebulaReloader(options.ReloadCommand, "")
+		return func() error { return reload(ctx) }
 	case options.PIDFile != "":
 		return func() error { return signal(options.PIDFile) }
 	default:

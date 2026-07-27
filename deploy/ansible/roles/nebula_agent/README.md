@@ -23,5 +23,6 @@ manager).
 | `nebula_agent_data_dir` | `/etc/nebula` | Where host.crt/host.key/ca.crt/config.yml/.fingerprint live. |
 | `nebula_agent_poll_interval` | `30s` | How often to ask the server for updates. |
 | `nebula_agent_nebula_pid_file` | `/run/nebula.pid` | SIGHUP'd on changes (empty disables reload signal). |
+| `nebula_agent_nebula_reload_command` | (empty) | Shell command run on changes instead of the SIGHUP, e.g. `systemctl reload nebula`. Takes precedence over the PID file. Must not restart `nebula-agent` itself — see [Reload command contract](../../../../docs/agent.md#reload-command-contract). |
 
 See [`defaults/main.yml`](defaults/main.yml).

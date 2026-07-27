@@ -5,3 +5,8 @@ nebula_config_path: "{{ nebula_agent_nebula_config_path }}"
 {% if nebula_agent_nebula_pid_file %}
 nebula_pid_file: "{{ nebula_agent_nebula_pid_file }}"
 {% endif %}
+{% if nebula_agent_nebula_reload_command %}
+{# to_json, not bare quotes: reload commands routinely contain quotes and
+   backslashes that would break a naively quoted YAML scalar. #}
+nebula_reload_command: {{ nebula_agent_nebula_reload_command | to_json }}
+{% endif %}

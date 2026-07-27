@@ -206,16 +206,6 @@ jobs:
             }
           }
 
-  readme-version:
-    name: readme version pin
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0 # need tags to compare the pinned VERSION against
-      - name: check README pin is not behind latest release
-        run: bash scripts/check-readme-version.sh
-
   docker:
     name: docker build
     runs-on: ubuntu-latest

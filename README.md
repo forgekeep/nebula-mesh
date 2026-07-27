@@ -35,10 +35,9 @@ Nebula gives you a fast, mTLS-authenticated overlay network. But on its own, it 
 On a fresh Debian / Ubuntu VM (`amd64`):
 
 ```sh
-# 1. Install the server.
-VERSION=0.10.1
-curl -fsSLO "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_amd64.deb"
-sudo apt install -y "./nebula-mgmt_${VERSION}_linux_amd64.deb"
+# 1. Download the nebula-mgmt Debian package for Linux amd64 from:
+# https://github.com/forgekeep/nebula-mesh/releases/latest
+sudo apt install -y ./nebula-mgmt_*.deb
 
 # 2. Set the master key (required for CA encryption) and initialise.
 export NEBULA_MGMT_MASTER_KEY=$(openssl rand -base64 32)
@@ -122,49 +121,35 @@ nebula-mesh ships **two** static binaries. Install whichever you need on each ma
 | `nebula-mgmt` | one server (the control plane) |
 | `nebula-agent` | every Nebula host, next to `nebula` |
 
-Pick an install method below. The examples assume `VERSION=0.10.1` — always replace with the latest from the [releases page](https://github.com/forgekeep/nebula-mesh/releases/latest). Each release ships a `checksums.txt` (SHA-256).
+Download the package or archive for your OS and architecture from the [latest release](https://github.com/forgekeep/nebula-mesh/releases/latest). Each release ships a `checksums.txt` (SHA-256).
 
 > ⚠️ **Install the latest release.** Versions older than the newest tag may be missing published security fixes — see the [security advisories](https://github.com/forgekeep/nebula-mesh/security/advisories). Do not pin to an old version unless you have verified it carries every advisory fix you need.
 
 ### Debian / Ubuntu (`.deb`)
 
 ```sh
-VERSION=0.10.1
-ARCH=$(dpkg --print-architecture)   # amd64 | arm64 | armhf (agent only)
-
-# Server (control plane):
-curl -fsSLO "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_${ARCH}.deb"
-sudo apt install -y "./nebula-mgmt_${VERSION}_linux_${ARCH}.deb"
-
-# Agent (each Nebula host):
-curl -fsSLO "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-agent_${VERSION}_linux_${ARCH}.deb"
-sudo apt install -y "./nebula-agent_${VERSION}_linux_${ARCH}.deb"
+# Download the server and/or agent Debian package from Releases, then run:
+sudo apt install -y ./nebula-mgmt_*.deb
+sudo apt install -y ./nebula-agent_*.deb
 ```
 
 ### RHEL / Fedora / Rocky / Alma (`.rpm`)
 
 ```sh
-VERSION=0.10.1
-ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-
-sudo rpm -i "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-mgmt_${VERSION}_linux_${ARCH}.rpm"
-sudo rpm -i "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/nebula-agent_${VERSION}_linux_${ARCH}.rpm"
+# Download the server and/or agent RPM package from Releases, then run:
+sudo rpm -i ./nebula-mgmt_*.rpm
+sudo rpm -i ./nebula-agent_*.rpm
 ```
 
 **What the package does.** Installs the binary to `/usr/bin/`, the systemd unit to `/lib/systemd/system/`, and an example config at `/etc/nebula-{mgmt,agent}/`. The service is **not** auto-started — run `nebula-mgmt init` (server) or `nebula-agent --server URL --token TOK` (agent) first, then `sudo systemctl enable --now nebula-{mgmt,agent}`. Configs are marked `noreplace`, so upgrades preserve your edits. `apt purge` / `dnf remove --purge` keeps `/etc/nebula-agent` and `/etc/nebula` so host keys survive accidental removal.
 
 ### Prebuilt binaries (other Linux, macOS, FreeBSD, Windows)
 
-Download a tarball from the [releases page](https://github.com/forgekeep/nebula-mesh/releases/latest) and extract:
+Download the archive for your OS and architecture from the [latest release](https://github.com/forgekeep/nebula-mesh/releases/latest), then extract it:
 
 ```sh
-VERSION=0.10.1
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-
-# Pick BIN=nebula-mgmt (server) or BIN=nebula-agent (host)
-BIN=nebula-mgmt
-curl -fsSL "https://github.com/forgekeep/nebula-mesh/releases/download/v${VERSION}/${BIN}_${VERSION}_${OS}_${ARCH}.tar.gz" | tar -xz
+# Choose the nebula-mgmt or nebula-agent archive that matches your platform.
+tar -xzf ./nebula-*.tar.gz
 ```
 
 Supported targets:

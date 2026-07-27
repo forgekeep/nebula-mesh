@@ -1272,11 +1272,10 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update host; set PendingRekey if cert-bound fields (NebulaIPs, Name) changed
-	if !slicesEqual(before.NebulaIPs, host.NebulaIPs) || before.Name != host.Name {
-		host.PendingRekey = true
-	}
-	if err := w.store.UpdateHost(r.Context(), host); err != nil {
+	// Persist, schedule a cert re-issuance if a cert-bound field moved, and
+	// bump the network config version on a role change. config_version reset
+	// and the pending-rekey flag commit inside UpdateHost (SEC-PERSIST-001).
+	if err := store.ApplyHostEdit(r.Context(), w.store, w.logger, &before, host); err != nil {
 		w.logger.Error("update host", "error", err)
 		http.Error(rw, "Failed to update host", http.StatusInternalServerError)
 		return
@@ -1285,15 +1284,6 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 	// Audit entry
 	if err := w.store.AddAuditEntry(r.Context(), op.Username, "host.update", host.ID, string(jsonDiff)); err != nil {
 		w.logger.Error("add audit entry", "error", err)
-	}
-
-	// config_version reset now happens atomically inside UpdateHost (SEC-PERSIST-001).
-
-	// Role change bumps network config version for topology propagation
-	if before.Role != host.Role {
-		if err := w.store.BumpNetworkConfigVersion(r.Context(), host.NetworkID); err != nil {
-			w.logger.Error("bump network config version", "error", err)
-		}
 	}
 
 	http.Redirect(rw, r, "/ui/hosts/"+host.ID, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: host.ID is a server-generated UUID, hardcoded /ui/hosts/ prefix keeps Location on the current host
@@ -1552,17 +1542,4 @@ func (w *Web) renderMobileBundle(rw http.ResponseWriter, r *http.Request, host *
 		"DownloadHref": template.URL(downloadHref), // #nosec G203 -- downloadHref is "data:application/yaml;base64," + base64(server-built bundle); prefix is hardcoded and base64 cannot inject scheme characters
 		"Active":       "hosts",
 	})
-}
-
-// slicesEqual reports whether two string slices are equal (same length and same elements in same order).
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

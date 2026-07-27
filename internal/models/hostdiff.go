@@ -157,6 +157,35 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 	return jsonBytes, true, nil
 }
 
+// CertIdentityChanged reports whether an edit touched a field that is carried
+// inside the host's Nebula certificate: Name, NebulaIPs or Groups.
+//
+// Those three are the host's identity as far as the mesh is concerned. Peers
+// authorize each other on the certificate rather than on the management
+// server's host row, and firewall rules select their counterparties by group,
+// so editing any of them is inert until a new certificate is issued. Callers
+// use this to schedule that re-issuance. Every other field (Role, PublicIP,
+// ListenPort, Advanced) only shapes the rendered config, which the agent picks
+// up on its next poll without a new certificate.
+//
+// Both host-edit paths — the API's PATCH handler and the web UI's form — must
+// agree on this, hence one definition rather than a copy each. It deliberately
+// reuses the same comparators as HostDiff above, so what the audit trail
+// records as a change and what triggers a re-issuance cannot drift apart.
+//
+// A nil side is treated as the zero Host, matching HostDiff.
+func CertIdentityChanged(before, after *Host) bool {
+	if before == nil {
+		before = &Host{}
+	}
+	if after == nil {
+		after = &Host{}
+	}
+	return before.Name != after.Name ||
+		!nebulaIPsEqual(before.NebulaIPs, after.NebulaIPs) ||
+		!groupsEqual(before.Groups, after.Groups)
+}
+
 // nebulaIPsEqual compares two IP slices for equality (order matters).
 func nebulaIPsEqual(a, b []string) bool {
 	if len(a) != len(b) {

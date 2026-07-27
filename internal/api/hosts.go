@@ -769,11 +769,15 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.UpdateHost(r.Context(), host); err != nil {
-		// Reachable only via a TOCTOU race between concurrent host writes: the
-		// validateHostIPs fast-path above returns 400 for any collision visible
-		// at request time, so reaching the store's UNIQUE(network_id, address)
-		// guard means another writer claimed the IP in between.
+	// Persist, schedule a cert re-issuance if a cert-bound field moved, and
+	// bump the network config version on a role change. config_version reset
+	// and the pending-rekey flag commit inside UpdateHost (SEC-PERSIST-001).
+	if err := store.ApplyHostEdit(r.Context(), s.store, s.logger, &before, host); err != nil {
+		// ErrIPTaken is reachable only via a TOCTOU race between concurrent
+		// host writes: the validateHostIPs fast-path above returns 400 for any
+		// collision visible at request time, so reaching the store's
+		// UNIQUE(network_id, address) guard means another writer claimed the
+		// IP in between.
 		if errors.Is(err, store.ErrIPTaken) {
 			writeError(w, http.StatusConflict, "one or more nebula_ips are already assigned to another host in this network")
 			return
@@ -781,39 +785,6 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("update host", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to update host")
 		return
-	}
-
-	// config_version reset now happens atomically inside UpdateHost (SEC-PERSIST-001).
-
-	// If role changed, bump network config version for peer updates
-	if before.Role != host.Role {
-		if err := s.store.BumpNetworkConfigVersion(r.Context(), host.NetworkID); err != nil {
-			s.logger.Error("bump network config version", "network", host.NetworkID, "error", err)
-		}
-	}
-
-	// If name or any IP changed, set pending rekey for cert re-enrollment
-	ipsEqual := len(before.NebulaIPs) == len(host.NebulaIPs)
-	if ipsEqual {
-		for i := range before.NebulaIPs {
-			if before.NebulaIPs[i] != host.NebulaIPs[i] {
-				ipsEqual = false
-				break
-			}
-		}
-	}
-	if before.Name != host.Name || !ipsEqual {
-		if err := s.store.SetPendingRekey(r.Context(), host.ID); err != nil {
-			if !errors.Is(err, store.ErrRekeyAlreadyPending) {
-				s.logger.Error("set pending rekey", "host", host.ID, "error", err)
-			}
-			// Idempotent: ErrRekeyAlreadyPending is success (rekey already scheduled)
-		}
-		// Reload host to get PendingRekey flag in response
-		freshHost, err := s.store.GetHost(r.Context(), host.ID)
-		if err == nil {
-			host = freshHost
-		}
 	}
 
 	// Record audit entry with diff

@@ -9,12 +9,13 @@
 {{if .Hosts}}
 <div class="card">
     <table id="hosts-table">
-        <thead><tr><th>Name</th><th>Overlay Addresses</th><th>Network</th><th>Role</th><th>Status</th><th>Online</th><th>Last Seen</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Overlay Addresses</th><th>Groups</th><th>Network</th><th>Role</th><th>Status</th><th>Online</th><th>Last Seen</th><th></th></tr></thead>
         <tbody>
         {{range .Hosts}}
         <tr id="host-{{.ID}}" data-host-id="{{.ID}}">
             <td><a href="/ui/hosts/{{.ID}}">{{.Name}}</a></td>
             <td>{{range $i, $ip := .NebulaIPs}}{{if $i}}, {{end}}{{$ip}}{{end}}</td>
+            <td class="host-groups">{{if .Groups}}{{range $i, $g := .Groups}}{{if $i}}, {{end}}{{$g}}{{end}}{{else}}—{{end}}</td>
             <td><span title="{{.NetworkID}}">{{if .NetworkName}}{{.NetworkName}}{{else}}{{.NetworkID}}{{end}}</span></td>
             <td>{{.Role}}</td>
             <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>

@@ -167,6 +167,7 @@ func HostList(serverURL, apiKey, networkID string) error {
 		ID        string   `json:"id"`
 		Name      string   `json:"name"`
 		NebulaIPs []string `json:"nebula_ips"`
+		Groups    []string `json:"groups"`
 		Role      string   `json:"role"`
 		Status    string   `json:"status"`
 	}
@@ -179,10 +180,14 @@ func HostList(serverURL, apiKey, networkID string) error {
 		return nil
 	}
 
-	fmt.Printf("%-36s  %-20s  %-40s  %-12s  %s\n", "ID", "NAME", "NEBULA IPS", "ROLE", "STATUS")
+	fmt.Printf("%-36s  %-20s  %-40s  %-24s  %-12s  %s\n", "ID", "NAME", "NEBULA IPS", "GROUPS", "ROLE", "STATUS")
 	for _, h := range hosts {
 		ipsStr := strings.Join(h.NebulaIPs, ", ")
-		fmt.Printf("%-36s  %-20s  %-40s  %-12s  %s\n", h.ID, h.Name, ipsStr, h.Role, h.Status)
+		groupsStr := strings.Join(h.Groups, ", ")
+		if groupsStr == "" {
+			groupsStr = "-"
+		}
+		fmt.Printf("%-36s  %-20s  %-40s  %-24s  %-12s  %s\n", h.ID, h.Name, ipsStr, groupsStr, h.Role, h.Status)
 	}
 	return nil
 }

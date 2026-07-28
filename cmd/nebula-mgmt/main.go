@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/forgekeep/nebula-mesh/internal/cli"
+	"github.com/forgekeep/nebula-mesh/internal/cliargs"
 	"github.com/forgekeep/nebula-mesh/internal/version"
 )
 
@@ -52,9 +53,12 @@ func run() error {
 		return nil
 	default:
 		printUsage()
-		return fmt.Errorf("unknown command: %s", os.Args[1])
+		return argGuard.UnknownCommand("command", os.Args[1])
 	}
 }
+
+// argGuard carries this binary's usage hint into every argument-shape error.
+var argGuard = cliargs.New("run `nebula-mgmt` with no arguments for usage")
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: nebula-mgmt <command> [flags]")
@@ -73,6 +77,9 @@ func runInit(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if err := argGuard.RejectPositional(fs); err != nil {
+		return err
+	}
 	return cli.Init(*configPath)
 }
 
@@ -81,6 +88,9 @@ func runServe(args []string) error {
 	configPath := fs.String("config", "", "config file path (required)")
 	insecureHTTP := fs.Bool("insecure-http", false, "allow serving plaintext HTTP on a non-loopback address (overrides allow_insecure_http; credentials transit in cleartext)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 	if *configPath == "" {
@@ -106,7 +116,7 @@ func runHost(args []string) error {
 	case "unblock":
 		return runHostAction(args[1:], "host unblock", cli.HostUnblock)
 	default:
-		return fmt.Errorf("unknown host subcommand: %s", args[0])
+		return argGuard.UnknownCommand("host subcommand", args[0])
 	}
 }
 
@@ -116,6 +126,9 @@ func runHostAction(args []string, name string, action func(serverURL, apiKey, ho
 	apiKey := fs.String("api-key", "", "API key")
 	id := fs.String("id", "", "host ID")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 	if *id == "" || *apiKey == "" {
@@ -136,6 +149,9 @@ func runHostCreate(args []string) error {
 	publicIP := fs.String("public-ip", "", "public IP (for lighthouse/relay)")
 	listenPort := fs.Int("listen-port", 0, "listen port (for lighthouse/relay)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 
@@ -159,6 +175,9 @@ func runHostList(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if err := argGuard.RejectPositional(fs); err != nil {
+		return err
+	}
 
 	if *apiKey == "" {
 		return fmt.Errorf("--api-key is required")
@@ -178,7 +197,7 @@ func runNetwork(args []string) error {
 	case "list":
 		return runNetworkList(args[1:])
 	default:
-		return fmt.Errorf("unknown network subcommand: %s", args[0])
+		return argGuard.UnknownCommand("network subcommand", args[0])
 	}
 }
 
@@ -189,6 +208,9 @@ func runNetworkCreate(args []string) error {
 	name := fs.String("name", "", "network name")
 	cidr := fs.String("cidr", "", "network CIDR")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 
@@ -213,7 +235,7 @@ func runUser(args []string) error {
 	case "enable":
 		return runHostAction(args[1:], "user enable", cli.UserEnable)
 	default:
-		return fmt.Errorf("unknown user subcommand: %s", args[0])
+		return argGuard.UnknownCommand("user subcommand", args[0])
 	}
 }
 
@@ -228,6 +250,9 @@ func runUserCreate(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if err := argGuard.RejectPositional(fs); err != nil {
+		return err
+	}
 	if *apiKey == "" {
 		return fmt.Errorf("--api-key is required")
 	}
@@ -239,6 +264,9 @@ func runUserList(args []string) error {
 	server := fs.String("server", "http://localhost:8080", "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 	if *apiKey == "" {
@@ -263,7 +291,7 @@ func runCA(args []string) error {
 	case "rotate":
 		return runCARotate(args[1:])
 	default:
-		return fmt.Errorf("unknown ca subcommand: %s", args[0])
+		return argGuard.UnknownCommand("ca subcommand", args[0])
 	}
 }
 
@@ -278,6 +306,9 @@ func runCAImport(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if err := argGuard.RejectPositional(fs); err != nil {
+		return err
+	}
 	return cli.CAImport(*server, *apiKey, *name, *certFile, *keyFile, *passphraseFile)
 }
 
@@ -288,6 +319,9 @@ func runCACreate(args []string) error {
 	name := fs.String("name", "", "CA name")
 	duration := fs.String("duration", "8760h", "CA lifetime, Go duration string (default 1 year)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 	if *apiKey == "" || *name == "" {
@@ -303,6 +337,9 @@ func runCAList(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if err := argGuard.RejectPositional(fs); err != nil {
+		return err
+	}
 	if *apiKey == "" {
 		return fmt.Errorf("--api-key is required")
 	}
@@ -316,7 +353,10 @@ func runCARotate(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() < 1 {
+	// `ca rotate` is the one command that takes a positional operand: exactly
+	// one CA id. More than one means a mistyped flag was swallowed as an
+	// operand, which would otherwise rotate the wrong CA.
+	if fs.NArg() != 1 {
 		return fmt.Errorf("usage: nebula-mgmt ca rotate [flags] <id>")
 	}
 	if *apiKey == "" {
@@ -336,7 +376,7 @@ func runAPIKey(args []string) error {
 	case "revoke":
 		return runAPIKeyRevoke(args[1:])
 	default:
-		return fmt.Errorf("unknown apikey subcommand: %s", args[0])
+		return argGuard.UnknownCommand("apikey subcommand", args[0])
 	}
 }
 
@@ -347,6 +387,9 @@ func runAPIKeyCreate(args []string) error {
 	operator := fs.String("operator", "", "operator ID")
 	name := fs.String("name", "", "key name (optional)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 	if *apiKey == "" || *operator == "" {
@@ -364,6 +407,9 @@ func runAPIKeyRevoke(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if err := argGuard.RejectPositional(fs); err != nil {
+		return err
+	}
 	if *apiKey == "" || *operator == "" || *id == "" {
 		return fmt.Errorf("--api-key, --operator, --id are required")
 	}
@@ -375,6 +421,9 @@ func runNetworkList(args []string) error {
 	server := fs.String("server", "http://localhost:8080", "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 
@@ -397,7 +446,7 @@ func runOps(args []string) error {
 	case "restore":
 		return runOpsRestore(args[1:])
 	default:
-		return fmt.Errorf("unknown ops subcommand: %s", args[0])
+		return argGuard.UnknownCommand("ops subcommand", args[0])
 	}
 }
 
@@ -407,6 +456,9 @@ func runOpsBackup(args []string) error {
 	output := fs.String("output", "", "backup archive path (required)")
 	passphrase := fs.String("passphrase", "", "encrypt the archive with this passphrase (optional)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 	if *configPath == "" || *output == "" {
@@ -424,6 +476,9 @@ func runOpsRestore(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if err := argGuard.RejectPositional(fs); err != nil {
+		return err
+	}
 	if *configPath == "" || *input == "" {
 		return fmt.Errorf("--config and --input are required")
 	}
@@ -434,6 +489,9 @@ func runOpsMintAdminKey(args []string) error {
 	fs := flag.NewFlagSet("ops mint-admin-key", flag.ExitOnError)
 	configPath := fs.String("config", "", "config file path (required)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 	if *configPath == "" {

@@ -101,7 +101,7 @@ func TestPollerRejectsUnsafeCandidateBeforeWriteOrSignal(t *testing.T) {
 				ImportSessionID: "session", Interval: time.Hour,
 			})
 			var signals atomic.Int32
-			p.signalFunc = func() error { signals.Add(1); return nil }
+			p.signalFunc = func(context.Context) error { signals.Add(1); return nil }
 			if err := p.PollOnce(context.Background()); err == nil {
 				t.Fatal("unsafe candidate accepted")
 			}
@@ -221,7 +221,7 @@ func TestPollerDoesNotAckWhenConfiguredReloadSignalFails(t *testing.T) {
 		SigningKeyPath: filepath.Join(dir, "host.signing.key"), NebulaCAPath: caPath,
 		NebulaCertPath: certPath, NebulaKeyPath: keyPath, Interval: time.Hour,
 	})
-	p.signalFunc = func() error { return errors.New("signal delivery failed") }
+	p.signalFunc = func(context.Context) error { return errors.New("signal delivery failed") }
 	if err := p.PollOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}

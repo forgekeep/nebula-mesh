@@ -30,7 +30,7 @@ func TestPoll_ReturnsRevocationErrorOn403(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.signalFunc = func() error { return nil }
+	p.signalFunc = func(context.Context) error { return nil }
 
 	pollErr := p.poll(context.Background())
 	if pollErr == nil {
@@ -67,7 +67,7 @@ func TestPoll_ReturnsRevocationErrorOn410(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.signalFunc = func() error { return nil }
+	p.signalFunc = func(context.Context) error { return nil }
 
 	pollErr := p.poll(context.Background())
 	if !IsRevoked(pollErr) {

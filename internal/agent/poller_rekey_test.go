@@ -35,7 +35,7 @@ func TestPoll_ReturnsRekeyError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.signalFunc = func() error { return nil }
+	p.signalFunc = func(context.Context) error { return nil }
 
 	pollErr := p.poll(context.Background())
 	if pollErr == nil {
@@ -75,7 +75,7 @@ func TestPoll_RejectsRekeyWithoutToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.signalFunc = func() error { return nil }
+	p.signalFunc = func(context.Context) error { return nil }
 
 	err = p.poll(context.Background())
 	if err == nil {

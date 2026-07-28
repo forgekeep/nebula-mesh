@@ -13,6 +13,8 @@ write_files:
       poll_interval: "30s"
       nebula_config_path: "/etc/nebula/config.yml"
       nebula_pid_file: "/run/nebula.pid"
+      # Replace the SIGHUP with a service-manager call instead:
+      # nebula_reload_command: "systemctl reload nebula"
 
 runcmd:
   - |

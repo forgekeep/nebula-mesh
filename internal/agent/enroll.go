@@ -48,7 +48,10 @@ type ReenrollOptions struct {
 	DataDir        string
 	SigningKeyPath string
 	PIDFile        string
-	Profile        models.AgentProfile
+	// ReloadCommand, when set, replaces the SIGHUP-to-PIDFile reload with a
+	// shell command (see nebulaReloader).
+	ReloadCommand string
+	Profile       models.AgentProfile
 }
 
 // Reenroll replaces an existing agent identity using its current profile.
@@ -62,11 +65,25 @@ func reenrollWithSignal(
 	options ReenrollOptions,
 	signal func(string) error,
 ) error {
-	var reload func() error
-	if options.PIDFile != "" {
-		reload = func() error { return signal(options.PIDFile) }
+	return enrollWithProfile(ctx, serverURL, token, options.DataDir, options.SigningKeyPath, options.Profile,
+		reenrollReload(ctx, options, signal))
+}
+
+// reenrollReload picks the reload hook for a re-enrollment: the shell
+// command when configured (taking precedence over the PID file), the
+// SIGHUP seam when only a PID file is set, nil when neither is. The command
+// hook is bound to the re-enrollment's context so an abandoned rekey does
+// not leave a hook running.
+func reenrollReload(ctx context.Context, options ReenrollOptions, signal func(string) error) func() error {
+	switch {
+	case options.ReloadCommand != "":
+		reload := nebulaReloader(options.ReloadCommand, "")
+		return func() error { return reload(ctx) }
+	case options.PIDFile != "":
+		return func() error { return signal(options.PIDFile) }
+	default:
+		return nil
 	}
-	return enrollWithProfile(ctx, serverURL, token, options.DataDir, options.SigningKeyPath, options.Profile, reload)
 }
 
 // enrollmentSecrets collects every heap copy of private key material made

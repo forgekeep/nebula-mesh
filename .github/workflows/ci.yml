@@ -59,6 +59,32 @@ jobs:
           go-version: '1.26.5'
           cache: true
 
+      # nebula_reload_command's Windows half — the cmd.exe command line and the
+      # taskkill /T timeout path — is code the build alone never executes.
+      # Run the reload hook for real on a Windows host.
+      # -run is scoped because the rest of internal/agent still assumes a Unix
+      # host; widen it as those tests are ported.
+      - name: Test reload command (cmd /C path)
+        shell: pwsh
+        run: |
+          $output = go test -count=1 -v -run 'TestNebulaReloader|TestCappedBuffer' ./internal/agent | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) { throw "reload command tests failed" }
+          # A -run pattern that matches nothing still exits 0, so require the
+          # individual tests to have reported a pass.
+          $expected = @(
+            'TestNebulaReloader_CommandRuns',
+            'TestNebulaReloader_CommandFailureIncludesOutput',
+            'TestNebulaReloader_CommandTimesOut',
+            'TestNebulaReloader_CapsCommandOutput',
+            'TestNebulaReloader_CommandTakesPrecedenceOverPIDFile'
+          )
+          foreach ($name in $expected) {
+            if ($output -notmatch "--- PASS: $name") {
+              throw "$name did not run — the cmd /C reload path is unverified"
+            }
+          }
+
       - name: Test and build agent
         shell: pwsh
         run: |

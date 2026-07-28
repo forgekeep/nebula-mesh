@@ -141,6 +141,9 @@ type PollerConfig struct {
 	SigningKeyPath string
 	Interval       time.Duration
 	PIDFile        string
+	// ReloadCommand, when set, replaces the SIGHUP-to-PIDFile reload with a
+	// shell command (see nebulaReloader).
+	ReloadCommand string
 	// NebulaConfigPath is where the rendered Nebula config.yml is written.
 	// Empty falls back to DataDir/config.yml. Honors agent.yml's
 	// nebula_config_path so the daemon writes the config to the file Nebula
@@ -159,7 +162,7 @@ type PollerConfig struct {
 type Poller struct {
 	config     PollerConfig
 	logger     *slog.Logger
-	signalFunc func() error // for testing: override SIGHUP sending
+	signalFunc func(context.Context) error // for testing: override reload delivery
 	signingKey ed25519.PrivateKey
 	httpClient *http.Client
 }
@@ -186,10 +189,22 @@ func NewPoller(cfg PollerConfig, logger *slog.Logger) (*Poller, error) {
 		signingKey: priv,
 		httpClient: &http.Client{Timeout: timeout},
 	}
-	p.signalFunc = func() error {
-		return signalNebulaFromPID(cfg.PIDFile)
-	}
+	p.signalFunc = nebulaReloader(cfg.ReloadCommand, cfg.PIDFile)
 	return p, nil
+}
+
+// reloadMechanism names the configured reload path for logs. "SIGHUP" in a
+// log line is actively misleading when the operator configured a shell
+// command, and vice versa.
+func (p *Poller) reloadMechanism() string {
+	switch {
+	case p.config.ReloadCommand != "":
+		return "nebula_reload_command"
+	case p.config.PIDFile != "":
+		return "sighup"
+	default:
+		return "none"
+	}
 }
 
 func loadSigningKey(path string) (ed25519.PrivateKey, error) {
@@ -382,13 +397,13 @@ func (p *Poller) poll(ctx context.Context) error {
 
 	reloadDelivered := true
 	if needsReload {
-		if err := p.signalFunc(); err != nil {
-			p.logger.Warn("failed to signal nebula", "error", err)
-			if p.config.PIDFile != "" {
+		if err := p.signalFunc(ctx); err != nil {
+			p.logger.Warn("failed to reload nebula", "via", p.reloadMechanism(), "error", err)
+			if p.config.ReloadCommand != "" || p.config.PIDFile != "" {
 				reloadDelivered = false
 			}
 		} else {
-			p.logger.Info("nebula reloaded")
+			p.logger.Info("nebula reloaded", "via", p.reloadMechanism())
 		}
 	}
 	if updates.ConfigYAML != nil && updates.ConfigVersion > 0 && reloadDelivered {

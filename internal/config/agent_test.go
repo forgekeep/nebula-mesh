@@ -279,3 +279,29 @@ func TestLoadAgentConfig_PlaintextHTTPRefused(t *testing.T) {
 		t.Error("AllowInsecureHTTP not loaded from YAML")
 	}
 }
+
+func TestLoadAgentConfig_NebulaReloadCommand(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "agent.yml")
+
+	data := []byte(`server_url: "https://mgmt.example.com:8080"
+nebula_reload_command: "systemctl reload nebula"
+`)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadAgentConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.NebulaReloadCommand != "systemctl reload nebula" {
+		t.Errorf("NebulaReloadCommand = %q, want %q", cfg.NebulaReloadCommand, "systemctl reload nebula")
+	}
+}
+
+func TestLoadAgentConfig_NebulaReloadCommand_DefaultEmpty(t *testing.T) {
+	if got := DefaultAgentConfig().NebulaReloadCommand; got != "" {
+		t.Errorf("default NebulaReloadCommand = %q, want empty", got)
+	}
+}

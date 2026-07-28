@@ -3,12 +3,22 @@ Description=Nebula Management Agent
 Documentation=https://github.com/forgekeep/nebula-mesh
 After=network-online.target nebula.service
 Wants=network-online.target
-PartOf=nebula.service
+# Deliberately no PartOf=/BindsTo=/Requires=nebula.service. Stop/restart
+# propagation from nebula.service would land on the agent mid-poll, and with
+# nebula_reload_command set that is a restart loop: the hook restarts
+# nebula.service, systemd tears down this unit's control group, the hook dies
+# with it before the config ack is sent, and the agent re-applies the same
+# update on its next start — forever. Keeping the units independent also lets
+# the agent keep fetching a corrected config while Nebula is down, which is
+# exactly when you need it to. See docs/agent.md "Reload command contract".
 
 [Service]
 Type=simple
 # Agent needs to write to /etc/nebula and send SIGHUP to nebula.service —
 # either run as root, or grant CAP_KILL + write access to the nebula data dir.
+# A nebula_reload_command runs as this user too, in this control group, and
+# under every restriction below — ProtectSystem=strict and RestrictAddressFamilies
+# in particular. Test your hook as the service, not from a login shell.
 User=root
 Group=root
 

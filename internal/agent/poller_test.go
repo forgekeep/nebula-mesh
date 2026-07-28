@@ -53,7 +53,7 @@ func newTestPoller(t *testing.T, cfg PollerConfig) *Poller {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.signalFunc = func() error { return nil }
+	p.signalFunc = func(context.Context) error { return nil }
 	return p
 }
 
@@ -87,7 +87,7 @@ func TestPoller_NoUpdates(t *testing.T) {
 	})
 
 	var signaled atomic.Bool
-	p.signalFunc = func() error {
+	p.signalFunc = func(context.Context) error {
 		signaled.Store(true)
 		return nil
 	}
@@ -122,7 +122,7 @@ func TestPoller_WithCertUpdate(t *testing.T) {
 	})
 
 	var signaled atomic.Bool
-	p.signalFunc = func() error {
+	p.signalFunc = func(context.Context) error {
 		signaled.Store(true)
 		return nil
 	}
@@ -174,7 +174,7 @@ func TestPoller_WithCACertUpdate(t *testing.T) {
 	})
 
 	var signaled atomic.Bool
-	p.signalFunc = func() error {
+	p.signalFunc = func(context.Context) error {
 		signaled.Store(true)
 		return nil
 	}

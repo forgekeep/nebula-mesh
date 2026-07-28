@@ -82,6 +82,45 @@ func printUsage(w io.Writer) {
 // not mutate it at runtime.
 var standbyTick = 10 * time.Second
 
+const (
+	rekeyRetryInitialDelay = time.Second
+	rekeyRetryMaxDelay     = time.Minute
+)
+
+// rekeyRetryDelay returns an exponentially increasing, bounded delay for
+// consecutive re-enrollment failures. A new Poller performs its first poll
+// immediately, so this delay is the only throttle between failed rekey
+// attempts.
+func rekeyRetryDelay(consecutiveFailures int) time.Duration {
+	if consecutiveFailures <= 1 {
+		return rekeyRetryInitialDelay
+	}
+
+	delay := rekeyRetryInitialDelay
+	for attempt := 1; attempt < consecutiveFailures && delay < rekeyRetryMaxDelay; attempt++ {
+		if delay > rekeyRetryMaxDelay/2 {
+			return rekeyRetryMaxDelay
+		}
+		delay *= 2
+	}
+	return delay
+}
+
+// waitForRekeyRetry makes the retry delay interruptible by SIGTERM/SIGINT.
+// It deliberately uses a timer instead of Sleep so stopping the agent never
+// waits for a backoff window to elapse.
+func waitForRekeyRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 // runUnified is the daemon entrypoint. After #88 it never fails fast on a
 // missing config or missing enrollment; instead it parks in standby and
 // re-checks every standbyTick until the operator runs `nebula-agent enroll`
@@ -339,6 +378,7 @@ func applyOverrides(cfg *config.AgentConfig, serverURL, dataDir string, pollInte
 func startPoller(ctx context.Context, cfg *config.AgentConfig, logger *slog.Logger) error {
 	logger.Info("nebula-agent starting", "server", cfg.ServerURL, "poll_interval", cfg.PollInterval)
 
+	consecutiveRekeyFailures := 0
 	for {
 		fingerprint, err := agent.ReadCertFingerprintAt(cfg.ResolvedNebulaCertPath())
 		if err != nil {
@@ -389,12 +429,20 @@ func startPoller(ctx context.Context, cfg *config.AgentConfig, logger *slog.Logg
 				// reasons the next attempt may not hit (an unwritable
 				// directory an operator is about to fix, a server blip), and
 				// the server re-offers it until the enrollment completes.
-				// Exiting instead handed the retry to the service manager,
-				// which restarts on a fixed delay and eventually hits its
-				// start limit — turning a recoverable rekey failure into an
-				// agent that is stopped for good and silently stops applying
-				// config and certificate updates.
-				logger.Error("rekey enrollment failed; continuing to poll and will retry", "error", err)
+				// A new Poller polls immediately, so wait here rather than
+				// relying on PollInterval or the service manager to throttle
+				// persistent local failures.
+				consecutiveRekeyFailures++
+				delay := rekeyRetryDelay(consecutiveRekeyFailures)
+				logger.Error("rekey enrollment failed; retrying after backoff", "error", err, "retry_in", delay)
+				if waitErr := waitForRekeyRetry(ctx, delay); waitErr != nil {
+					if errors.Is(waitErr, context.Canceled) {
+						return nil
+					}
+					return waitErr
+				}
+			} else {
+				consecutiveRekeyFailures = 0
 			}
 			continue
 		}

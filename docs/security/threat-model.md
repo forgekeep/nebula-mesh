@@ -87,11 +87,13 @@ Trust zones, from least to most trusted:
 ### E3 — Agent enroll
 - **Spoofing / Replay**: token is single-use (atomic consume, #197), TTL-bounded, and bound to a `host_id` server-side — a token cannot enroll a different host.
 - **Elevation**: certificate fields (`Name`, `NebulaIPs`, `Groups`) come from the DB host row, not the request body.
+- **Concurrent identity edits**: enrollment re-checks those certificate-bound fields inside the token-consume transaction. A change after signing preserves `pending_rekey`, so the agent must re-enroll for the newer durable identity.
 - **Issuance abuse**: blocked host / disabled operator refused before signing (GHSA-339v-266x-79xr).
 
 ### E4 — Agent poll
 - **Spoofing**: identity is the certificate fingerprint; the Ed25519 PoP signature is verified against *that host's* `signing_pub_pem`. Host A cannot poll as host B without B's signing key.
 - **Replay**: per-host nonce + ±5 min timestamp window.
+- **Retry containment**: a failed local re-enrollment waits with a context-aware exponential backoff (1 second through 1 minute) before creating the next immediately-polling Poller, preventing persistent local failures from producing an unbounded authenticated request loop.
 - **Information disclosure**: peer config and blocklist scoped to the polling host's own CA/network (#203).
 - **Revocation**: blocked → `403`; deleted → `410`; rotation overlap bounded by `prev_cert_fingerprint` / `cert_rotated_at`.
 

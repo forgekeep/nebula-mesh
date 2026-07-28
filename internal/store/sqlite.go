@@ -843,9 +843,14 @@ func (s *SQLiteStore) setHostAddresses(ctx context.Context, tx *sql.Tx, hostID, 
 	return nil
 }
 
-// loadHostAddresses retrieves all addresses for a host in order.
-func (s *SQLiteStore) loadHostAddresses(ctx context.Context, hostID string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx,
+type hostAddressQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// queryHostAddresses retrieves all addresses for a host in order from either a
+// database handle or an existing transaction.
+func queryHostAddresses(ctx context.Context, querier hostAddressQuerier, hostID string) ([]string, error) {
+	rows, err := querier.QueryContext(ctx,
 		`SELECT address FROM host_addresses WHERE host_id = ? ORDER BY position`,
 		hostID,
 	)
@@ -875,6 +880,11 @@ func (s *SQLiteStore) loadHostAddresses(ctx context.Context, hostID string) ([]s
 		addrs = make([]string, 0)
 	}
 	return addrs, nil
+}
+
+// loadHostAddresses retrieves all addresses for a host in order.
+func (s *SQLiteStore) loadHostAddresses(ctx context.Context, hostID string) ([]string, error) {
+	return queryHostAddresses(ctx, s.db, hostID)
 }
 
 func (s *SQLiteStore) CreateHost(ctx context.Context, h *models.Host) error {
@@ -1814,7 +1824,7 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(ctx context.Context, hostID s
 		}
 	}()
 
-	if err := s.enrollHostInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter); err != nil {
+	if err := s.enrollHostInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter, nil); err != nil {
 		return err
 	}
 
@@ -1864,7 +1874,7 @@ func (s *SQLiteStore) SaveCertificateIfIssuanceAllowed(
 	}
 
 	if expectedStatus == models.HostStatusPending {
-		err = s.enrollHostInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter)
+		err = s.enrollHostInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter, nil)
 	} else {
 		err = s.updateHostCertificateInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter)
 	}
@@ -1883,18 +1893,19 @@ func (s *SQLiteStore) SaveCertificateIfIssuanceAllowed(
 // on their next poll. Shared by SaveCertificateAndEnrollHost (token-less paths)
 // and ConsumeTokenAndEnrollHost (agent enrollment, which also consumes the
 // enrollment token in the same transaction).
-func (s *SQLiteStore) enrollHostInTx(ctx context.Context, tx *sql.Tx, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
-	var isLighthouse bool
-	var networkID string
-	err := tx.QueryRowContext(ctx,
-		`SELECT is_lighthouse, network_id FROM hosts WHERE id = ?`, hostID,
-	).Scan(&isLighthouse, &networkID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	}
+func (s *SQLiteStore) enrollHostInTx(ctx context.Context, tx *sql.Tx, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time, signedIdentity *models.CertificateIdentity) error {
+	state, err := s.loadEnrollmentHostStateInTx(ctx, tx, hostID)
 	if err != nil {
-		return fmt.Errorf("get host role: %w", err)
+		return err
 	}
+
+	// Enrollment signs outside the transaction, so a host PATCH can commit
+	// certificate-bound fields while the signer is working. The token must not
+	// let that older certificate clear the rekey requested by the PATCH
+	// (SEC-PERSIST-001). Persisting the certificate is safe because the retained
+	// flag makes the next poll request another re-enrollment for the durable
+	// identity.
+	preservePendingRekey := signedIdentity != nil && !signedIdentity.Equal(state.identity)
 
 	if err := s.saveCertificateInTx(ctx, tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
 		return err
@@ -1902,16 +1913,12 @@ func (s *SQLiteStore) enrollHostInTx(ctx context.Context, tx *sql.Tx, hostID str
 
 	// Update host: status=enrolled, cert_fingerprint, cert_expires_at.
 	//
-	// pending_rekey clears here, in the same transaction as the certificate
-	// it was asking for, and nowhere else. Clearing it earlier — when the
-	// poll handler mints the rekey token — drops the request on the floor if
-	// the agent then fails to re-enroll: nothing retries, and the host row
-	// reads as settled while the agent keeps serving the superseded
-	// certificate. Enrollment completing is the only evidence the rekey
-	// actually happened.
+	// pending_rekey clears here, in the same transaction as the certificate it
+	// was asking for. If certificate-bound fields changed after signing, retain
+	// it instead: that certificate does not satisfy the newer host identity.
 	result, err := tx.ExecContext(ctx,
-		`UPDATE hosts SET status=?, cert_fingerprint=?, cert_expires_at=?, pending_rekey=0, updated_at=? WHERE id=?`,
-		models.HostStatusEnrolled, fp, notAfter, time.Now(), hostID,
+		`UPDATE hosts SET status=?, cert_fingerprint=?, cert_expires_at=?, pending_rekey=?, updated_at=? WHERE id=?`,
+		models.HostStatusEnrolled, fp, notAfter, preservePendingRekey, time.Now(), hostID,
 	)
 	if err != nil {
 		return fmt.Errorf("update host: %w", err)
@@ -1924,15 +1931,46 @@ func (s *SQLiteStore) enrollHostInTx(ctx context.Context, tx *sql.Tx, hostID str
 		return ErrNotFound
 	}
 
-	if isLighthouse {
+	if state.isLighthouse {
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
-			networkID,
+			state.networkID,
 		); err != nil {
 			return fmt.Errorf("bump config version: %w", err)
 		}
 	}
 	return nil
+}
+
+type enrollmentHostState struct {
+	isLighthouse bool
+	networkID    string
+	identity     models.CertificateIdentity
+}
+
+// loadEnrollmentHostStateInTx retrieves the fields enrollment must check and
+// update while holding the same transaction that consumes the enrollment token.
+func (s *SQLiteStore) loadEnrollmentHostStateInTx(ctx context.Context, tx *sql.Tx, hostID string) (enrollmentHostState, error) {
+	var state enrollmentHostState
+	var groupsJSON string
+	err := tx.QueryRowContext(ctx,
+		`SELECT is_lighthouse, network_id, name, groups_json FROM hosts WHERE id = ?`, hostID,
+	).Scan(&state.isLighthouse, &state.networkID, &state.identity.Name, &groupsJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return enrollmentHostState{}, ErrNotFound
+	}
+	if err != nil {
+		return enrollmentHostState{}, fmt.Errorf("get enrollment host state: %w", err)
+	}
+	if err := json.Unmarshal([]byte(groupsJSON), &state.identity.Groups); err != nil {
+		return enrollmentHostState{}, fmt.Errorf("unmarshal host groups for enrollment: %w", err)
+	}
+	addrs, err := queryHostAddresses(ctx, tx, hostID)
+	if err != nil {
+		return enrollmentHostState{}, fmt.Errorf("get host addresses for enrollment: %w", err)
+	}
+	state.identity.NebulaIPs = addrs
+	return state, nil
 }
 
 // ConsumeTokenAndEnrollHost atomically consumes the single-use enrollment token
@@ -1946,12 +1984,12 @@ func (s *SQLiteStore) enrollHostInTx(ctx context.Context, tx *sql.Tx, hostID str
 // transaction. The caller is expected to have validated the token via
 // GetEnrollmentToken first, so a zero-row CAS here means the race was lost.
 func (s *SQLiteStore) ConsumeTokenAndEnrollHost(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
-	return s.enrollHostWithConsumedToken(ctx, hostID, token, certPEM, fp, notBefore, notAfter, "", nil, nil)
+	return s.enrollHostWithConsumedToken(ctx, hostID, token, certPEM, fp, notBefore, notAfter, "", nil, nil, nil)
 }
 
 func (s *SQLiteStore) ConsumeTokenAndEnrollHostWithProfile(
 	ctx context.Context, hostID, token string, certPEM []byte, fp string,
-	notBefore, notAfter time.Time, signingPubPEM string, profile models.AgentProfile,
+	notBefore, notAfter time.Time, signingPubPEM string, profile models.AgentProfile, signedIdentity *models.CertificateIdentity,
 ) (int, error) {
 	if signingPubPEM == "" {
 		return 0, errors.New("signing public key is required")
@@ -1960,13 +1998,13 @@ func (s *SQLiteStore) ConsumeTokenAndEnrollHostWithProfile(
 		return 0, err
 	}
 	var configVersion int
-	err := s.enrollHostWithConsumedToken(ctx, hostID, token, certPEM, fp, notBefore, notAfter, signingPubPEM, &profile, &configVersion)
+	err := s.enrollHostWithConsumedToken(ctx, hostID, token, certPEM, fp, notBefore, notAfter, signingPubPEM, &profile, &configVersion, signedIdentity)
 	return configVersion, err
 }
 
 func (s *SQLiteStore) enrollHostWithConsumedToken(
 	ctx context.Context, hostID, token string, certPEM []byte, fp string,
-	notBefore, notAfter time.Time, signingPubPEM string, profile *models.AgentProfile, configVersion *int,
+	notBefore, notAfter time.Time, signingPubPEM string, profile *models.AgentProfile, configVersion *int, signedIdentity *models.CertificateIdentity,
 ) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1993,7 +2031,7 @@ func (s *SQLiteStore) enrollHostWithConsumedToken(
 		return ErrTokenUsed
 	}
 
-	if err := s.enrollHostInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter); err != nil {
+	if err := s.enrollHostInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter, signedIdentity); err != nil {
 		return err
 	}
 	if profile != nil {

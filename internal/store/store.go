@@ -138,7 +138,11 @@ type Store interface {
 	SaveCertificateAndEnrollHost(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	SaveCertificateIfIssuanceAllowed(ctx context.Context, hostID string, expectedStatus models.HostStatus, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	ConsumeTokenAndEnrollHost(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
-	ConsumeTokenAndEnrollHostWithProfile(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time, signingPubPEM string, profile models.AgentProfile) (int, error)
+	// ConsumeTokenAndEnrollHostWithProfile atomically binds an enrollment to a
+	// signed certificate identity snapshot. If Name, NebulaIPs, or Groups changed after
+	// signing, the transaction keeps pending_rekey set so a stale certificate is
+	// never treated as satisfying the newer identity.
+	ConsumeTokenAndEnrollHostWithProfile(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time, signingPubPEM string, profile models.AgentProfile, signedIdentity *models.CertificateIdentity) (int, error)
 	SaveCertificateAndUpdateHostCert(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	GetCurrentCertificate(ctx context.Context, hostID string) ([]byte, error)
 	GetCertificateInfo(ctx context.Context, hostID string) (*models.CertificateInfo, error)

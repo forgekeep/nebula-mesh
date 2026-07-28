@@ -2,6 +2,28 @@ package models
 
 import "testing"
 
+func TestCertificateIdentityFromHost_SnapshotIsIndependent(t *testing.T) {
+	host := &Host{
+		Name:      "web-1",
+		NebulaIPs: []string{"10.0.0.1"},
+		Groups:    []string{"web"},
+	}
+
+	snapshot := CertificateIdentityFromHost(host)
+	host.Name = "web-2"
+	host.NebulaIPs[0] = "10.0.0.2"
+	host.Groups[0] = "admin"
+
+	want := CertificateIdentity{
+		Name:      "web-1",
+		NebulaIPs: []string{"10.0.0.1"},
+		Groups:    []string{"web"},
+	}
+	if !snapshot.Equal(want) {
+		t.Fatalf("snapshot = %#v, want %#v", snapshot, want)
+	}
+}
+
 // TestCertIdentityChanged covers each certificate-bound field on its own, and
 // pins the fields that must NOT trigger a re-issuance — a false positive there
 // churns certificates across the fleet on every routine config edit.

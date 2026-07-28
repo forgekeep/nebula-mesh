@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 // TestGetEnrollmentToken_PeekDoesNotConsume verifies the read-only peek resolves
@@ -103,6 +105,61 @@ func TestConsumeTokenAndEnrollHost_NoBurnOnEnrollFailure(t *testing.T) {
 	// And a subsequent valid enrollment still succeeds.
 	if err := s.ConsumeTokenAndEnrollHost(ctx, h.ID, raw, []byte("cert"), "fp-burn-2", time.Now(), time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("retry enroll: %v", err)
+	}
+}
+
+// TestConsumeTokenAndEnrollHostWithProfile_SEC_PERSIST_001_PreservesRekeyAfterIdentityChange
+// simulates the signing/enrollment race: the caller signs the original host,
+// then a PATCH persists a new certificate identity before the token is
+// consumed. The older certificate may be recorded, but it must not clear the
+// rekey that causes the agent to obtain a certificate for the durable identity.
+func TestConsumeTokenAndEnrollHostWithProfile_SEC_PERSIST_001_PreservesRekeyAfterIdentityChange(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	h := newHostFixture(t, s, "identity-race-host")
+
+	signedHost, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedIdentity := models.CertificateIdentityFromHost(signedHost)
+	const raw = "identity-race-token"
+	if err := s.CreateTokenForHost(ctx, h.ID, raw, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The concurrent PATCH changes Groups, a certificate-bound field, and
+	// persists its rekey request before the earlier enrollment transaction
+	// starts.
+	edited := *signedHost
+	edited.Groups = []string{"g", "admin"}
+	edited.PendingRekey = true
+	if err := s.UpdateHost(ctx, &edited); err != nil {
+		t.Fatal(err)
+	}
+
+	profileDir := t.TempDir()
+	profile := models.AgentProfile{
+		NebulaConfigPath: filepath.Join(profileDir, "config.yml"),
+		NebulaCAPath:     filepath.Join(profileDir, "ca.crt"),
+		NebulaCertPath:   filepath.Join(profileDir, "host.crt"),
+		NebulaKeyPath:    filepath.Join(profileDir, "host.key"),
+		ConfigAckV1:      true,
+	}
+	if _, err := s.ConsumeTokenAndEnrollHostWithProfile(ctx, h.ID, raw, []byte("stale-cert"), "stale-fp",
+		time.Now(), time.Now().Add(time.Hour), "signing-pub", profile, &signedIdentity); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.PendingRekey {
+		t.Fatal("concurrent certificate identity change was cleared; the stale certificate would never be replaced")
+	}
+	if got.CertFingerprint != "stale-fp" {
+		t.Errorf("cert fingerprint = %q, want stale-fp", got.CertFingerprint)
 	}
 }
 

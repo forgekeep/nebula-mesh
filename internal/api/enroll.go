@@ -102,6 +102,11 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "enrollment failed")
 		return
 	}
+	// Keep an application-owned snapshot of every certificate-bound field. The
+	// store compares it with the durable row in the consume transaction after
+	// signing, so a concurrent PATCH cannot make this certificate settle a
+	// newer host identity.
+	signedIdentity := models.CertificateIdentityFromHost(host)
 
 	// Durable revocation (GHSA-339v-266x-79xr): refuse to (re-)issue a cert for
 	// a blocked host or one whose owning operator is disabled. This closes the
@@ -212,7 +217,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	// transient failure during signing leaves the token usable for retry; a
 	// concurrent enrollment that already consumed it loses the CAS and gets 409.
 	configVersion, err := s.store.ConsumeTokenAndEnrollHostWithProfile(r.Context(), host.ID, req.Token, certPEM, fp,
-		hostCert.NotBefore(), hostCert.NotAfter(), req.SigningPubPEM, profile)
+		hostCert.NotBefore(), hostCert.NotAfter(), req.SigningPubPEM, profile, &signedIdentity)
 	if err != nil {
 		if errors.Is(err, store.ErrTokenUsed) {
 			s.metrics.recordEnrollment(resultDenied)
@@ -225,6 +230,17 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reload after the transaction so the enrollment response never renders
+	// configuration from the pre-sign snapshot when a concurrent host edit won.
+	// The transaction retains pending_rekey in that case, so the certificate is
+	// retried with this durable identity on the next poll.
+	host, err = s.store.GetHost(r.Context(), host.ID)
+	if err != nil {
+		s.metrics.recordEnrollment(resultError)
+		s.logger.Error("reload host after enrollment", "error", err, "host", tok.HostID)
+		writeError(w, http.StatusInternalServerError, "enrollment failed")
+		return
+	}
 	configYAML, err := s.renderHostConfig(r.Context(), host)
 	if err != nil {
 		s.metrics.recordEnrollment(resultError)

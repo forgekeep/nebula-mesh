@@ -931,7 +931,12 @@ affected files.
 
 ## Upgrading
 
-1. Download the new release archive and `install -m 0755 nebula-agent /usr/local/bin/`.
+1. Replace the binary in place — `apt install ./nebula-agent_<version>_linux_<arch>.deb`
+   (or `dnf install ./…rpm`) for a packaged install, or
+   `install -m 0755 nebula-agent <path from the unit's ExecStart>` for an
+   archive install. Installing to a different directory than the running
+   service leaves the old binary in place and the upgrade silently does
+   nothing.
 2. `systemctl restart nebula-agent.service`.
 3. Watch `journalctl -u nebula-agent -f` to confirm it polls successfully.
 

@@ -13,7 +13,7 @@ Group=nebula-mgmt
 # Format: NEBULA_MGMT_CA_PASSPHRASE=your-passphrase-here
 EnvironmentFile=/etc/nebula-mgmt/passphrase.env
 
-ExecStart=/usr/local/bin/nebula-mgmt serve --config /etc/nebula-mgmt/server.yml
+ExecStart=/usr/bin/nebula-mgmt serve --config /etc/nebula-mgmt/server.yml
 Restart=on-failure
 RestartSec=5s
 

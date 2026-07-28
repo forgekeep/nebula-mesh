@@ -921,5 +921,9 @@ func TestUpdateHost_OmittedNebulaIPs_Untouched(t *testing.T) {
 	require.NoError(t, json.NewDecoder(patchRec.Body).Decode(&updatedHost))
 
 	require.Equal(t, originalIPs, updatedHost.NebulaIPs, "addresses should be unchanged")
-	require.False(t, updatedHost.PendingRekey, "groups-only change should not set PendingRekey")
+	// The groups themselves do schedule a re-issuance — they are carried in
+	// the certificate that peers authorize against. See
+	// TestUpdateHost_GroupChangeSetsPendingRekey; asserted here only to keep
+	// this test honest about what a groups-only PATCH does.
+	require.True(t, updatedHost.PendingRekey, "groups-only change still re-issues the cert")
 }

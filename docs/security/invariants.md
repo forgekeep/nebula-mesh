@@ -190,6 +190,10 @@ leave a weaker or partially applied security state.
 
 - Enrollment, revocation, token rotation, and mesh import lifecycle changes use
   transactional SQLite store methods.
+- Enrollment compares the certificate-bound Host identity read for signing with
+  the durable row inside its consume transaction. If a concurrent edit changed
+  `Name`, `NebulaIPs`, or `Groups`, the transaction retains `pending_rekey` so
+  the signed stale certificate cannot settle the newer identity.
 - Mesh import finalize applies Host state, firewall, blocklist, version, and
   challenge cleanup in one transaction with revision and scope checks.
 - Host updates persist Host fields and reset `config_version` in the same
@@ -217,7 +221,8 @@ leave a weaker or partially applied security state.
 - `internal/store/sqlite_mobile_certificate_test.go`: the certificate write
   rejects blocked Hosts and disabled owners.
 - `internal/store/sqlite_enroll_token_test.go`:
-  `TestConsumeTokenAndEnrollHost_NoBurnOnEnrollFailure`.
+  `TestConsumeTokenAndEnrollHost_NoBurnOnEnrollFailure` and
+  `TestConsumeTokenAndEnrollHostWithProfile_SEC_PERSIST_001_PreservesRekeyAfterIdentityChange`.
 - `internal/store/sqlite_update_host_atomic_test.go`:
   `TestUpdateHost_ResetsConfigVersion` and
   `TestUpdateHost_SECPERSIST001_RollbackIsAtomic`.

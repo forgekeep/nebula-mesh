@@ -258,11 +258,23 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Rekey signal: force-rotate?new_key=true sets pending_rekey on the
-	// host row; the very next poll under the existing fingerprint carries
-	// a single-use enrollment token so the agent can re-enroll a fresh
-	// keypair. The pending_rekey flag is cleared once the token is minted
-	// so a follow-up poll doesn't re-issue another token.
+	// Rekey signal: pending_rekey on the host row (force-rotate?new_key=true,
+	// or an edit to a certificate-bound field) makes the next poll under the
+	// existing fingerprint carry a single-use enrollment token so the agent
+	// can re-enroll a fresh keypair.
+	//
+	// The flag stays set until the agent actually completes the enrollment,
+	// which clears it inside that transaction. A rekey the agent cannot
+	// finish — an unwritable directory, a crash, a host that never comes
+	// back — is therefore re-offered on the following poll instead of being
+	// silently lost, which used to strand the host on its old certificate
+	// with the server reporting nothing pending.
+	//
+	// Re-offering means minting a fresh token each poll while the rekey is
+	// outstanding; only the token hash is stored, so the previous one cannot
+	// be re-sent. CreateTokenForHost deletes the host's other unused tokens,
+	// so at most one is ever live. The agent stops polling while it
+	// re-enrolls, so it cannot invalidate the token it is currently using.
 	if host.PendingRekey {
 		tokenStr, tokenErr := bootstraptoken.Generate(bootstraptoken.PurposeEnrollment)
 		if tokenErr != nil {
@@ -271,8 +283,6 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 			expiresAt := now.Add(s.tokenTTLFor(r.Context(), host.NetworkID))
 			if err := s.store.CreateTokenForHost(r.Context(), host.ID, tokenStr, expiresAt); err != nil {
 				s.logger.Error("mint rekey token", "host", host.ID, "error", err)
-			} else if err := s.store.ClearPendingRekey(r.Context(), host.ID); err != nil {
-				s.logger.Error("clear pending_rekey", "host", host.ID, "error", err)
 			} else {
 				resp.RekeyRequired = true
 				resp.EnrollmentToken = tokenStr

@@ -225,9 +225,25 @@ Response (201):
 - `nebula_ips` (hosts): array of IP address strings. Each address must fall within one of the parent network's CIDRs. At least one is required. Order is preserved in the issued certificate.
 - Legacy singular fields (`cidr` and `nebula_ip`) were removed in v0.3.0. Requests using the old field names receive a 400 Bad Request error.
 
-### Updating host addresses
+### Updating certificate-bound fields
 
-To change a host's addresses (trigger a new certificate issuance), use PATCH:
+`name`, `nebula_ips` and `groups` are all carried inside the host's Nebula
+certificate, so editing any of them schedules a re-issuance: the host row is
+flagged `pending_rekey`, the next poll answers `rekey_required: true` with a
+single-use enrollment token, and the agent re-enrolls with a certificate that
+reflects the change. Other fields (`role`, `public_ip`, `listen_port`,
+`advanced`) only affect the rendered config and are picked up on the next poll
+without a new certificate.
+
+This matters most for `groups`. Peers authorize each other on the certificate,
+and firewall rules select their counterparties by group, so a group edit does
+nothing on the mesh until the new certificate lands. Note that the previous
+certificate stays valid until it expires — removing a host from a group closes
+its new sessions' access once the host re-enrolls, but it does not retroactively
+invalidate the old certificate. Block the host (which adds its fingerprint to
+the blocklist) when you need immediate, enforced revocation.
+
+To change a host's addresses, use PATCH:
 
 ```bash
 curl -X PATCH "https://mgmt.example.com:8080/api/v1/hosts/host_def456" \
@@ -239,6 +255,17 @@ curl -X PATCH "https://mgmt.example.com:8080/api/v1/hosts/host_def456" \
 ```
 
 The new certificate will reflect the reordered addresses on the agent's next poll.
+
+Changing group membership works the same way:
+
+```bash
+curl -X PATCH "https://mgmt.example.com:8080/api/v1/hosts/host_def456" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "groups": ["web", "prod"]
+  }'
+```
 
 ## Hosts
 

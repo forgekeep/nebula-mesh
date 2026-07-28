@@ -157,6 +157,69 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 	return jsonBytes, true, nil
 }
 
+// CertificateIdentity is the subset of a Host that is carried inside its
+// Nebula certificate.
+//
+// It is intentionally separate from Host so callers that sign a certificate
+// can retain precisely the identity they signed without also retaining mutable
+// lifecycle or configuration state.
+type CertificateIdentity struct {
+	Name      string
+	NebulaIPs []string
+	Groups    []string
+}
+
+// CertificateIdentityFromHost returns an independent snapshot of the fields
+// that are carried in a Host's Nebula certificate. A nil Host is the zero
+// identity, matching HostDiff's nil-host convention.
+func CertificateIdentityFromHost(host *Host) CertificateIdentity {
+	identity := certificateIdentityFields(host)
+	identity.NebulaIPs = append([]string(nil), identity.NebulaIPs...)
+	identity.Groups = append([]string(nil), identity.Groups...)
+	return identity
+}
+
+// Equal reports whether two certificate identities describe the same Nebula
+// certificate subject. Empty and nil slices are equivalent, as they are when a
+// Host is diffed after a store or JSON round trip.
+func (identity CertificateIdentity) Equal(other CertificateIdentity) bool {
+	return identity.Name == other.Name &&
+		nebulaIPsEqual(identity.NebulaIPs, other.NebulaIPs) &&
+		groupsEqual(identity.Groups, other.Groups)
+}
+
+func certificateIdentityFields(host *Host) CertificateIdentity {
+	if host == nil {
+		return CertificateIdentity{}
+	}
+	return CertificateIdentity{
+		Name:      host.Name,
+		NebulaIPs: host.NebulaIPs,
+		Groups:    host.Groups,
+	}
+}
+
+// CertIdentityChanged reports whether an edit touched a field that is carried
+// inside the host's Nebula certificate: Name, NebulaIPs or Groups.
+//
+// Those three are the host's identity as far as the mesh is concerned. Peers
+// authorize each other on the certificate rather than on the management
+// server's host row, and firewall rules select their counterparties by group,
+// so editing any of them is inert until a new certificate is issued. Callers
+// use this to schedule that re-issuance. Every other field (Role, PublicIP,
+// ListenPort, Advanced) only shapes the rendered config, which the agent picks
+// up on its next poll without a new certificate.
+//
+// Both host-edit paths — the API's PATCH handler and the web UI's form — must
+// agree on this, hence one definition rather than a copy each. It deliberately
+// reuses the same comparators as HostDiff above, so what the audit trail
+// records as a change and what triggers a re-issuance cannot drift apart.
+//
+// A nil side is treated as the zero Host, matching HostDiff.
+func CertIdentityChanged(before, after *Host) bool {
+	return !certificateIdentityFields(before).Equal(certificateIdentityFields(after))
+}
+
 // nebulaIPsEqual compares two IP slices for equality (order matters).
 func nebulaIPsEqual(a, b []string) bool {
 	if len(a) != len(b) {

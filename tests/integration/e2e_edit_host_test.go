@@ -279,15 +279,31 @@ func TestE2E_RenameHost_TriggersRekey(t *testing.T) {
 	}
 	t.Logf("poll2: RekeyRequired=%v, EnrollmentToken=%s", poll2.RekeyRequired, poll2.EnrollmentToken[:8]+"...")
 
-	// 6. Verify PendingRekey was cleared after poll
+	// 6. Handing out the token is not the same as the rekey having happened.
+	// The flag stays set until the agent completes the enrollment, so an
+	// agent that cannot finish gets the offer again on its next poll instead
+	// of being stranded on the superseded certificate.
 	hostAfterPoll, err := s.GetHost(context.Background(), host.ID)
 	if err != nil {
 		t.Fatalf("get host: %v", err)
 	}
-	if hostAfterPoll.PendingRekey {
-		t.Error("host.PendingRekey should be cleared after poll")
+	if !hostAfterPoll.PendingRekey {
+		t.Error("host.PendingRekey should still be set until the agent re-enrolls")
 	}
-	t.Logf("host after poll: PendingRekey=%v", hostAfterPoll.PendingRekey)
+
+	pollResp3 := signedGetUpdates(t, ts, fp, signingPriv)
+	defer pollResp3.Body.Close()
+	var poll3 struct {
+		RekeyRequired   bool   `json:"rekey_required"`
+		EnrollmentToken string `json:"enrollment_token"`
+	}
+	if err := json.NewDecoder(pollResp3.Body).Decode(&poll3); err != nil {
+		t.Fatalf("decode poll3: %v", err)
+	}
+	if !poll3.RekeyRequired || poll3.EnrollmentToken == "" {
+		t.Error("poll3: an unanswered rekey must still be on offer")
+	}
+	t.Logf("rekey re-offered on the following poll: RekeyRequired=%v", poll3.RekeyRequired)
 
 	// 7. Verify audit entry was created with "name" in details
 	t.Log("Verify audit entry")

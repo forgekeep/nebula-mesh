@@ -41,28 +41,40 @@ func (s *Server) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.CAID != "" {
-		ca, err := s.store.GetCA(r.Context(), req.CAID)
-		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "CA not found")
-			return
-		}
-		if err != nil {
-			s.logger.Error("load network CA", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to load CA")
-			return
-		}
-		if ca.Status != models.CAStatusActive {
-			writeError(w, http.StatusConflict, "CA must be active")
-			return
-		}
+
+	// Resolve CA ID: use explicit ca_id from request, or fall back to server default CA.
+	// Enforces SEC-PERSIST-001: never persist an empty ca_id. Startup invariant
+	// CountEmptyCAIDRows (serve.go:134-140) rejects empty ca_id rows at restart.
+	caID := req.CAID
+	if caID == "" {
+		caID = s.defaultCAID
+	}
+	if caID == "" {
+		writeError(w, http.StatusBadRequest, "ca_id is required and no default CA is configured")
+		return
+	}
+
+	// Validate resolved CA exists and is active (even for default CA).
+	ca, err := s.store.GetCA(r.Context(), caID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "CA not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("load network CA", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to load CA")
+		return
+	}
+	if ca.Status != models.CAStatusActive {
+		writeError(w, http.StatusConflict, "CA must be active")
+		return
 	}
 
 	network := &models.Network{
 		ID:        uuid.New().String(),
 		Name:      req.Name,
 		CIDRs:     req.CIDRs,
-		CAID:      req.CAID,
+		CAID:      caID,
 		CreatedAt: time.Now(),
 	}
 

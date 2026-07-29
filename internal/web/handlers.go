@@ -1422,10 +1422,10 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "Failed to load CAs", http.StatusInternalServerError)
 		return
 	}
-	// Non-admins must own at least one active CA. admins fall through
-	// to the legacy "no CA tied to network" path so existing deployments
-	// keep working until they migrate.
-	if op.Role != "admin" && len(cas) == 0 {
+	// All operators (including admins) must own at least one active CA.
+	// Enforces SEC-PERSIST-001: never persist an empty ca_id. Startup invariant
+	// CountEmptyCAIDRows (serve.go:134-140) rejects empty ca_id rows at restart.
+	if len(cas) == 0 {
 		w.renderNetworksError(rw, r, form, cas, "You must create a CA before adding a network. Open the CAs page to mint one.")
 		return
 	}
@@ -1448,7 +1448,7 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	caID := form.CAID
-	if caID == "" && op.Role != "admin" {
+	if caID == "" {
 		if len(cas) != 1 {
 			w.renderNetworksError(rw, r, form, cas, "pick a CA to sign certificates for this network")
 			return

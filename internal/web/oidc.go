@@ -28,6 +28,7 @@ import (
 const (
 	oidcStateCookieName = "nebula_oidc_state"
 	oidcStateTTL        = 10 * time.Minute
+	oidcHTTPTimeout     = 10 * time.Second
 	// oidcMaxLiveStates caps the number of concurrently pending OIDC login
 	// states. Combined with the auth rate limiter on /ui/oidc/login, it bounds
 	// the in-memory state map so an unauthenticated flood cannot grow it for
@@ -61,10 +62,8 @@ type OIDC struct {
 	// If nil, auto-provision is skipped.
 	provisionCA func(ctx context.Context, op *models.Operator) error
 
-	// httpClient is the CA-pinned HTTP client used for all IdP traffic when
-	// oidc.tls_ca_cert is configured (#264). nil means the system trust store
-	// is used (default). When set it is wired into discovery/JWKS at provider
-	// creation and into the callback's token exchange via oidc.ClientContext.
+	// httpClient is the bounded client used for every IdP request. When
+	// oidc.tls_ca_cert is configured, its transport also pins that CA bundle.
 	httpClient *http.Client
 }
 
@@ -87,21 +86,14 @@ func NewOIDC(ctx context.Context, cfg *config.OIDCConfig, s store.Store, sm *Ses
 	if cfg.Issuer == "" || cfg.ClientID == "" || cfg.RedirectURL == "" {
 		return nil, fmt.Errorf("oidc: issuer, client_id, redirect_url are required")
 	}
-	// When tls_ca_cert is configured, pin all IdP traffic to that CA bundle by
-	// running discovery (and later JWKS + token exchange) over a dedicated HTTP
-	// client. go-oidc stores the client from the context at provider creation
-	// and reuses it for the JWKS keyset, so this one ClientContext covers
-	// discovery and id_token verification; the callback wires the same client
-	// into the token exchange (#264).
-	var httpClient *http.Client
-	if cfg.TLSCACert != "" {
-		c, err := oidcHTTPClientWithCA(cfg.TLSCACert)
-		if err != nil {
-			return nil, fmt.Errorf("oidc: %w", err)
-		}
-		httpClient = c
-		ctx = oidc.ClientContext(ctx, httpClient)
+	// Use one bounded client for discovery, JWKS retrieval and token exchange.
+	// When tls_ca_cert is configured, the same client pins all IdP traffic to
+	// that CA bundle (#264).
+	httpClient, err := newOIDCHTTPClient(cfg.TLSCACert, oidcHTTPTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("oidc: %w", err)
 	}
+	ctx = oidc.ClientContext(ctx, httpClient)
 	provider, err := oidc.NewProvider(ctx, cfg.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("oidc discovery: %w", err)
@@ -130,11 +122,17 @@ func NewOIDC(ctx context.Context, cfg *config.OIDCConfig, s store.Store, sm *Ses
 	}, nil
 }
 
-// oidcHTTPClientWithCA builds an HTTP client that trusts only the CA bundle at
-// caPath for TLS, used to pin the IdP connection (#264). It fails loudly when
-// the file is unreadable or holds no valid PEM certificate rather than silently
-// falling back to the system trust store.
-func oidcHTTPClientWithCA(caPath string) (*http.Client, error) {
+// newOIDCHTTPClient builds the bounded client used for every IdP request. When
+// caPath is set, the client trusts only that PEM CA bundle and fails rather than
+// silently falling back to the system trust store.
+func newOIDCHTTPClient(caPath string, timeout time.Duration) (*http.Client, error) {
+	if timeout <= 0 {
+		return nil, fmt.Errorf("http timeout must be positive")
+	}
+	client := &http.Client{Timeout: timeout}
+	if caPath == "" {
+		return client, nil
+	}
 	pemBytes, err := os.ReadFile(caPath) // #nosec G304 -- operator-supplied trusted config path
 	if err != nil {
 		return nil, fmt.Errorf("read tls_ca_cert %q: %w", caPath, err)
@@ -143,14 +141,13 @@ func oidcHTTPClientWithCA(caPath string) (*http.Client, error) {
 	if !pool.AppendCertsFromPEM(pemBytes) {
 		return nil, fmt.Errorf("tls_ca_cert %q: no valid PEM certificates", caPath)
 	}
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:    pool,
-				MinVersion: tls.VersionTLS12,
-			},
+	client.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs:    pool,
+			MinVersion: tls.VersionTLS12,
 		},
-	}, nil
+	}
+	return client, nil
 }
 
 // Enabled reports whether OIDC is configured.
@@ -231,13 +228,9 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Route token exchange (and id_token verification) through the CA-pinned
-	// client when tls_ca_cert is configured, so the callback honors the same
-	// trust anchor as discovery (#264). Without pinning this is just r.Context().
-	ctx := r.Context()
-	if o.httpClient != nil {
-		ctx = oidc.ClientContext(ctx, o.httpClient)
-	}
+	// Route token exchange and id_token verification through the same bounded
+	// client used for discovery and JWKS retrieval.
+	ctx := oidc.ClientContext(r.Context(), o.httpClient)
 	tok, err := o.oauth.Exchange(ctx, code)
 	if err != nil {
 		o.logger.Error("oidc exchange", "error", err)

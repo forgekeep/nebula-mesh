@@ -128,7 +128,8 @@ func TestHostCreate_InlineErrorPreservesRole(t *testing.T) {
 // TestNetworkCreate_InlineErrorPreservesForm — issue #91 for the network
 // create form (which lives expanded on /ui/networks).
 func TestNetworkCreate_InlineErrorPreservesForm(t *testing.T) {
-	w, _ := newTestWeb(t)
+	w, s := newTestWeb(t)
+	seedActiveCA(t, s, "ca-1", "admin-test-id", "seed-ca")
 	cookies := loginSession(t, w)
 
 	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/networks", cookies)
@@ -172,7 +173,8 @@ func TestNetworkCreate_InlineErrorPreservesForm(t *testing.T) {
 }
 
 func TestNetworkCreate_InlineErrorRequiredFields(t *testing.T) {
-	w, _ := newTestWeb(t)
+	w, s := newTestWeb(t)
+	seedActiveCA(t, s, "ca-1", "admin-test-id", "seed-ca")
 	cookies := loginSession(t, w)
 
 	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/networks", cookies)

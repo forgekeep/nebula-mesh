@@ -311,6 +311,10 @@ leave a weaker or partially applied security state.
 - Mobile bundle generation reads the durable CA blocklist and current enrolled
   relay inventory. After the full bundle has been generated, it atomically
   re-checks the durable Host and owner status while persisting the certificate.
+- Network and host creation resolves the CA ID to the server default CA when
+  the caller omits `ca_id`, ensuring a non-empty value persists. The startup
+  invariant `CountEmptyCAIDRows` (serve.go:134-140) rejects any empty `ca_id`
+  rows in the networks, hosts, certificates, or blocklist tables.
 - Migration tests exercise upgrade, repeated migrate, rollback, and foreign-key
   enforcement.
 
@@ -333,6 +337,11 @@ leave a weaker or partially applied security state.
 - `internal/store/sqlite_update_host_atomic_test.go`:
   `TestUpdateHost_ResetsConfigVersion` and
   `TestUpdateHost_SECPERSIST001_RollbackIsAtomic`.
+- `internal/api/networks_test.go`:
+  `TestCreateNetwork_SEC_PERSIST_001_OmittingCAIDResolvesDefaultAndPersistsNonEmpty`
+  verifies that omitting `ca_id` resolves to the default CA and persists a
+  non-empty value, and `TestCreateNetwork_NoDefaultCA_RejectsEmptyCAID` verifies
+  rejection when no default CA is configured.
 - `internal/store/migration_023_test.go`, `migration_024_test.go`, and
   `migration_pinned_conn_test.go`: migration repeatability and constraints.
 

@@ -37,7 +37,7 @@ func TestParseAgentServiceCommand(t *testing.T) {
 		// Shares the binary-wide wording from internal/cliargs — the service
 		// path used to phrase this condition differently from every other
 		// flag set.
-		{name: "positional argument rejected", args: []string{"start", "extra"}, wantErr: `unexpected argument "extra"`},
+		{name: "positional argument rejected", args: []string{"start", "extra"}, wantErr: "unexpected argument"},
 	}
 
 	for _, tt := range tests {

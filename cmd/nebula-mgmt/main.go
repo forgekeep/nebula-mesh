@@ -53,7 +53,7 @@ func run() error {
 		return nil
 	default:
 		printUsage()
-		return argGuard.UnknownCommand("command", os.Args[1])
+		return argGuard.UnknownCommand("command")
 	}
 }
 
@@ -116,7 +116,7 @@ func runHost(args []string) error {
 	case "unblock":
 		return runHostAction(args[1:], "host unblock", cli.HostUnblock)
 	default:
-		return argGuard.UnknownCommand("host subcommand", args[0])
+		return argGuard.UnknownCommand("host subcommand")
 	}
 }
 
@@ -197,7 +197,7 @@ func runNetwork(args []string) error {
 	case "list":
 		return runNetworkList(args[1:])
 	default:
-		return argGuard.UnknownCommand("network subcommand", args[0])
+		return argGuard.UnknownCommand("network subcommand")
 	}
 }
 
@@ -235,7 +235,7 @@ func runUser(args []string) error {
 	case "enable":
 		return runHostAction(args[1:], "user enable", cli.UserEnable)
 	default:
-		return argGuard.UnknownCommand("user subcommand", args[0])
+		return argGuard.UnknownCommand("user subcommand")
 	}
 }
 
@@ -291,7 +291,7 @@ func runCA(args []string) error {
 	case "rotate":
 		return runCARotate(args[1:])
 	default:
-		return argGuard.UnknownCommand("ca subcommand", args[0])
+		return argGuard.UnknownCommand("ca subcommand")
 	}
 }
 
@@ -376,7 +376,7 @@ func runAPIKey(args []string) error {
 	case "revoke":
 		return runAPIKeyRevoke(args[1:])
 	default:
-		return argGuard.UnknownCommand("apikey subcommand", args[0])
+		return argGuard.UnknownCommand("apikey subcommand")
 	}
 }
 
@@ -446,7 +446,7 @@ func runOps(args []string) error {
 	case "restore":
 		return runOpsRestore(args[1:])
 	default:
-		return argGuard.UnknownCommand("ops subcommand", args[0])
+		return argGuard.UnknownCommand("ops subcommand")
 	}
 }
 

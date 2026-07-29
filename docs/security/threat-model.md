@@ -103,7 +103,7 @@ Trust zones, from least to most trusted:
 - **Open redirect**: post-login redirect hardcoded to `/ui/`.
 
 ### E6 — CLI / config / env
-- The deployer is trusted. Hardening: master key env-only; SSRF guards on `alerts.webhook_url` / `oidc.issuer` (#188); TLS required unless loopback or explicit `--insecure-http` (#179).
+- The deployer is trusted. Hardening: master key env-only; SSRF guards on `alerts.webhook_url` / `oidc.issuer` (#188); TLS required unless loopback or explicit `--insecure-http` (#179); rejected unclassified CLI arguments are described without echoing their values (`SEC-DIAGNOSTIC-001`).
 
 ### E7 — Unauthenticated probes
 - `/readyz` redacts DB error text (#187); `/debug/vars` and `/metrics` are bearer-gated / opt-in auth (#187).

@@ -56,6 +56,8 @@ jobs:
             packages: ./internal/web
           - shard: store
             packages: ./internal/store
+          - shard: api
+            packages: ./internal/api
           - shard: remainder
             packages: ''
     steps:
@@ -74,7 +76,7 @@ jobs:
             go test -race -count=1 "$PACKAGES"
           else
             go list ./... |
-              grep -Ev '/internal/(web|store)$' |
+              grep -Ev '/internal/(api|store|web)$' |
               xargs go test -race -count=1
           fi
 

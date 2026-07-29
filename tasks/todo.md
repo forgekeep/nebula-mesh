@@ -2,9 +2,9 @@
 
 ## Task 1: Define race shards
 
-**Description:** Define dedicated race commands for `internal/web` and
-`internal/store`, plus a generated remainder containing every other module
-package.
+**Description:** Define dedicated race commands for `internal/web`,
+`internal/store`, and `internal/api`, plus a generated remainder containing
+every other module package.
 
 **Acceptance criteria:**
 
@@ -27,7 +27,7 @@ package.
 
 ## Task 2: Parallelize the PR gate
 
-**Description:** Run static/security checks and the three race shards in
+**Description:** Run static/security checks and the four race shards in
 parallel, then aggregate their results under the existing required check name.
 
 **Acceptance criteria:**
@@ -81,7 +81,7 @@ from the Linux test job.
 
 - [x] Full local CI passes.
 - [ ] Every required GitHub check passes.
-- [ ] The PR gate completes in 4 minutes or less, or the remaining bottleneck is
+- [ ] The PR gate completes in 5 minutes or less, or the remaining bottleneck is
       documented before merge.
 
 **Verification:**

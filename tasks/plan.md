@@ -4,7 +4,7 @@
 
 Reduce PR feedback time without removing coverage. The current Linux gate takes
 7 minutes 32 seconds; `go test -race -count=1 ./...` accounts for 6 minutes
-20 seconds. Run the two slow packages and the remaining package set on separate
+20 seconds. Run the three slow packages and the remaining package set on separate
 runners, keep static and security checks independent, and retain the existing
 required check names.
 
@@ -13,18 +13,18 @@ required check names.
 - Baseline run: <https://github.com/forgekeep/nebula-mesh/actions/runs/30443098717>
 - `build / test / lint`: 7:32
 - `test (race)`: 6:20
-- Target: required PR checks complete in 4 minutes or less on a representative
+- Target: required PR checks complete in 5 minutes or less on a representative
   uncached run.
 - Constraint: every package returned by `go list ./...` must run once with
   `-race -count=1`.
 
 ## Architecture decisions
 
-- Use three race shards: `internal/web`, `internal/store`, and every remaining
-  package. These are the slowest local packages and isolating them minimizes the
-  critical path.
+- Use four race shards: `internal/web`, `internal/store`, `internal/api`, and
+  every remaining package. These are the slowest measured packages and
+  isolating them minimizes the critical path.
 - Generate the remainder from `go list ./...` and explicitly exclude only the
-  two dedicated packages. New packages therefore enter CI automatically.
+  three dedicated packages. New packages therefore enter CI automatically.
 - Run build, vet, lint, gosec, and govulncheck independently from race tests.
 - Add a small aggregate job named `build / test / lint`. Branch protection keeps
   the same required context and the aggregate fails if any dependency fails or
@@ -36,19 +36,19 @@ required check names.
 
 ### Phase 1: Define and validate sharding
 
-- [x] Add deterministic commands for the web, store, and remainder shards.
+- [x] Add deterministic commands for the web, store, API, and remainder shards.
 - [x] Prove that the union contains every module package exactly once.
 - [x] Run every shard locally with `-race -count=1`.
 
 ### Checkpoint: Coverage
 
 - [x] No package is missing or duplicated.
-- [x] All three race shards pass locally.
+- [x] All four race shards pass locally.
 
 ### Phase 2: Restructure the workflow
 
 - [x] Move vet, build, lint, gosec, and govulncheck into an independent job.
-- [x] Add parallel race jobs for the three validated shards.
+- [x] Add parallel race jobs for the four validated shards.
 - [x] Replace the current required Linux job with an aggregate gate named
       `build / test / lint`.
 - [x] Remove the unnecessary Docker dependency while retaining the check name
@@ -71,7 +71,7 @@ required check names.
 - [ ] Required PR checks pass.
 - [ ] Race coverage is unchanged.
 - [ ] Required check names remain compatible with branch protection.
-- [ ] PR gate meets the 4-minute target or the measured result and remaining
+- [ ] PR gate meets the 5-minute target or the measured result and remaining
       bottleneck are documented before merge.
 
 ## Risks and mitigations
@@ -80,7 +80,7 @@ required check names.
 |---|---|---|
 | A package is omitted from the remainder shard | High | Derive the package set from `go list ./...` and test set equality locally. |
 | Aggregate job passes after a failed dependency | High | Use `if: always()` and explicitly validate every `needs.*.result`. |
-| More runners increase Actions usage | Medium | Limit sharding to the two measured slow packages plus one remainder job. |
+| More runners increase Actions usage | Medium | Limit sharding to the three measured slow packages plus one remainder job. |
 | Cached and uncached timings differ | Medium | Compare end-to-end wall-clock on the PR and retain the exact baseline run. |
 
 ## Open questions

@@ -23,12 +23,48 @@ func TestRunCAImport_IsWired(t *testing.T) {
 // command must be a usage error, never a silent no-op.
 func TestRun_UnknownCommand_Errors(t *testing.T) {
 	if err := runHost([]string{"crate", "--name", "x"}); err == nil ||
-		!strings.Contains(err.Error(), "unknown host subcommand") {
-		t.Errorf("runHost(crate) error = %v, want unknown-subcommand error", err)
+		!strings.Contains(err.Error(), "unknown host subcommand") || strings.Contains(err.Error(), "crate") {
+		t.Errorf("runHost(crate) error = %v, want unknown-subcommand error without the value", err)
 	}
 	if err := runCA([]string{"rotat"}); err == nil ||
-		!strings.Contains(err.Error(), "unknown ca subcommand") {
-		t.Errorf("runCA(rotat) error = %v, want unknown-subcommand error", err)
+		!strings.Contains(err.Error(), "unknown ca subcommand") || strings.Contains(err.Error(), "rotat") {
+		t.Errorf("runCA(rotat) error = %v, want unknown-subcommand error without the value", err)
+	}
+}
+
+// TestManagementCLI_SEC_DIAGNOSTIC_001_DoesNotEchoUnclassifiedInput covers
+// the management paths where an API key or password can land in a rejected
+// command word or positional operand.
+func TestManagementCLI_SEC_DIAGNOSTIC_001_DoesNotEchoUnclassifiedInput(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		call  func(string) error
+	}{
+		{
+			name:  "API-key-like host subcommand",
+			value: "test-api-key-ThisIsNotReal",
+			call:  func(value string) error { return runHost([]string{value}) },
+		},
+		{
+			name:  "password-like user create operand",
+			value: "correct-horse-battery-staple",
+			call: func(value string) error {
+				return runUser([]string{"create", value, "--api-key", "test-key"})
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.call(test.value)
+			if err == nil {
+				t.Fatal("unclassified input accepted; want a usage error")
+			}
+			if strings.Contains(err.Error(), test.value) {
+				t.Errorf("unclassified input leaked into error: %v", err)
+			}
+		})
 	}
 }
 
@@ -57,7 +93,7 @@ func TestRejectsStrayPositionalArgs(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			err := test.call()
-			if err == nil || !strings.Contains(err.Error(), "unexpected argument") {
+			if err == nil || !strings.Contains(err.Error(), "unexpected argument") || strings.Contains(err.Error(), "extra") {
 				t.Errorf("error = %v, want the stray operand rejected", err)
 			}
 		})

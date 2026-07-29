@@ -155,13 +155,6 @@ does not permit avoidable application-level copies.
 - `internal/web/cas_test.go`:
   `TestCAImport_WebDoesNotRetainSecretFormCopies` and Web transport/body-limit
   coverage.
-- `internal/cliargs/cliargs_test.go`: `TestRedactsBootstrapTokens` — a mistyped
-  command line can put a bootstrap token where a command word belongs; CLI
-  usage errors redact it instead of echoing it into logs, terminals and shell
-  history.
-- `cmd/nebula-agent/main_test.go`:
-  `TestRun_UnknownSubcommand_RedactsBootstrapToken` — the same guard, proven
-  wired into the agent entrypoint.
 
 ### Review checklist
 
@@ -174,6 +167,48 @@ When a change touches secret ingress, verify:
 4. Are transport and identity checks executed before the first body read?
 5. Do negative tests prove rejection and cleanup, rather than only a successful
    round trip?
+
+## SEC-DIAGNOSTIC-001: CLI unclassified argument diagnostics
+
+### Rule
+
+When a CLI rejects an unclassified command word or positional operand, its
+diagnostic must describe the error category without copying the supplied value.
+It must retain the configured help hint and, for operands after flags, explain
+that later flags were ignored.
+
+Recognizer-based redaction is insufficient: arbitrary passwords, API keys,
+passphrases, and legacy enrollment tokens may not match a known prefix or
+format. The rule is limited to rejected unclassified CLI input; it does not
+define credential lifecycle or zeroization requirements.
+
+### Current enforcement
+
+- `internal/cliargs.Guard` reports an unknown command or unexpected positional
+  argument by category and retains the binary-specific usage hint without
+  interpolating the input value.
+
+### Test anchors
+
+- `internal/cliargs/cliargs_test.go`:
+  `TestUnclassifiedArgumentsAreNeverEchoed` covers password-like, API-key-like,
+  legacy-token, `nme_`, and `nmi_` values in both guard paths.
+- `cmd/nebula-agent/main_test.go`:
+  `TestRun_UnknownSubcommandDoesNotEchoUnclassifiedInput` proves errors and
+  CLI stdout/stderr do not disclose those values.
+- `cmd/nebula-mgmt/main_test.go`:
+  `TestManagementCLI_SEC_DIAGNOSTIC_001_DoesNotEchoUnclassifiedInput` covers
+  API-key-like subcommands and password-like positional operands.
+
+### Review checklist
+
+When changing rejected CLI argument diagnostics, verify:
+
+1. Does every unclassified command-word or operand error omit its value?
+2. Do negative tests cover values that no existing secret recognizer would
+   identify?
+3. Do the diagnostic category, ignored-flags explanation, and help hint remain
+   actionable?
 
 ## SEC-PERSIST-001: atomic durable security state
 

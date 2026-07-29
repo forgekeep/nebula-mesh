@@ -298,36 +298,42 @@ func TestRun_UnknownSubcommand_FailsFast(t *testing.T) {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		t.Fatalf("mistyped subcommand parked in standby instead of failing: %v", err)
 	}
-	if !strings.Contains(err.Error(), "unknown command") || !strings.Contains(err.Error(), "enrool") {
-		t.Errorf("error = %v, want it to name the unknown command", err)
+	if !strings.Contains(err.Error(), "unknown command") || strings.Contains(err.Error(), "enrool") {
+		t.Errorf("error = %v, want an unknown-command error without the command value", err)
 	}
 	if !strings.Contains(stderr.String(), "nebula-agent enroll") {
 		t.Errorf("usage not printed on unknown command; stderr = %q", stderr.String())
 	}
 }
 
-// TestRun_UnknownSubcommand_RedactsBootstrapToken — SEC-SECRET-001 forbids
-// plaintext secrets in error messages. A mistyped command line can put the
-// bootstrap token where the subcommand belongs, and the usage error echoes
-// that word back into logs and terminals.
-func TestRun_UnknownSubcommand_RedactsBootstrapToken(t *testing.T) {
-	const token = "nme_ThisIsNotARealTokenJustTestData_0123456789"
-	var stdout, stderr bytes.Buffer
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+// TestRun_UnknownSubcommandDoesNotEchoUnclassifiedInput — SEC-DIAGNOSTIC-001:
+// command words can be passwords, API keys, or current and legacy enrollment
+// tokens, so neither the error nor CLI output may copy them.
+func TestRun_UnknownSubcommandDoesNotEchoUnclassifiedInput(t *testing.T) {
+	values := []string{
+		"correct-horse-battery-staple",
+		"test-api-key-ThisIsNotReal",
+		"legacy-enrollment-token-ThisIsNotReal",
+		"nme_ThisIsNotARealTokenJustTestData_0123456789",
+		"nmi_ThisIsNotARealTokenJustTestData_0123456789",
+	}
+	for _, value := range values {
+		t.Run(value, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-	err := run(ctx, []string{token, "--server", "https://mgmt.example.com"}, &stdout, &stderr)
-	if err == nil {
-		t.Fatal("token-as-subcommand returned nil; want a usage error")
-	}
-	if strings.Contains(err.Error(), token) {
-		t.Errorf("bootstrap token leaked into error message: %v", err)
-	}
-	if strings.Contains(stdout.String(), token) || strings.Contains(stderr.String(), token) {
-		t.Errorf("bootstrap token leaked into output: stdout=%q stderr=%q", stdout.String(), stderr.String())
-	}
-	if !strings.Contains(err.Error(), "[REDACTED]") {
-		t.Errorf("error = %v, want the redaction placeholder", err)
+			err := run(ctx, []string{value, "--server", "https://mgmt.example.com"}, &stdout, &stderr)
+			if err == nil {
+				t.Fatal("value-as-subcommand returned nil; want a usage error")
+			}
+			if strings.Contains(err.Error(), value) {
+				t.Errorf("unclassified input leaked into error message: %v", err)
+			}
+			if strings.Contains(stdout.String(), value) || strings.Contains(stderr.String(), value) {
+				t.Errorf("unclassified input leaked into output: stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
 	}
 }
 
@@ -357,9 +363,9 @@ func TestRun_PositionalArgAfterFlags_Errors(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"enroll", []string{"enroll", "--server", "https://mgmt.example.com", "oops", "--token", "tok"}},
-		{"unified", []string{"--config", "/nonexistent", "oops", "--server", "https://mgmt.example.com"}},
-		{"legacy run", []string{"run", "--config", "/nonexistent", "oops"}},
+		{"enroll", []string{"enroll", "--server", "https://mgmt.example.com", "correct-horse-battery-staple", "--token", "tok"}},
+		{"unified", []string{"--config", "/nonexistent", "correct-horse-battery-staple", "--server", "https://mgmt.example.com"}},
+		{"legacy run", []string{"run", "--config", "/nonexistent", "correct-horse-battery-staple"}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -371,8 +377,11 @@ func TestRun_PositionalArgAfterFlags_Errors(t *testing.T) {
 			if err == nil {
 				t.Fatal("stray positional returned nil; want a usage error")
 			}
-			if !strings.Contains(err.Error(), "unexpected argument") || !strings.Contains(err.Error(), "oops") {
-				t.Errorf("error = %v, want it to name the stray argument", err)
+			if !strings.Contains(err.Error(), "unexpected argument") || strings.Contains(err.Error(), "correct-horse-battery-staple") {
+				t.Errorf("error = %v, want a positional-argument error without the value", err)
+			}
+			if strings.Contains(stdout.String(), "correct-horse-battery-staple") || strings.Contains(stderr.String(), "correct-horse-battery-staple") {
+				t.Errorf("positional value leaked into output: stdout=%q stderr=%q", stdout.String(), stderr.String())
 			}
 		})
 	}

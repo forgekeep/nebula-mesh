@@ -70,7 +70,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			// park in standby forever, looking like a server-side failure.
 			if !strings.HasPrefix(args[0], "-") {
 				printUsage(stderr)
-				return argGuard.UnknownCommand("command", args[0])
+				return argGuard.UnknownCommand("command")
 			}
 		}
 	}

@@ -70,7 +70,7 @@ func parseAgentServiceCommand(args []string, stderr io.Writer) (agentServiceComm
 	switch action {
 	case "install", "start", "stop", "restart", "uninstall", "run":
 	default:
-		return agentServiceCommand{}, argGuard.UnknownCommand("service action", action)
+		return agentServiceCommand{}, argGuard.UnknownCommand("service action")
 	}
 
 	fs := flag.NewFlagSet("service "+action, flag.ContinueOnError)

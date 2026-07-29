@@ -34,8 +34,11 @@ func TestRejectPositional(t *testing.T) {
 	if err == nil {
 		t.Fatal("stray operand accepted")
 	}
-	if !strings.Contains(err.Error(), `"stray"`) {
-		t.Errorf("error = %v, want it to name the operand", err)
+	if strings.Contains(err.Error(), "stray") {
+		t.Errorf("error = %v, must not copy the operand", err)
+	}
+	if !strings.Contains(err.Error(), "unexpected argument after flags; flags that follow it were ignored") {
+		t.Errorf("error = %v, want the positional-argument category and ignored-flags explanation", err)
 	}
 	if !strings.Contains(err.Error(), "run `x help` for usage") {
 		t.Errorf("error = %v, want the usage hint appended", err)
@@ -43,41 +46,35 @@ func TestRejectPositional(t *testing.T) {
 }
 
 func TestGuardWithoutHint(t *testing.T) {
-	err := Guard{}.UnknownCommand("command", "bogus")
+	err := Guard{}.UnknownCommand("command")
 	if err == nil || strings.HasSuffix(err.Error(), "; ") {
 		t.Fatalf("error = %v, want no dangling hint separator", err)
 	}
-	if !strings.Contains(err.Error(), `unknown command "bogus"`) {
+	if !strings.Contains(err.Error(), "unknown command") || strings.Contains(err.Error(), "bogus") {
 		t.Errorf("error = %v", err)
 	}
 }
 
-// TestRedactsBootstrapTokens — SEC-SECRET-001: a mistyped command line can put
-// a bootstrap token where a command word belongs, and these errors land in
-// logs, terminals and shell history. Both token purposes must be hidden while
-// ordinary operands stay visible, or the message stops being actionable.
-func TestRedactsBootstrapTokens(t *testing.T) {
-	secrets := []string{
+// TestUnclassifiedArgumentsAreNeverEchoed — SEC-DIAGNOSTIC-001: command words
+// and positional operands are unclassified input, so diagnostics must not rely
+// on recognizer-based redaction before deciding whether to copy them.
+func TestUnclassifiedArgumentsAreNeverEchoed(t *testing.T) {
+	values := []string{
+		"correct-horse-battery-staple",
+		"test-api-key-ThisIsNotReal",
+		"legacy-enrollment-token-ThisIsNotReal",
 		"nme_ThisIsNotARealTokenJustTestData",
 		"nmi_ThisIsNotARealTokenJustTestData",
 	}
-	for _, secret := range secrets {
-		if got := Redact(secret); got != Redacted {
-			t.Errorf("Redact(%q) = %q, want %q", secret, got, Redacted)
-		}
-		err := New("hint").UnknownCommand("command", secret)
-		if strings.Contains(err.Error(), secret) {
-			t.Errorf("token leaked into error: %v", err)
-		}
-		err = New("hint").RejectPositional(parsed(t, secret))
-		if strings.Contains(err.Error(), secret) {
-			t.Errorf("token leaked into operand error: %v", err)
-		}
-	}
-
-	for _, harmless := range []string{"enrool", "host", "--name", "", "nme", "nmi"} {
-		if got := Redact(harmless); got != harmless {
-			t.Errorf("Redact(%q) = %q, want it unchanged", harmless, got)
-		}
+	guard := New("hint")
+	for _, value := range values {
+		t.Run(value, func(t *testing.T) {
+			if err := guard.UnknownCommand("command"); strings.Contains(err.Error(), value) {
+				t.Errorf("unknown-command error leaked unclassified input: %v", err)
+			}
+			if err := guard.RejectPositional(parsed(t, value)); strings.Contains(err.Error(), value) {
+				t.Errorf("positional-argument error leaked unclassified input: %v", err)
+			}
+		})
 	}
 }

@@ -75,7 +75,7 @@ Trust zones, from least to most trusted:
 - **Tampering**: write actions ownership-checked; input bounded (host name/groups #186, firewall selectors #195). Mobile profile settings reject unknown or missing fields, non-IP DNS resolvers, duplicates, and oversized lists or domains.
 - **Repudiation**: mutating actions write an audit-log entry; audit-log read is admin-gated.
 - **Information disclosure**: list/read scoped to owned CAs in SQL (#154); blocklist scoped per-CA (#203); mobile profile settings are scoped through their Network and owning CA; no cross-tenant IDOR (403 not 404 side-channel documented & accepted).
-- **DoS**: request body capped + HTTP timeouts (#185); per-IP rate limit (#52). Authenticated legitimate-use DoS is out of scope (SECURITY.md).
+- **DoS**: request body capped + HTTP timeouts (#185); per-IP rate limit (#52), with forwarded client addresses accepted only from configured proxy peers (#328). Authenticated legitimate-use DoS is out of scope (SECURITY.md).
 - **Elevation**: no general "update operator" sink → no `role` mass-assignment (Netmaker CVE-2026-29195 class refuted); admin-only operator/settings endpoints.
 
 ### E2 — Web UI

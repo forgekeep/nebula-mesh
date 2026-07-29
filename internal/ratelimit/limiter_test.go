@@ -3,6 +3,7 @@ package ratelimit
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -139,6 +140,37 @@ func TestClientIP_NoTrust_UsesRemoteAddr(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", "203.0.113.10")
 	if got := l.ClientIP(r); got != "192.0.2.5" {
 		t.Errorf("ClientIP = %q, want 192.0.2.5 (X-Forwarded-For ignored)", got)
+	}
+}
+
+func TestClientIP_UntrustedDirectPeerIgnoresForwardedHeader(t *testing.T) {
+	l := New(Config{
+		Enabled:          true,
+		TrustProxyHeader: true,
+		Groups:           map[string]GroupConfig{"auth": {Rate: 5, Burst: 10}},
+	})
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "192.0.2.5:1234"
+	r.Header.Set("X-Forwarded-For", "203.0.113.10")
+	if got := l.ClientIP(r); got != "192.0.2.5" {
+		t.Errorf("ClientIP = %q, want direct peer 192.0.2.5", got)
+	}
+}
+
+func TestClientIP_ConfiguredProxyUsesForwardedHeader(t *testing.T) {
+	l := New(Config{
+		Enabled:              true,
+		TrustProxyHeader:     true,
+		TrustedProxyPrefixes: []netip.Prefix{netip.MustParsePrefix("10.42.0.0/16")},
+		Groups:               map[string]GroupConfig{"auth": {Rate: 5, Burst: 10}},
+	})
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.42.7.9:1234"
+	r.Header.Set("X-Forwarded-For", "198.51.100.25")
+	if got := l.ClientIP(r); got != "198.51.100.25" {
+		t.Errorf("ClientIP = %q, want forwarded client 198.51.100.25", got)
 	}
 }
 

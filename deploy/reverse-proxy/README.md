@@ -15,7 +15,8 @@ All three:
 
 - terminate TLS on `:443` and proxy plain HTTP to `127.0.0.1:8080`;
 - preserve the real client IP via `X-Forwarded-For` (works with
-  `rate_limit.trust_proxy_header: true` in `server.yml`);
+  `rate_limit.trust_proxy_header: true` in `server.yml`; the bundled
+  loopback upstream needs no `trusted_proxies` entry);
 - disable buffering on `/ui/events` so the Server-Sent Events feed
   (issue #43) reaches the browser in real time;
 - set HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
@@ -24,6 +25,10 @@ All three:
 The agent endpoints (`/api/v1/enroll`, `/api/v1/agent/updates`) carry
 their own bearer / token authentication — do **not** stack HTTP basic
 auth in the proxy on top of them.
+
+If the proxy connects from a non-loopback address, add that proxy's CIDR
+to `rate_limit.trusted_proxies`. Do not add client networks: only trusted
+direct peers may supply the rate-limit identity through `X-Forwarded-For`.
 
 ## Optional: mTLS on the UI only (issue #69)
 

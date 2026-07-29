@@ -261,13 +261,15 @@ type PasswordConfig struct {
 // RateLimitConfig drives the rate-limit middleware. Enabled defaults to
 // true; turn it off in trusted-network deployments by setting
 // `rate_limit: { enabled: false }`. Set `trust_proxy_header: true` when
-// running behind a reverse proxy that adds X-Forwarded-For.
+// running behind a reverse proxy that adds X-Forwarded-For. Loopback is
+// trusted automatically; list every non-loopback proxy in `trusted_proxies`.
 type RateLimitConfig struct {
 	// Enabled is a pointer so an absent YAML block defaults to "true"
 	// (issue #52 requires on-by-default) while still allowing a
 	// `rate_limit: { enabled: false }` to disable it.
 	Enabled          *bool                           `yaml:"enabled,omitempty"`
 	TrustProxyHeader bool                            `yaml:"trust_proxy_header,omitempty"`
+	TrustedProxies   []string                        `yaml:"trusted_proxies,omitempty"`
 	Groups           map[string]RateLimitGroupConfig `yaml:"groups,omitempty"`
 }
 
@@ -283,6 +285,20 @@ func (c RateLimitConfig) IsEnabled() bool {
 		return true
 	}
 	return *c.Enabled
+}
+
+// TrustedProxyPrefixes parses the configured proxy CIDRs. Loopback peers are
+// trusted implicitly when TrustProxyHeader is enabled.
+func (c RateLimitConfig) TrustedProxyPrefixes() ([]netip.Prefix, error) {
+	prefixes := make([]netip.Prefix, 0, len(c.TrustedProxies))
+	for _, raw := range c.TrustedProxies {
+		prefix, err := netip.ParsePrefix(raw)
+		if err != nil {
+			return nil, fmt.Errorf("rate_limit.trusted_proxies entry %q: %w", raw, err)
+		}
+		prefixes = append(prefixes, prefix.Masked())
+	}
+	return prefixes, nil
 }
 
 // AlertsConfig drives the periodic cert-expiry scanner and its sinks.
@@ -510,6 +526,9 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	}
 	if cfg.TrustedSecretIngressProxy && !listenIsLoopback(cfg.Listen) {
 		return nil, fmt.Errorf("trusted_secret_ingress_proxy requires a loopback listen address, got %q", cfg.Listen)
+	}
+	if _, err := cfg.RateLimit.TrustedProxyPrefixes(); err != nil {
+		return nil, err
 	}
 
 	if err := cfg.OIDC.Validate(); err != nil {

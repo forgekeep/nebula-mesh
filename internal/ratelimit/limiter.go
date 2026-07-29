@@ -12,6 +12,7 @@ import (
 	"hash/fnv"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,9 +29,10 @@ type GroupConfig struct {
 
 // Config drives the limiter.
 type Config struct {
-	Enabled          bool
-	TrustProxyHeader bool
-	Groups           map[string]GroupConfig
+	Enabled              bool
+	TrustProxyHeader     bool
+	TrustedProxyPrefixes []netip.Prefix
+	Groups               map[string]GroupConfig
 	// MaxEntriesPerShard caps the per-shard LRU. Default 65536.
 	MaxEntriesPerShard int
 	// Shards is the number of shards. Power-of-two recommended. Default 4.
@@ -122,7 +124,7 @@ func (l *Limiter) Allow(ip, group string) (allowed bool, retryAfter time.Duratio
 // rightmost entry does not parse, or trust_proxy_header is off,
 // RemoteAddr is used.
 func (l *Limiter) ClientIP(r *http.Request) string {
-	if l != nil && l.cfg.TrustProxyHeader {
+	if l != nil && l.cfg.TrustProxyHeader && l.isTrustedProxy(r.RemoteAddr) {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			parts := strings.Split(xff, ",")
 			last := strings.TrimSpace(parts[len(parts)-1])
@@ -136,6 +138,27 @@ func (l *Limiter) ClientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+func (l *Limiter) isTrustedProxy(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return false
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	if addr.IsLoopback() {
+		return true
+	}
+	for _, prefix := range l.cfg.TrustedProxyPrefixes {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 // MaskIP collapses an IP to its rate-limit-friendly prefix so audit

@@ -3,8 +3,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +14,7 @@ import (
 	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/auth"
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
@@ -26,7 +25,12 @@ const testAPIKey = "test-api-key-12345"
 
 func newTestServer(t *testing.T) (*Server, *store.SQLiteStore) {
 	t.Helper()
-	s, err := store.NewSQLiteStore(":memory:")
+	hasher, err := credentialhash.New(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(hasher.Destroy)
+	s, err := store.NewSQLiteStore(":memory:", store.WithCredentialHasher(hasher))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,13 +68,11 @@ func newTestServer(t *testing.T) (*Server, *store.SQLiteStore) {
 
 	// Seed testAPIKey as an operator API key for op so authRequest authenticates
 	// via the DB-backed path with the actor attached to the request context.
-	keySum := sha256.Sum256([]byte(testAPIKey))
 	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
 		ID:         "test-admin-key",
 		OperatorID: op.ID,
 		Name:       "test-admin-key",
-		KeyHash:    hex.EncodeToString(keySum[:]),
-	}); err != nil {
+	}, testAPIKey); err != nil {
 		t.Fatal(err)
 	}
 

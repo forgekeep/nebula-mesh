@@ -198,11 +198,10 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	token := &models.EnrollmentToken{
 		ID:        uuid.New().String(),
 		HostID:    host.ID,
-		TokenHash: models.HashEnrollmentToken(rawToken),
 		ExpiresAt: now.Add(s.tokenTTLFor(r.Context(), host.NetworkID)),
 		CreatedAt: now,
 	}
-	if err := s.store.CreateHostAndToken(r.Context(), host, token); err != nil {
+	if err := s.store.CreateHostAndToken(r.Context(), host, token, rawToken); err != nil {
 		if errors.Is(err, store.ErrMeshImportInProgress) {
 			writeError(w, http.StatusConflict, "mesh import collection is in progress for this network")
 			return

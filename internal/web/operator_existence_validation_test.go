@@ -2,8 +2,6 @@ package web
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -169,15 +167,13 @@ func TestHandleOperatorRevokeAPIKey_KidBelongsToDifferentOperator_Returns404(t *
 		}
 	}
 
-	sum := sha256.Sum256([]byte("beta-raw-token"))
 	betaKey := &models.OperatorAPIKey{
 		ID:         "key-belongs-to-beta",
 		OperatorID: "op-beta",
 		Name:       "beta-ci",
-		KeyHash:    hex.EncodeToString(sum[:]),
 		CreatedAt:  time.Now(),
 	}
-	if err := s.CreateOperatorAPIKey(context.Background(), betaKey); err != nil {
+	if err := s.CreateOperatorAPIKey(context.Background(), betaKey, "beta-raw-token"); err != nil {
 		t.Fatalf("create beta key: %v", err)
 	}
 
@@ -236,10 +232,9 @@ func TestHandleOperatorRevokeAPIKey_AlreadyRevoked_Idempotent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed gamma: %v", err)
 	}
-	sum := sha256.Sum256([]byte("gamma-token"))
 	if err := s.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{
-		ID: "key-gamma", OperatorID: "op-gamma", Name: "g", KeyHash: hex.EncodeToString(sum[:]), CreatedAt: time.Now(),
-	}); err != nil {
+		ID: "key-gamma", OperatorID: "op-gamma", Name: "g", CreatedAt: time.Now(),
+	}, "gamma-token"); err != nil {
 		t.Fatalf("create gamma key: %v", err)
 	}
 
@@ -290,10 +285,9 @@ func TestHandleOperatorRevokeAPIKey_AfterDisableCascade_Idempotent(t *testing.T)
 	}); err != nil {
 		t.Fatalf("seed epsilon: %v", err)
 	}
-	sum := sha256.Sum256([]byte("epsilon-token"))
 	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
-		ID: "key-epsilon", OperatorID: "op-epsilon", KeyHash: hex.EncodeToString(sum[:]), CreatedAt: time.Now(),
-	}); err != nil {
+		ID: "key-epsilon", OperatorID: "op-epsilon", CreatedAt: time.Now(),
+	}, "epsilon-token"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -338,10 +332,9 @@ func TestHandleOperator_HappyPath_AuditRowsCorrect(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed delta: %v", err)
 	}
-	sum := sha256.Sum256([]byte("delta-token"))
 	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
-		ID: "key-delta", OperatorID: "op-delta", Name: "d", KeyHash: hex.EncodeToString(sum[:]), CreatedAt: time.Now(),
-	}); err != nil {
+		ID: "key-delta", OperatorID: "op-delta", Name: "d", CreatedAt: time.Now(),
+	}, "delta-token"); err != nil {
 		t.Fatalf("create delta key: %v", err)
 	}
 
@@ -410,10 +403,9 @@ func TestHandleOperatorRevokeAPIKey_ConcurrentRevokeRace_Idempotent(t *testing.T
 	}); err != nil {
 		t.Fatalf("seed race: %v", err)
 	}
-	sum := sha256.Sum256([]byte("race-token"))
 	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
-		ID: "key-race", OperatorID: "op-race", Name: "r", KeyHash: hex.EncodeToString(sum[:]), CreatedAt: time.Now(),
-	}); err != nil {
+		ID: "key-race", OperatorID: "op-race", Name: "r", CreatedAt: time.Now(),
+	}, "race-token"); err != nil {
 		t.Fatalf("create race key: %v", err)
 	}
 

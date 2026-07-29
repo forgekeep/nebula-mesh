@@ -5,9 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"io"
@@ -23,6 +21,7 @@ import (
 
 	agentpop "github.com/forgekeep/nebula-mesh/internal/agent/pop"
 	"github.com/forgekeep/nebula-mesh/internal/api"
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
@@ -81,7 +80,12 @@ const testAPIKey = "e2e-test-api-key"
 func setupE2E(tb testing.TB) (*httptest.Server, *store.SQLiteStore, *models.CA) {
 	tb.Helper()
 
-	s, err := store.NewSQLiteStore(":memory:")
+	hasher, err := credentialhash.New(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(hasher.Destroy)
+	s, err := store.NewSQLiteStore(":memory:", store.WithCredentialHasher(hasher))
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -119,13 +123,11 @@ func setupE2E(tb testing.TB) (*httptest.Server, *store.SQLiteStore, *models.CA) 
 
 	// Seed testAPIKey as an operator API key so e2e requests authenticate via
 	// the DB-backed path with the actor attached.
-	keySum := sha256.Sum256([]byte(testAPIKey))
 	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
 		ID:         "e2e-admin-key",
 		OperatorID: op.ID,
 		Name:       "e2e-admin-key",
-		KeyHash:    hex.EncodeToString(keySum[:]),
-	}); err != nil {
+	}, testAPIKey); err != nil {
 		tb.Fatal(err)
 	}
 

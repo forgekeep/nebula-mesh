@@ -11,11 +11,10 @@ import (
 	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
-	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 func TestSettings_AdminSeesCAsCard(t *testing.T) {
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +82,7 @@ func TestSettings_AdminSeesCAsCard(t *testing.T) {
 }
 
 func TestSettings_UserDoesNotSeeCAsCard(t *testing.T) {
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}

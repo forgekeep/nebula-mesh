@@ -11,7 +11,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
-	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // TestDummyPasswordHashCost pins the timing-equalizer hash to the same cost as
@@ -34,7 +33,7 @@ func TestDummyPasswordHashCost(t *testing.T) {
 // in microseconds and the test fails (#180).
 func TestLogin_ConstantTimeAcrossAccountStates(t *testing.T) {
 	ctx := context.Background()
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}

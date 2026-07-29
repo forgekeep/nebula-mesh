@@ -104,6 +104,71 @@ and resource-scoped, TTL-bounded, and accepted at most once.
 3. Which lifecycle changes revoke outstanding proofs, and are they atomic?
 4. Does retry handling distinguish an exact replay from a conflicting payload?
 
+## SEC-CREDENTIAL-001: keyed persisted credential verifiers
+
+### Rule
+
+Persisted verifiers for operator API keys, operator sessions, enrollment
+tokens, mesh-import tokens, and TOTP recovery codes must use a live,
+purpose-separated keyed HMAC derived from the configured
+`NEBULA_MGMT_MASTER_KEY`. A verifier must use the versioned canonical storage
+format; unkeyed SHA-256 credential digests and caller-supplied verifiers must
+not be accepted.
+
+- Each credential family has a fixed purpose domain. The same plaintext in two
+  families must not produce the same accepted verifier.
+- The hasher must fail closed for absent, invalid, or destroyed key material.
+  It must not fall back to an unkeyed digest.
+- Credential migrations must invalidate legacy verifiers atomically. They must
+  reject active collecting mesh imports before destructive writes and must not
+  offer legacy read, dual-write, or downgrade compatibility.
+- A server must verify that the configured master key decrypts existing CA
+  material before applying the cutover or restoring an archive forward.
+- Password bcrypt hashes, certificate fingerprints, payload commitments, and
+  protocol MACs are outside this invariant unless they become persisted bearer
+  credential verifiers.
+
+### Current enforcement
+
+- `internal/credentialhash` derives the credential root with HKDF-SHA-256 and
+  produces versioned HMAC-SHA-256 digests for a closed purpose set.
+- Runtime key loading builds the CA master and credential hasher from the same
+  configured master material.
+- SQLite raw-credential operations require a live hasher; migration 027 is the
+  clean cutover boundary for legacy state.
+
+### Test anchors
+
+- `internal/credentialhash/hasher_test.go`:
+  `TestDigest_SEC_CREDENTIAL_001_SeparatesMasterAndPurpose`,
+  `TestDigest_SEC_CREDENTIAL_001_RejectsInvalidInput`, and
+  `TestDigest_SEC_CREDENTIAL_001_DestroyDisablesDigest` prove separation and
+  fail-closed behavior.
+- `internal/cli/runtime_keys_test.go`:
+  `TestLoadRuntimeKeys_SEC_CREDENTIAL_001BuildsCredentialHasher` and
+  `TestLoadRuntimeKeys_SEC_CREDENTIAL_001RejectsInvalidMaterial` cover the
+  shared master-key boundary.
+- `internal/store/sqlite_credential_hmac_test.go`:
+  `TestSQLiteStore_SEC_CREDENTIAL_001_RejectsRawCredentialOperationsWithoutLiveHasher`
+  rejects missing and destroyed hasher use.
+- `internal/store/migration_027_test.go` covers atomic refusal for collecting
+  imports and master-key guard failures, legacy-verifier invalidation, and
+  database rejection of unversioned verifiers.
+- `internal/store/sqlite_totp_reset_test.go` covers atomic break-glass reset,
+  rollback on audit failure, session revocation, and preservation of disabled
+  operator status.
+
+### Review checklist
+
+1. Does every persisted bearer-credential path receive only raw input and a
+   live purpose-separated hasher?
+2. Can an absent, invalid, or destroyed hasher, or a legacy digest, reach a
+   successful lookup or write?
+3. Does the migration fail before writes for a collecting import or a
+   non-matching master key?
+4. Do negative regression tests name `SEC-CREDENTIAL-001` or the applicable
+   lifecycle invariant?
+
 ## SEC-SECRET-001: mutable cryptographic secret ingress
 
 ### Rule

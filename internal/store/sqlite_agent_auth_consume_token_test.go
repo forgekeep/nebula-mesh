@@ -39,7 +39,7 @@ func TestConsumeToken_AtomicUnderConcurrency(t *testing.T) {
 	const workers = 10
 
 	dbPath := filepath.Join(t.TempDir(), "cas.db")
-	s, err := NewSQLiteStore(dbPath)
+	s, err := NewSQLiteStore(dbPath, WithCredentialHasher(newTestCredentialHasher(t)))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

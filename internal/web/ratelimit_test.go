@@ -16,7 +16,7 @@ import (
 
 func newRateLimitWeb(t *testing.T) *Web {
 	t.Helper()
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}

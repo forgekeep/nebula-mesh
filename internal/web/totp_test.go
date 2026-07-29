@@ -38,21 +38,23 @@ func TestGenerateAndVerifyTOTP(t *testing.T) {
 	}
 }
 
-func TestGenerateRecoveryCodes_HashesMatch(t *testing.T) {
-	codes, hashes, err := generateRecoveryCodes(5)
+func TestGenerateRecoveryCodes_FormatAndUniqueness(t *testing.T) {
+	codes, err := generateRecoveryCodes(5)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(codes) != 5 || len(hashes) != 5 {
-		t.Fatalf("got %d codes / %d hashes", len(codes), len(hashes))
+	if len(codes) != 5 {
+		t.Fatalf("got %d codes", len(codes))
 	}
-	for i, c := range codes {
-		if hashRecoveryCode(c) != hashes[i] {
-			t.Errorf("hash mismatch for code %d", i)
+	seen := make(map[string]bool, len(codes))
+	for _, code := range codes {
+		if len(code) != 10 || code != strings.ToUpper(code) {
+			t.Errorf("invalid recovery code format %q", code)
 		}
-		if hashRecoveryCode(strings.ToLower(c)) != hashes[i] {
-			t.Errorf("case-insensitive normalization broke for code %d", i)
+		if seen[code] {
+			t.Errorf("duplicate recovery code %q", code)
 		}
+		seen[code] = true
 	}
 }
 
@@ -193,7 +195,7 @@ func TestLogin_TOTPRecoveryCode(t *testing.T) {
 
 	// Seed a recovery code we know.
 	plainCode := "RECOVER123"
-	if err := w.store.ReplaceOperatorRecoveryCodes(context.Background(), "admin-test-id", []string{hashRecoveryCode(plainCode)}); err != nil {
+	if err := w.store.ReplaceOperatorRecoveryCodes(context.Background(), "admin-test-id", []string{plainCode}); err != nil {
 		t.Fatal(err)
 	}
 

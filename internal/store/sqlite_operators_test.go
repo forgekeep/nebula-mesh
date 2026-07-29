@@ -60,7 +60,7 @@ func TestSeedInitialAdminOperator_EmptyRoleDefaultsToAdmin(t *testing.T) {
 	op := &models.Operator{
 		ID: "op-seed", Username: "root", PasswordHash: "bcrypt$hash",
 	}
-	seeded, err := s.SeedInitialAdminOperator(context.Background(), op, nil)
+	seeded, err := s.SeedInitialAdminOperator(context.Background(), op, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestDisableOperator_CascadesSessionsAndAPIKeys(t *testing.T) {
 	// One API key, one session
 	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
 		ID: "k1", OperatorID: op.ID, Name: "cli", KeyHash: "hash1",
-	}); err != nil {
+	}, "api-key-1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CreateOperatorSession(ctx, &models.OperatorSession{
@@ -135,22 +135,22 @@ func TestDisableOperator_CascadesSessionsAndAPIKeys(t *testing.T) {
 	}
 
 	// Lookup by hash returns nothing (revoked + operator disabled)
-	if _, _, err := s.GetOperatorByAPIKeyHash(ctx, "hash1"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.GetOperatorByAPIKey(ctx, "api-key-1"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("disabled operator's key still resolves: %v", err)
 	}
 }
 
-func TestGetOperatorByAPIKeyHash_Lookup(t *testing.T) {
+func TestGetOperatorByAPIKey_Lookup(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	op := newTestOperator(t, s, "dave")
 	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
 		ID: "k-dave", OperatorID: op.ID, Name: "main", KeyHash: "dave-hash",
-	}); err != nil {
+	}, "dave-key"); err != nil {
 		t.Fatal(err)
 	}
 
-	gotOp, gotKey, err := s.GetOperatorByAPIKeyHash(ctx, "dave-hash")
+	gotOp, gotKey, err := s.GetOperatorByAPIKey(ctx, "dave-key")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestGetOperatorByAPIKeyHash_Lookup(t *testing.T) {
 		t.Errorf("key name = %q, want main", gotKey.Name)
 	}
 
-	if _, _, err := s.GetOperatorByAPIKeyHash(ctx, "nonexistent"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.GetOperatorByAPIKey(ctx, "nonexistent"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -172,7 +172,7 @@ func TestRevokeOperatorAPIKey(t *testing.T) {
 	op := newTestOperator(t, s, "eve")
 	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
 		ID: "k-eve", OperatorID: op.ID, KeyHash: "eve-hash",
-	}); err != nil {
+	}, "eve-key"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -180,7 +180,7 @@ func TestRevokeOperatorAPIKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := s.GetOperatorByAPIKeyHash(ctx, "eve-hash"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.GetOperatorByAPIKey(ctx, "eve-key"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("revoked key still resolves: %v", err)
 	}
 
@@ -199,7 +199,7 @@ func TestGetOperatorAPIKey(t *testing.T) {
 	op := newTestOperator(t, s, "grace")
 	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
 		ID: "k-grace", OperatorID: op.ID, Name: "primary", KeyHash: "grace-hash",
-	}); err != nil {
+	}, "grace-key"); err != nil {
 		t.Fatal(err)
 	}
 

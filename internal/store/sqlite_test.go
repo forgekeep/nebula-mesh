@@ -8,12 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 func newTestStore(t *testing.T) *SQLiteStore {
 	t.Helper()
-	s, err := NewSQLiteStore(":memory:")
+	hasher := newTestCredentialHasher(t)
+	s, err := NewSQLiteStore(":memory:", WithCredentialHasher(hasher))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,6 +24,16 @@ func newTestStore(t *testing.T) *SQLiteStore {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+func newTestCredentialHasher(t *testing.T) *credentialhash.Hasher {
+	t.Helper()
+	hasher, err := credentialhash.New([]byte("store-test-master"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(hasher.Destroy)
+	return hasher
 }
 
 func createTestNetwork(t *testing.T, s *SQLiteStore) *models.Network {
@@ -349,10 +361,10 @@ func TestConsumeToken_Success(t *testing.T) {
 	}
 
 	tok := &models.EnrollmentToken{
-		ID: "tok_1", HostID: "host_1", TokenHash: models.HashEnrollmentToken("secret-token"),
+		ID: "tok_1", HostID: "host_1",
 		ExpiresAt: time.Now().Add(1 * time.Hour), CreatedAt: time.Now(),
 	}
-	if err := s.CreateToken(ctx, tok); err != nil {
+	if err := s.CreateToken(ctx, tok, "secret-token"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -381,10 +393,10 @@ func TestConsumeToken_AlreadyUsed(t *testing.T) {
 	s.CreateHost(ctx, h)
 
 	tok := &models.EnrollmentToken{
-		ID: "tok_1", HostID: "host_1", TokenHash: models.HashEnrollmentToken("one-time"),
+		ID: "tok_1", HostID: "host_1",
 		ExpiresAt: time.Now().Add(1 * time.Hour), CreatedAt: time.Now(),
 	}
-	s.CreateToken(ctx, tok)
+	s.CreateToken(ctx, tok, "one-time")
 	s.ConsumeToken(ctx, "one-time")
 
 	_, err := s.ConsumeToken(ctx, "one-time")
@@ -406,10 +418,10 @@ func TestConsumeToken_Expired(t *testing.T) {
 	s.CreateHost(ctx, h)
 
 	tok := &models.EnrollmentToken{
-		ID: "tok_1", HostID: "host_1", TokenHash: models.HashEnrollmentToken("expired-token"),
+		ID: "tok_1", HostID: "host_1",
 		ExpiresAt: time.Now().Add(-1 * time.Hour), CreatedAt: time.Now(),
 	}
-	s.CreateToken(ctx, tok)
+	s.CreateToken(ctx, tok, "expired-token")
 
 	_, err := s.ConsumeToken(ctx, "expired-token")
 	if !errors.Is(err, ErrTokenExpired) {
@@ -1248,11 +1260,11 @@ func TestCreateHostAndToken(t *testing.T) {
 		CreatedAt: now, UpdatedAt: now,
 	}
 	token := &models.EnrollmentToken{
-		ID: "tok_atomic", HostID: host.ID, TokenHash: models.HashEnrollmentToken("test-token-123"),
+		ID: "tok_atomic", HostID: host.ID,
 		ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now,
 	}
 
-	if err := s.CreateHostAndToken(ctx, host, token); err != nil {
+	if err := s.CreateHostAndToken(ctx, host, token, "test-token-123"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1287,21 +1299,21 @@ func TestCreateHostAndToken_DuplicateHost(t *testing.T) {
 		CreatedAt: now, UpdatedAt: now,
 	}
 	token1 := &models.EnrollmentToken{
-		ID: "tok1", HostID: host.ID, TokenHash: models.HashEnrollmentToken("token-1"),
+		ID: "tok1", HostID: host.ID,
 		ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now,
 	}
 
 	// First creation succeeds
-	if err := s.CreateHostAndToken(ctx, host, token1); err != nil {
+	if err := s.CreateHostAndToken(ctx, host, token1, "token-1"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Duplicate host should fail, and token should not be created
 	token2 := &models.EnrollmentToken{
-		ID: "tok2", HostID: host.ID, TokenHash: models.HashEnrollmentToken("token-2"),
+		ID: "tok2", HostID: host.ID,
 		ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now,
 	}
-	err := s.CreateHostAndToken(ctx, host, token2)
+	err := s.CreateHostAndToken(ctx, host, token2, "token-2")
 	if err == nil {
 		t.Fatal("expected error for duplicate host")
 	}
@@ -1833,13 +1845,12 @@ func TestSQLiteStore_CreateHostAndToken_KindDefault(t *testing.T) {
 	}
 
 	enrollToken := &models.EnrollmentToken{
-		TokenHash: models.HashEnrollmentToken("test-token-xyz"),
 		HostID:    agentHost.ID,
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 		CreatedAt: time.Now(),
 	}
 
-	if err := s.CreateHostAndToken(ctx, agentHost, enrollToken); err != nil {
+	if err := s.CreateHostAndToken(ctx, agentHost, enrollToken, "test-token-xyz"); err != nil {
 		t.Fatalf("CreateHostAndToken: %v", err)
 	}
 

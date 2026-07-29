@@ -1,8 +1,6 @@
 package api
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -47,9 +45,7 @@ func bearerAuth(s store.Store) func(http.Handler) http.Handler {
 				return
 			}
 
-			sum := sha256.Sum256([]byte(token))
-			hash := hex.EncodeToString(sum[:])
-			op, key, err := s.GetOperatorByAPIKeyHash(r.Context(), hash)
+			op, key, err := s.GetOperatorByAPIKey(r.Context(), token)
 			switch {
 			case err == nil:
 				// Best-effort last_used_at update; ignore failure.

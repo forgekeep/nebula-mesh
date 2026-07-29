@@ -3,8 +3,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -30,10 +28,9 @@ func createUserWithAPIKey(t *testing.T, srv *Server, role string) string {
 		t.Fatal(err)
 	}
 	rawKey := uuid.New().String()
-	keySum := sha256.Sum256([]byte(rawKey))
 	if err := srv.store.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
-		ID: uuid.New().String(), OperatorID: op.ID, KeyHash: hex.EncodeToString(keySum[:]),
-	}); err != nil {
+		ID: uuid.New().String(), OperatorID: op.ID,
+	}, rawKey); err != nil {
 		t.Fatal(err)
 	}
 	return rawKey

@@ -141,7 +141,7 @@ func TestConsumeOperatorTOTPTimestep_CAS(t *testing.T) {
 // denial — an operator hitting a DB blip must get a distinguishable error,
 // and the failure must not look like a wrong code.
 func TestLogin_TOTPStoreErrorIs500NotDenial(t *testing.T) {
-	baseStore, err := store.NewSQLiteStore(":memory:")
+	baseStore, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}

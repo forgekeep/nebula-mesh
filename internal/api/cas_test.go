@@ -3,10 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -58,10 +56,9 @@ func newServerWithMaster(t *testing.T) (*Server, string) {
 		t.Fatal(err)
 	}
 	rawKey := uuid.New().String()
-	keyHash := sha256.Sum256([]byte(rawKey))
 	if err := srv.store.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{
-		ID: uuid.New().String(), OperatorID: adminID, KeyHash: hex.EncodeToString(keyHash[:]),
-	}); err != nil {
+		ID: uuid.New().String(), OperatorID: adminID,
+	}, rawKey); err != nil {
 		t.Fatal(err)
 	}
 	return srv, rawKey
@@ -488,10 +485,9 @@ func TestListCAs_ScopedToOwner(t *testing.T) {
 			t.Fatal(err)
 		}
 		rawKey := uuid.New().String()
-		keyHash := sha256.Sum256([]byte(rawKey))
 		if err := srv.store.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{
-			ID: uuid.New().String(), OperatorID: opID, KeyHash: hex.EncodeToString(keyHash[:]),
-		}); err != nil {
+			ID: uuid.New().String(), OperatorID: opID,
+		}, rawKey); err != nil {
 			t.Fatal(err)
 		}
 		return rawKey
@@ -673,10 +669,9 @@ func TestRotateCA_Forbidden_NonOwner(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	keyHash := sha256.Sum256([]byte(nonAdminKey))
 	if err := srv.store.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{
-		ID: uuid.New().String(), OperatorID: nonAdminID, KeyHash: hex.EncodeToString(keyHash[:]),
-	}); err != nil {
+		ID: uuid.New().String(), OperatorID: nonAdminID,
+	}, nonAdminKey); err != nil {
 		t.Fatal(err)
 	}
 
@@ -776,10 +771,9 @@ func createAdminKey(t *testing.T, srv *Server) string {
 		t.Fatal(err)
 	}
 	rawKey := uuid.New().String()
-	keyHash := sha256.Sum256([]byte(rawKey))
 	if err := srv.store.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{
-		ID: uuid.New().String(), OperatorID: adminID, KeyHash: hex.EncodeToString(keyHash[:]),
-	}); err != nil {
+		ID: uuid.New().String(), OperatorID: adminID,
+	}, rawKey); err != nil {
 		t.Fatal(err)
 	}
 	return rawKey

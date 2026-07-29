@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
-	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // TestDisableOperator_KillsActiveOIDCSession pins the disable-cascade
@@ -17,7 +16,7 @@ import (
 // auth_provider against the OIDC path specifically.
 func TestDisableOperator_KillsActiveOIDCSession(t *testing.T) {
 	ctx := context.Background()
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

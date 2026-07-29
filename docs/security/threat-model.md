@@ -48,12 +48,12 @@ Trust zones, from least to most trusted:
 | ID | Asset | Protection at rest / in transit | References |
 |----|-------|--------------------------------|------------|
 | A1 | CA private keys | Envelope encryption: per-CA DEK (AES-256-GCM) wrapped under the master KEK; never written in plaintext. Zeroized on the error path and after decode. | ADR 0001, ADR 0003; `internal/keystore`; #181, #196 |
-| A2 | Master KEK (`NEBULA_MGMT_MASTER_KEY`) | Supplied via env only; never logged, never in argv. Decoded buffer zeroized after building the AEAD. | ADR 0003; #196 |
-| A3 | Operator credentials & sessions | Passwords bcrypt-hashed; API keys hashed at rest; sessions are random tokens; cookie `HttpOnly` + `SameSite=Lax` + `Secure`-gated. | `internal/web/session.go`; #180 |
-| A4 | Enrollment tokens | `crypto/rand` UUID, SHA-256 at rest, single-use via an atomic conditional consume; bound to a specific `host_id`. | ADR 0004; #197 |
+| A2 | Master KEK (`NEBULA_MGMT_MASTER_KEY`) | Supplied via env only; never logged, never in argv. It decrypts CA material and derives the credential-verifier root; decoded buffer zeroized after construction. | ADR 0003, ADR 0010; #196, #338 |
+| A3 | Operator credentials & sessions | Passwords bcrypt-hashed; API keys, sessions, and TOTP recovery codes use purpose-separated versioned HMAC verifiers derived from the master key; cookie `HttpOnly` + `SameSite=Lax` + `Secure`-gated. | ADR 0010; `internal/web/session.go`; #180, #338 |
+| A4 | Enrollment tokens | `crypto/rand` UUID, purpose-separated HMAC verifier at rest, single-use via an atomic conditional consume; bound to a specific `host_id`. | ADR 0004, ADR 0010; #197, #338 |
 | A5 | Certificate-signing authority | Every sign path is gated by `checkIssuanceAllowed` (blocked host / disabled operator → refuse). | GHSA-339v-266x-79xr; `internal/revocation` |
 | A6 | Network topology & host metadata | Reads scoped to the caller's owned CAs/networks; revocation blocklist scoped per-CA; managed webhook delivery scoped by the event CA owner. The deployer-owned static webhook remains server-wide. | #154, #203; `internal/webhook` |
-| A7 | Existing-mesh import material | CA signing key is encrypted on ingress; import token is SHA-256 hashed; snapshots contain allowlisted public topology and never `host.key`. | `internal/caimport`, `internal/agent/discovery.go`, `internal/secretingress` |
+| A7 | Existing-mesh import material | CA signing key is encrypted on ingress; import token uses a purpose-separated HMAC verifier; snapshots contain allowlisted public topology and never `host.key`. | ADR 0010; `internal/caimport`, `internal/agent/discovery.go`, `internal/secretingress` |
 
 ## 3. Entry points & trust boundaries
 
@@ -71,7 +71,7 @@ Trust zones, from least to most trusted:
 ## 4. STRIDE per entry point
 
 ### E1 — Management API
-- **Spoofing**: API key required; keys hashed at rest, revocable; disabled operators rejected (re-check on every request, #147).
+- **Spoofing**: API key required; keys use purpose-separated HMAC verifiers at rest, are revocable, and disabled operators are rejected on every request (#147, ADR 0010).
 - **Tampering**: write actions ownership-checked; input bounded (host name/groups #186, firewall selectors #195). Mobile profile settings reject unknown or missing fields, non-IP DNS resolvers, duplicates, and oversized lists or domains.
 - **Repudiation**: mutating actions write an audit-log entry; audit-log read is admin-gated.
 - **Information disclosure**: list/read scoped to owned CAs in SQL (#154); blocklist scoped per-CA (#203); mobile profile settings are scoped through their Network and owning CA; no cross-tenant IDOR (403 not 404 side-channel documented & accepted).
@@ -85,7 +85,7 @@ Trust zones, from least to most trusted:
 - **Session**: rotated on privilege transition; invalidated on logout, operator-disable, and password reset (#204).
 
 ### E3 — Agent enroll
-- **Spoofing / Replay**: token is single-use (atomic consume, #197), TTL-bounded, and bound to a `host_id` server-side — a token cannot enroll a different host.
+- **Spoofing / Replay**: token has a purpose-separated HMAC verifier, is single-use (atomic consume, #197), TTL-bounded, and bound to a `host_id` server-side — a token cannot enroll a different host.
 - **Elevation**: certificate fields (`Name`, `NebulaIPs`, `Groups`) come from the DB host row, not the request body.
 - **Concurrent identity edits**: enrollment re-checks those certificate-bound fields inside the token-consume transaction. A change after signing preserves `pending_rekey`, so the agent must re-enroll for the newer durable identity.
 - **Issuance abuse**: blocked host / disabled operator refused before signing (GHSA-339v-266x-79xr).
@@ -110,7 +110,7 @@ Trust zones, from least to most trusted:
 
 ### E8 — Existing mesh import
 - **Spoofing**: the reusable token alone is insufficient. Registration requires a short-lived server challenge and X25519/HMAC proof from the private key matching the submitted, CA-verified host certificate; the private key is never uploaded.
-- **Replay / token theft**: `nmi_` tokens are random, hashed at rest, TTL- and session-bound, rotatable, and invalid after cancel/finalize. Challenges are single-use and bind the certificate fingerprint, Ed25519 signing key and sanitized payload hash. Expected host count limits fleet expansion.
+- **Replay / token theft**: `nmi_` tokens are random, use purpose-separated HMAC verifiers at rest, are TTL- and session-bound, rotatable, and invalid after cancel/finalize. Challenges are single-use and bind the certificate fingerprint, Ed25519 signing key and sanitized payload hash. Expected host count limits fleet expansion.
 - **Ambiguous response recovery**: the agent retries one exact final payload and accepts a signed poll only after retry returns `409 import_challenge_used`. Explicit conflicts, including `422 import_payload_conflict`, cannot be confirmed through an old registration.
 - **Information disclosure**: discovery constructs an allowlist snapshot. It uploads public certificates, routes, endpoints and normalized policy, but no host private key, CA private key, inline secrets or unsupported setting values. Request bodies and raw tokens are not audited.
 - **Tampering / cutover**: imported hosts remain `importing`, and signed polls return `import_pending` without updates. Preview exposes conflicts and the proposed Host status. Finalize requires inventory confirmation, warning acknowledgements and revision compare-and-swap. Inside the transaction it recomputes blocklist consensus from persisted snapshots, requires an exact caller match, compares proposal and staged Host fingerprints with the snapshot fingerprint, links matching blocklist rows and preserves those Hosts as `blocked`.
@@ -119,7 +119,7 @@ Trust zones, from least to most trusted:
 ## 5. Cross-cutting mitigations
 
 - **Transport**: TLS by default; non-loopback plaintext bind refused unless opted in (#179).
-- **Crypto**: AES-256-GCM throughout; both CA-key envelope layers bind the owning `ca_id` as AAD, so an envelope copied between CA rows fails to decrypt (envelopes sealed before the binding load via a nil-AAD fallback and are backstopped by a key/cert public-key consistency check at load); key material zeroized (#181, #196).
+- **Crypto**: AES-256-GCM protects CA material; a HKDF-SHA-256 root derived from the same master key produces purpose-separated HMAC-SHA-256 credential verifiers (ADR 0010, `SEC-CREDENTIAL-001`). Both CA-key envelope layers bind the owning `ca_id` as AAD, so an envelope copied between CA rows fails to decrypt (envelopes sealed before the binding load via a nil-AAD fallback and are backstopped by a key/cert public-key consistency check at load); key material zeroized (#181, #196).
 - **Input**: strict JSON decode for ordinary APIs; bounded, fail-closed
   multipart parsing for cryptographic secret ingress; body caps and length
   bounds on cert-embedded fields (#186, #195; `SEC-SECRET-001`).
@@ -136,6 +136,7 @@ Trust zones, from least to most trusted:
 | Pre-fix orphan blocklist rows (host already deleted, no `ca_id`) are broadcast to all CAs | Cannot recover the CA for an orphan; never weaken revocation | Fail-safe broadcast only; all new revocations are CA-scoped (#203) |
 | TOCTOU between admin re-check and a mutating SQL statement | Window is small and the action still requires a valid admin session | `isActiveAdmin` re-reads role from DB per request (#147) |
 | Plaintext / no-TLS deployments | Out of scope when not following the README | TLS-by-default + loopback-only insecure bind (#179) |
+| Database-only credential verifier theft | A DB dump cannot compute an accepted HMAC verifier without the matching master key; a compromise of both remains control-plane compromise | Purpose-separated keyed verifiers, master-key ingress controls, and the irreversible cutover (ADR 0010, `SEC-CREDENTIAL-001`) |
 | A stolen live `nmi_` token lets an attacker submit certificates whose private keys they control under the imported CA | A fleet token must be reusable during asynchronous collection | Short TTL, exact CA/session scope, host-key proof, expected count, preview and operator-controlled finalize |
 | Finalized server-rendered config can still break data-plane connectivity despite semantic validation | The control plane cannot observe end-to-end Nebula health | Explicit finalize, per-host pre-import config backup, at-least-once config delivery and documented rollback |
 | Unblocking a revoked imported Host authorizes its old management signing key immediately and its old Nebula certificate after peer rollout | The existing unblock API is an explicit re-authorization action, not a credential-replacement protocol | UI/API require an operator action; CA-scoped version bumps remove the fingerprint from every affected Network; operators use re-enrollment or force-rotate for replacement |

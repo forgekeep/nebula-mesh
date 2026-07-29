@@ -159,7 +159,7 @@ func (w *Web) handleTOTPLogin(rw http.ResponseWriter, r *http.Request) {
 		// can regenerate codes from /ui/2fa — and is preferred over
 		// a verify-then-consume split that opens a TOCTOU window
 		// allowing N concurrent sessions from one one-time code.
-		if err := w.store.ConsumeOperatorRecoveryCode(r.Context(), op.ID, hashRecoveryCode(recovery)); err == nil {
+		if err := w.store.ConsumeOperatorRecoveryCode(r.Context(), op.ID, recovery); err == nil {
 			ok = true
 			usedRecovery = true
 		}
@@ -496,13 +496,13 @@ func (w *Web) handleTwoFAEnable(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	codes, hashes, err := generateRecoveryCodes(totpRecoveryCodeCount)
+	codes, err := generateRecoveryCodes(totpRecoveryCodeCount)
 	if err != nil {
 		w.logger.Error("generate recovery codes", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if err := w.store.ReplaceOperatorRecoveryCodes(r.Context(), op.ID, hashes); err != nil {
+	if err := w.store.ReplaceOperatorRecoveryCodes(r.Context(), op.ID, codes); err != nil {
 		w.logger.Error("save recovery codes", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
@@ -558,7 +558,7 @@ func (w *Web) handleTwoFADisable(rw http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else if recoveryCode != "" {
-		if err := w.store.ConsumeOperatorRecoveryCode(r.Context(), op.ID, hashRecoveryCode(recoveryCode)); err == nil {
+		if err := w.store.ConsumeOperatorRecoveryCode(r.Context(), op.ID, recoveryCode); err == nil {
 			secondFactorOK = true
 		}
 	}
@@ -591,13 +591,13 @@ func (w *Web) handleTwoFARegenCodes(rw http.ResponseWriter, r *http.Request) {
 		http.Redirect(rw, r, "/ui/2fa", http.StatusSeeOther)
 		return
 	}
-	codes, hashes, err := generateRecoveryCodes(totpRecoveryCodeCount)
+	codes, err := generateRecoveryCodes(totpRecoveryCodeCount)
 	if err != nil {
 		w.logger.Error("generate recovery codes", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if err := w.store.ReplaceOperatorRecoveryCodes(r.Context(), op.ID, hashes); err != nil {
+	if err := w.store.ReplaceOperatorRecoveryCodes(r.Context(), op.ID, codes); err != nil {
 		w.logger.Error("save recovery codes", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
@@ -1028,11 +1028,10 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	token := &models.EnrollmentToken{
 		ID:        uuid.New().String(),
 		HostID:    host.ID,
-		TokenHash: models.HashEnrollmentToken(rawToken),
 		ExpiresAt: now.Add(w.tokenTTLFor(r.Context(), networkID)),
 		CreatedAt: now,
 	}
-	if err := w.store.CreateHostAndToken(r.Context(), host, token); err != nil {
+	if err := w.store.CreateHostAndToken(r.Context(), host, token, rawToken); err != nil {
 		if errors.Is(err, store.ErrMeshImportInProgress) {
 			http.Error(rw, "Mesh import collection is in progress for this network", http.StatusConflict)
 			return

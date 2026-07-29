@@ -182,7 +182,7 @@ func seedCanceledMeshImport(t *testing.T, st *store.SQLiteStore, ownerID string,
 		Status: models.MeshImportStatusCollecting, TokenHash: uuid.NewString(),
 		TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
 	}
-	require.NoError(t, st.CreateMeshImport(context.Background(), item))
+	require.NoError(t, st.CreateMeshImport(context.Background(), item, "scoping-import-token-"+item.ID))
 	require.NoError(t, st.CancelMeshImport(context.Background(), item.ID, "scoping fixture", now))
 }
 

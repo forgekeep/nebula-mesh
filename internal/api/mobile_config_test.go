@@ -91,7 +91,7 @@ func TestMobileConfig_PutConflictsWithCollectingMeshImport(t *testing.T) {
 		ID: uuid.NewString(), NetworkID: network.ID, CAID: ca.ID,
 		OwnerOperatorID: operator.ID, Status: models.MeshImportStatusCollecting,
 		TokenHash: uuid.NewString(), TokenExpiresAt: time.Now().Add(time.Hour),
-	}))
+	}, "mobile-config-import-token"))
 
 	response := mobileConfigRequest(t, srv, http.MethodPut,
 		"/api/v1/networks/"+network.ID+"/mobile-config",

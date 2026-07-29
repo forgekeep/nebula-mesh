@@ -173,7 +173,7 @@ func TestConsumeTokenAndEnrollHost_ConcurrentSameToken_ExactlyOneEnrolls(t *test
 	const workers = 10
 
 	dbPath := filepath.Join(t.TempDir(), "enroll.db")
-	s, err := NewSQLiteStore(dbPath)
+	s, err := NewSQLiteStore(dbPath, WithCredentialHasher(newTestCredentialHasher(t)))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

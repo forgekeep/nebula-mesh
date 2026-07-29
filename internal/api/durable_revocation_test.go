@@ -5,8 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -275,13 +273,11 @@ func seedSecondAdmin(t *testing.T, st *store.SQLiteStore) {
 	if err := st.CreateOperator(ctx, op); err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256([]byte(secondAdminKey))
 	if err := st.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
 		ID:         "second-admin-key",
 		OperatorID: op.ID,
 		Name:       "second-admin-key",
-		KeyHash:    hex.EncodeToString(sum[:]),
-	}); err != nil {
+	}, secondAdminKey); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -68,7 +68,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  user <create|list|disable|enable>")
 	fmt.Fprintln(os.Stderr, "  apikey <create|revoke>")
 	fmt.Fprintln(os.Stderr, "  ca <create|import|list|delete|rotate>")
-	fmt.Fprintln(os.Stderr, "  ops <mint-admin-key>")
+	fmt.Fprintln(os.Stderr, "  ops <mint-admin-key|reset-totp|backup|restore>")
 }
 
 func runInit(args []string) error {
@@ -436,11 +436,13 @@ func runNetworkList(args []string) error {
 
 func runOps(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: nebula-mgmt ops <mint-admin-key|backup|restore>")
+		return fmt.Errorf("usage: nebula-mgmt ops <mint-admin-key|reset-totp|backup|restore>")
 	}
 	switch args[0] {
 	case "mint-admin-key":
 		return runOpsMintAdminKey(args[1:])
+	case "reset-totp":
+		return runOpsResetTOTP(args[1:])
 	case "backup":
 		return runOpsBackup(args[1:])
 	case "restore":
@@ -498,4 +500,21 @@ func runOpsMintAdminKey(args []string) error {
 		return fmt.Errorf("--config is required")
 	}
 	return cli.OpsMintAdminKey(*configPath)
+}
+
+func runOpsResetTOTP(args []string) error {
+	fs := flag.NewFlagSet("ops reset-totp", flag.ExitOnError)
+	configPath := fs.String("config", "", "config file path (required)")
+	username := fs.String("username", "", "operator username (required)")
+	confirm := fs.Bool("confirm", false, "confirm disabling TOTP and revoking all sessions")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
+		return err
+	}
+	if *configPath == "" || *username == "" {
+		return fmt.Errorf("--config and --username are required")
+	}
+	return cli.OpsResetTOTP(*configPath, *username, *confirm)
 }

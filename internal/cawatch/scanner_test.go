@@ -10,13 +10,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 func newTestStore(t *testing.T) (store.Store, string) {
-	s, err := store.NewSQLiteStore(":memory:")
+	hasher, err := credentialhash.New(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
+	if err != nil {
+		t.Fatalf("create credential hasher: %v", err)
+	}
+	t.Cleanup(hasher.Destroy)
+	s, err := store.NewSQLiteStore(":memory:", store.WithCredentialHasher(hasher))
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
@@ -152,7 +158,7 @@ func TestScanner_Run_DoesNotRotateCAWhileMeshImportCollects(t *testing.T) {
 		OwnerOperatorID: opID, Status: models.MeshImportStatusCollecting,
 		TokenHash: "token-hash", TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
 	}
-	if err := st.CreateMeshImport(ctx, session); err != nil {
+	if err := st.CreateMeshImport(ctx, session, "token-hash"); err != nil {
 		t.Fatalf("create mesh import: %v", err)
 	}
 

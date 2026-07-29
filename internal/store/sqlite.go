@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store/migrations"
 
@@ -44,16 +45,40 @@ var (
 	ErrMeshImportExpectedHostsReached = errors.New("mesh import expected host count reached")
 	ErrMeshImportScopeInvalid         = errors.New("mesh import scope is invalid")
 	ErrMeshImportConflict             = errors.New("mesh import changed since preview")
+	ErrCredentialHasherUnavailable    = errors.New("credential hasher unavailable")
+	ErrCredentialCutoverBlocked       = errors.New("credential cutover blocked by a collecting mesh import")
+	ErrCredentialCutoverGuardMissing  = errors.New("credential cutover master-key guard unavailable")
 )
 
 // SQLiteStore implements Store using SQLite.
 type SQLiteStore struct {
-	db *sql.DB
+	db                     *sql.DB
+	hasher                 *credentialhash.Hasher
+	credentialCutoverGuard func(context.Context, *SQLiteStore) error
+}
+
+// SQLiteStoreOption configures a SQLiteStore.
+type SQLiteStoreOption func(*SQLiteStore)
+
+// WithCredentialHasher configures the HMAC boundary for persisted credentials.
+func WithCredentialHasher(hasher *credentialhash.Hasher) SQLiteStoreOption {
+	return func(store *SQLiteStore) {
+		store.hasher = hasher
+	}
+}
+
+// WithCredentialCutoverGuard verifies that the configured master key can
+// decrypt persisted CA material before migration 027 destroys legacy
+// credential verifiers.
+func WithCredentialCutoverGuard(guard func(context.Context, *SQLiteStore) error) SQLiteStoreOption {
+	return func(store *SQLiteStore) {
+		store.credentialCutoverGuard = guard
+	}
 }
 
 // NewSQLiteStore opens a SQLite database at the given path.
 // Use ":memory:" for in-memory database.
-func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
+func NewSQLiteStore(dbPath string, options ...SQLiteStoreOption) (*SQLiteStore, error) {
 	// Pragmas are passed via the modernc.org/sqlite DSN `_pragma=` form so
 	// they are applied on EVERY new pool connection, not just the first
 	// one that happens to serve a `db.Exec("PRAGMA ...")` call. This
@@ -108,7 +133,22 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
 
-	return &SQLiteStore{db: db}, nil
+	store := &SQLiteStore{db: db}
+	for _, option := range options {
+		option(store)
+	}
+	return store, nil
+}
+
+func (s *SQLiteStore) credentialDigest(purpose credentialhash.Purpose, raw string) (string, error) {
+	if s.hasher == nil {
+		return "", ErrCredentialHasherUnavailable
+	}
+	digest, err := s.hasher.Digest(purpose, []byte(raw))
+	if err != nil {
+		return "", fmt.Errorf("credential digest: %w: %w", ErrCredentialHasherUnavailable, err)
+	}
+	return digest, nil
 }
 
 // sqlConn is the subset of database/sql operations the migration loader
@@ -170,6 +210,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"024_mesh_import_challenge_limits.up.sql",
 		"025_oidc_unique.up.sql",
 		"026_redeliver_wdf_config.up.sql",
+		"027_keyed_credential_cutover.up.sql",
 	}
 
 	conn, err := s.db.Conn(ctx)
@@ -213,6 +254,12 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		}
 		if f == "026_redeliver_wdf_config.up.sql" {
 			if err := applyMigration026(ctx, conn, f); err != nil {
+				return err
+			}
+			continue
+		}
+		if f == "027_keyed_credential_cutover.up.sql" {
+			if err := applyMigration027(ctx, s, conn, f); err != nil {
 				return err
 			}
 			continue
@@ -298,6 +345,119 @@ func applyMigration026(ctx context.Context, conn *sql.Conn, migration string) (e
 		return fmt.Errorf("commit migration %s transaction: %w", migration, err)
 	}
 	return nil
+}
+
+// applyMigration027 performs the irreversible credential cutover in one write
+// transaction. A collecting mesh import must be completed or canceled before
+// upgrade because its plaintext bootstrap token is unavailable for re-keying.
+func applyMigration027(ctx context.Context, store *SQLiteStore, conn *sql.Conn, migration string) (err error) {
+	applied, err := migrationApplied(ctx, conn, migration)
+	if err != nil {
+		return fmt.Errorf("check migration %s before guard: %w", migration, err)
+	}
+	if applied {
+		return nil
+	}
+
+	var caCount int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM cas`).Scan(&caCount); err != nil {
+		return fmt.Errorf("count CAs before %s: %w", migration, err)
+	}
+	if caCount != 0 {
+		if store.credentialCutoverGuard == nil {
+			return ErrCredentialCutoverGuardMissing
+		}
+		if err := store.credentialCutoverGuard(ctx, store); err != nil {
+			return fmt.Errorf("validate master key before %s: %w", migration, err)
+		}
+	}
+
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return fmt.Errorf("begin migration %s transaction: %w", migration, err)
+	}
+	defer func() {
+		if err == nil {
+			return
+		}
+		if _, rollbackErr := conn.ExecContext(context.WithoutCancel(ctx), `ROLLBACK`); rollbackErr != nil {
+			slog.Error("rollback migration transaction", "migration", migration, "error", rollbackErr)
+		}
+	}()
+
+	applied, err = migrationApplied(ctx, conn, migration)
+	if err != nil {
+		return fmt.Errorf("check migration %s in transaction: %w", migration, err)
+	}
+	if applied {
+		if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+			return fmt.Errorf("commit migration %s transaction: %w", migration, err)
+		}
+		return nil
+	}
+
+	var collecting int
+	if err := conn.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM mesh_imports WHERE status = 'collecting'`).Scan(&collecting); err != nil {
+		return fmt.Errorf("check collecting mesh imports before %s: %w", migration, err)
+	}
+	if collecting != 0 {
+		return fmt.Errorf("%w: %d import(s) must be finalized or canceled before upgrade",
+			ErrCredentialCutoverBlocked, collecting)
+	}
+
+	sqlBytes, err := migrations.FS.ReadFile(migration)
+	if err != nil {
+		return fmt.Errorf("read migration %s: %w", migration, err)
+	}
+	for _, stmt := range splitSQLStatements(string(sqlBytes)) {
+		if _, err := conn.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("apply migration %s stmt %q: %w", migration, firstLine(stmt), err)
+		}
+	}
+	for _, stmt := range credentialVerifierTriggers {
+		if _, err := conn.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("install migration %s credential trigger: %w", migration, err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO schema_migrations(name) VALUES (?)`, migration); err != nil {
+		return fmt.Errorf("record migration %s: %w", migration, err)
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return fmt.Errorf("commit migration %s transaction: %w", migration, err)
+	}
+	return nil
+}
+
+var credentialVerifierTriggers = []string{
+	credentialVerifierTrigger("operator_sessions", "token_hash", ""),
+	credentialVerifierTrigger("operator_recovery_codes", "code_hash", ""),
+	credentialVerifierTrigger("enrollment_tokens", "token_hash", ""),
+	credentialVerifierTrigger("operator_api_keys", "key_hash",
+		` OR (NEW.revoked_at IS NOT NULL AND NEW.key_hash = 'cutover-v1:api-key:' || NEW.id)`),
+	credentialVerifierTrigger("mesh_imports", "token_hash",
+		` OR (NEW.status IN ('finalized', 'canceled') AND NEW.token_hash = 'cutover-v1:mesh-import:' || NEW.id)`),
+}
+
+func credentialVerifierTrigger(table, column, exception string) string {
+	valid := fmt.Sprintf(`(
+		length(NEW.%[1]s) = 79
+		AND substr(NEW.%[1]s, 1, 15) = 'hmac-sha256-v1:'
+		AND substr(NEW.%[1]s, 16) NOT GLOB '*[^0-9a-f]*'
+	)`, column)
+	return fmt.Sprintf(`
+		CREATE TRIGGER credential_hmac_%[1]s_insert
+		BEFORE INSERT ON %[1]s
+		WHEN NOT (%[3]s%[4]s)
+		BEGIN
+			SELECT RAISE(ABORT, 'SEC-CREDENTIAL-001: non-canonical credential verifier');
+		END;
+		CREATE TRIGGER credential_hmac_%[1]s_update
+		BEFORE UPDATE ON %[1]s
+		WHEN NOT (%[3]s%[4]s)
+		BEGIN
+			SELECT RAISE(ABORT, 'SEC-CREDENTIAL-001: non-canonical credential verifier');
+		END;`, table, column, valid, exception)
 }
 
 func migrationApplied(ctx context.Context, db sqlConn, name string) (bool, error) {
@@ -1646,7 +1806,15 @@ func (s *SQLiteStore) UpdateHostSigningPub(ctx context.Context, hostID, signingP
 // --- Enrollment Tokens ---
 
 // CreateHostAndToken atomically creates a host and its enrollment token.
-func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t *models.EnrollmentToken) error {
+func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t *models.EnrollmentToken, rawToken string) error {
+	if h == nil || t == nil {
+		return fmt.Errorf("host and enrollment token are required")
+	}
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeEnrollmentToken, rawToken)
+	if err != nil {
+		return err
+	}
+	t.TokenHash = tokenHash
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -1692,7 +1860,7 @@ func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t 
 
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO enrollment_tokens (id, host_id, token_hash, used, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		t.ID, t.HostID, t.TokenHash, false, t.ExpiresAt, t.CreatedAt,
+		t.ID, t.HostID, tokenHash, false, t.ExpiresAt, t.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert token: %w", err)
@@ -1704,10 +1872,18 @@ func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t 
 	return nil
 }
 
-func (s *SQLiteStore) CreateToken(ctx context.Context, t *models.EnrollmentToken) error {
-	_, err := s.db.ExecContext(ctx,
+func (s *SQLiteStore) CreateToken(ctx context.Context, t *models.EnrollmentToken, rawToken string) error {
+	if t == nil {
+		return fmt.Errorf("enrollment token is required")
+	}
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeEnrollmentToken, rawToken)
+	if err != nil {
+		return err
+	}
+	t.TokenHash = tokenHash
+	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO enrollment_tokens (id, host_id, token_hash, used, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		t.ID, t.HostID, t.TokenHash, false, t.ExpiresAt, t.CreatedAt,
+		t.ID, t.HostID, tokenHash, false, t.ExpiresAt, t.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert token: %w", err)
@@ -1719,8 +1895,12 @@ func (s *SQLiteStore) CreateToken(ctx context.Context, t *models.EnrollmentToken
 // the host and writes a fresh single-use one. Used by the regenerate-token,
 // reenroll, and rekey flows (ADR 0004) where the host row must be preserved.
 // The `token` argument is the raw value handed back to the caller; the store
-// only ever persists its SHA-256 hex (GHSA-ghmh-jhmj-wcmf).
+// only ever persists its keyed verifier (SEC-CREDENTIAL-001).
 func (s *SQLiteStore) CreateTokenForHost(ctx context.Context, hostID, token string, expiresAt time.Time) error {
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeEnrollmentToken, token)
+	if err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -1738,7 +1918,7 @@ func (s *SQLiteStore) CreateTokenForHost(ctx context.Context, hostID, token stri
 	id := fmt.Sprintf("etok_%d", now.UnixNano())
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO enrollment_tokens (id, host_id, token_hash, used, expires_at, created_at) VALUES (?, ?, ?, 0, ?, ?)`,
-		id, hostID, models.HashEnrollmentToken(token), expiresAt, now,
+		id, hostID, tokenHash, expiresAt, now,
 	); err != nil {
 		return fmt.Errorf("insert token: %w", err)
 	}
@@ -1748,17 +1928,21 @@ func (s *SQLiteStore) CreateTokenForHost(ctx context.Context, hostID, token stri
 	return nil
 }
 
-// GetEnrollmentToken resolves a raw enrollment token to its row by SHA-256 hex
+// GetEnrollmentToken resolves a raw enrollment token by its keyed verifier
 // WITHOUT consuming it, applying the same validity checks as ConsumeToken
 // (ErrNotFound / ErrTokenUsed / ErrTokenExpired). It lets the enrollment handler
 // resolve the target host and fail fast before the expensive CA signature; the
 // actual single-use consume then happens atomically with the certificate save
-// in ConsumeTokenAndEnrollHost. Tokens are hashed at rest (GHSA-ghmh-jhmj-wcmf).
+// in ConsumeTokenAndEnrollHost.
 func (s *SQLiteStore) GetEnrollmentToken(ctx context.Context, token string) (*models.EnrollmentToken, error) {
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeEnrollmentToken, token)
+	if err != nil {
+		return nil, err
+	}
 	t := &models.EnrollmentToken{}
-	err := s.db.QueryRowContext(ctx,
+	err = s.db.QueryRowContext(ctx,
 		`SELECT id, host_id, token_hash, used, expires_at, created_at FROM enrollment_tokens WHERE token_hash = ?`,
-		models.HashEnrollmentToken(token),
+		tokenHash,
 	).Scan(&t.ID, &t.HostID, &t.TokenHash, &t.Used, &t.ExpiresAt, &t.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -1775,9 +1959,13 @@ func (s *SQLiteStore) GetEnrollmentToken(ctx context.Context, token string) (*mo
 	return t, nil
 }
 
-// ConsumeToken accepts the raw token from the caller, hashes it, and
-// looks up by SHA-256 hex. Marks the row used on success. GHSA-ghmh-jhmj-wcmf.
+// ConsumeToken accepts the raw token from the caller, derives its keyed
+// verifier, and marks the matching row used on success.
 func (s *SQLiteStore) ConsumeToken(ctx context.Context, token string) (*models.EnrollmentToken, error) {
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeEnrollmentToken, token)
+	if err != nil {
+		return nil, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
@@ -1791,7 +1979,7 @@ func (s *SQLiteStore) ConsumeToken(ctx context.Context, token string) (*models.E
 	t := &models.EnrollmentToken{}
 	err = tx.QueryRowContext(ctx,
 		`SELECT id, host_id, token_hash, used, expires_at, created_at FROM enrollment_tokens WHERE token_hash = ?`,
-		models.HashEnrollmentToken(token),
+		tokenHash,
 	).Scan(&t.ID, &t.HostID, &t.TokenHash, &t.Used, &t.ExpiresAt, &t.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -2054,6 +2242,10 @@ func (s *SQLiteStore) enrollHostWithConsumedToken(
 	ctx context.Context, hostID, token string, certPEM []byte, fp string,
 	notBefore, notAfter time.Time, signingPubPEM string, profile *models.AgentProfile, configVersion *int, signedIdentity *models.CertificateIdentity,
 ) error {
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeEnrollmentToken, token)
+	if err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -2066,7 +2258,7 @@ func (s *SQLiteStore) enrollHostWithConsumedToken(
 
 	res, err := tx.ExecContext(ctx,
 		`UPDATE enrollment_tokens SET used = 1, used_at = ? WHERE token_hash = ? AND used = 0`,
-		time.Now(), models.HashEnrollmentToken(token),
+		time.Now(), tokenHash,
 	)
 	if err != nil {
 		return fmt.Errorf("consume token: %w", err)

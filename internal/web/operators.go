@@ -2,7 +2,6 @@ package web
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"net/http"
@@ -273,16 +272,13 @@ func (w *Web) handleOperatorCreateAPIKey(rw http.ResponseWriter, r *http.Request
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	sum := sha256.Sum256([]byte(raw))
-	hash := hex.EncodeToString(sum[:])
 	key := &models.OperatorAPIKey{
 		ID:         uuid.New().String(),
 		OperatorID: id,
 		Name:       name,
-		KeyHash:    hash,
 		CreatedAt:  time.Now(),
 	}
-	if err := w.store.CreateOperatorAPIKey(r.Context(), key); err != nil {
+	if err := w.store.CreateOperatorAPIKey(r.Context(), key, raw); err != nil {
 		w.logger.Error("create api key", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return

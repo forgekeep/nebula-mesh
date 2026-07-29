@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -56,13 +54,11 @@ func seedOperatorWithKey(t *testing.T, srv *Server, username, role string) (oper
 		t.Fatalf("create operator %s: %v", username, err)
 	}
 	rawKey = uuid.New().String()
-	keySum := sha256.Sum256([]byte(rawKey))
 	key := &models.OperatorAPIKey{
 		ID:         "key-" + username,
 		OperatorID: op.ID,
-		KeyHash:    hex.EncodeToString(keySum[:]),
 	}
-	if err := srv.store.CreateOperatorAPIKey(ctx, key); err != nil {
+	if err := srv.store.CreateOperatorAPIKey(ctx, key, rawKey); err != nil {
 		t.Fatalf("create api key %s: %v", username, err)
 	}
 	return op.ID, key.ID, rawKey

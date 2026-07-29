@@ -17,7 +17,6 @@ import (
 
 	"github.com/slackhq/nebula/cert"
 
-	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
 	"github.com/forgekeep/nebula-mesh/internal/meshimport"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
@@ -83,7 +82,7 @@ func TestMeshImportWebCreateShowsTokenOnceAndUsesCSRF(t *testing.T) {
 	if err != nil || len(items) != 1 {
 		t.Fatalf("list imports: err=%v count=%d", err, len(items))
 	}
-	if items[0].TokenHash != bootstraptoken.Hash(rawToken) {
+	if !strings.HasPrefix(items[0].TokenHash, "hmac-sha256-v1:") || items[0].TokenHash == rawToken {
 		t.Fatalf("stored hash = %q", items[0].TokenHash)
 	}
 
@@ -134,10 +133,10 @@ func TestMeshImportWebTenantIsolation(t *testing.T) {
 	now := time.Now()
 	item := &models.MeshImport{
 		ID: "bob-import", NetworkID: network.ID, CAID: ca.ID, OwnerOperatorID: "op-bob",
-		Status: models.MeshImportStatusCollecting, TokenHash: bootstraptoken.Hash("nmi_bob"),
+		Status:         models.MeshImportStatusCollecting,
 		TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
 	}
-	if err := st.CreateMeshImport(context.Background(), item); err != nil {
+	if err := st.CreateMeshImport(context.Background(), item, "nmi_bob"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -170,10 +169,10 @@ func TestMeshImportWebPreviewAndFinalize(t *testing.T) {
 	now := time.Now()
 	session := &models.MeshImport{
 		ID: "adopt-import", NetworkID: network.ID, CAID: ca.ID, OwnerOperatorID: op.ID,
-		Status: models.MeshImportStatusCollecting, TokenHash: bootstraptoken.Hash("nmi_adopt"),
+		Status:         models.MeshImportStatusCollecting,
 		TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
 	}
-	if err := st.CreateMeshImport(context.Background(), session); err != nil {
+	if err := st.CreateMeshImport(context.Background(), session, "nmi_adopt"); err != nil {
 		t.Fatal(err)
 	}
 	resolver := pki.NewCAResolver(st, w.caMaster)
@@ -301,10 +300,10 @@ func TestMeshImportWebFinalizePreservesRevokedHostAndEmitsBlocked(t *testing.T) 
 	now := time.Now()
 	session := &models.MeshImport{
 		ID: "blocked-adopt-import", NetworkID: network.ID, CAID: ca.ID, OwnerOperatorID: op.ID,
-		Status: models.MeshImportStatusCollecting, TokenHash: bootstraptoken.Hash("nmi_blocked_adopt"),
+		Status:         models.MeshImportStatusCollecting,
 		TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
 	}
-	if err := st.CreateMeshImport(t.Context(), session); err != nil {
+	if err := st.CreateMeshImport(t.Context(), session, "nmi_blocked_adopt"); err != nil {
 		t.Fatal(err)
 	}
 	resolver := pki.NewCAResolver(st, w.caMaster)
@@ -432,10 +431,10 @@ func TestMeshImportWebFrozenMutationsReturnConflict(t *testing.T) {
 	now := time.Now()
 	item := &models.MeshImport{
 		ID: "freeze-import", NetworkID: network.ID, CAID: ca.ID, OwnerOperatorID: op.ID,
-		Status: models.MeshImportStatusCollecting, TokenHash: bootstraptoken.Hash("nmi_freeze"),
+		Status:         models.MeshImportStatusCollecting,
 		TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
 	}
-	if err := st.CreateMeshImport(context.Background(), item); err != nil {
+	if err := st.CreateMeshImport(context.Background(), item, "nmi_freeze"); err != nil {
 		t.Fatal(err)
 	}
 

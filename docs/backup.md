@@ -71,6 +71,11 @@ Restore guards against the common foot-guns:
   signing. A mismatched key leaves the restored database in place but exits
   non-zero with a clear message.
 
+Restoring a pre-credential-HMAC-cutover archive with a newer binary is
+restore-forward: the new binary applies the irreversible cutover to the
+restored copy. For the stopped-server upgrade, preflight, and the rollback
+procedure, follow the [credential HMAC cutover guide](upgrade-credential-hmac-cutover.md).
+
 For an encrypted archive, pass the same `--passphrase` used to create it.
 
 ## Restore drill

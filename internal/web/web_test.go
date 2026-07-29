@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -13,6 +14,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
@@ -24,7 +27,7 @@ const (
 
 func newTestWeb(t *testing.T) (*Web, *store.SQLiteStore) {
 	t.Helper()
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +57,16 @@ func newTestWeb(t *testing.T) (*Web, *store.SQLiteStore) {
 		t.Fatal(err)
 	}
 	return w, s
+}
+
+func openTestSQLiteStore(t testing.TB) (*store.SQLiteStore, error) {
+	t.Helper()
+	hasher, err := credentialhash.New(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(hasher.Destroy)
+	return store.NewSQLiteStore(":memory:", store.WithCredentialHasher(hasher))
 }
 
 func loginSession(t *testing.T, w *Web) []*http.Cookie {

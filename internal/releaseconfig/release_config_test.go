@@ -3,9 +3,12 @@ package releaseconfig
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestSystemdUnitsUsePathsForTheirDistributionLayout(t *testing.T) {
@@ -98,6 +101,83 @@ func TestSystemdReadmeUsesLocalBinaryPaths(t *testing.T) {
 			t.Errorf("manual install instructions must use /usr/local/bin/%s", binary)
 		}
 	}
+}
+
+func TestReleaseChangelogGroups(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	releaseConfig := readFile(t, filepath.Join(repoRoot, ".goreleaser.yml"))
+	groups := releaseChangelogGroups(t, releaseConfig)
+
+	for _, tc := range []struct {
+		commit string
+		want   string
+	}{
+		{commit: "feat(auth)!: replace credential verifiers", want: "Breaking changes"},
+		{commit: "fix(auth)!: revoke legacy credentials", want: "Breaking changes"},
+		{commit: "perf(store)!: change credential lookup", want: "Breaking changes"},
+		{commit: "feat(auth): add keyed verifiers", want: "Features"},
+		{commit: "fix(auth): reject invalid verifier", want: "Bug fixes"},
+		{commit: "perf(store): reduce lookup allocations", want: "Performance"},
+	} {
+		t.Run(tc.commit, func(t *testing.T) {
+			if got := firstMatchingChangelogGroup(t, groups, tc.commit); got != tc.want {
+				t.Errorf("first changelog group for %q = %q, want %q", tc.commit, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReleaseConfigPackagesCredentialHMACCutoverGuide(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	releaseConfig := readFile(t, filepath.Join(repoRoot, ".goreleaser.yml"))
+
+	archive := releaseConfigSection(t, releaseConfig, "archives:", "server")
+	if !strings.Contains(archive, "- docs/upgrade-credential-hmac-cutover.md") {
+		t.Error("server archive must include credential HMAC cutover guide")
+	}
+
+	pkg := releaseConfigSection(t, releaseConfig, "nfpms:", "nebula-mgmt")
+	if !strings.Contains(pkg, "src: docs/upgrade-credential-hmac-cutover.md\n        dst: /usr/share/doc/nebula-mgmt/upgrade-credential-hmac-cutover.md") {
+		t.Error("nebula-mgmt package must include credential HMAC cutover guide")
+	}
+}
+
+type changelogGroup struct {
+	Title  string `yaml:"title"`
+	Regexp string `yaml:"regexp"`
+}
+
+type releaseConfig struct {
+	Changelog struct {
+		Groups []changelogGroup `yaml:"groups"`
+	} `yaml:"changelog"`
+}
+
+func releaseChangelogGroups(t *testing.T, config string) []changelogGroup {
+	t.Helper()
+	var parsed releaseConfig
+	if err := yaml.Unmarshal([]byte(config), &parsed); err != nil {
+		t.Fatalf("parse .goreleaser.yml: %v", err)
+	}
+	if len(parsed.Changelog.Groups) == 0 {
+		t.Fatal("changelog groups must not be empty")
+	}
+	return parsed.Changelog.Groups
+}
+
+func firstMatchingChangelogGroup(t *testing.T, groups []changelogGroup, commit string) string {
+	t.Helper()
+	for _, group := range groups {
+		re, err := regexp.Compile(group.Regexp)
+		if err != nil {
+			t.Fatalf("compile changelog regexp for %q: %v", group.Title, err)
+		}
+		if re.MatchString(commit) {
+			return group.Title
+		}
+	}
+	t.Fatalf("no changelog group matches %q", commit)
+	return ""
 }
 
 func repositoryRoot(t *testing.T) string {

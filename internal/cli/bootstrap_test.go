@@ -1,14 +1,27 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
+
+func openCLITestStore(t testing.TB, path string) (*store.SQLiteStore, error) {
+	t.Helper()
+	hasher, err := credentialhash.New(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(hasher.Destroy)
+	return store.NewSQLiteStore(path, store.WithCredentialHasher(hasher))
+}
 
 // TestSeedAdminOperator_ConcurrentBootDoesNotDuplicate exercises the
 // first-boot race: N concurrent callers attempt to seed an admin operator
@@ -34,7 +47,7 @@ func TestSeedAdminOperator_ConcurrentBootDoesNotDuplicate(t *testing.T) {
 	// connection and never actually exercises the WAL-mode multi-writer
 	// path the conditional INSERT relies on.
 	dbPath := filepath.Join(t.TempDir(), "seed.db")
-	s, err := store.NewSQLiteStore(dbPath)
+	s, err := openCLITestStore(t, dbPath)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -102,7 +115,7 @@ func TestSeedAdminOperator_ConcurrentBootDoesNotDuplicate(t *testing.T) {
 // nothing-configured shortcut: when both uiPassword and apiKey are empty,
 // the seeder must return (false, nil) without touching the store.
 func TestSeedAdminOperator_NoSecretIsNoOp(t *testing.T) {
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openCLITestStore(t, ":memory:")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -132,7 +145,7 @@ func TestSeedAdminOperator_NoSecretIsNoOp(t *testing.T) {
 // no-op contract: once an admin has been seeded, a subsequent SeedAdmin
 // call must report (false, nil) and not mutate the store.
 func TestSeedAdminOperator_IdempotentOnPopulatedStore(t *testing.T) {
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openCLITestStore(t, ":memory:")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
@@ -95,7 +97,7 @@ func (s *SQLiteStore) CreateOperator(ctx context.Context, op *models.Operator) e
 // operators table already had at least one row (either because the caller
 // ran a second time on a populated DB, or because a concurrent boot won
 // the race). Any non-nil error indicates a real failure.
-func (s *SQLiteStore) SeedInitialAdminOperator(ctx context.Context, op *models.Operator, key *models.OperatorAPIKey) (bool, error) {
+func (s *SQLiteStore) SeedInitialAdminOperator(ctx context.Context, op *models.Operator, key *models.OperatorAPIKey, rawKey string) (bool, error) {
 	if op == nil {
 		return false, fmt.Errorf("operator is required")
 	}
@@ -162,15 +164,20 @@ func (s *SQLiteStore) SeedInitialAdminOperator(ctx context.Context, op *models.O
 	}
 
 	if key != nil {
-		if key.ID == "" || key.OperatorID == "" || key.KeyHash == "" {
-			return false, fmt.Errorf("api key id, operator_id, key_hash are required")
+		keyHash, err := s.credentialDigest(credentialhash.PurposeOperatorAPIKey, rawKey)
+		if err != nil {
+			return false, err
+		}
+		key.KeyHash = keyHash
+		if key.ID == "" || key.OperatorID == "" {
+			return false, fmt.Errorf("api key id and operator_id are required")
 		}
 		if key.CreatedAt.IsZero() {
 			key.CreatedAt = now
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO operator_api_keys (id, operator_id, name, key_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
-			key.ID, key.OperatorID, key.Name, key.KeyHash, key.CreatedAt,
+			key.ID, key.OperatorID, key.Name, keyHash, key.CreatedAt,
 		); err != nil {
 			return false, fmt.Errorf("insert api key: %w", err)
 		}
@@ -405,9 +412,57 @@ func (s *SQLiteStore) SetOperatorTOTP(ctx context.Context, id, secret string, en
 	return tx.Commit()
 }
 
+// ResetOperatorTOTPBreakGlass disables TOTP for one operator, removes its
+// recovery codes and sessions, and records the local recovery action in the
+// same transaction. The operator status is deliberately unchanged.
+func (s *SQLiteStore) ResetOperatorTOTPBreakGlass(ctx context.Context, username string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin TOTP reset: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback TOTP reset", "error", err)
+		}
+	}()
+
+	var operatorID string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT id FROM operators WHERE username = ?`, username).Scan(&operatorID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("find operator for TOTP reset: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE operators
+		SET totp_secret = '', totp_enabled = 0, totp_last_timestep = 0, updated_at = ?
+		WHERE id = ?`, time.Now(), operatorID); err != nil {
+		return fmt.Errorf("reset operator TOTP: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM operator_recovery_codes WHERE operator_id = ?`, operatorID); err != nil {
+		return fmt.Errorf("delete TOTP recovery codes: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM operator_sessions WHERE operator_id = ?`, operatorID); err != nil {
+		return fmt.Errorf("delete operator sessions: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO audit_log (id, actor, action, resource, details)
+		VALUES ('audit_' || lower(hex(randomblob(16))), ?, ?, ?, ?)`,
+		"ops-cli-break-glass", "operator.totp.reset", operatorID, "username="+username); err != nil {
+		return fmt.Errorf("record TOTP reset audit: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit TOTP reset: %w", err)
+	}
+	return nil
+}
+
 // ReplaceOperatorRecoveryCodes deletes any existing codes for the operator
 // and inserts the provided list of hashes (atomic).
-func (s *SQLiteStore) ReplaceOperatorRecoveryCodes(ctx context.Context, id string, codeHashes []string) error {
+func (s *SQLiteStore) ReplaceOperatorRecoveryCodes(ctx context.Context, id string, rawCodes []string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -420,7 +475,11 @@ func (s *SQLiteStore) ReplaceOperatorRecoveryCodes(ctx context.Context, id strin
 	if _, err := tx.ExecContext(ctx, `DELETE FROM operator_recovery_codes WHERE operator_id=?`, id); err != nil {
 		return fmt.Errorf("delete recovery codes: %w", err)
 	}
-	for _, h := range codeHashes {
+	for _, rawCode := range rawCodes {
+		h, err := s.credentialDigest(credentialhash.PurposeTOTPRecoveryCode, normalizeRecoveryCode(rawCode))
+		if err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO operator_recovery_codes (operator_id, code_hash) VALUES (?, ?)`,
 			id, h,
@@ -458,7 +517,11 @@ func (s *SQLiteStore) ConsumeOperatorTOTPTimestep(ctx context.Context, id string
 
 // ConsumeOperatorRecoveryCode marks the given hash as consumed if it exists
 // and is unused. Returns ErrNotFound otherwise.
-func (s *SQLiteStore) ConsumeOperatorRecoveryCode(ctx context.Context, id, codeHash string) error {
+func (s *SQLiteStore) ConsumeOperatorRecoveryCode(ctx context.Context, id, rawCode string) error {
+	codeHash, err := s.credentialDigest(credentialhash.PurposeTOTPRecoveryCode, normalizeRecoveryCode(rawCode))
+	if err != nil {
+		return err
+	}
 	result, err := s.db.ExecContext(ctx,
 		`UPDATE operator_recovery_codes SET consumed_at=? WHERE operator_id=? AND code_hash=? AND consumed_at IS NULL`,
 		time.Now(), id, codeHash,
@@ -504,16 +567,24 @@ func (s *SQLiteStore) ListOperatorRecoveryCodes(ctx context.Context, id string) 
 
 // --- API keys ---
 
-func (s *SQLiteStore) CreateOperatorAPIKey(ctx context.Context, k *models.OperatorAPIKey) error {
-	if k.ID == "" || k.OperatorID == "" || k.KeyHash == "" {
-		return fmt.Errorf("api key id, operator_id, key_hash are required")
+func (s *SQLiteStore) CreateOperatorAPIKey(ctx context.Context, k *models.OperatorAPIKey, rawKey string) error {
+	if k == nil {
+		return fmt.Errorf("api key is required")
+	}
+	keyHash, err := s.credentialDigest(credentialhash.PurposeOperatorAPIKey, rawKey)
+	if err != nil {
+		return err
+	}
+	if k.ID == "" || k.OperatorID == "" {
+		return fmt.Errorf("api key id and operator_id are required")
 	}
 	if k.CreatedAt.IsZero() {
 		k.CreatedAt = time.Now()
 	}
-	_, err := s.db.ExecContext(ctx,
+	k.KeyHash = keyHash
+	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO operator_api_keys (id, operator_id, name, key_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
-		k.ID, k.OperatorID, k.Name, k.KeyHash, k.CreatedAt,
+		k.ID, k.OperatorID, k.Name, keyHash, k.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert api key: %w", err)
@@ -521,9 +592,13 @@ func (s *SQLiteStore) CreateOperatorAPIKey(ctx context.Context, k *models.Operat
 	return nil
 }
 
-// GetOperatorByAPIKeyHash returns the operator associated with a non-revoked
+// GetOperatorByAPIKey returns the operator associated with a non-revoked raw
 // API key, ensuring the operator is active.
-func (s *SQLiteStore) GetOperatorByAPIKeyHash(ctx context.Context, keyHash string) (*models.Operator, *models.OperatorAPIKey, error) {
+func (s *SQLiteStore) GetOperatorByAPIKey(ctx context.Context, rawKey string) (*models.Operator, *models.OperatorAPIKey, error) {
+	keyHash, err := s.credentialDigest(credentialhash.PurposeOperatorAPIKey, rawKey)
+	if err != nil {
+		return nil, nil, err
+	}
 	var (
 		k         models.OperatorAPIKey
 		lastUsed  sql.NullTime
@@ -653,6 +728,13 @@ func (s *SQLiteStore) TouchOperatorAPIKey(ctx context.Context, keyID string, t t
 // --- Sessions ---
 
 func (s *SQLiteStore) CreateOperatorSession(ctx context.Context, sess *models.OperatorSession) error {
+	if sess == nil {
+		return fmt.Errorf("session is required")
+	}
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeOperatorSession, sess.Token)
+	if err != nil {
+		return err
+	}
 	if sess.Token == "" || sess.OperatorID == "" {
 		return fmt.Errorf("session token and operator_id are required")
 	}
@@ -663,11 +745,11 @@ func (s *SQLiteStore) CreateOperatorSession(ctx context.Context, sess *models.Op
 	if state == "" {
 		state = models.SessionStateAuthenticated
 	}
-	// GHSA-q4vm-pq3q-8wgq: persist only the SHA-256 of the token. The raw
-	// value lives solely in the operator's cookie, never at rest.
-	_, err := s.db.ExecContext(ctx,
+	// SEC-CREDENTIAL-001: the raw value lives solely in the operator's cookie,
+	// never at rest.
+	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO operator_sessions (token_hash, operator_id, expires_at, created_at, state) VALUES (?, ?, ?, ?, ?)`,
-		models.HashSessionToken(sess.Token), sess.OperatorID, sess.ExpiresAt, sess.CreatedAt, state,
+		tokenHash, sess.OperatorID, sess.ExpiresAt, sess.CreatedAt, state,
 	)
 	if err != nil {
 		return fmt.Errorf("insert session: %w", err)
@@ -679,9 +761,13 @@ func (s *SQLiteStore) CreateOperatorSession(ctx context.Context, sess *models.Op
 // fully-authenticated session whose operator is still active. Sessions in
 // pending_totp state are NOT returned here.
 func (s *SQLiteStore) GetOperatorBySession(ctx context.Context, token string) (*models.Operator, error) {
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeOperatorSession, token)
+	if err != nil {
+		return nil, err
+	}
 	row := s.db.QueryRowContext(ctx,
 		`SELECT operator_id, expires_at, state FROM operator_sessions WHERE token_hash=?`,
-		models.HashSessionToken(token),
+		tokenHash,
 	)
 	var (
 		operatorID string
@@ -718,9 +804,13 @@ func (s *SQLiteStore) GetOperatorBySession(ctx context.Context, token string) (*
 // that is awaiting a second factor (`pending_totp`). The operator must still
 // be active. Sessions already authenticated are not returned.
 func (s *SQLiteStore) GetPendingTwoFactorOperator(ctx context.Context, token string) (*models.Operator, error) {
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeOperatorSession, token)
+	if err != nil {
+		return nil, err
+	}
 	row := s.db.QueryRowContext(ctx,
 		`SELECT operator_id, expires_at, state FROM operator_sessions WHERE token_hash=?`,
-		models.HashSessionToken(token),
+		tokenHash,
 	)
 	var (
 		operatorID string
@@ -757,9 +847,13 @@ func (s *SQLiteStore) GetPendingTwoFactorOperator(ctx context.Context, token str
 // resets the expiry to a fresh 24h window. Returns ErrNotFound if the session
 // does not exist or is not pending.
 func (s *SQLiteStore) PromoteOperatorSession(ctx context.Context, token string, newExpiry time.Time) error {
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeOperatorSession, token)
+	if err != nil {
+		return err
+	}
 	result, err := s.db.ExecContext(ctx,
 		`UPDATE operator_sessions SET state=?, expires_at=? WHERE token_hash=? AND state=?`,
-		models.SessionStateAuthenticated, newExpiry, models.HashSessionToken(token), models.SessionStatePendingTOTP,
+		models.SessionStateAuthenticated, newExpiry, tokenHash, models.SessionStatePendingTOTP,
 	)
 	if err != nil {
 		return fmt.Errorf("promote session: %w", err)
@@ -775,7 +869,11 @@ func (s *SQLiteStore) PromoteOperatorSession(ctx context.Context, token string, 
 }
 
 func (s *SQLiteStore) DeleteOperatorSession(ctx context.Context, token string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE token_hash=?`, models.HashSessionToken(token))
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeOperatorSession, token)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE token_hash=?`, tokenHash)
 	if err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}
@@ -796,13 +894,23 @@ func (s *SQLiteStore) DeleteOperatorSessionsByOperator(ctx context.Context, oper
 // current session alive (#259). keepToken is the raw cookie value; it is hashed
 // here, mirroring DeleteOperatorSession.
 func (s *SQLiteStore) DeleteOperatorSessionsByOperatorExcept(ctx context.Context, operatorID, keepToken string) error {
-	_, err := s.db.ExecContext(ctx,
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeOperatorSession, keepToken)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
 		`DELETE FROM operator_sessions WHERE operator_id=? AND token_hash<>?`,
-		operatorID, models.HashSessionToken(keepToken))
+		operatorID, tokenHash)
 	if err != nil {
 		return fmt.Errorf("delete sessions by operator except current: %w", err)
 	}
 	return nil
+}
+
+func normalizeRecoveryCode(code string) string {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	code = strings.ReplaceAll(code, " ", "")
+	return strings.ReplaceAll(code, "-", "")
 }
 
 func (s *SQLiteStore) DeleteExpiredOperatorSessions(ctx context.Context, before time.Time) error {

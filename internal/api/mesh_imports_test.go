@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -22,7 +21,6 @@ import (
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
 
-	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
@@ -58,7 +56,7 @@ func TestMeshImportAPI_CreateGetRotateCancel(t *testing.T) {
 	if err := st.DB().QueryRow(`SELECT token_hash FROM mesh_imports WHERE id = ?`, created.MeshImport.ID).Scan(&storedHash); err != nil {
 		t.Fatalf("read stored token: %v", err)
 	}
-	if storedHash != bootstraptoken.Hash(created.Token) || storedHash == created.Token {
+	if !strings.HasPrefix(storedHash, "hmac-sha256-v1:") || storedHash == created.Token {
 		t.Fatalf("stored token = %q, raw token = %q", storedHash, created.Token)
 	}
 
@@ -87,7 +85,7 @@ func TestMeshImportAPI_CreateGetRotateCancel(t *testing.T) {
 	if !strings.HasPrefix(rotated.Token, "nmi_") || rotated.Token == created.Token {
 		t.Fatalf("rotated token = %q", rotated.Token)
 	}
-	if _, err := st.GetMeshImportByTokenHash(context.Background(), bootstraptoken.Hash(created.Token), now); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.GetMeshImportByToken(context.Background(), created.Token, now); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("old token lookup error = %v, want ErrNotFound", err)
 	}
 
@@ -622,8 +620,7 @@ func seedAPIOperatorKey(t *testing.T, st *store.SQLiteStore, operatorID, rawKey 
 	if err := st.CreateOperator(context.Background(), op); err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256([]byte(rawKey))
-	if err := st.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{ID: operatorID + "-key", OperatorID: operatorID, Name: "key", KeyHash: hex.EncodeToString(sum[:])}); err != nil {
+	if err := st.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{ID: operatorID + "-key", OperatorID: operatorID, Name: "key"}, rawKey); err != nil {
 		t.Fatal(err)
 	}
 	return rawKey

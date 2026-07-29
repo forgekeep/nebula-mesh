@@ -21,7 +21,7 @@ import (
 // for CA-minting tests. Mirrors the pattern from internal/api/cas_test.go.
 func newOperatorsWebWithMaster(t *testing.T) (*Web, store.Store) {
 	t.Helper()
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestProvisionDefaultCA_HappyPath(t *testing.T) {
 }
 
 func TestProvisionDefaultCA_SkipsWhenMasterNil(t *testing.T) {
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestMintCAForOperator_Success(t *testing.T) {
 }
 
 func TestMintCAForOperator_ErrorWhenMasterNil(t *testing.T) {
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}

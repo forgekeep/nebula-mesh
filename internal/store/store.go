@@ -69,12 +69,12 @@ type Store interface {
 	UpdateNetwork(ctx context.Context, n *models.Network) error
 
 	// Existing mesh adoption.
-	CreateMeshImport(ctx context.Context, item *models.MeshImport) error
+	CreateMeshImport(ctx context.Context, item *models.MeshImport, rawToken string) error
 	GetMeshImport(ctx context.Context, id string) (*models.MeshImport, error)
-	GetMeshImportByTokenHash(ctx context.Context, tokenHash string, now time.Time) (*models.MeshImport, error)
+	GetMeshImportByToken(ctx context.Context, rawToken string, now time.Time) (*models.MeshImport, error)
 	ListMeshImports(ctx context.Context) ([]*models.MeshImport, error)
 	ListMeshImportsByOwner(ctx context.Context, ownerID string) ([]*models.MeshImport, error)
-	RotateMeshImportToken(ctx context.Context, id, tokenHash string, expiresAt, now time.Time) error
+	RotateMeshImportToken(ctx context.Context, id, rawToken string, expiresAt, now time.Time) error
 	CancelMeshImport(ctx context.Context, id, reason string, now time.Time) error
 	CreateMeshImportChallenge(ctx context.Context, challenge *models.MeshImportChallenge, now time.Time) error
 	GetMeshImportChallenge(ctx context.Context, id string) (*models.MeshImportChallenge, error)
@@ -127,8 +127,8 @@ type Store interface {
 	AddPopNonce(ctx context.Context, hostID, nonce string, expiresAt time.Time) error
 
 	// Enrollment tokens
-	CreateHostAndToken(ctx context.Context, h *models.Host, t *models.EnrollmentToken) error
-	CreateToken(ctx context.Context, t *models.EnrollmentToken) error
+	CreateHostAndToken(ctx context.Context, h *models.Host, t *models.EnrollmentToken, rawToken string) error
+	CreateToken(ctx context.Context, t *models.EnrollmentToken, rawToken string) error
 	CreateTokenForHost(ctx context.Context, hostID, token string, expiresAt time.Time) error
 	ConsumeToken(ctx context.Context, token string) (*models.EnrollmentToken, error)
 	GetEnrollmentToken(ctx context.Context, token string) (*models.EnrollmentToken, error)
@@ -189,7 +189,7 @@ type Store interface {
 	// (true, nil) when this call performed the seed, (false, nil) when
 	// another caller already populated the table. The check + insert run
 	// in a single transaction, so concurrent boots cannot both seed.
-	SeedInitialAdminOperator(ctx context.Context, op *models.Operator, key *models.OperatorAPIKey) (bool, error)
+	SeedInitialAdminOperator(ctx context.Context, op *models.Operator, key *models.OperatorAPIKey, rawKey string) (bool, error)
 	GetOperator(ctx context.Context, id string) (*models.Operator, error)
 	GetOperatorByUsername(ctx context.Context, username string) (*models.Operator, error)
 	GetOperatorByOIDC(ctx context.Context, issuer, subject string) (*models.Operator, error)
@@ -208,14 +208,15 @@ type Store interface {
 	// below the last accepted one so an observed code cannot be replayed
 	// within its validity window (RFC 6238 §5.2).
 	ConsumeOperatorTOTPTimestep(ctx context.Context, id string, ts int64) error
-	ReplaceOperatorRecoveryCodes(ctx context.Context, id string, codeHashes []string) error
-	ConsumeOperatorRecoveryCode(ctx context.Context, id, codeHash string) error
+	ReplaceOperatorRecoveryCodes(ctx context.Context, id string, rawCodes []string) error
+	ConsumeOperatorRecoveryCode(ctx context.Context, id, rawCode string) error
 	ListOperatorRecoveryCodes(ctx context.Context, id string) ([]string, error)
+	ResetOperatorTOTPBreakGlass(ctx context.Context, username string) error
 
 	// Operator API keys
-	CreateOperatorAPIKey(ctx context.Context, k *models.OperatorAPIKey) error
+	CreateOperatorAPIKey(ctx context.Context, k *models.OperatorAPIKey, rawKey string) error
 	GetOperatorAPIKey(ctx context.Context, keyID string) (*models.OperatorAPIKey, error)
-	GetOperatorByAPIKeyHash(ctx context.Context, keyHash string) (*models.Operator, *models.OperatorAPIKey, error)
+	GetOperatorByAPIKey(ctx context.Context, rawKey string) (*models.Operator, *models.OperatorAPIKey, error)
 	ListOperatorAPIKeys(ctx context.Context, operatorID string) ([]*models.OperatorAPIKey, error)
 	RevokeOperatorAPIKey(ctx context.Context, keyID string) error
 	TouchOperatorAPIKey(ctx context.Context, keyID string, t time.Time) error

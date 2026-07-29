@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
@@ -28,26 +29,26 @@ func TestMeshImportLifecycleStoresOnlyTokenHash(t *testing.T) {
 	if stored != session.TokenHash || stored == "raw-bootstrap-token" {
 		t.Fatalf("stored token = %q, want supplied hash only", stored)
 	}
-	got, err := s.GetMeshImportByTokenHash(ctx, session.TokenHash, now)
+	got, err := s.GetMeshImportByToken(ctx, "raw-bootstrap-token", now)
 	if err != nil {
 		t.Fatalf("get active import by token: %v", err)
 	}
 	if got.CAFingerprint != "ca-fingerprint" || got.CapturedNetworkConfigVersion != 1 {
 		t.Fatalf("captured scope = fingerprint %q version %d", got.CAFingerprint, got.CapturedNetworkConfigVersion)
 	}
-	if _, err := s.GetMeshImportByTokenHash(ctx, session.TokenHash, session.TokenExpiresAt); !errors.Is(err, ErrMeshImportTokenExpired) {
+	if _, err := s.GetMeshImportByToken(ctx, "raw-bootstrap-token", session.TokenExpiresAt); !errors.Is(err, ErrMeshImportTokenExpired) {
 		t.Fatalf("get at expiry: %v, want ErrMeshImportTokenExpired", err)
 	}
 
-	newHash := tokenHash("rotated")
+	newToken := "rotated"
 	newExpiry := now.Add(2 * time.Hour)
-	if err := s.RotateMeshImportToken(ctx, session.ID, newHash, newExpiry, now); err != nil {
+	if err := s.RotateMeshImportToken(ctx, session.ID, newToken, newExpiry, now); err != nil {
 		t.Fatalf("rotate token: %v", err)
 	}
-	if _, err := s.GetMeshImportByTokenHash(ctx, session.TokenHash, now); !errors.Is(err, ErrNotFound) {
+	if _, err := s.GetMeshImportByToken(ctx, "raw-bootstrap-token", now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("old token after rotate: %v, want ErrNotFound", err)
 	}
-	if _, err := s.GetMeshImportByTokenHash(ctx, newHash, now); err != nil {
+	if _, err := s.GetMeshImportByToken(ctx, newToken, now); err != nil {
 		t.Fatalf("new token after rotate: %v", err)
 	}
 
@@ -61,7 +62,7 @@ func TestMeshImportLifecycleStoresOnlyTokenHash(t *testing.T) {
 	if canceled.Status != models.MeshImportStatusCanceled || canceled.CanceledAt == nil || canceled.TerminalReason != "operator canceled" {
 		t.Fatalf("canceled session = %#v", canceled)
 	}
-	if err := s.RotateMeshImportToken(ctx, session.ID, tokenHash("again"), newExpiry, now); !errors.Is(err, ErrMeshImportNotCollecting) {
+	if err := s.RotateMeshImportToken(ctx, session.ID, "again", newExpiry, now); !errors.Is(err, ErrMeshImportNotCollecting) {
 		t.Fatalf("rotate canceled session: %v, want ErrMeshImportNotCollecting", err)
 	}
 }
@@ -154,7 +155,7 @@ func TestCreateMeshImportChallengeEnforcesHardSessionCapacity(t *testing.T) {
 
 func TestConcurrentMeshImportChallengesStopExactlyAtSessionCapacity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "challenge-race.db")
-	s, err := NewSQLiteStore(path)
+	s, err := NewSQLiteStore(path, WithCredentialHasher(newTestCredentialHasher(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,8 +216,7 @@ func TestRotateMeshImportTokenDeletesChallengesAtomically(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `UPDATE mesh_import_challenges SET consumed_at = ? WHERE id = ?`, now, first.ID); err != nil {
 		t.Fatal(err)
 	}
-	newHash := tokenHash("rotated-with-cleanup")
-	if err := s.RotateMeshImportToken(ctx, session.ID, newHash, now.Add(time.Hour), now); err != nil {
+	if err := s.RotateMeshImportToken(ctx, session.ID, "rotated-with-cleanup", now.Add(time.Hour), now); err != nil {
 		t.Fatal(err)
 	}
 	if count := meshImportChallengeCount(t, s, session.ID); count != 0 {
@@ -229,7 +229,7 @@ func TestCreateMeshImportChallengeRejectsTokenVerifiedBeforeRotation(t *testing.
 	ctx := context.Background()
 	oldTokenChallenge := meshImportChallenge(session.ID, "late-old-token", "late-old-fp", "signing", "payload", now)
 
-	if err := s.RotateMeshImportToken(ctx, session.ID, tokenHash("replacement"), now.Add(time.Hour), now); err != nil {
+	if err := s.RotateMeshImportToken(ctx, session.ID, "replacement", now.Add(time.Hour), now); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CreateMeshImportChallenge(ctx, oldTokenChallenge, now); !errors.Is(err, ErrNotFound) {
@@ -251,14 +251,13 @@ func TestRotateMeshImportTokenRollsBackWhenChallengeCleanupFails(t *testing.T) {
 		BEFORE DELETE ON mesh_import_challenges BEGIN SELECT RAISE(ABORT, 'blocked delete'); END`); err != nil {
 		t.Fatal(err)
 	}
-	newHash := tokenHash("must-roll-back")
-	if err := s.RotateMeshImportToken(ctx, session.ID, newHash, now.Add(time.Hour), now); err == nil {
+	if err := s.RotateMeshImportToken(ctx, session.ID, "must-roll-back", now.Add(time.Hour), now); err == nil {
 		t.Fatal("token rotation unexpectedly succeeded")
 	}
-	if _, err := s.GetMeshImportByTokenHash(ctx, session.TokenHash, now); err != nil {
+	if _, err := s.GetMeshImportByToken(ctx, "raw-bootstrap-token", now); err != nil {
 		t.Fatalf("old token hash was not restored: %v", err)
 	}
-	if _, err := s.GetMeshImportByTokenHash(ctx, newHash, now); !errors.Is(err, ErrNotFound) {
+	if _, err := s.GetMeshImportByToken(ctx, "must-roll-back", now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("new token hash survived rollback: %v", err)
 	}
 	if count := meshImportChallengeCount(t, s, session.ID); count != 1 {
@@ -406,7 +405,7 @@ func TestCancelMeshImportCreatesTombstoneAndAllowsReplacement(t *testing.T) {
 		OwnerOperatorID: firstSession.OwnerOperatorID, Status: models.MeshImportStatusCollecting,
 		TokenHash: tokenHash("second-session"), TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
 	}
-	if err := s.CreateMeshImport(ctx, secondSession); err != nil {
+	if err := s.CreateMeshImport(ctx, secondSession, "second-session"); err != nil {
 		t.Fatalf("create replacement session: %v", err)
 	}
 	wrongKeyChallenge := meshImportChallenge(secondSession.ID, "wrong-key", "fp-1", "signing-other", "payload-new", now)
@@ -439,7 +438,7 @@ func TestCollectingMeshImportFreezesOrdinaryMutations(t *testing.T) {
 		t.Errorf("CreateHost error = %v", err)
 	}
 	token := &models.EnrollmentToken{ID: "token-1", HostID: host.ID, TokenHash: tokenHash("enroll"), ExpiresAt: now.Add(time.Hour), CreatedAt: now}
-	if err := s.CreateHostAndToken(ctx, host, token); !errors.Is(err, ErrMeshImportInProgress) {
+	if err := s.CreateHostAndToken(ctx, host, token, "enroll"); !errors.Is(err, ErrMeshImportInProgress) {
 		t.Errorf("CreateHostAndToken error = %v", err)
 	}
 	network := &models.Network{ID: session.NetworkID, Name: "renamed", CIDRs: []string{"10.42.0.0/16"}, CAID: session.CAID, CreatedAt: now}
@@ -486,14 +485,14 @@ func TestOnlyOneCollectingMeshImportPerNetwork(t *testing.T) {
 		OwnerOperatorID: first.OwnerOperatorID, Status: models.MeshImportStatusCollecting,
 		TokenHash: tokenHash("other"), TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
 	}
-	if err := s.CreateMeshImport(context.Background(), second); !errors.Is(err, ErrMeshImportInProgress) {
+	if err := s.CreateMeshImport(context.Background(), second, "other"); !errors.Is(err, ErrMeshImportInProgress) {
 		t.Fatalf("second collecting session: %v, want ErrMeshImportInProgress", err)
 	}
 }
 
 func TestMeshImportCreationAndOrdinaryHostCreationAreAtomic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.db")
-	s, err := NewSQLiteStore(path)
+	s, err := NewSQLiteStore(path, WithCredentialHasher(newTestCredentialHasher(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -514,7 +513,7 @@ func TestMeshImportCreationAndOrdinaryHostCreationAreAtomic(t *testing.T) {
 	results := make(chan error, 2)
 	go func() {
 		<-start
-		results <- s.CreateMeshImport(context.Background(), session)
+		results <- s.CreateMeshImport(context.Background(), session, "race")
 	}()
 	go func() {
 		<-start
@@ -549,7 +548,7 @@ func TestMeshImportCreationAndOrdinaryHostCreationAreAtomic(t *testing.T) {
 
 func TestConcurrentMeshImportRegistrationIsSingleWriter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.db")
-	s, err := NewSQLiteStore(path)
+	s, err := NewSQLiteStore(path, WithCredentialHasher(newTestCredentialHasher(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -925,7 +924,7 @@ func TestFinalizeMeshImportRollsBackChallengeCleanup(t *testing.T) {
 
 func TestFinalizeAndArrivingHostSerialize(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "finalize-race.db")
-	s, err := NewSQLiteStore(path)
+	s, err := NewSQLiteStore(path, WithCredentialHasher(newTestCredentialHasher(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1057,7 +1056,7 @@ func seedMeshImportFixture(t *testing.T, s *SQLiteStore, expected *int) (*models
 		TokenHash: tokenHash("raw-bootstrap-token"), TokenExpiresAt: now.Add(time.Hour),
 		CreatedAt: now, UpdatedAt: now,
 	}
-	if err := s.CreateMeshImport(context.Background(), session); err != nil {
+	if err := s.CreateMeshImport(context.Background(), session, "raw-bootstrap-token"); err != nil {
 		t.Fatalf("create mesh import: %v", err)
 	}
 	return session, now
@@ -1092,8 +1091,17 @@ func meshImportCA(id, fingerprint, owner string, predecessor *string, now time.T
 }
 
 func meshImportChallenge(sessionID, id, fingerprint, signingKey, payloadHash string, now time.Time) *models.MeshImportChallenge {
+	hasher, err := credentialhash.New([]byte("store-test-master"))
+	if err != nil {
+		panic(err)
+	}
+	defer hasher.Destroy()
+	tokenDigest, err := hasher.Digest(credentialhash.PurposeMeshImportToken, []byte("raw-bootstrap-token"))
+	if err != nil {
+		panic(err)
+	}
 	return &models.MeshImportChallenge{
-		ID: id, MeshImportID: sessionID, TokenHash: tokenHash("raw-bootstrap-token"), CertificateFingerprint: fingerprint,
+		ID: id, MeshImportID: sessionID, TokenHash: tokenDigest, CertificateFingerprint: fingerprint,
 		AgentSigningPubPEM: signingKey, PayloadHash: payloadHash, ServerNonce: "nonce-" + id,
 		ExpiresAt: now.Add(time.Minute), CreatedAt: now,
 	}

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
@@ -50,9 +51,17 @@ func scanMeshImport(scanner interface{ Scan(...any) error }) (*models.MeshImport
 	return &item, nil
 }
 
-func (s *SQLiteStore) CreateMeshImport(ctx context.Context, item *models.MeshImport) error {
-	if item == nil || item.ID == "" || item.NetworkID == "" || item.CAID == "" || item.OwnerOperatorID == "" || item.TokenHash == "" {
-		return errors.New("mesh import id, network, CA, owner and token hash are required")
+func (s *SQLiteStore) CreateMeshImport(ctx context.Context, item *models.MeshImport, rawToken string) error {
+	if item == nil {
+		return errors.New("mesh import is required")
+	}
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeMeshImportToken, rawToken)
+	if err != nil {
+		return err
+	}
+	item.TokenHash = tokenHash
+	if item.ID == "" || item.NetworkID == "" || item.CAID == "" || item.OwnerOperatorID == "" {
+		return errors.New("mesh import id, network, CA, and owner are required")
 	}
 	if item.Status == "" {
 		item.Status = models.MeshImportStatusCollecting
@@ -82,7 +91,7 @@ func (s *SQLiteStore) CreateMeshImport(ctx context.Context, item *models.MeshImp
 		  AND NOT EXISTS (SELECT 1 FROM networks other WHERE other.ca_id = c.id AND other.id <> n.id)
 		  AND NOT EXISTS (SELECT 1 FROM cas successor WHERE successor.predecessor_id = c.id AND successor.status = ?)
 		  AND NOT EXISTS (SELECT 1 FROM mesh_imports mi WHERE mi.network_id = n.id AND mi.status = ?)`,
-		item.ID, item.OwnerOperatorID, item.Status, item.ExpectedHosts, item.TokenHash,
+		item.ID, item.OwnerOperatorID, item.Status, item.ExpectedHosts, tokenHash,
 		item.TokenExpiresAt, item.CreatedAt, item.UpdatedAt,
 		item.NetworkID, item.CAID, models.CAStatusActive,
 		models.CAStatusActive, models.MeshImportStatusCollecting,
@@ -128,7 +137,11 @@ func (s *SQLiteStore) GetMeshImport(ctx context.Context, id string) (*models.Mes
 	return item, nil
 }
 
-func (s *SQLiteStore) GetMeshImportByTokenHash(ctx context.Context, tokenHash string, now time.Time) (*models.MeshImport, error) {
+func (s *SQLiteStore) GetMeshImportByToken(ctx context.Context, rawToken string, now time.Time) (*models.MeshImport, error) {
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeMeshImportToken, rawToken)
+	if err != nil {
+		return nil, err
+	}
 	item, err := scanMeshImport(s.db.QueryRowContext(ctx, `SELECT `+meshImportColumns+` FROM mesh_imports WHERE token_hash = ?`, tokenHash))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -175,7 +188,11 @@ func (s *SQLiteStore) queryMeshImports(ctx context.Context, where string, args .
 	return items, rows.Err()
 }
 
-func (s *SQLiteStore) RotateMeshImportToken(ctx context.Context, id, tokenHash string, expiresAt, now time.Time) error {
+func (s *SQLiteStore) RotateMeshImportToken(ctx context.Context, id, rawToken string, expiresAt, now time.Time) error {
+	tokenHash, err := s.credentialDigest(credentialhash.PurposeMeshImportToken, rawToken)
+	if err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin rotate mesh import token: %w", err)

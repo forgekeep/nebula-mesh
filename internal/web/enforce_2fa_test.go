@@ -19,7 +19,7 @@ import (
 
 func newEnforceWeb(t *testing.T) (*Web, store.Store) {
 	t.Helper()
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}

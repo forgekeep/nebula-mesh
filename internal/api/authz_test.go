@@ -3,8 +3,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"io"
 	"log/slog"
 	"testing"
@@ -41,12 +39,10 @@ func createOperatorWithCA(t *testing.T, srv *Server) (string, *models.Operator, 
 
 	// Create API key for operator
 	rawKey := uuid.New().String()
-	keySum := sha256.Sum256([]byte(rawKey))
 	err = srv.store.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
 		ID:         uuid.New().String(),
 		OperatorID: op.ID,
-		KeyHash:    hex.EncodeToString(keySum[:]),
-	})
+	}, rawKey)
 	require.NoError(t, err)
 
 	// Create CA owned by operator using pki.MintAndStoreCA

@@ -2,10 +2,8 @@ package web
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base32"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -71,14 +69,15 @@ func verifyTOTPWithTimestep(secret, code string) (int64, bool) {
 	return 0, false
 }
 
-// generateRecoveryCodes returns N random 10-character codes (uppercase
-// alphanumeric) and their SHA-256 hex hashes for storage.
-func generateRecoveryCodes(n int) (codes []string, hashes []string, err error) {
+// generateRecoveryCodes returns N random 10-character uppercase codes.
+// The Store derives their keyed at-rest verifiers.
+func generateRecoveryCodes(n int) ([]string, error) {
 	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // base32-ish, no 0/O/I/1
+	codes := make([]string, 0, n)
 	for i := 0; i < n; i++ {
 		buf := make([]byte, 10)
 		if _, err := rand.Read(buf); err != nil {
-			return nil, nil, fmt.Errorf("rand: %w", err)
+			return nil, fmt.Errorf("rand: %w", err)
 		}
 		var sb strings.Builder
 		for _, b := range buf {
@@ -86,17 +85,8 @@ func generateRecoveryCodes(n int) (codes []string, hashes []string, err error) {
 		}
 		code := sb.String()
 		codes = append(codes, code)
-		hashes = append(hashes, hashRecoveryCode(code))
 	}
-	return codes, hashes, nil
-}
-
-// hashRecoveryCode normalizes a code (uppercase, strip spaces/dashes) and
-// returns its SHA-256 hex digest so plain codes can be matched.
-func hashRecoveryCode(code string) string {
-	norm := strings.ToUpper(strings.NewReplacer(" ", "", "-", "").Replace(strings.TrimSpace(code)))
-	sum := sha256.Sum256([]byte(norm))
-	return hex.EncodeToString(sum[:])
+	return codes, nil
 }
 
 // encodeSecretForDisplay formats the base32 secret into groups of 4 for

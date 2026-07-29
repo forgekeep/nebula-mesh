@@ -152,10 +152,10 @@ func TestCreateTokenForHost_InvalidatesPrevious(t *testing.T) {
 
 	// Seed an initial token.
 	first := &models.EnrollmentToken{
-		ID: "tok_first", HostID: h.ID, TokenHash: models.HashEnrollmentToken("old-token"),
+		ID: "tok_first", HostID: h.ID,
 		ExpiresAt: time.Now().Add(time.Hour), CreatedAt: time.Now(),
 	}
-	if err := s.CreateToken(ctx, first); err != nil {
+	if err := s.CreateToken(ctx, first, "old-token"); err != nil {
 		t.Fatal(err)
 	}
 	// Regenerate; old token must be wiped.

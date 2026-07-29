@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/config"
-	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
@@ -42,10 +41,11 @@ func Init(configPath string) error {
 	if masterB64 == "" {
 		return fmt.Errorf("master key required: set NEBULA_MGMT_MASTER_KEY env or master_key in %s", configPath)
 	}
-	master, err := keystore.NewMasterFromBase64(masterB64)
+	master, hasher, err := loadRuntimeKeys(masterB64)
 	if err != nil {
 		return fmt.Errorf("parse master key: %w", err)
 	}
+	defer hasher.Destroy()
 
 	// Generate admin API key plaintext (32 random bytes).
 	// This key is NOT saved to the config file; it is printed once to stdout
@@ -57,7 +57,10 @@ func Init(configPath string) error {
 	plaintext := hex.EncodeToString(keyBytes)
 
 	// Initialize database
-	s, err := store.NewSQLiteStore(cfg.DBPath)
+	s, err := store.NewSQLiteStore(cfg.DBPath,
+		store.WithCredentialHasher(hasher),
+		store.WithCredentialCutoverGuard(credentialCutoverMasterGuard(master)),
+	)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}

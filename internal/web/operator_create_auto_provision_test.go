@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
-	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // TestAdminCreatesUser_AutoProvisions verifies that when an admin creates
@@ -149,7 +148,7 @@ func TestAdminCreatesAdmin_AutoProvisions(t *testing.T) {
 // auto-provisioning the CA.
 func TestAdminCreatesUser_SkipsAutoProvisionWhenNoMaster(t *testing.T) {
 	// Create Web WITHOUT master key.
-	s, err := store.NewSQLiteStore(":memory:")
+	s, err := openTestSQLiteStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}

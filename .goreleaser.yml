@@ -56,6 +56,7 @@ archives:
       - README.md
       - CHANGELOG.md
       - configs/server.example.yml
+      - docs/upgrade-credential-hmac-cutover.md
       - deploy/systemd/nebula-mgmt.service
       - deploy/systemd/README.md
 
@@ -105,6 +106,8 @@ nfpms:
         dst: /usr/share/doc/nebula-mgmt/CHANGELOG.md
       - src: docs/server.md
         dst: /usr/share/doc/nebula-mgmt/server.md
+      - src: docs/upgrade-credential-hmac-cutover.md
+        dst: /usr/share/doc/nebula-mgmt/upgrade-credential-hmac-cutover.md
       - src: deploy/reverse-proxy/nginx/nebula-mgmt.conf
         dst: /usr/share/doc/nebula-mgmt/reverse-proxy/nginx.conf
       - src: deploy/reverse-proxy/caddy/Caddyfile
@@ -282,18 +285,21 @@ changelog:
   # for scoped commits, e.g. chore(deps): leaking past a bare ^chore: filter
   # in v0.7.1/v0.7.2) with an explicit whitelist of what's worth showing.
   groups:
-    - title: Features
-      regexp: '^.*?feat(\(.+\))?!?:.+$'
+    - title: "Breaking changes"
+      regexp: '^.*?(feat|fix|perf)(\(.+\))?!:.+$'
       order: 0
-    - title: "Bug fixes"
-      regexp: '^.*?fix(\(.+\))?!?:.+$'
+    - title: Features
+      regexp: '^.*?feat(\(.+\))?:.+$'
       order: 1
-    - title: "Performance"
-      regexp: '^.*?perf(\(.+\))?!?:.+$'
+    - title: "Bug fixes"
+      regexp: '^.*?fix(\(.+\))?:.+$'
       order: 2
+    - title: "Performance"
+      regexp: '^.*?perf(\(.+\))?:.+$'
+      order: 3
     - title: "Dependency updates"
       regexp: '^.*?chore\(deps\):.+$'
-      order: 3
+      order: 4
 
 release:
   github:
@@ -306,6 +312,8 @@ release:
     ## nebula-mesh {{ .Tag }}
 
     **Install:** see [README](https://github.com/forgekeep/nebula-mesh#install) for install snippets (all packages/archives are in the assets below).
+
+    **Breaking credential-verifier upgrade:** this release invalidates Web sessions, operator API keys, TOTP recovery codes, and pending enrollment tokens. Password hashes, OIDC bindings, TOTP secrets, enrolled agents, and their certificates remain valid. Collecting mesh imports block startup until finalized or canceled. Read the [cutover guide](https://github.com/forgekeep/nebula-mesh/blob/{{ .Tag }}/docs/upgrade-credential-hmac-cutover.md) before upgrading.
   footer: |
     ---
 

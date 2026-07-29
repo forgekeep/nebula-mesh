@@ -111,10 +111,10 @@ func (s *Server) handleCreateMeshImport(w http.ResponseWriter, r *http.Request) 
 	item := &models.MeshImport{
 		ID: uuid.NewString(), NetworkID: network.ID, CAID: ca.ID,
 		OwnerOperatorID: ActorOf(r.Context()).ID, Status: models.MeshImportStatusCollecting,
-		ExpectedHosts: request.ExpectedHosts, TokenHash: bootstraptoken.Hash(rawToken),
+		ExpectedHosts:  request.ExpectedHosts,
 		TokenExpiresAt: now.Add(meshImportTokenTTL), CreatedAt: now, UpdatedAt: now,
 	}
-	if err := s.store.CreateMeshImport(r.Context(), item); err != nil {
+	if err := s.store.CreateMeshImport(r.Context(), item, rawToken); err != nil {
 		s.writeMeshImportCreateError(w, err)
 		return
 	}
@@ -294,7 +294,7 @@ func (s *Server) handleRotateMeshImportToken(w http.ResponseWriter, r *http.Requ
 	}
 	now := s.now()
 	expiresAt := now.Add(meshImportTokenTTL)
-	if err := s.store.RotateMeshImportToken(r.Context(), item.ID, bootstraptoken.Hash(rawToken), expiresAt, now); err != nil {
+	if err := s.store.RotateMeshImportToken(r.Context(), item.ID, rawToken, expiresAt, now); err != nil {
 		if errors.Is(err, store.ErrMeshImportNotCollecting) {
 			writeError(w, http.StatusConflict, "mesh import is not collecting")
 			return

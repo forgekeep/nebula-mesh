@@ -16,7 +16,6 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/caimport"
 	"github.com/forgekeep/nebula-mesh/internal/cawatch"
 	"github.com/forgekeep/nebula-mesh/internal/config"
-	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/ratelimit"
 	"github.com/forgekeep/nebula-mesh/internal/secretingress"
@@ -85,8 +84,25 @@ func Serve(configPath string, insecureHTTP bool) error {
 		logger.Warn("config field 'api_key' is deprecated and ignored; use 'nebula-mgmt ops mint-admin-key' to recover an admin key", "config", configPath)
 	}
 
+	// Master keystore is REQUIRED before opening or migrating credential data.
+	masterB64 := cfg.MasterKey
+	if env := os.Getenv("NEBULA_MGMT_MASTER_KEY"); env != "" {
+		masterB64 = env
+	}
+	if masterB64 == "" {
+		return fmt.Errorf("master key required: set NEBULA_MGMT_MASTER_KEY env or master_key in %s", configPath)
+	}
+	master, hasher, err := loadRuntimeKeys(masterB64)
+	if err != nil {
+		return fmt.Errorf("master key: %w", err)
+	}
+	defer hasher.Destroy()
+
 	// Open database
-	s, err := store.NewSQLiteStore(cfg.DBPath)
+	s, err := store.NewSQLiteStore(cfg.DBPath,
+		store.WithCredentialHasher(hasher),
+		store.WithCredentialCutoverGuard(credentialCutoverMasterGuard(master)),
+	)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -112,18 +128,6 @@ func Serve(configPath string, insecureHTTP bool) error {
 		logger.Info("seeded initial admin operator", "username", DefaultAdminUsername)
 	}
 
-	// Master keystore is REQUIRED
-	masterB64 := cfg.MasterKey
-	if env := os.Getenv("NEBULA_MGMT_MASTER_KEY"); env != "" {
-		masterB64 = env
-	}
-	if masterB64 == "" {
-		return fmt.Errorf("master key required: set NEBULA_MGMT_MASTER_KEY env or master_key in %s", configPath)
-	}
-	master, err := keystore.NewMasterFromBase64(masterB64)
-	if err != nil {
-		return fmt.Errorf("master key: %w", err)
-	}
 	caResolver := pki.NewCAResolver(s, master)
 
 	// Validate: no rows should have empty ca_id from migration era.

@@ -223,7 +223,7 @@ func (s *Server) verifyAgentImportPayload(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusUnauthorized, "invalid_import_token")
 		return nil, false
 	}
-	session, err := s.store.GetMeshImportByTokenHash(r.Context(), bootstraptoken.Hash(request.Token), s.now())
+	session, err := s.store.GetMeshImportByToken(r.Context(), request.Token, s.now())
 	if err != nil {
 		s.writeAgentImportStoreError(w, err)
 		return nil, false

@@ -2,7 +2,6 @@ package api
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -171,15 +170,13 @@ func (s *Server) handleCreateOperatorAPIKey(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	plaintext := hex.EncodeToString(keyBytes)
-	sum := sha256.Sum256([]byte(plaintext))
 
 	entry := &models.OperatorAPIKey{
 		ID:         uuid.New().String(),
 		OperatorID: id,
 		Name:       req.Name,
-		KeyHash:    hex.EncodeToString(sum[:]),
 	}
-	if err := s.store.CreateOperatorAPIKey(r.Context(), entry); err != nil {
+	if err := s.store.CreateOperatorAPIKey(r.Context(), entry, plaintext); err != nil {
 		s.logger.Error("create api key", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to store api key")
 		return

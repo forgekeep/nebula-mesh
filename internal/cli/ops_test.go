@@ -2,9 +2,7 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
@@ -41,7 +40,7 @@ log_level: "info"
 	require.NoError(t, os.WriteFile(configPath, []byte(cfgContent), 0o644))
 
 	// Create store and migrate
-	s, err := store.NewSQLiteStore(dbPath)
+	s, err := openCLITestStore(t, dbPath)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -64,7 +63,7 @@ log_level: "info"
 		Name:       "initial-admin-key",
 		KeyHash:    "test-hash",
 	}
-	_, err = s.SeedInitialAdminOperator(ctx, adminOp, adminKey)
+	_, err = s.SeedInitialAdminOperator(ctx, adminOp, adminKey, "test-admin-key")
 	require.NoError(t, err)
 
 	// Capture stdout during OpsMintAdminKey
@@ -115,11 +114,55 @@ log_level: "info"
 	}
 	require.NotNil(t, recoveryKey, "recovery key not found in DB")
 
-	// Verify hash matches
-	h := sha256.Sum256([]byte(plaintextKey))
-	expectedHash := hex.EncodeToString(h[:])
+	// SEC-CREDENTIAL-001: verify the persisted value is the keyed verifier
+	// derived from the configured master, not a plain SHA-256 digest.
+	hasher, err := credentialhash.New(masterKey)
+	require.NoError(t, err)
+	t.Cleanup(hasher.Destroy)
+	expectedHash, err := hasher.Digest(credentialhash.PurposeOperatorAPIKey, []byte(plaintextKey))
+	require.NoError(t, err)
 	require.Equal(t, expectedHash, recoveryKey.KeyHash,
-		"plaintext hash mismatch: computed=%s, db=%s", expectedHash, recoveryKey.KeyHash)
+		"credential verifier mismatch: computed=%s, db=%s", expectedHash, recoveryKey.KeyHash)
+}
+
+func TestOpsResetTOTP_SEC_CREDENTIAL_001_RequiresConfirmationAndResets(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "server.yml")
+	dbPath := filepath.Join(tmpDir, "server.db")
+	masterKey := make([]byte, 32)
+	for i := range masterKey {
+		masterKey[i] = byte(i)
+	}
+	masterB64 := base64.StdEncoding.EncodeToString(masterKey)
+	t.Setenv("NEBULA_MGMT_MASTER_KEY", masterB64)
+	require.NoError(t, os.WriteFile(configPath, []byte(
+		"db_path: \""+dbPath+"\"\ndata_dir: \""+tmpDir+"\"\n"), 0o600))
+
+	_, hasher, err := loadRuntimeKeys(masterB64)
+	require.NoError(t, err)
+	t.Cleanup(hasher.Destroy)
+	s, err := store.NewSQLiteStore(dbPath, store.WithCredentialHasher(hasher))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+	require.NoError(t, s.Migrate(context.Background()))
+	op := &models.Operator{
+		ID: "reset-op", Username: "reset-admin", PasswordHash: "hash",
+		Status: models.OperatorStatusActive, Role: models.OperatorRoleAdmin,
+	}
+	require.NoError(t, s.CreateOperator(context.Background(), op))
+	require.NoError(t, s.SetOperatorTOTP(context.Background(), op.ID, "secret", true))
+
+	err = OpsResetTOTP(configPath, op.Username, false)
+	require.ErrorContains(t, err, "--confirm")
+	got, err := s.GetOperator(context.Background(), op.ID)
+	require.NoError(t, err)
+	require.True(t, got.TOTPEnabled)
+
+	require.NoError(t, OpsResetTOTP(configPath, op.Username, true))
+	got, err = s.GetOperator(context.Background(), op.ID)
+	require.NoError(t, err)
+	require.False(t, got.TOTPEnabled)
+	require.Empty(t, got.TOTPSecret)
 }
 
 func TestOpsMintAdminKey_NoAdmin(t *testing.T) {
@@ -145,7 +188,7 @@ log_level: "info"
 	require.NoError(t, os.WriteFile(configPath, []byte(cfgContent), 0o644))
 
 	// Create store and migrate, but do NOT seed admin
-	s, err := store.NewSQLiteStore(dbPath)
+	s, err := openCLITestStore(t, dbPath)
 	require.NoError(t, err)
 	defer s.Close()
 

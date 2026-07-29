@@ -112,10 +112,10 @@ func (w *Web) handleMeshImportCreate(rw http.ResponseWriter, r *http.Request) {
 	item := &models.MeshImport{
 		ID: uuid.NewString(), NetworkID: networkID, CAID: caID, OwnerOperatorID: op.ID,
 		Status: models.MeshImportStatusCollecting, ExpectedHosts: expectedHosts,
-		TokenHash: bootstraptoken.Hash(rawToken), TokenExpiresAt: now.Add(webMeshImportTokenTTL),
-		CreatedAt: now, UpdatedAt: now,
+		TokenExpiresAt: now.Add(webMeshImportTokenTTL),
+		CreatedAt:      now, UpdatedAt: now,
 	}
-	if err := w.store.CreateMeshImport(r.Context(), item); err != nil {
+	if err := w.store.CreateMeshImport(r.Context(), item, rawToken); err != nil {
 		if errors.Is(err, store.ErrMeshImportInProgress) || errors.Is(err, store.ErrMeshImportScopeInvalid) || errors.Is(err, store.ErrDuplicateEntry) {
 			w.renderMeshImportNew(rw, r, http.StatusConflict, "Network or CA is not eligible for mesh import")
 			return
@@ -148,7 +148,7 @@ func (w *Web) handleMeshImportRotateToken(rw http.ResponseWriter, r *http.Reques
 	}
 	now := time.Now()
 	expiresAt := now.Add(webMeshImportTokenTTL)
-	if err := w.store.RotateMeshImportToken(r.Context(), item.ID, bootstraptoken.Hash(rawToken), expiresAt, now); err != nil {
+	if err := w.store.RotateMeshImportToken(r.Context(), item.ID, rawToken, expiresAt, now); err != nil {
 		if errors.Is(err, store.ErrMeshImportNotCollecting) {
 			w.renderMeshImportDetail(rw, r, http.StatusConflict, item, "", "Mesh import is not collecting")
 			return

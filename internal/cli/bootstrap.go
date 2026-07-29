@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -21,7 +19,7 @@ const DefaultAdminUsername = "admin"
 // every startup: it is idempotent and a no-op if the operators table is
 // already populated. Either uiPassword or apiKey may be empty.
 //
-// When apiKey is non-empty it is hashed and stored as the admin's first
+// When apiKey is non-empty its keyed verifier is stored as the admin's first
 // operator API key. The apiKey value comes from the caller (Init generates
 // it inline; Serve passes ""), not from a persisted config field. Runtime
 // auth via bearerAuth middleware authenticates exclusively through
@@ -57,25 +55,16 @@ func SeedAdminOperator(ctx context.Context, s store.Store, uiPassword, apiKey st
 	}
 	var key *models.OperatorAPIKey
 	if apiKey != "" {
-		keyHash := sha256.Sum256([]byte(apiKey))
 		key = &models.OperatorAPIKey{
 			ID:         uuid.New().String(),
 			OperatorID: op.ID,
 			Name:       "initial-admin-key",
-			KeyHash:    hex.EncodeToString(keyHash[:]),
 		}
 	}
 
-	seeded, err := s.SeedInitialAdminOperator(ctx, op, key)
+	seeded, err := s.SeedInitialAdminOperator(ctx, op, key, apiKey)
 	if err != nil {
 		return false, fmt.Errorf("seed admin operator: %w", err)
 	}
 	return seeded, nil
-}
-
-// HashAPIKey hashes an API key for storage. Used by both bootstrap and the
-// API auth middleware so the same algorithm is applied on insert and lookup.
-func HashAPIKey(key string) string {
-	h := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(h[:])
 }

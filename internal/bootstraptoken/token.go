@@ -2,9 +2,7 @@ package bootstraptoken
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -50,11 +48,6 @@ func ValidatePurpose(token string, expected Purpose, allowLegacyEnrollment bool)
 		return nil
 	}
 	return ErrUnknownPurpose
-}
-
-func Hash(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
 }
 
 // PurposeOf returns the purpose encoded in a prefixed bootstrap token. Legacy

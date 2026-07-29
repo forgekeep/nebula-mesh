@@ -101,18 +101,23 @@ func TestMigrate_PinnedConnection_SurvivesPoolDispersal(t *testing.T) {
 		t.Fatalf("Migrate: %v", err)
 	}
 
-	// Every child row must survive 014's table recreation.
-	for _, q := range []struct{ name, query string }{
-		{"certificates", `SELECT COUNT(1) FROM certificates WHERE host_id = 'host-1'`},
-		{"host_addresses", `SELECT COUNT(1) FROM host_addresses WHERE host_id = 'host-1'`},
-		{"enrollment_tokens", `SELECT COUNT(1) FROM enrollment_tokens WHERE host_id = 'host-1'`},
+	// Durable child rows survive 014's table recreation. Migration 027
+	// intentionally invalidates enrollment tokens during the HMAC cutover.
+	for _, q := range []struct {
+		name  string
+		query string
+		want  int
+	}{
+		{"certificates", `SELECT COUNT(1) FROM certificates WHERE host_id = 'host-1'`, 1},
+		{"host_addresses", `SELECT COUNT(1) FROM host_addresses WHERE host_id = 'host-1'`, 1},
+		{"enrollment_tokens", `SELECT COUNT(1) FROM enrollment_tokens WHERE host_id = 'host-1'`, 0},
 	} {
 		var n int
 		if err := s.db.QueryRowContext(ctx, q.query).Scan(&n); err != nil {
 			t.Fatalf("count %s: %v", q.name, err)
 		}
-		if n != 1 {
-			t.Errorf("%s rows for host-1 = %d, want 1 (cascade-deleted during migration 014)", q.name, n)
+		if n != q.want {
+			t.Errorf("%s rows for host-1 = %d, want %d", q.name, n, q.want)
 		}
 	}
 }

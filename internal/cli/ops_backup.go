@@ -11,6 +11,7 @@ import (
 
 	"github.com/forgekeep/nebula-mesh/internal/backup"
 	"github.com/forgekeep/nebula-mesh/internal/config"
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/store"
@@ -72,10 +73,11 @@ func OpsRestore(configPath, inputPath, passphrase string, force bool) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	master, err := resolveMaster(cfg, configPath)
+	master, hasher, err := resolveRuntimeKeys(cfg, configPath)
 	if err != nil {
 		return err
 	}
+	defer hasher.Destroy()
 
 	if _, statErr := os.Stat(cfg.DBPath); statErr == nil {
 		if !force {
@@ -104,7 +106,10 @@ func OpsRestore(configPath, inputPath, passphrase string, force bool) error {
 	}
 
 	ctx := context.Background()
-	s, err := store.NewSQLiteStore(cfg.DBPath)
+	s, err := store.NewSQLiteStore(cfg.DBPath,
+		store.WithCredentialHasher(hasher),
+		store.WithCredentialCutoverGuard(credentialCutoverMasterGuard(master)),
+	)
 	if err != nil {
 		return fmt.Errorf("open restored store: %w", err)
 	}
@@ -138,19 +143,19 @@ func OpsRestore(configPath, inputPath, passphrase string, force bool) error {
 // resolveMaster resolves the master key the same way the server does: env wins
 // over the config field. It is required so the post-restore decryption check
 // can run.
-func resolveMaster(cfg *config.ServerConfig, configPath string) (*keystore.Master, error) {
+func resolveRuntimeKeys(cfg *config.ServerConfig, configPath string) (*keystore.Master, *credentialhash.Hasher, error) {
 	masterB64 := cfg.MasterKey
 	if env := os.Getenv("NEBULA_MGMT_MASTER_KEY"); env != "" {
 		masterB64 = env
 	}
 	if masterB64 == "" {
-		return nil, fmt.Errorf("master key required for restore: set NEBULA_MGMT_MASTER_KEY env or master_key in %s", configPath)
+		return nil, nil, fmt.Errorf("master key required for restore: set NEBULA_MGMT_MASTER_KEY env or master_key in %s", configPath)
 	}
-	master, err := keystore.NewMasterFromBase64(masterB64)
+	master, hasher, err := loadRuntimeKeys(masterB64)
 	if err != nil {
-		return nil, fmt.Errorf("master key: %w", err)
+		return nil, nil, fmt.Errorf("master key: %w", err)
 	}
-	return master, nil
+	return master, hasher, nil
 }
 
 // moveAside renames an existing database (and its WAL/SHM siblings) out of the

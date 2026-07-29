@@ -50,7 +50,7 @@ The package installs:
   `config|noreplace` so upgrades preserve your edits);
 - `/var/lib/nebula-mgmt/` — empty data dir, mode `0750`, owned by the
   newly-created `nebula-mgmt` system user;
-- `/usr/share/doc/nebula-mgmt/{README,LICENSE,CHANGELOG,server.md}` —
+- `/usr/share/doc/nebula-mgmt/{README,LICENSE,CHANGELOG,server.md,upgrade-credential-hmac-cutover.md}` —
   docs;
 - `/usr/share/doc/nebula-mgmt/reverse-proxy/{nginx.conf,Caddyfile,traefik-dynamic.yml}` —
   reverse-proxy snippets you can `cp` into the right system directory.
@@ -139,6 +139,12 @@ When upgrading across a minor version, check the
 migration is tracked in `internal/store/migrations/`, applied
 automatically on startup, and recorded in `schema_migrations`.
 
+The credential-verifier cutover is a breaking stopped-server upgrade. Before
+installing that minor release, follow the packaged
+[credential HMAC cutover guide](upgrade-credential-hmac-cutover.md): it covers
+the required backup, collecting-import preflight, credential invalidation, and
+the only supported rollback.
+
 ## Removal
 
 ```sh
@@ -170,6 +176,10 @@ sudo -u nebula-mgmt sqlite3 /var/lib/nebula-mgmt/nebula.db \
 The `NEBULA_MGMT_MASTER_KEY` is **load-bearing**: the DB on its own
 is useless without the matching key. Keep the master key in your secret
 manager — it is not stored in the database or configuration.
+
+For the credential HMAC cutover, make the pre-upgrade archive before starting
+the new binary. See the [cutover guide](upgrade-credential-hmac-cutover.md) and
+the full [backup procedure](backup.md).
 
 ## Networks and Hosts
 

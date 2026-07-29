@@ -14,8 +14,6 @@ package simtest
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -27,6 +25,7 @@ import (
 	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/api"
+	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
@@ -150,7 +149,12 @@ func New(tb TB, opts ...Option) *Harness {
 		dbPath = filepath.Join(dir, "nebula.db")
 	}
 
-	s, err := store.NewSQLiteStore(dbPath)
+	hasher, err := credentialhash.New(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
+	if err != nil {
+		tb.Fatalf("new credential hasher: %v", err)
+	}
+	tb.Cleanup(hasher.Destroy)
+	s, err := store.NewSQLiteStore(dbPath, store.WithCredentialHasher(hasher))
 	if err != nil {
 		tb.Fatalf("new store: %v", err)
 	}
@@ -184,13 +188,11 @@ func New(tb TB, opts ...Option) *Harness {
 	if err := s.CreateOperator(ctx, op); err != nil {
 		tb.Fatalf("create operator: %v", err)
 	}
-	keySum := sha256.Sum256([]byte(apiKey))
 	if err := s.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
 		ID:         "simtest-admin-key",
 		OperatorID: op.ID,
 		Name:       "simtest-admin-key",
-		KeyHash:    hex.EncodeToString(keySum[:]),
-	}); err != nil {
+	}, apiKey); err != nil {
 		tb.Fatalf("create api key: %v", err)
 	}
 
@@ -231,13 +233,11 @@ func (h *Harness) NewTenant(name string) *Tenant {
 		h.tb.Fatalf("create operator %q: %v", name, err)
 	}
 	key := name + "-key"
-	sum := sha256.Sum256([]byte(key))
 	if err := h.Store.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
 		ID:         name + "-key",
 		OperatorID: op.ID,
 		Name:       name + "-key",
-		KeyHash:    hex.EncodeToString(sum[:]),
-	}); err != nil {
+	}, key); err != nil {
 		h.tb.Fatalf("create api key for %q: %v", name, err)
 	}
 	ca, _, err := pki.MintAndStoreCA(ctx, h.Store, h.master, h.logger, pki.MintRequest{

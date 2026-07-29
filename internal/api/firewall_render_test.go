@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
@@ -145,5 +147,85 @@ func TestRenderHostConfig_AppendsHostFirewallInbound(t *testing.T) {
 	}
 	if netIdx, hostIdx := strings.Index(out, "auditors-only"), strings.Index(out, "bastion-admins"); netIdx > hostIdx {
 		t.Errorf("network rule should render before the per-host rule\n%s", out)
+	}
+}
+
+// TestRenderHostConfig_AppliesStoredCIDRRules is the end-to-end path for the
+// cidr / local_cidr fields: a stored policy using them must reach the agent
+// config as `cidr:` / `local_cidr:` keys, and a cidr-selected rule must not
+// pick up a `host: any` on the way — Nebula OR's the peer selectors, so that
+// would match every peer and discard the prefix restriction.
+func TestRenderHostConfig_AppliesStoredCIDRRules(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+	ctx := context.Background()
+
+	const policy = `{"inbound":[` +
+		`{"port":"443","proto":"tcp","cidr":"10.77.0.0/24"},` +
+		`{"port":"22","proto":"tcp","group":"admins-only","local_cidr":"192.0.2.0/24"}],` +
+		`"outbound":[{"port":"any","proto":"any","group":"any"}]}`
+	if err := srv.store.SetNetworkConfig(ctx, netID, "firewall", policy); err != nil {
+		t.Fatal(err)
+	}
+
+	host := renderTestHost(t, srv, netID)
+	cfg, err := srv.renderHostConfig(ctx, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Firewall struct {
+			Inbound []map[string]any `yaml:"inbound"`
+		} `yaml:"firewall"`
+	}
+	if err := yaml.Unmarshal(cfg, &parsed); err != nil {
+		t.Fatalf("rendered config is not valid YAML: %v\n%s", err, cfg)
+	}
+	in := parsed.Firewall.Inbound
+	if len(in) != 2 {
+		t.Fatalf("inbound rules = %d, want 2\n%s", len(in), cfg)
+	}
+
+	// The cidr-selected rule must carry the prefix and no host/group.
+	if in[0]["cidr"] != "10.77.0.0/24" {
+		t.Errorf("inbound[0].cidr = %v, want 10.77.0.0/24", in[0]["cidr"])
+	}
+	if _, ok := in[0]["host"]; ok {
+		t.Errorf("cidr-selected rule gained host, widening it to every peer: %v", in[0])
+	}
+	if _, ok := in[0]["group"]; ok {
+		t.Errorf("cidr-selected rule gained group: %v", in[0])
+	}
+
+	if in[1]["group"] != "admins-only" || in[1]["local_cidr"] != "192.0.2.0/24" {
+		t.Errorf("inbound[1] = %v, want group admins-only with local_cidr 192.0.2.0/24", in[1])
+	}
+}
+
+// TestRenderHostConfig_WiderCIDRRuleFallsBackToDefault pins that a stored rule
+// carrying both a group and a cidr — which Nebula would OR into a wider rule —
+// is refused at render time and the host receives the safe baseline instead.
+func TestRenderHostConfig_WiderCIDRRuleFallsBackToDefault(t *testing.T) {
+	srv, _ := newTestServer(t)
+	netID := createNetwork(t, srv)
+	ctx := context.Background()
+
+	const policy = `{"inbound":[{"port":"443","proto":"tcp","group":"web","cidr":"10.77.0.0/24"}],` +
+		`"outbound":[{"port":"any","proto":"any","group":"any"}]}`
+	if err := srv.store.SetNetworkConfig(ctx, netID, "firewall", policy); err != nil {
+		t.Fatal(err)
+	}
+
+	host := renderTestHost(t, srv, netID)
+	cfg, err := srv.renderHostConfig(ctx, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(cfg)
+	if strings.Contains(out, "10.77.0.0/24") || strings.Contains(out, "group: web") {
+		t.Errorf("rule with both group and cidr was rendered instead of falling back\n%s", out)
+	}
+	if !strings.Contains(out, "proto: icmp") {
+		t.Errorf("expected the icmp baseline after fallback\n%s", out)
 	}
 }

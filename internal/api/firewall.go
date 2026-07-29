@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/forgekeep/nebula-mesh/internal/configgen"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
@@ -22,11 +23,59 @@ type firewallRule struct {
 	Port  string `json:"port"`
 	Proto string `json:"proto"`
 	Group string `json:"group"`
+	// Cidr selects peers by Nebula address instead of by group; LocalCidr
+	// constrains the local address the traffic is destined to (or sourced
+	// from, outbound), and is required to allow traffic for prefixes served
+	// via unsafe_routes. Both accept a CIDR or "any".
+	Cidr      string `json:"cidr,omitempty"`
+	LocalCidr string `json:"local_cidr,omitempty"`
 }
 
+// defaultFirewallRules is the policy reported for a network that has never
+// stored one. It is derived from the renderer's baseline rather than restated,
+// so the rules the API reports cannot drift from the rules agents actually
+// receive when the baseline changes.
 var defaultFirewallRules = firewallRulesRequest{
-	Inbound:  []firewallRule{{Port: "any", Proto: "icmp", Group: "any"}},
-	Outbound: []firewallRule{{Port: "any", Proto: "any", Group: "any"}},
+	Inbound:  apiFirewallRules(configgen.DefaultFirewallInbound),
+	Outbound: apiFirewallRules(configgen.DefaultFirewallOutbound),
+}
+
+// validateFirewallRule bounds one rule of a network-wide policy.
+//
+// A rule without a peer selector is marshaled into network_config and pushed to
+// every agent, where Nebula treats the empty selector as match-any — a broader
+// allow than intended. So exactly one selector is required (group or cidr;
+// Nebula OR's them, so both at once widens the rule), the group length is
+// bounded consistently with host group caps, and the prefixes must be values
+// Nebula can parse.
+func validateFirewallRule(rule firewallRule) error {
+	if rule.Port == "" {
+		return errors.New("port must not be empty")
+	}
+	if rule.Proto == "" {
+		return errors.New("proto must not be empty")
+	}
+	if err := models.ValidateFirewallSelectors(rule.Group, rule.Cidr); err != nil {
+		return err
+	}
+	if len(rule.Group) > maxGroupNameLen {
+		return fmt.Errorf("group must be at most %d characters", maxGroupNameLen)
+	}
+	return models.ValidateFirewallCIDR("local_cidr", rule.LocalCidr)
+}
+
+func apiFirewallRules(in []configgen.FirewallRule) []firewallRule {
+	out := make([]firewallRule, 0, len(in))
+	for _, r := range in {
+		out = append(out, firewallRule{
+			Port:      r.Port,
+			Proto:     r.Proto,
+			Group:     r.Group,
+			Cidr:      r.Cidr,
+			LocalCidr: r.LocalCidr,
+		})
+	}
+	return out
 }
 
 func (s *Server) handleGetFirewall(w http.ResponseWriter, r *http.Request) {
@@ -95,24 +144,8 @@ func (s *Server) handleUpdateFirewall(w http.ResponseWriter, r *http.Request) {
 
 	for _, rules := range [][]firewallRule{req.Inbound, req.Outbound} {
 		for _, rule := range rules {
-			if rule.Port == "" {
-				writeError(w, http.StatusBadRequest, "firewall rule port must not be empty")
-				return
-			}
-			if rule.Proto == "" {
-				writeError(w, http.StatusBadRequest, "firewall rule proto must not be empty")
-				return
-			}
-			// A rule without a target group is marshaled into network_config and
-			// pushed to every agent, where Nebula treats the empty selector as
-			// match-any — a broader allow than intended. Require an explicit
-			// selector and bound its length, consistent with host group caps.
-			if rule.Group == "" {
-				writeError(w, http.StatusBadRequest, "firewall rule must specify a target group")
-				return
-			}
-			if len(rule.Group) > maxGroupNameLen {
-				writeError(w, http.StatusBadRequest, fmt.Sprintf("firewall rule group must be at most %d characters", maxGroupNameLen))
+			if err := validateFirewallRule(rule); err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("firewall rule: %s", err))
 				return
 			}
 		}

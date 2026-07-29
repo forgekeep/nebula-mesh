@@ -236,3 +236,55 @@ func TestValidateHostAdvanced_FirewallInbound_CapsRuleCount(t *testing.T) {
 		t.Errorf("exactly MaxHostFirewallRules rules rejected: %v", err)
 	}
 }
+
+func TestValidateHostAdvanced_FirewallInbound_CIDRFields(t *testing.T) {
+	valid := []HostFirewallRule{
+		{Port: "443", Proto: "tcp", Cidr: "10.0.0.0/24"},
+		{Port: "443", Proto: "tcp", Group: "web", LocalCidr: "192.168.50.0/24"},
+		{Port: "any", Proto: "any", Cidr: "any", LocalCidr: "any"},
+		{Port: "any", Proto: "any", Cidr: "fd00::/8", LocalCidr: "::/0"},
+		{Port: "any", Proto: "any", Cidr: "0.0.0.0/0"},
+	}
+	for _, rule := range valid {
+		if err := ValidateHostAdvanced(&HostAdvanced{FirewallInbound: []HostFirewallRule{rule}}); err != nil {
+			t.Errorf("valid rule %+v rejected: %v", rule, err)
+		}
+	}
+
+	rejected := []struct {
+		name string
+		rule HostFirewallRule
+	}{
+		// Nebula OR's group and cidr, so both together widen the rule.
+		{"group and cidr together", HostFirewallRule{Port: "443", Proto: "tcp", Group: "web", Cidr: "10.0.0.0/24"}},
+		{"local_cidr is not a selector", HostFirewallRule{Port: "443", Proto: "tcp", LocalCidr: "10.0.0.0/24"}},
+		{"unparseable cidr", HostFirewallRule{Port: "443", Proto: "tcp", Cidr: "10.0.0.0/33"}},
+		{"bare IP as cidr", HostFirewallRule{Port: "443", Proto: "tcp", Cidr: "10.0.0.1"}},
+		{"unparseable local_cidr", HostFirewallRule{Port: "443", Proto: "tcp", Group: "web", LocalCidr: "nope"}},
+		{"bare IP as local_cidr", HostFirewallRule{Port: "443", Proto: "tcp", Group: "web", LocalCidr: "192.168.50.1"}},
+	}
+	for _, tc := range rejected {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateHostAdvanced(&HostAdvanced{FirewallInbound: []HostFirewallRule{tc.rule}})
+			if err == nil {
+				t.Fatalf("rule %+v accepted, want error", tc.rule)
+			}
+			if !strings.Contains(err.Error(), "advanced.firewall_inbound[0]") {
+				t.Errorf("error %q should reference advanced.firewall_inbound[0]", err)
+			}
+		})
+	}
+}
+
+func TestValidateFirewallCIDR(t *testing.T) {
+	for _, ok := range []string{"", "any", "10.0.0.0/8", "0.0.0.0/0", "::/0", "fd00::/8"} {
+		if err := ValidateFirewallCIDR("cidr", ok); err != nil {
+			t.Errorf("ValidateFirewallCIDR(%q) = %v, want nil", ok, err)
+		}
+	}
+	for _, bad := range []string{"10.0.0.1", "10.0.0.0/33", "nope", "ANY", "10.0.0.0/8 "} {
+		if err := ValidateFirewallCIDR("cidr", bad); err == nil {
+			t.Errorf("ValidateFirewallCIDR(%q) = nil, want error", bad)
+		}
+	}
+}

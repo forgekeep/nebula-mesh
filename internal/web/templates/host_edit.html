@@ -88,7 +88,7 @@
                 </select>
             </div>
             <div class="form-group"><label>Unsafe routes (one per line: <code>CIDR via NEBULA_IP</code>)</label><textarea name="adv_unsafe_routes" class="form-control" rows="3" placeholder="192.168.10.0/24 via 10.0.0.99">{{.Form.AdvUnsafeRoutes}}</textarea></div>
-            <div class="form-group"><label>Inbound firewall rules (one per line: <code>PORT/PROTO from GROUP</code>, added after the network policy)</label><textarea name="adv_firewall_inbound" class="form-control" rows="3" placeholder="443/tcp from web">{{.Form.AdvFirewallInbound}}</textarea></div>
+            <div class="form-group"><label>Inbound firewall rules (one per line: <code>PORT/PROTO from GROUP</code>, added after the network policy)</label><textarea name="adv_firewall_inbound" class="form-control" rows="3" placeholder="443/tcp from web">{{.Form.AdvFirewallInbound}}</textarea><small class="form-text">Select the peer by group (<code>from web</code>) or by prefix (<code>cidr=10.0.0.0/24</code>) — not both. Append <code>local_cidr=&lt;CIDR&gt;</code> to match traffic for a local address, which is required for prefixes you serve via unsafe routes.</small></div>
         </details>
 
         <button type="submit" class="btn btn-primary">Save changes</button>

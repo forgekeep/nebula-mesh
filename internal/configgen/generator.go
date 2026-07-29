@@ -6,11 +6,15 @@ type LighthouseInfo struct {
 	PublicAddr string // "1.2.3.4:4242"
 }
 
-// FirewallRule represents a single firewall rule.
+// FirewallRule represents a single firewall rule. A rule carries exactly one
+// peer selector — Group or Cidr — because Nebula OR's them; LocalCidr is an
+// independent constraint AND'd into the matched selector.
 type FirewallRule struct {
-	Port  string // "any", "22", "443"
-	Proto string // "any", "tcp", "udp", "icmp"
-	Group string // "any", "admin", etc.
+	Port      string // "any", "22", "443"
+	Proto     string // "any", "tcp", "udp", "icmp"
+	Group     string // "any", "admin", etc.
+	Cidr      string // "", "any", "10.0.0.0/24" — remote (peer) address
+	LocalCidr string // "", "any", "10.0.0.0/24" — local address
 }
 
 // AdvancedUnsafeRoute mirrors models.UnsafeRoute for the generator input.

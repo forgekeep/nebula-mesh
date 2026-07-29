@@ -3,6 +3,7 @@ package configgen
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 )
 
 // DefaultFirewallInbound and DefaultFirewallOutbound are the baseline policy a
@@ -23,9 +24,11 @@ type storedFirewallRules struct {
 }
 
 type storedFirewallRule struct {
-	Port  string `json:"port"`
-	Proto string `json:"proto"`
-	Group string `json:"group"`
+	Port      string `json:"port"`
+	Proto     string `json:"proto"`
+	Group     string `json:"group"`
+	Cidr      string `json:"cidr,omitempty"`
+	LocalCidr string `json:"local_cidr,omitempty"`
 }
 
 // FirewallRulesFromJSON converts the management API's stored firewall JSON
@@ -36,9 +39,10 @@ type storedFirewallRule struct {
 // gets the baseline, which is not an error condition.
 //
 // It returns the safe defaults together with a non-nil error when the JSON is
-// malformed or any rule is unusable (an empty port, proto, or group). The
-// empty group in particular is the work-322fy footgun: Nebula rejects a rule
-// with neither group nor host, failing the whole config on load. Returning
+// malformed or any rule is unusable (an empty port or proto, no peer selector,
+// or an unparseable cidr/local_cidr). The missing selector in particular is
+// the work-322fy footgun: Nebula rejects a rule with neither group nor host,
+// failing the whole config on load. Returning
 // the defaults rather than the bad rules guarantees that wiring a network's
 // stored policy into a host config can never produce an agent config Nebula
 // refuses to load; the non-nil error lets the caller surface that the
@@ -71,12 +75,38 @@ func convertStoredRules(direction string, in []storedFirewallRule) ([]FirewallRu
 		// Mirror the API write-time validation: a rule missing any selector
 		// would render a config Nebula rejects (empty group/host) or an
 		// ambiguous match (empty port/proto).
-		if r.Port == "" || r.Proto == "" || r.Group == "" {
-			return nil, fmt.Errorf("%s rule %d: port, proto, and group must all be non-empty", direction, i)
+		if r.Port == "" || r.Proto == "" {
+			return nil, fmt.Errorf("%s rule %d: port and proto must both be non-empty", direction, i)
+		}
+		if r.Group == "" && r.Cidr == "" {
+			return nil, fmt.Errorf("%s rule %d: a group or cidr must be set", direction, i)
+		}
+		// Nebula OR's group and cidr, so a rule carrying both matches more
+		// than either alone. Refuse rather than render the wider rule.
+		if r.Group != "" && r.Cidr != "" {
+			return nil, fmt.Errorf("%s rule %d: group and cidr are mutually exclusive", direction, i)
+		}
+		if err := validateStoredCIDR(r.Cidr); err != nil {
+			return nil, fmt.Errorf("%s rule %d: cidr: %w", direction, i, err)
+		}
+		if err := validateStoredCIDR(r.LocalCidr); err != nil {
+			return nil, fmt.Errorf("%s rule %d: local_cidr: %w", direction, i, err)
 		}
 		// storedFirewallRule and FirewallRule share the same field layout;
 		// the conversion drops only the json tags.
 		out = append(out, FirewallRule(r))
 	}
 	return out, nil
+}
+
+// validateStoredCIDR accepts an unset field, the literal "any", or a prefix
+// Nebula can parse. Anything else would fail the agent's config load.
+func validateStoredCIDR(value string) error {
+	if value == "" || value == "any" {
+		return nil
+	}
+	if _, err := netip.ParsePrefix(value); err != nil {
+		return fmt.Errorf("%q is not a CIDR or \"any\"", value)
+	}
+	return nil
 }

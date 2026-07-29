@@ -385,3 +385,134 @@ func requireIssueCode(t *testing.T, issues []Issue, code string) {
 	}
 	t.Fatalf("issue %q not found in %#v", code, issues)
 }
+
+// TestReconcileFirewallCIDRFields checks that cidr / local_cidr participate in
+// the firewall policy comparison. Were they excluded from the rule key, two
+// hosts whose policies differ only in local_cidr would compare equal and one
+// host's rules would be applied to every imported host.
+func TestReconcileFirewallCIDRFields(t *testing.T) {
+	fixture := newCertificateFixture(t)
+	first := fixture.snapshot(t, "first", "first", "10.42.0.20/24", []string{"ops"})
+	second := fixture.snapshot(t, "second", "second", "10.42.0.21/24", []string{"ops"})
+	policy := FirewallPolicy{
+		Inbound: []FirewallRule{
+			{Port: "22", Proto: "tcp", Group: "ops", LocalCidr: "192.0.2.0/24"},
+			{Port: "443", Proto: "tcp", Cidr: "10.42.0.0/24"},
+		},
+		Outbound: []FirewallRule{{Port: "any", Proto: "any", Group: "any"}},
+	}
+	first.Config.Firewall = policy
+	second.Config.Firewall = policy
+
+	report := fixture.reconcile(first, second)
+	if len(report.Blockers) != 0 {
+		t.Fatalf("identical cidr policies blocked: %#v", report.Blockers)
+	}
+	if !reflect.DeepEqual(report.Proposal.Firewall, policy) {
+		t.Fatalf("firewall proposal = %#v, want %#v", report.Proposal.Firewall, policy)
+	}
+
+	// Diverging only in local_cidr must still be caught.
+	second.Config.Firewall.Inbound = []FirewallRule{
+		{Port: "22", Proto: "tcp", Group: "ops", LocalCidr: "198.51.100.0/24"},
+		{Port: "443", Proto: "tcp", Cidr: "10.42.0.0/24"},
+	}
+	report = fixture.reconcile(first, second)
+	requireIssueCode(t, report.Blockers, IssueDivergentFirewall)
+
+	// Diverging only in cidr must also be caught.
+	second.Config.Firewall.Inbound = []FirewallRule{
+		{Port: "22", Proto: "tcp", Group: "ops", LocalCidr: "192.0.2.0/24"},
+		{Port: "443", Proto: "tcp", Cidr: "10.43.0.0/24"},
+	}
+	report = fixture.reconcile(first, second)
+	requireIssueCode(t, report.Blockers, IssueDivergentFirewall)
+}
+
+// TestNormalizeFirewallSelectors pins the selector rules: a cidr stands in for
+// a group, neither is rejected, and both together are rejected because Nebula
+// OR's them into a wider rule.
+func TestNormalizeFirewallSelectors(t *testing.T) {
+	cases := []struct {
+		name    string
+		rule    FirewallRule
+		wantErr bool
+	}{
+		{"group only", FirewallRule{Port: "22", Proto: "tcp", Group: "ops"}, false},
+		{"cidr only", FirewallRule{Port: "22", Proto: "tcp", Cidr: "10.0.0.0/8"}, false},
+		{"group with local_cidr", FirewallRule{Port: "22", Proto: "tcp", Group: "ops", LocalCidr: "any"}, false},
+		{"neither", FirewallRule{Port: "22", Proto: "tcp"}, true},
+		{"both", FirewallRule{Port: "22", Proto: "tcp", Group: "ops", Cidr: "10.0.0.0/8"}, true},
+		{"local_cidr is not a selector", FirewallRule{Port: "22", Proto: "tcp", LocalCidr: "10.0.0.0/8"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := normalizeFirewall(FirewallPolicy{Inbound: []FirewallRule{tc.rule}})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("normalizeFirewall(%+v) err = %v, wantErr %v", tc.rule, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestNormalizeFirewallTrimsIntoStoredRule pins that normalization trims the
+// values it stores, not just the ones it checks. The renderer re-validates the
+// persisted policy without trimming, so a rule that only parses once trimmed
+// would clear the import and then drop the entire network policy to the ICMP
+// baseline on every host at render time.
+func TestNormalizeFirewallTrimsIntoStoredRule(t *testing.T) {
+	policy := FirewallPolicy{
+		Inbound: []FirewallRule{
+			{Port: " 22 ", Proto: " tcp ", Group: " ops ", LocalCidr: " 192.0.2.0/24 "},
+			{Port: "443", Proto: "tcp", Cidr: " 10.42.0.0/24 "},
+		},
+		Outbound: []FirewallRule{{Port: " any ", Proto: " any ", Group: " any "}},
+	}
+	out, err := normalizeFirewall(policy)
+	if err != nil {
+		t.Fatalf("normalizeFirewall: %v", err)
+	}
+
+	for _, rule := range append(append([]FirewallRule{}, out.Inbound...), out.Outbound...) {
+		for field, value := range map[string]string{
+			"port": rule.Port, "proto": rule.Proto, "group": rule.Group,
+			"cidr": rule.Cidr, "local_cidr": rule.LocalCidr,
+		} {
+			if value != strings.TrimSpace(value) {
+				t.Errorf("%s = %q retained whitespace; the renderer would reject it", field, value)
+			}
+		}
+	}
+
+	// The trimmed values must be exactly what the renderer accepts.
+	if got := out.Inbound[1].Cidr; got != "10.42.0.0/24" {
+		t.Errorf("cidr = %q, want 10.42.0.0/24", got)
+	}
+	if got := out.Inbound[0].LocalCidr; got != "192.0.2.0/24" {
+		t.Errorf("local_cidr = %q, want 192.0.2.0/24", got)
+	}
+}
+
+// TestNormalizeFirewallWhitespaceIsNotDivergence follows from the same fix:
+// two hosts whose policies differ only in whitespace describe the same policy
+// and must not block the import as divergent.
+func TestNormalizeFirewallWhitespaceIsNotDivergence(t *testing.T) {
+	spaced, err := normalizeFirewall(FirewallPolicy{
+		Inbound:  []FirewallRule{{Port: "22", Proto: "tcp", Group: " ops "}},
+		Outbound: []FirewallRule{{Port: "any", Proto: "any", Group: "any"}},
+	})
+	if err != nil {
+		t.Fatalf("normalizeFirewall: %v", err)
+	}
+	tight, err := normalizeFirewall(FirewallPolicy{
+		Inbound:  []FirewallRule{{Port: "22", Proto: "tcp", Group: "ops"}},
+		Outbound: []FirewallRule{{Port: "any", Proto: "any", Group: "any"}},
+	})
+	if err != nil {
+		t.Fatalf("normalizeFirewall: %v", err)
+	}
+	if firewallKey(spaced) != firewallKey(tight) {
+		t.Errorf("whitespace-only difference read as divergent policy:\n%q\n%q",
+			firewallKey(spaced), firewallKey(tight))
+	}
+}

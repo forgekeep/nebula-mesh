@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/curve25519"
 
 	"github.com/forgekeep/nebula-mesh/internal/configgen"
+	"github.com/forgekeep/nebula-mesh/internal/configinput"
 	"github.com/forgekeep/nebula-mesh/internal/mobileconfig"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
@@ -158,18 +159,7 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 			AllowPrivateRemotes: mobileSettings.AllowPrivateRemotes,
 		},
 	}
-	if adv := host.Advanced; adv != nil {
-		input.PunchyOverride = adv.Punchy
-		input.ListenHost = adv.ListenHost
-		input.MTU = adv.MTU
-		input.TunDevice = adv.TunDevice
-		for _, u := range adv.UnsafeRoutes {
-			input.UnsafeRoutes = append(input.UnsafeRoutes, configgen.AdvancedUnsafeRoute{Route: u.Route, Via: u.Via})
-		}
-		for _, fr := range adv.FirewallInbound {
-			input.HostFirewallInbound = append(input.HostFirewallInbound, configgen.FirewallRule{Port: fr.Port, Proto: fr.Proto, Group: fr.Group})
-		}
-	}
+	configinput.ApplyHostAdvanced(&input, host.Advanced)
 
 	configYAML, err := configgen.Generate(input)
 	if err != nil {

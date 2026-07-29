@@ -279,12 +279,23 @@ func hostFormStateFromHost(h *models.Host) hostFormState {
 			state.AdvUnsafeRoutes += ur.Route + " via " + ur.Via
 		}
 
-		// FirewallInbound: "PORT/PROTO from GROUP" per line
+		// FirewallInbound: "PORT/PROTO from GROUP [cidr=..] [local_cidr=..]"
+		// per line — the inverse of parseFirewallInboundLine, so an edit that
+		// touches no firewall field round-trips unchanged.
 		for _, fr := range h.Advanced.FirewallInbound {
 			if state.AdvFirewallInbound != "" {
 				state.AdvFirewallInbound += "\n"
 			}
-			state.AdvFirewallInbound += fr.Port + "/" + fr.Proto + " from " + fr.Group
+			state.AdvFirewallInbound += fr.Port + "/" + fr.Proto
+			if fr.Group != "" {
+				state.AdvFirewallInbound += " from " + fr.Group
+			}
+			if fr.Cidr != "" {
+				state.AdvFirewallInbound += " cidr=" + fr.Cidr
+			}
+			if fr.LocalCidr != "" {
+				state.AdvFirewallInbound += " local_cidr=" + fr.LocalCidr
+			}
 		}
 	}
 

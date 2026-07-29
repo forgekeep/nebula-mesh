@@ -881,6 +881,18 @@ components:
         port: { type: string }
         proto: { type: string }
         group: { type: string }
+        cidr:
+          type: string
+          description: >-
+            Nebula `cidr`: restricts the rule to peers inside the prefix. A CIDR
+            or "any". An alternative to group, not a companion — Nebula OR's the
+            peer selectors, so a rule carries one or the other.
+        local_cidr:
+          type: string
+          description: >-
+            Nebula `local_cidr`: restricts the rule to traffic for a local
+            address. A CIDR or "any". AND'd with the peer selector, and required
+            to allow traffic for prefixes served via unsafe_routes.
 
     AgentImportFirewallPolicy:
       type: object

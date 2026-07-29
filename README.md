@@ -82,7 +82,7 @@ When this beats hand-rolled scripts or a managed service:
 - **Multi-address overlays** — networks and hosts can carry multiple overlay IPs (e.g. for dual-stack or multi-segment routing).
 - **Per-host advanced overrides** — `listen_host`, `mtu`, `tun_device`, `punchy`, `unsafe_routes` opt-in per host without touching the network default. Host records are editable via UI/API after creation (`PATCH /api/v1/hosts/{id}`).
 - **Audit trail** — every mutating UI / API / CLI call is recorded with actor, action, target, plus a stable `ca_id` on host events.
-- **Per-network firewall rules** — managed declaratively via API, distributed to all hosts; plus additive per-host inbound rules (`advanced.firewall_inbound`) to open ports for specific groups on a single host.
+- **Per-network firewall rules** — managed declaratively via API, distributed to all hosts; plus additive per-host inbound rules (`advanced.firewall_inbound`) to open ports for specific groups on a single host. Rules select their peer by group or by `cidr`, and can be scoped to a local address with `local_cidr` — required to allow traffic for prefixes served via `unsafe_routes`.
 - **Production-ready basics** — `/healthz`, `/readyz`, Prometheus exporter at `/metrics` (legacy `expvar` view at `/debug/vars`), built-in cert-expiry alerter (audit + webhook + per-host Prometheus gauge), structured `slog` logs, optional in-process TLS, SQLite (WAL) with tracked migrations.
 - **Tiny footprint** — two static binaries (~15–25 MiB each), SQLite, no external deps. Runs on a $5 VM.
 

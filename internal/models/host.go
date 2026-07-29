@@ -181,10 +181,25 @@ type UnsafeRoute struct {
 // HostFirewallRule is a single per-host inbound firewall rule, appended
 // after the network-wide policy in the rendered Nebula config. Group "any"
 // renders as `host: any` (match every peer), mirroring the network policy.
+//
+// Cidr and LocalCidr map to Nebula's `cidr` and `local_cidr` rule fields.
+// Nebula OR's the peer selectors (`host` / `group` / `groups` / `cidr`) and
+// AND's `local_cidr` into whichever selector matched, so a rule carries
+// exactly one peer selector — either Group or Cidr, never both, since the two
+// together would widen the rule to "group OR cidr" rather than narrow it.
+// LocalCidr is an independent constraint on the local (this host) address and
+// may accompany either selector.
 type HostFirewallRule struct {
 	Port  string `json:"port" yaml:"port"`   // "any", a port, or a range "a-b"
 	Proto string `json:"proto" yaml:"proto"` // any | tcp | udp | icmp
 	Group string `json:"group" yaml:"group"`
+	// Cidr restricts the rule to peers whose Nebula address falls inside the
+	// prefix: a CIDR, or "any" for any address of any family.
+	Cidr string `json:"cidr,omitempty" yaml:"cidr,omitempty"`
+	// LocalCidr restricts the rule to traffic whose local address falls
+	// inside the prefix: a CIDR, or "any". Needed to reach addresses served
+	// via unsafe_routes, which Nebula excludes by default.
+	LocalCidr string `json:"local_cidr,omitempty" yaml:"local_cidr,omitempty"`
 }
 
 // MaxHostFirewallRules caps advanced.firewall_inbound per host. Generous

@@ -29,7 +29,7 @@ Type=simple
 User=root
 Group=root
 
-ExecStart=/usr/local/bin/nebula-agent --config /etc/nebula-agent/agent.yml
+ExecStart=/usr/bin/nebula-agent --config /etc/nebula-agent/agent.yml
 Restart=on-failure
 RestartSec=5s
 

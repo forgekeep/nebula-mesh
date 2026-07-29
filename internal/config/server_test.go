@@ -67,6 +67,48 @@ func TestLoadServerConfig_Defaults(t *testing.T) {
 	}
 }
 
+func TestLoadServerConfig_TrustedProxyCIDRs(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+	data := []byte(`rate_limit:
+  trust_proxy_header: true
+  trusted_proxies:
+    - "10.42.0.0/16"
+    - "2001:db8::/32"
+`)
+	if err := os.WriteFile(cfgPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadServerConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadServerConfig: %v", err)
+	}
+	prefixes, err := cfg.RateLimit.TrustedProxyPrefixes()
+	if err != nil {
+		t.Fatalf("TrustedProxyPrefixes: %v", err)
+	}
+	if len(prefixes) != 2 || prefixes[0].String() != "10.42.0.0/16" || prefixes[1].String() != "2001:db8::/32" {
+		t.Fatalf("prefixes = %v", prefixes)
+	}
+}
+
+func TestLoadServerConfig_RejectsInvalidTrustedProxyCIDR(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "server.yml")
+	data := []byte(`rate_limit:
+  trust_proxy_header: true
+  trusted_proxies: ["not-a-cidr"]
+`)
+	if err := os.WriteFile(cfgPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadServerConfig(cfgPath); err == nil {
+		t.Fatal("LoadServerConfig accepted invalid trusted proxy CIDR")
+	}
+}
+
 func TestLoadServerConfig_CAImportSecuritySettings(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "server.yml")

@@ -106,8 +106,21 @@ Three working snippets ship in the package at
 - `traefik-dynamic.yml` — Traefik v3 file provider.
 
 All three preserve `X-Forwarded-For` so the management server's per-IP
-rate limiter (issue #52) keys on the real client IP — set
+rate limiter (issue #52) keys on the real client IP. Set
 `rate_limit.trust_proxy_header: true` in `server.yml` to opt into that.
+The bundled proxies connect from loopback, which is trusted automatically.
+If a container or cluster proxy connects from another address, list only
+the proxy network:
+
+```yaml
+rate_limit:
+  trust_proxy_header: true
+  trusted_proxies:
+    - "10.42.0.0/16"
+```
+
+Do not add client networks to `trusted_proxies`. An untrusted direct peer
+cannot select the rate-limit key through `X-Forwarded-For`.
 
 ## Upgrade
 

@@ -163,9 +163,14 @@ func Serve(configPath string, insecureHTTP bool) error {
 
 	// Build a single rate limiter shared by API and Web. The Web UI runs
 	// auth/ui groups; the API server runs api/enroll/agent_poll groups.
+	trustedProxyPrefixes, err := cfg.RateLimit.TrustedProxyPrefixes()
+	if err != nil {
+		return err
+	}
 	rlCfg := ratelimit.Default()
 	rlCfg.Enabled = cfg.RateLimit.IsEnabled()
 	rlCfg.TrustProxyHeader = cfg.RateLimit.TrustProxyHeader
+	rlCfg.TrustedProxyPrefixes = trustedProxyPrefixes
 	for name, gc := range cfg.RateLimit.Groups {
 		if gc.Rate > 0 && gc.Burst > 0 {
 			rlCfg.Groups[name] = ratelimit.GroupConfig{Rate: gc.Rate, Burst: gc.Burst}

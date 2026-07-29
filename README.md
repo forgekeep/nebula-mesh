@@ -346,7 +346,7 @@ its files unchanged until you approve the reconciliation preview. See
 - **Docker** — `docker build -t nebula-mgmt .` (Dockerfile in repo).
 - **systemd** — unit files in [`deploy/systemd/`](deploy/systemd/).
 - **TLS** — set `tls_cert` + `tls_key` for in-process TLS, or front with nginx/caddy/traefik. Working snippets for all three live in [`deploy/reverse-proxy/`](deploy/reverse-proxy/) and ship inside the `.deb`/`.rpm` at `/usr/share/doc/nebula-mgmt/reverse-proxy/`. Each is opinionated, preserves `X-Forwarded-For`, and disables buffering on `/ui/events` so the SSE feed reaches the browser in real time.
-- **Rate limiting** — on by default. The Web UI, auth endpoints, `/api/v1/enroll`, and the bearer-authenticated admin API each run their own per-IP token bucket. Defaults: 5 req/s on login forms (burst 10), 2 req/s on enrolment (burst 5), 30 req/s on UI + admin API (burst 60), 60 req/s on agent polls (burst 120). Health (`/healthz`, `/readyz`, `/metrics`, `/debug/vars`, `/favicon.ico`, `/static/*`) is exempt. Run behind a reverse proxy? Set `rate_limit.trust_proxy_header: true` so the limiter keys on `X-Forwarded-For` instead of the proxy's connection address.
+- **Rate limiting** — on by default. The Web UI, auth endpoints, `/api/v1/enroll`, and the bearer-authenticated admin API each run their own per-IP token bucket. Defaults: 5 req/s on login forms (burst 10), 2 req/s on enrolment (burst 5), 30 req/s on UI + admin API (burst 60), 60 req/s on agent polls (burst 120). Health (`/healthz`, `/readyz`, `/metrics`, `/debug/vars`, `/favicon.ico`, `/static/*`) is exempt. Behind a reverse proxy, enable `rate_limit.trust_proxy_header`; non-loopback proxies must also appear in `rate_limit.trusted_proxies`.
 
 ### Backups & key handling
 
@@ -394,7 +394,7 @@ On by default; configurable in `server.yml`. Each group is a separate per-IP tok
 | `enroll` | 2 / 5 | `POST /api/v1/enroll` |
 | `agent_poll` | 60 / 120 | `GET /api/v1/agent/updates` |
 
-Ops endpoints (`/healthz`, `/readyz`, `/metrics`, `/debug/`, `/favicon.ico`, `/static/*`) are exempt so scrapes never get 429s. Behind a reverse proxy, set `rate_limit.trust_proxy_header: true` to key the buckets on `X-Forwarded-For` instead of the proxy's loopback connection.
+Ops endpoints (`/healthz`, `/readyz`, `/metrics`, `/debug/`, `/favicon.ico`, `/static/*`) are exempt so scrapes never get 429s. Behind a reverse proxy, set `rate_limit.trust_proxy_header: true` to key the buckets on `X-Forwarded-For`. Loopback proxies are trusted automatically; configure other proxy CIDRs in `rate_limit.trusted_proxies`.
 
 ### Optional: mTLS on the UI only
 

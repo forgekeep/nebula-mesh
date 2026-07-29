@@ -79,12 +79,15 @@ allow_self_registration: false
 
 # Per-IP rate limiter (issue #52). Enabled by default; set `enabled: false`
 # in trusted networks. When the management server runs behind a reverse
-# proxy that adds X-Forwarded-For, set `trust_proxy_header: true` so the
-# limiter keys on the real client IP instead of the proxy's RemoteAddr.
+# proxy that adds X-Forwarded-For, set `trust_proxy_header: true`. Loopback
+# proxies are trusted automatically. List non-loopback proxy CIDRs under
+# `trusted_proxies`; never list client networks there.
 #
 # rate_limit:
 #   enabled: true
 #   trust_proxy_header: false
+#   trusted_proxies:
+#     - "10.42.0.0/16"
 #   groups:
 #     auth:        { rate: 5,  burst: 10 }   # /ui/login, /ui/register, /ui/2fa/*, /ui/oidc/callback
 #     ui:          { rate: 30, burst: 60 }   # all other /ui/* routes

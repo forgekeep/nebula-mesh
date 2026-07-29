@@ -95,7 +95,7 @@ nfpms:
       - src: configs/server.example.yml
         dst: /etc/nebula-mgmt/server.example.yml
         type: config|noreplace
-      - src: deploy/systemd/nebula-mgmt.service
+      - src: deploy/packaging/nebula-mgmt.service
         dst: /lib/systemd/system/nebula-mgmt.service
       - src: README.md
         dst: /usr/share/doc/nebula-mgmt/README.md
@@ -149,7 +149,7 @@ nfpms:
       - src: configs/agent.example.yml
         dst: /etc/nebula-agent/agent.example.yml
         type: config|noreplace
-      - src: deploy/systemd/nebula-agent.service
+      - src: deploy/packaging/nebula-agent.service
         dst: /lib/systemd/system/nebula-agent.service
       - src: docs/agent.md
         dst: /usr/share/doc/nebula-agent/agent.md

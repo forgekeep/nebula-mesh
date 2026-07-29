@@ -70,7 +70,7 @@ func parseAgentServiceCommand(args []string, stderr io.Writer) (agentServiceComm
 	switch action {
 	case "install", "start", "stop", "restart", "uninstall", "run":
 	default:
-		return agentServiceCommand{}, fmt.Errorf("unknown service action %q", action)
+		return agentServiceCommand{}, argGuard.UnknownCommand("service action", action)
 	}
 
 	fs := flag.NewFlagSet("service "+action, flag.ContinueOnError)
@@ -79,8 +79,8 @@ func parseAgentServiceCommand(args []string, stderr io.Writer) (agentServiceComm
 	if err := fs.Parse(args[1:]); err != nil {
 		return agentServiceCommand{}, err
 	}
-	if fs.NArg() != 0 {
-		return agentServiceCommand{}, fmt.Errorf("unexpected service arguments: %s", strings.Join(fs.Args(), " "))
+	if err := argGuard.RejectPositional(fs); err != nil {
+		return agentServiceCommand{}, err
 	}
 	if (action == "install" || action == "run") && *configPath == "" {
 		return agentServiceCommand{}, fmt.Errorf("--config is required for service %s", action)

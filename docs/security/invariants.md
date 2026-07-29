@@ -155,6 +155,13 @@ does not permit avoidable application-level copies.
 - `internal/web/cas_test.go`:
   `TestCAImport_WebDoesNotRetainSecretFormCopies` and Web transport/body-limit
   coverage.
+- `internal/cliargs/cliargs_test.go`: `TestRedactsBootstrapTokens` — a mistyped
+  command line can put a bootstrap token where a command word belongs; CLI
+  usage errors redact it instead of echoing it into logs, terminals and shell
+  history.
+- `cmd/nebula-agent/main_test.go`:
+  `TestRun_UnknownSubcommand_RedactsBootstrapToken` — the same guard, proven
+  wired into the agent entrypoint.
 
 ### Review checklist
 

@@ -34,7 +34,10 @@ func TestParseAgentServiceCommand(t *testing.T) {
 		{name: "install requires config", args: []string{"install"}, wantErr: "--config is required"},
 		{name: "run requires config", args: []string{"run"}, wantErr: "--config is required"},
 		{name: "config rejected for control", args: []string{"start", "--config", "agent.yml"}, wantErr: "--config is only valid"},
-		{name: "positional argument rejected", args: []string{"start", "extra"}, wantErr: "unexpected service arguments"},
+		// Shares the binary-wide wording from internal/cliargs — the service
+		// path used to phrase this condition differently from every other
+		// flag set.
+		{name: "positional argument rejected", args: []string{"start", "extra"}, wantErr: `unexpected argument "extra"`},
 	}
 
 	for _, tt := range tests {

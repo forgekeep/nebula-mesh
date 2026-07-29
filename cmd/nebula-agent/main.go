@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/agent"
+	"github.com/forgekeep/nebula-mesh/internal/cliargs"
 	"github.com/forgekeep/nebula-mesh/internal/config"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/version"
@@ -60,11 +61,25 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		case "-h", "--help", "help":
 			printUsage(stderr)
 			return nil
+		default:
+			// A leading word that is not a known subcommand is a typo, not a
+			// daemon invocation. Fail loudly here: Go's flag package stops
+			// parsing at the first positional argument, so falling through to
+			// runUnified would silently discard every flag that follows —
+			// `nebula-agent enrool --server U --token T` would drop both and
+			// park in standby forever, looking like a server-side failure.
+			if !strings.HasPrefix(args[0], "-") {
+				printUsage(stderr)
+				return argGuard.UnknownCommand("command", args[0])
+			}
 		}
 	}
 
 	return runUnified(ctx, args, stderr)
 }
+
+// argGuard carries this binary's usage hint into every argument-shape error.
+var argGuard = cliargs.New("run `nebula-agent help` for usage")
 
 func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage: nebula-agent [--config PATH] [--token-file PATH --server URL] [--nebula-config-path PATH] [--yes] [--force]")
@@ -74,6 +89,9 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "First run on a fresh host: nebula-agent --token-file PATH --server URL")
 	_, _ = fmt.Fprintln(w, "Every subsequent run    : nebula-agent")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "--token TOKEN is accepted wherever --token-file is, but it exposes the")
+	_, _ = fmt.Fprintln(w, "token in argv and shell history; prefer --token-file.")
 }
 
 // standbyTick is how often the daemon re-checks the filesystem for a
@@ -151,6 +169,9 @@ func runUnifiedWithLogger(ctx context.Context, args []string, stderr io.Writer, 
 	yes := fs.Bool("yes", false, "confirm import of the discovered existing Nebula installation")
 	insecureHTTP := fs.Bool("insecure-http", false, "allow a plaintext http:// server URL on a non-loopback host (enrollment token and Nebula config transit in cleartext)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 
@@ -476,6 +497,9 @@ func runEnroll(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if err := argGuard.RejectPositional(fs); err != nil {
+		return err
+	}
 	bootstrapToken, err := readBootstrapToken(*token, *tokenFile, stderr)
 	if err != nil {
 		return err
@@ -669,6 +693,9 @@ func runLegacyRun(ctx context.Context, args []string, stderr io.Writer) error {
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", defaultConfigPath, "config file path")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
 	}
 	cfg, err := config.LoadAgentConfig(*configPath)

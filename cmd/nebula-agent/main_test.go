@@ -277,3 +277,103 @@ func TestRun_DeprecatedSubcommand_Run(t *testing.T) {
 		t.Errorf("enroll subcommand should NOT print deprecation warning; got %q", stderr.String())
 	}
 }
+
+// TestRun_UnknownSubcommand_FailsFast pins the fix for the enrollment trap:
+// a mistyped subcommand used to fall through to runUnified, where Go's flag
+// parser stops at the first positional and silently discarded --server and
+// --token. The agent then parked in standby forever and never contacted the
+// server, which reads as a server-side enrollment failure. It must be a
+// usage error instead.
+func TestRun_UnknownSubcommand_FailsFast(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	// A generous deadline: if the command still parks in standby the test
+	// fails on the error value, not on the timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err := run(ctx, []string{"enrool", "--server", "https://mgmt.example.com", "--token-file", "/nonexistent"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("mistyped subcommand returned nil; want a usage error")
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		t.Fatalf("mistyped subcommand parked in standby instead of failing: %v", err)
+	}
+	if !strings.Contains(err.Error(), "unknown command") || !strings.Contains(err.Error(), "enrool") {
+		t.Errorf("error = %v, want it to name the unknown command", err)
+	}
+	if !strings.Contains(stderr.String(), "nebula-agent enroll") {
+		t.Errorf("usage not printed on unknown command; stderr = %q", stderr.String())
+	}
+}
+
+// TestRun_UnknownSubcommand_RedactsBootstrapToken — SEC-SECRET-001 forbids
+// plaintext secrets in error messages. A mistyped command line can put the
+// bootstrap token where the subcommand belongs, and the usage error echoes
+// that word back into logs and terminals.
+func TestRun_UnknownSubcommand_RedactsBootstrapToken(t *testing.T) {
+	const token = "nme_ThisIsNotARealTokenJustTestData_0123456789"
+	var stdout, stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := run(ctx, []string{token, "--server", "https://mgmt.example.com"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("token-as-subcommand returned nil; want a usage error")
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Errorf("bootstrap token leaked into error message: %v", err)
+	}
+	if strings.Contains(stdout.String(), token) || strings.Contains(stderr.String(), token) {
+		t.Errorf("bootstrap token leaked into output: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(err.Error(), "[REDACTED]") {
+		t.Errorf("error = %v, want the redaction placeholder", err)
+	}
+}
+
+// TestRun_LeadingFlagStillReachesUnified guards the daemon entrypoint: only a
+// bare word is treated as a subcommand, so `nebula-agent --config X` (and the
+// help/version flags) must keep working exactly as before.
+func TestRun_LeadingFlagStillReachesUnified(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	err := run(ctx, []string{"--config", filepath.Join(t.TempDir(), "agent.yml")}, &stdout, &stderr)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want the standby loop to run until the deadline", err)
+	}
+	if strings.Contains(stderr.String(), "unknown command") {
+		t.Errorf("leading flag misread as a subcommand; stderr = %q", stderr.String())
+	}
+}
+
+// TestRun_PositionalArgAfterFlags_Errors — a stray operand means Go stopped
+// parsing there and every later flag was dropped. Both the enroll subcommand
+// and the unified daemon path must reject it rather than run with a partial
+// flag set.
+func TestRun_PositionalArgAfterFlags_Errors(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"enroll", []string{"enroll", "--server", "https://mgmt.example.com", "oops", "--token", "tok"}},
+		{"unified", []string{"--config", "/nonexistent", "oops", "--server", "https://mgmt.example.com"}},
+		{"legacy run", []string{"run", "--config", "/nonexistent", "oops"}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			err := run(ctx, test.args, &stdout, &stderr)
+			if err == nil {
+				t.Fatal("stray positional returned nil; want a usage error")
+			}
+			if !strings.Contains(err.Error(), "unexpected argument") || !strings.Contains(err.Error(), "oops") {
+				t.Errorf("error = %v, want it to name the stray argument", err)
+			}
+		})
+	}
+}

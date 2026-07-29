@@ -873,6 +873,17 @@ creating or decoding combined-role hosts.
 
 ## Troubleshooting
 
+### `unknown command "…"` / the agent never contacts the server
+
+A mistyped subcommand — `nebula-agent enrool --server URL --token TOK` — is now
+rejected with a usage error. Older builds fell through to the daemon path,
+where Go's flag parser stops at the first bare word and silently dropped
+`--server` and `--token`; the agent then parked in standby and never issued an
+enrollment request. If a host "cannot enroll" but the server logs show no
+`POST /api/v1/enroll` at all, check the command line before suspecting the
+server. The same rule now applies to a stray operand between flags
+(`unexpected argument "…" after flags`).
+
 ### `dial tcp ...: connect: connection refused`
 
 The host cannot reach the management server's `server_url`. Verify with

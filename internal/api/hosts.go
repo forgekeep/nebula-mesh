@@ -47,8 +47,10 @@ type updateHostRequest struct {
 // then distributed to every peer; without caps an operator could bloat certs
 // mesh-wide (#186). Generous relative to real use, but bounded.
 const (
-	maxHostNameLen  = 255
-	maxGroupNameLen = 64
+	maxHostNameLen = 255
+	// maxGroupNameLen is the domain-layer bound, aliased here so the API and
+	// models.ValidateHostAdvanced cannot enforce different caps.
+	maxGroupNameLen = models.MaxGroupNameLen
 	maxHostGroups   = 64
 )
 

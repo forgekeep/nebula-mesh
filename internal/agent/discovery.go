@@ -279,20 +279,42 @@ func sanitizeFirewallRules(path string, value any, unsupported *[]string) []mesh
 			*unsupported = append(*unsupported, fmt.Sprintf("%s[%d]", path, index))
 			continue
 		}
-		group := fmt.Sprint(entry["group"])
-		if group == "<nil>" || group == "" {
-			if host := fmt.Sprint(entry["host"]); host == "any" {
+		group := optionalConfigString(entry["group"])
+		// A cidr is a peer selector in its own right, so a cidr-selected rule
+		// is not a rule with a missing principal.
+		cidr := optionalConfigString(entry["cidr"])
+		if group == "" && cidr == "" {
+			if host := optionalConfigString(entry["host"]); host == "any" {
 				group = "any"
 			} else {
 				group = "any"
 				*unsupported = append(*unsupported, fmt.Sprintf("%s[%d].principal", path, index))
 			}
 		}
+		// Every field goes through optionalConfigString: a missing key must
+		// read as empty, which reconciliation reports as a rule requiring
+		// port and proto, rather than as the literal "<nil>" that would pass
+		// the non-empty check and reach the renderer.
 		rules = append(rules, meshimport.FirewallRule{
-			Port: fmt.Sprint(entry["port"]), Proto: fmt.Sprint(entry["proto"]), Group: group,
+			Port: optionalConfigString(entry["port"]), Proto: optionalConfigString(entry["proto"]), Group: group,
+			Cidr: cidr, LocalCidr: optionalConfigString(entry["local_cidr"]),
 		})
 	}
 	return rules
+}
+
+// optionalConfigString reads a scalar config field that may be absent,
+// yielding "" rather than the "<nil>" that fmt.Sprint produces for a missing
+// key.
+func optionalConfigString(value any) string {
+	if value == nil {
+		return ""
+	}
+	s := fmt.Sprint(value)
+	if s == "<nil>" {
+		return ""
+	}
+	return s
 }
 
 func collectUnsupportedConfigKeys(settings map[string]any) []string {
@@ -335,7 +357,9 @@ func supportedConfigLeaf(path string) bool {
 		"listen.host", "listen.port", "punchy.punch", "tun.dev", "tun.mtu",
 		"tun.unsafe_routes[].route", "tun.unsafe_routes[].via",
 		"firewall.inbound[].port", "firewall.inbound[].proto", "firewall.inbound[].group", "firewall.inbound[].host",
-		"firewall.outbound[].port", "firewall.outbound[].proto", "firewall.outbound[].group", "firewall.outbound[].host":
+		"firewall.inbound[].cidr", "firewall.inbound[].local_cidr",
+		"firewall.outbound[].port", "firewall.outbound[].proto", "firewall.outbound[].group", "firewall.outbound[].host",
+		"firewall.outbound[].cidr", "firewall.outbound[].local_cidr":
 		return true
 	}
 	return strings.HasPrefix(normalized, "static_host_map.")

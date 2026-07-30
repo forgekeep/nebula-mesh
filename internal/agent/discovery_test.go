@@ -309,3 +309,60 @@ func indentYAML(value string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// TestDiscoverExistingCapturesFirewallCIDRFields checks that an existing
+// deployment's cidr / local_cidr rules survive discovery: they must be carried
+// into the snapshot rather than dropped, and must not be reported as
+// unsupported config keys (which would block the import).
+func TestDiscoverExistingCapturesFirewallCIDRFields(t *testing.T) {
+	fixture := newDiscoveryFixture(t)
+	fixture.writeConfig(t, fmt.Sprintf(`
+pki:
+  ca: %s
+  cert: %s
+  key: %s
+static_host_map:
+  "10.42.0.1": ["198.51.100.1:4242"]
+lighthouse:
+  am_lighthouse: true
+  hosts: ["10.42.0.1"]
+listen: {host: "0.0.0.0", port: 4242}
+firewall:
+  inbound:
+    - {port: "22", proto: tcp, group: ops, local_cidr: "192.0.2.0/24"}
+    - {port: "443", proto: tcp, cidr: "10.42.0.0/24"}
+  outbound:
+    - {port: any, proto: any, host: any, local_cidr: any}
+`, fixture.caPath, fixture.certPath, fixture.keyPath))
+
+	discovery, err := DiscoverExisting(fixture.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer discovery.Wipe()
+	if discovery.State != DiscoveryComplete {
+		t.Fatalf("state = %q, issues = %v", discovery.State, discovery.Issues)
+	}
+
+	config := discovery.Snapshot.Config
+	if len(config.Firewall.Inbound) != 2 {
+		t.Fatalf("inbound = %#v", config.Firewall.Inbound)
+	}
+	if got := config.Firewall.Inbound[0]; got.Group != "ops" || got.LocalCidr != "192.0.2.0/24" || got.Cidr != "" {
+		t.Errorf("inbound[0] = %#v, want group ops with local_cidr 192.0.2.0/24", got)
+	}
+	// A cidr-selected rule has a principal, so it must not be rewritten to
+	// group "any" the way a rule with no selector at all is.
+	if got := config.Firewall.Inbound[1]; got.Cidr != "10.42.0.0/24" || got.Group != "" {
+		t.Errorf("inbound[1] = %#v, want cidr 10.42.0.0/24 and no group", got)
+	}
+	if got := config.Firewall.Outbound[0]; got.Group != "any" || got.LocalCidr != "any" {
+		t.Errorf("outbound[0] = %#v, want group any with local_cidr any", got)
+	}
+	for _, key := range config.UnsupportedKeys {
+		if strings.Contains(key, "cidr") || strings.Contains(key, "principal") {
+			t.Errorf("unsupported keys %v should not flag cidr fields", config.UnsupportedKeys)
+			break
+		}
+	}
+}

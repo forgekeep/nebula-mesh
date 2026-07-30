@@ -403,9 +403,31 @@ func normalizeFirewall(policy FirewallPolicy) (FirewallPolicy, error) {
 		name  string
 		rules []FirewallRule
 	}{{"inbound", out.Inbound}, {"outbound", out.Outbound}} {
-		for i, rule := range direction.rules {
-			if strings.TrimSpace(rule.Port) == "" || strings.TrimSpace(rule.Proto) == "" || strings.TrimSpace(rule.Group) == "" {
-				return FirewallPolicy{}, fmt.Errorf("%s rule %d requires port, proto and group", direction.name, i)
+		for i := range direction.rules {
+			// Trim into the stored rule, not just for the checks below. The
+			// renderer re-validates these values and does not trim, so a rule
+			// that is only valid once trimmed would pass the import and then
+			// drop the whole network policy to the baseline at render time.
+			// Trimming here also keeps whitespace from reading as a policy
+			// difference in the divergence comparison.
+			rule := &direction.rules[i]
+			rule.Port = strings.TrimSpace(rule.Port)
+			rule.Proto = strings.TrimSpace(rule.Proto)
+			rule.Group = strings.TrimSpace(rule.Group)
+			rule.Cidr = strings.TrimSpace(rule.Cidr)
+			rule.LocalCidr = strings.TrimSpace(rule.LocalCidr)
+
+			if rule.Port == "" || rule.Proto == "" {
+				return FirewallPolicy{}, fmt.Errorf("%s rule %d requires port and proto", direction.name, i)
+			}
+			// An imported policy is held to the same selector and prefix rules
+			// as one an operator writes through the API: exactly one peer
+			// selector, and cidr / local_cidr either a prefix or "any".
+			if err := models.ValidateFirewallSelectors(rule.Group, rule.Cidr); err != nil {
+				return FirewallPolicy{}, fmt.Errorf("%s rule %d: %w", direction.name, i, err)
+			}
+			if err := models.ValidateFirewallCIDR("local_cidr", rule.LocalCidr); err != nil {
+				return FirewallPolicy{}, fmt.Errorf("%s rule %d: %w", direction.name, i, err)
 			}
 		}
 	}
@@ -416,19 +438,25 @@ func normalizeFirewall(policy FirewallPolicy) (FirewallPolicy, error) {
 
 func sortFirewallRules(rules []FirewallRule) {
 	sort.Slice(rules, func(i, j int) bool {
-		left := rules[i].Port + "\x00" + rules[i].Proto + "\x00" + rules[i].Group
-		right := rules[j].Port + "\x00" + rules[j].Proto + "\x00" + rules[j].Group
-		return left < right
+		return firewallRuleKey(rules[i]) < firewallRuleKey(rules[j])
 	})
+}
+
+// firewallRuleKey renders every field of a rule, so that two policies
+// differing only in cidr or local_cidr sort apart and compare unequal — the
+// divergence check would otherwise treat them as the same policy and apply one
+// host's rules to every imported host.
+func firewallRuleKey(rule FirewallRule) string {
+	return rule.Port + "\x00" + rule.Proto + "\x00" + rule.Group + "\x00" + rule.Cidr + "\x00" + rule.LocalCidr
 }
 
 func firewallKey(policy FirewallPolicy) string {
 	var builder strings.Builder
 	for _, rule := range policy.Inbound {
-		fmt.Fprintf(&builder, "i:%s:%s:%s;", rule.Port, rule.Proto, rule.Group)
+		fmt.Fprintf(&builder, "i:%s;", firewallRuleKey(rule))
 	}
 	for _, rule := range policy.Outbound {
-		fmt.Fprintf(&builder, "o:%s:%s:%s;", rule.Port, rule.Proto, rule.Group)
+		fmt.Fprintf(&builder, "o:%s;", firewallRuleKey(rule))
 	}
 	return builder.String()
 }

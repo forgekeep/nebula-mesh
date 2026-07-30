@@ -294,7 +294,10 @@ object in the API:
       { "route": "192.168.10.0/24", "via": "10.0.0.99" }
     ],
     "firewall_inbound": [
-      { "port": "22", "proto": "tcp", "group": "admin" }
+      { "port": "22", "proto": "tcp", "group": "admin" },
+      { "port": "443", "proto": "tcp", "cidr": "10.0.5.0/24" },
+      { "port": "any", "proto": "any", "group": "gw",
+        "local_cidr": "192.168.10.0/24" }
     ]
   }
 }
@@ -310,20 +313,56 @@ advanced block. Server-side validation rejects:
 - malformed CIDR or non-IP `via` in `unsafe_routes`;
 - `firewall_inbound` rules with a proto outside `any`/`tcp`/`udp`/`icmp`, a
   port that is not `any`, a single port `1-65535` or an ascending range
-  `a-b`, an empty or overlong (>64 chars) group, or more than 64 rules.
+  `a-b`, an overlong (>64 chars) group, no peer selector at all, both a
+  `group` and a `cidr`, a `cidr`/`local_cidr` that is neither a CIDR nor
+  `any`, or more than 64 rules.
 
 ### Per-host inbound firewall rules
 
 `advanced.firewall_inbound` appends host-specific inbound rules **after** the
 network-wide firewall policy in the rendered `config.yml` — additive only,
 inbound only; the network policy and the outbound section are never modified.
-In the UI the rules are entered one per line as `PORT/PROTO from GROUP`
+In the UI the rules are entered one per line as
+`PORT/PROTO from GROUP [cidr=<CIDR>] [local_cidr=<CIDR>]`
 (e.g. `443/tcp from web`, `8000-9000/udp from monitoring`). A rule with group
 `any` renders as `host: any` (matches every peer), same as the network
 policy. Changing these rules re-publishes only the affected host's config on
 its next poll. Mobile bundles include them too. Note that mesh import always
 captures firewall policy at network level — per-host rules are never derived
 from imported configs.
+
+#### Address-scoped rules: `cidr` and `local_cidr`
+
+Both the network policy and per-host rules accept Nebula's
+[`cidr` and `local_cidr`](https://nebula.defined.net/docs/config/firewall/)
+fields. Each takes a prefix (`10.0.0.0/24`, `fd00::/8`, `0.0.0.0/0`, `::/0`) or
+the literal `any`, meaning any address of any family.
+
+- **`cidr`** scopes the rule by the *peer's* overlay address. It is a peer
+  selector, so it stands in place of `group` rather than alongside it:
+  `{"port": "443", "proto": "tcp", "cidr": "10.0.5.0/24"}` allows 443/tcp from
+  any peer addressed in `10.0.5.0/24`, whatever its groups.
+- **`local_cidr`** scopes the rule by the *local* address the traffic is
+  destined to (inbound) or sourced from (outbound). It is not a selector — it
+  narrows whichever selector the rule already has:
+  `{"port": "any", "proto": "any", "group": "gw", "local_cidr": "192.168.10.0/24"}`
+  allows the `gw` group to reach only the addresses in `192.168.10.0/24`.
+
+Nebula evaluates a rule as
+`port AND proto AND (ca_sha OR ca_name) AND (host OR group OR groups OR cidr) AND local_cidr`.
+Because the peer selectors are OR'd, a rule listing both a `group` and a `cidr`
+matches "that group **or** that prefix" — wider than either alone, and rarely
+what an operator means. Both the API and the renderer therefore reject a rule
+carrying both; write two rules when you genuinely want the union. A rule with
+no selector at all is likewise rejected: Nebula reads the empty selector as
+match-any.
+
+`local_cidr` is what makes a rule apply to addresses you serve through
+`unsafe_routes`. By default Nebula restricts `local_cidr` to the overlay
+networks in the host's own certificate, so traffic for an unsafe-routed prefix
+matches no inbound rule until a rule names that prefix (or `any`) explicitly.
+A relay/gateway host advertising `192.168.10.0/24` via `unsafe_routes` needs a
+rule whose `local_cidr` covers `192.168.10.0/24` before peers can reach it.
 
 ### Multiple overlay addresses per host
 

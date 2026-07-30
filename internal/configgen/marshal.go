@@ -217,14 +217,18 @@ type mobileNebulaSection struct {
 	MatchDomains []safeString `yaml:"match_domains"`
 }
 
-// firewallRule is constructed with exactly one of {Group, Host} set per rule —
-// matching the shape the previous template emitted: `group: <name>` for named
-// groups, `host: any` for the catch-all.
+// firewallRule is constructed with exactly one of {Group, Host, Cidr} set per
+// rule — matching the shape the previous template emitted: `group: <name>` for
+// named groups, `host: any` for the catch-all — plus `cidr` for prefix-selected
+// peers. Nebula OR's those three, so emitting more than one per rule would
+// widen it; LocalCidr is AND'd into whichever matched and is independent.
 type firewallRule struct {
-	Port  safeString `yaml:"port"`
-	Proto safeString `yaml:"proto"`
-	Group safeString `yaml:"group,omitempty"`
-	Host  safeString `yaml:"host,omitempty"`
+	Port      safeString `yaml:"port"`
+	Proto     safeString `yaml:"proto"`
+	Group     safeString `yaml:"group,omitempty"`
+	Host      safeString `yaml:"host,omitempty"`
+	Cidr      safeString `yaml:"cidr,omitempty"`
+	LocalCidr safeString `yaml:"local_cidr,omitempty"`
 }
 
 // Generate produces a Nebula config.yml from the given input by marshaling
@@ -413,10 +417,20 @@ func boolPtr(v bool) *bool {
 func mapFirewallRules(in []FirewallRule) []firewallRule {
 	out := make([]firewallRule, 0, len(in))
 	for _, r := range in {
-		fr := firewallRule{Port: safeString(r.Port), Proto: safeString(r.Proto)}
-		if r.Group == "any" {
+		fr := firewallRule{
+			Port:      safeString(r.Port),
+			Proto:     safeString(r.Proto),
+			LocalCidr: safeString(r.LocalCidr),
+		}
+		// Exactly one peer selector. A cidr-selected rule emits neither group
+		// nor host: `host: any` alongside `cidr` would be OR'd by Nebula and
+		// match every peer, silently discarding the prefix restriction.
+		switch {
+		case r.Cidr != "":
+			fr.Cidr = safeString(r.Cidr)
+		case r.Group == "any":
 			fr.Host = "any"
-		} else {
+		default:
 			fr.Group = safeString(r.Group)
 		}
 		out = append(out, fr)

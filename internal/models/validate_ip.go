@@ -183,23 +183,59 @@ func ValidateHostAdvanced(adv *HostAdvanced) error {
 	return nil
 }
 
-// maxFirewallGroupLen mirrors the API-side cap on group names embedded in
-// certificates (maxGroupNameLen in internal/api).
-const maxFirewallGroupLen = 64
+// MaxGroupNameLen bounds a group name. Group names are embedded in the signed
+// Nebula certificate and distributed to every peer, so without a cap an
+// operator could bloat certs mesh-wide (#186). It lives here, in the domain
+// layer, because both certificate group validation and firewall rule
+// validation must enforce the same bound.
+const MaxGroupNameLen = 64
 
 func validateHostFirewallRule(r HostFirewallRule) error {
-	if r.Port == "" || r.Proto == "" || r.Group == "" {
-		return fmt.Errorf("port, proto and group are required")
+	if r.Port == "" || r.Proto == "" {
+		return fmt.Errorf("port and proto are required")
+	}
+	if err := ValidateFirewallSelectors(r.Group, r.Cidr); err != nil {
+		return err
 	}
 	switch r.Proto {
 	case "any", "tcp", "udp", "icmp":
 	default:
 		return fmt.Errorf("proto must be one of any, tcp, udp, icmp")
 	}
-	if len(r.Group) > maxFirewallGroupLen {
-		return fmt.Errorf("group must be at most %d characters", maxFirewallGroupLen)
+	if len(r.Group) > MaxGroupNameLen {
+		return fmt.Errorf("group must be at most %d characters", MaxGroupNameLen)
+	}
+	if err := ValidateFirewallCIDR("local_cidr", r.LocalCidr); err != nil {
+		return err
 	}
 	return validateFirewallPort(r.Port)
+}
+
+// ValidateFirewallSelectors enforces that a firewall rule carries exactly one
+// peer selector. Nebula OR's `group` and `cidr` (a rule listing both matches
+// peers in the group *or* peers in the prefix, which is wider than either),
+// so the two are mutually exclusive here; expressing that union takes two
+// rules. An empty pair is rejected because Nebula treats a rule with no
+// selector as match-any, a broader allow than any operator intends.
+func ValidateFirewallSelectors(group, cidr string) error {
+	switch {
+	case group == "" && cidr == "":
+		return fmt.Errorf("a group or cidr is required")
+	case group != "" && cidr != "":
+		return fmt.Errorf("group and cidr are mutually exclusive; use one rule per selector")
+	}
+	return ValidateFirewallCIDR("cidr", cidr)
+}
+
+// ValidateFirewallCIDR validates a Nebula firewall `cidr` / `local_cidr`
+// value: empty (field unset), the literal "any" (any address of any family),
+// or a parseable prefix such as 10.0.0.0/24 or fd00::/8.
+func ValidateFirewallCIDR(field, value string) error {
+	if value == "" || value == "any" {
+		return nil
+	}
+	_, err := ValidateCIDR(field, value)
+	return err
 }
 
 // validateFirewallPort accepts "any", a single port 1-65535, or an

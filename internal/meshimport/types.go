@@ -9,9 +9,11 @@ import (
 type AgentProfile = models.AgentProfile
 
 type FirewallRule struct {
-	Port  string `json:"port"`
-	Proto string `json:"proto"`
-	Group string `json:"group"`
+	Port      string `json:"port"`
+	Proto     string `json:"proto"`
+	Group     string `json:"group"`
+	Cidr      string `json:"cidr,omitempty"`
+	LocalCidr string `json:"local_cidr,omitempty"`
 }
 
 type FirewallPolicy struct {

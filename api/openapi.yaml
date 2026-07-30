@@ -876,7 +876,16 @@ components:
     AgentImportFirewallRule:
       type: object
       additionalProperties: false
-      required: [port, proto, group]
+      required: [port, proto]
+      oneOf:
+        - required: [group]
+          properties:
+            group: { type: string, minLength: 1 }
+            cidr: { type: string, maxLength: 0 }
+        - required: [cidr]
+          properties:
+            group: { type: string, maxLength: 0 }
+            cidr: { type: string, minLength: 1 }
       properties:
         port: { type: string }
         proto: { type: string }

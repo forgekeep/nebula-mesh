@@ -76,6 +76,78 @@ func TestContract_SpecIsValid(t *testing.T) {
 	loadContract(t)
 }
 
+func TestContract_AgentImportFirewallSelectors(t *testing.T) {
+	v := loadContract(t)
+	fixture := newAgentImportFixture(t)
+
+	tests := []struct {
+		name      string
+		selector  map[string]any
+		wantValid bool
+	}{
+		{
+			name:      "cidr without group",
+			selector:  map[string]any{"cidr": "10.0.0.0/24"},
+			wantValid: true,
+		},
+		{
+			name:      "cidr with empty group from current agent",
+			selector:  map[string]any{"cidr": "10.0.0.0/24", "group": ""},
+			wantValid: true,
+		},
+		{
+			name:      "group without cidr",
+			selector:  map[string]any{"group": "web"},
+			wantValid: true,
+		},
+		{
+			name:      "both selectors",
+			selector:  map[string]any{"cidr": "10.0.0.0/24", "group": "web"},
+			wantValid: false,
+		},
+		{
+			name:      "no selector",
+			selector:  map[string]any{},
+			wantValid: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := agentImportChallengeBody(fixture)
+			body, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var raw map[string]any
+			if err := json.Unmarshal(body, &raw); err != nil {
+				t.Fatal(err)
+			}
+			snapshot := raw["snapshot"].(map[string]any)
+			config := snapshot["config"].(map[string]any)
+			rule := map[string]any{"port": "443", "proto": "tcp"}
+			for key, value := range tt.selector {
+				rule[key] = value
+			}
+			config["firewall"] = map[string]any{
+				"inbound":  []any{rule},
+				"outbound": []any{map[string]any{"port": "any", "proto": "any", "group": "any"}},
+			}
+			body, err = json.Marshal(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/import/challenge", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			ok, validationErrors := v.ValidateHttpRequestSync(req)
+			if ok != tt.wantValid {
+				t.Errorf("request validity = %t, want %t; errors: %v", ok, tt.wantValid, validationErrors)
+			}
+		})
+	}
+}
+
 // TestContract_AdminEndpoints validates real admin responses against the spec.
 func TestContract_AdminEndpoints(t *testing.T) {
 	v := loadContract(t)

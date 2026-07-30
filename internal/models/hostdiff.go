@@ -2,14 +2,15 @@ package models
 
 import (
 	"encoding/json"
+	"slices"
 	"sort"
 )
 
 // HostDiff computes the difference between two hosts and returns a JSON-encoded
 // map of changed fields. Returns (nil, false, nil) if no fields differ.
 //
-// For basic fields (Name, NebulaIPs, Groups, Role, PublicIP, ListenPort),
-// the diff key is the field name in snake_case.
+// For basic fields (Name, NebulaIPs, Groups, UnsafeNetworks, Role, PublicIP,
+// ListenPort), the diff key is the field name in snake_case.
 //
 // For Advanced sub-fields (ListenHost, MTU, TunDevice, Punchy, UnsafeRoutes),
 // the diff key uses dot-notation: "advanced.mtu", "advanced.punchy", etc.
@@ -38,17 +39,24 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 		}
 	}
 
-	if !nebulaIPsEqual(before.NebulaIPs, after.NebulaIPs) {
+	if !slices.Equal(before.NebulaIPs, after.NebulaIPs) {
 		changes["nebula_ips"] = map[string]any{
 			"before": before.NebulaIPs,
 			"after":  after.NebulaIPs,
 		}
 	}
 
-	if !groupsEqual(before.Groups, after.Groups) {
+	if !slices.Equal(before.Groups, after.Groups) {
 		changes["groups"] = map[string]any{
 			"before": before.Groups,
 			"after":  after.Groups,
+		}
+	}
+
+	if !slices.Equal(before.UnsafeNetworks, after.UnsafeNetworks) {
+		changes["unsafe_networks"] = map[string]any{
+			"before": before.UnsafeNetworks,
+			"after":  after.UnsafeNetworks,
 		}
 	}
 
@@ -164,9 +172,10 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 // can retain precisely the identity they signed without also retaining mutable
 // lifecycle or configuration state.
 type CertificateIdentity struct {
-	Name      string
-	NebulaIPs []string
-	Groups    []string
+	Name           string
+	NebulaIPs      []string
+	Groups         []string
+	UnsafeNetworks []string
 }
 
 // CertificateIdentityFromHost returns an independent snapshot of the fields
@@ -176,6 +185,7 @@ func CertificateIdentityFromHost(host *Host) CertificateIdentity {
 	identity := certificateIdentityFields(host)
 	identity.NebulaIPs = append([]string(nil), identity.NebulaIPs...)
 	identity.Groups = append([]string(nil), identity.Groups...)
+	identity.UnsafeNetworks = append([]string(nil), identity.UnsafeNetworks...)
 	return identity
 }
 
@@ -184,8 +194,9 @@ func CertificateIdentityFromHost(host *Host) CertificateIdentity {
 // Host is diffed after a store or JSON round trip.
 func (identity CertificateIdentity) Equal(other CertificateIdentity) bool {
 	return identity.Name == other.Name &&
-		nebulaIPsEqual(identity.NebulaIPs, other.NebulaIPs) &&
-		groupsEqual(identity.Groups, other.Groups)
+		slices.Equal(identity.NebulaIPs, other.NebulaIPs) &&
+		slices.Equal(identity.Groups, other.Groups) &&
+		slices.Equal(identity.UnsafeNetworks, other.UnsafeNetworks)
 }
 
 func certificateIdentityFields(host *Host) CertificateIdentity {
@@ -193,16 +204,18 @@ func certificateIdentityFields(host *Host) CertificateIdentity {
 		return CertificateIdentity{}
 	}
 	return CertificateIdentity{
-		Name:      host.Name,
-		NebulaIPs: host.NebulaIPs,
-		Groups:    host.Groups,
+		Name:           host.Name,
+		NebulaIPs:      host.NebulaIPs,
+		Groups:         host.Groups,
+		UnsafeNetworks: host.UnsafeNetworks,
 	}
 }
 
 // CertIdentityChanged reports whether an edit touched a field that is carried
-// inside the host's Nebula certificate: Name, NebulaIPs or Groups.
+// inside the host's Nebula certificate: Name, NebulaIPs, Groups or
+// UnsafeNetworks.
 //
-// Those three are the host's identity as far as the mesh is concerned. Peers
+// Those four are the host's identity as far as the mesh is concerned. Peers
 // authorize each other on the certificate rather than on the management
 // server's host row, and firewall rules select their counterparties by group,
 // so editing any of them is inert until a new certificate is issued. Callers
@@ -218,32 +231,6 @@ func certificateIdentityFields(host *Host) CertificateIdentity {
 // A nil side is treated as the zero Host, matching HostDiff.
 func CertIdentityChanged(before, after *Host) bool {
 	return !certificateIdentityFields(before).Equal(certificateIdentityFields(after))
-}
-
-// nebulaIPsEqual compares two IP slices for equality (order matters).
-func nebulaIPsEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// groupsEqual compares two string slices for equality (order matters).
-func groupsEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // punchyEqual compares two tri-state bool pointers.

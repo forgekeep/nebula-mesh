@@ -24,6 +24,29 @@ func trimEmpty(src []string) []string {
 	return out
 }
 
+// splitCommaList parses a single-line list field (groups, unsafe networks)
+// into its entries, dropping blanks so a stray trailing comma is not an error.
+//
+// Only commas and line breaks separate — never spaces. A group name may
+// legitimately contain one (the API accepts any non-blank name up to 64
+// chars), and the edit form round-trips groups through strings.Join, so
+// splitting on whitespace would silently break "my group" into two groups on
+// every save. Line breaks are accepted because operators paste
+// one-entry-per-line lists into these fields.
+//
+// Returns nil for an empty field.
+func splitCommaList(value string) []string {
+	var out []string
+	for _, field := range strings.FieldsFunc(value, func(c rune) bool {
+		return c == ',' || c == '\n' || c == '\r'
+	}) {
+		if trimmed := strings.TrimSpace(field); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
 // hostFormState captures the values submitted to /ui/hosts so a validation
 // failure can re-render host_new.html with the operator's inputs preserved
 // instead of dropping them on a bare 400 error page (issue #91).
@@ -40,6 +63,7 @@ type hostFormState struct {
 	NebulaIPErrors     map[int]string
 	Role               string
 	Groups             string
+	UnsafeNetworks     string
 	PublicIP           string
 	ListenPort         string
 	AdvListenHost      string
@@ -60,6 +84,7 @@ func newHostFormState(r *http.Request) hostFormState {
 		NebulaIPErrors:     make(map[int]string),
 		Role:               r.FormValue("role"),
 		Groups:             r.FormValue("groups"),
+		UnsafeNetworks:     r.FormValue("unsafe_networks"),
 		PublicIP:           r.FormValue("public_ip"),
 		ListenPort:         r.FormValue("listen_port"),
 		AdvListenHost:      r.FormValue("adv_listen_host"),
@@ -255,6 +280,10 @@ func hostFormStateFromHost(h *models.Host) hostFormState {
 
 	if len(h.Groups) > 0 {
 		state.Groups = strings.Join(h.Groups, ", ")
+	}
+
+	if len(h.UnsafeNetworks) > 0 {
+		state.UnsafeNetworks = strings.Join(h.UnsafeNetworks, ", ")
 	}
 
 	if h.Advanced != nil {

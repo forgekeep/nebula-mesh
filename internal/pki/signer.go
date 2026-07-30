@@ -13,8 +13,14 @@ type SignRequest struct {
 	Name      string
 	PublicKey []byte // X25519 public key
 	Networks  []netip.Prefix
-	Groups    []string
-	Duration  time.Duration
+	// UnsafeNetworks are the non-overlay prefixes this host is authorized to
+	// route for. Nebula enforces routing on the certificate, not on config: a
+	// gateway whose cert omits the prefix silently refuses to route it, and
+	// both ends drop the traffic in Firewall.Drop before any rule is consulted
+	// (the local address is not in routableNetworks). Empty for ordinary hosts.
+	UnsafeNetworks []netip.Prefix
+	Groups         []string
+	Duration       time.Duration
 	// Now sets the certificate's NotBefore (and the CA-expiry check instant).
 	// Zero means time.Now(). Callers holding an injectable clock pass it so
 	// re-signs under simulated time produce distinct, correctly-dated certs.
@@ -40,15 +46,16 @@ func (m *CAManager) Sign(req SignRequest) (cert.Certificate, error) {
 	}
 
 	tbs := &cert.TBSCertificate{
-		Version:   cert.Version2,
-		Name:      req.Name,
-		Networks:  req.Networks,
-		Groups:    req.Groups,
-		IsCA:      false,
-		NotBefore: now,
-		NotAfter:  notAfter,
-		PublicKey: req.PublicKey,
-		Curve:     cert.Curve_CURVE25519,
+		Version:        cert.Version2,
+		Name:           req.Name,
+		Networks:       req.Networks,
+		UnsafeNetworks: req.UnsafeNetworks,
+		Groups:         req.Groups,
+		IsCA:           false,
+		NotBefore:      now,
+		NotAfter:       notAfter,
+		PublicKey:      req.PublicKey,
+		Curve:          cert.Curve_CURVE25519,
 	}
 
 	c, err := tbs.Sign(m.caCert, cert.Curve_CURVE25519, m.caKey)

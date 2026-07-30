@@ -211,6 +211,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"025_oidc_unique.up.sql",
 		"026_redeliver_wdf_config.up.sql",
 		"027_keyed_credential_cutover.up.sql",
+		"028_host_unsafe_networks.up.sql",
 	}
 
 	conn, err := s.db.Conn(ctx)
@@ -1114,17 +1115,19 @@ func (s *SQLiteStore) CreateHost(ctx context.Context, h *models.Host) error {
 	if err != nil {
 		return err
 	}
+	unsafeNetworksJSON := marshalUnsafeNetworks(h.UnsafeNetworks)
 
 	result, err := tx.ExecContext(ctx,
-		`INSERT INTO hosts (id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant)
-		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		`INSERT INTO hosts (id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant, unsafe_networks_json)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 		 WHERE NOT EXISTS (
 			SELECT 1 FROM mesh_imports WHERE network_id = ? AND status = ?
 		 )`,
 		h.ID, h.NetworkID, h.Name, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
 		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON, h.CAID,
-		string(h.Kind), string(h.Variant), h.NetworkID, models.MeshImportStatusCollecting,
+		string(h.Kind), string(h.Variant), unsafeNetworksJSON,
+		h.NetworkID, models.MeshImportStatusCollecting,
 	)
 	if err != nil {
 		return fmt.Errorf("insert host: %w", err)
@@ -1143,6 +1146,23 @@ func (s *SQLiteStore) CreateHost(ctx context.Context, h *models.Host) error {
 		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
+}
+
+// marshalUnsafeNetworks renders a host's unsafe networks for the
+// unsafe_networks_json column. A nil slice stores as "[]" rather than "null"
+// so the column's NOT NULL DEFAULT and every written row agree on one
+// representation of "advertises nothing". Marshaling a []string cannot fail,
+// so callers get a plain string rather than an error they cannot act on.
+func marshalUnsafeNetworks(networks []string) string {
+	if len(networks) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(networks)
+	if err != nil {
+		// Unreachable: encoding/json has no failure mode for []string.
+		return "[]"
+	}
+	return string(b)
 }
 
 func marshalAdvanced(adv *models.HostAdvanced) (string, error) {
@@ -1171,6 +1191,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	var signingPub sql.NullString
 	var kind string
 	var variant string
+	var unsafeNetworksJSON string
 
 	err := scanner.Scan(
 		&h.ID, &h.NetworkID, &h.Name, &groupsJSON,
@@ -1178,6 +1199,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 		&h.Status, &certFP, &certExpires, &lastSeen,
 		&h.CreatedAt, &h.UpdatedAt, &advancedJSON, &h.CAID,
 		&prevCertFP, &certRotatedAt, &h.PendingRekey, &signingPub, &kind, &variant,
+		&unsafeNetworksJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -1185,6 +1207,9 @@ func (s *SQLiteStore) scanHost(scanner interface {
 
 	if err := json.Unmarshal([]byte(groupsJSON), &h.Groups); err != nil {
 		return nil, fmt.Errorf("unmarshal groups: %w", err)
+	}
+	if err := json.Unmarshal([]byte(unsafeNetworksJSON), &h.UnsafeNetworks); err != nil {
+		return nil, fmt.Errorf("unmarshal unsafe networks: %w", err)
 	}
 	if advancedJSON != "" {
 		var adv models.HostAdvanced
@@ -1220,7 +1245,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	return h, nil
 }
 
-const hostColumns = `id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem, kind, variant`
+const hostColumns = `id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem, kind, variant, unsafe_networks_json`
 
 func (s *SQLiteStore) GetHost(ctx context.Context, id string) (*models.Host, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
@@ -1365,6 +1390,7 @@ func (s *SQLiteStore) UpdateHost(ctx context.Context, h *models.Host) error {
 	if err != nil {
 		return err
 	}
+	unsafeNetworksJSON := marshalUnsafeNetworks(h.UnsafeNetworks)
 	h.UpdatedAt = time.Now()
 	// config_version=0 is part of the same statement (SEC-PERSIST-001): the
 	// mutated host state and the re-publish trigger must commit atomically.
@@ -1374,10 +1400,11 @@ func (s *SQLiteStore) UpdateHost(ctx context.Context, h *models.Host) error {
 		`UPDATE hosts SET name=?, groups_json=?, role=?, is_lighthouse=?, is_relay=?,
 		 public_ip=?, listen_port=?, status=?, cert_fingerprint=?, cert_expires_at=?,
 		 last_seen_at=?, updated_at=?, advanced_json=?, kind=?, variant=?, pending_rekey=?,
-		 config_version=0 WHERE id=?`,
+		 unsafe_networks_json=?, config_version=0 WHERE id=?`,
 		h.Name, string(groupsJSON), h.Role, h.IsLighthouse, h.IsRelay,
 		h.PublicIP, h.ListenPort, h.Status, h.CertFingerprint, h.CertExpiresAt,
-		h.LastSeenAt, h.UpdatedAt, advancedJSON, string(h.Kind), string(h.Variant), h.PendingRekey, h.ID,
+		h.LastSeenAt, h.UpdatedAt, advancedJSON, string(h.Kind), string(h.Variant), h.PendingRekey,
+		unsafeNetworksJSON, h.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update host: %w", err)
@@ -1833,17 +1860,19 @@ func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t 
 	if err != nil {
 		return err
 	}
+	unsafeNetworksJSON := marshalUnsafeNetworks(h.UnsafeNetworks)
 
 	result, err := tx.ExecContext(ctx,
-		`INSERT INTO hosts (id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant)
-		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		`INSERT INTO hosts (id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, created_at, updated_at, advanced_json, ca_id, kind, variant, unsafe_networks_json)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 		 WHERE NOT EXISTS (
 			SELECT 1 FROM mesh_imports WHERE network_id = ? AND status = ?
 		 )`,
 		h.ID, h.NetworkID, h.Name, string(groupsJSON),
 		h.Role, h.IsLighthouse, h.IsRelay, h.PublicIP, h.ListenPort,
 		h.Status, h.CreatedAt, h.UpdatedAt, advancedJSON, h.CAID,
-		string(h.Kind), string(h.Variant), h.NetworkID, models.MeshImportStatusCollecting,
+		string(h.Kind), string(h.Variant), unsafeNetworksJSON,
+		h.NetworkID, models.MeshImportStatusCollecting,
 	)
 	if err != nil {
 		return fmt.Errorf("insert host: %w", err)
@@ -2189,9 +2218,10 @@ type enrollmentHostState struct {
 func (s *SQLiteStore) loadEnrollmentHostStateInTx(ctx context.Context, tx *sql.Tx, hostID string) (enrollmentHostState, error) {
 	var state enrollmentHostState
 	var groupsJSON string
+	var unsafeNetworksJSON string
 	err := tx.QueryRowContext(ctx,
-		`SELECT is_lighthouse, network_id, name, groups_json FROM hosts WHERE id = ?`, hostID,
-	).Scan(&state.isLighthouse, &state.networkID, &state.identity.Name, &groupsJSON)
+		`SELECT is_lighthouse, network_id, name, groups_json, unsafe_networks_json FROM hosts WHERE id = ?`, hostID,
+	).Scan(&state.isLighthouse, &state.networkID, &state.identity.Name, &groupsJSON, &unsafeNetworksJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return enrollmentHostState{}, ErrNotFound
 	}
@@ -2200,6 +2230,9 @@ func (s *SQLiteStore) loadEnrollmentHostStateInTx(ctx context.Context, tx *sql.T
 	}
 	if err := json.Unmarshal([]byte(groupsJSON), &state.identity.Groups); err != nil {
 		return enrollmentHostState{}, fmt.Errorf("unmarshal host groups for enrollment: %w", err)
+	}
+	if err := json.Unmarshal([]byte(unsafeNetworksJSON), &state.identity.UnsafeNetworks); err != nil {
+		return enrollmentHostState{}, fmt.Errorf("unmarshal host unsafe networks for enrollment: %w", err)
 	}
 	addrs, err := queryHostAddresses(ctx, tx, hostID)
 	if err != nil {

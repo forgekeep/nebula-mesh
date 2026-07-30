@@ -364,6 +364,55 @@ matches no inbound rule until a rule names that prefix (or `any`) explicitly.
 A relay/gateway host advertising `192.168.10.0/24` via `unsafe_routes` needs a
 rule whose `local_cidr` covers `192.168.10.0/24` before peers can reach it.
 
+That firewall rule is necessary but **not sufficient** — see
+[Routing to a non-Nebula network](#routing-to-a-non-nebula-network) for the
+certificate half, without which the rule is never even evaluated.
+
+### Routing to a non-Nebula network
+
+Reaching a network that does not run Nebula takes three independent pieces of
+configuration, on two different hosts. Missing any one of them fails silently:
+the packet is dropped without a log line, which looks like a peer or LAN
+outage rather than a configuration error.
+
+Say `gw` (overlay `10.0.0.99`) fronts the LAN `192.168.10.0/24`:
+
+1. **On every host that wants to reach the LAN** — `advanced.unsafe_routes`
+   pointing at the gateway:
+   ```json
+   { "route": "192.168.10.0/24", "via": "10.0.0.99" }
+   ```
+   This only installs a route into the tun device. It is the *consumer* half.
+
+2. **On the gateway** — `unsafe_networks` on the host itself (top-level, beside
+   `groups`, not under `advanced`):
+   ```json
+   { "unsafe_networks": ["192.168.10.0/24"] }
+   ```
+   This is the *provider* half, and it is the one that is easy to miss because
+   it does not appear in any config file. Nebula authorizes routing on the
+   **certificate**: the prefix is signed into the cert's unsafe networks, and a
+   gateway whose cert omits it silently refuses to route. Worse, both ends
+   compute their routable set from the certificate too, so traffic toward
+   `192.168.10.x` is dropped in `Firewall.Drop` as `ErrInvalidLocalIP` —
+   *before* any firewall rule is consulted. A perfectly correct `local_cidr`
+   rule is dead code until the certificate carries the prefix.
+
+   `unsafe_networks` is certificate-bound state, like `nebula_ips` and
+   `groups`: editing it sets `pending_rekey`, so the gateway's next poll
+   answers `rekey_required` with a fresh enrollment token and the agent
+   re-enrolls with a new keypair. The new certificate carries the prefix. The
+   agent therefore has to be running and able to reach the server for the
+   change to take effect — it is not a server-side re-sign.
+
+3. **On the gateway** — an inbound firewall rule whose `local_cidr` covers the
+   prefix, per the section above, plus `net.ipv4.ip_forward=1` on the gateway
+   host itself for any destination beyond the gateway's own addresses.
+
+A quick way to confirm the certificate half on a running gateway is
+`nebula-cert print -path /etc/nebula/host.crt`: the prefix must appear under
+the certificate's unsafe networks. An empty list there is the whole bug.
+
 ### Multiple overlay addresses per host
 
 As of version 0.3.0, hosts can be assigned multiple overlay addresses from a network's
@@ -647,6 +696,7 @@ Compatibility is intentionally narrow for the first adoption flow:
 |---|---|
 | One Curve25519 CA certificate and one X25519 host certificate/key in regular files | Supported |
 | `static_host_map`, `lighthouse`, `relay`, and `lighthouse+relay` roles, `listen`, `punchy`, `tun`, `unsafe_routes`, firewall and CA blocklist | Imported and reconciled |
+| Unsafe networks carried in an existing host certificate | Imported into the host's `unsafe_networks`, so a gateway keeps its routing authority across the next re-issuance |
 | Logging, stats and SSH daemon settings | Reported as warnings; server does not manage them |
 | Other unsupported connectivity settings | Blocking preview issue |
 | P256 CA, host certificate or private key | Rejected before registration |

@@ -74,6 +74,21 @@ func (r *reconcileState) parseNetworkCIDRs() {
 	}
 }
 
+// overlayCIDRs returns the network CIDRs that parsed, in string form.
+//
+// It deliberately reads r.networks rather than r.input.NetworkCIDRs: a
+// malformed entry is already blocked by parseNetworkCIDRs against its own
+// network_cidrs[i] field, and feeding the raw input back into per-host
+// validation would resurface the same parse failure as a second blocker
+// pointing at the host's certificate.unsafe_networks instead.
+func (r *reconcileState) overlayCIDRs() []string {
+	out := make([]string, len(r.networks))
+	for i, network := range r.networks {
+		out[i] = network.String()
+	}
+	return out
+}
+
 func (r *reconcileState) parseCA() {
 	caCertificate, remainder, err := cert.UnmarshalCertificateFromPEM([]byte(r.input.CACertificatePEM))
 	if err != nil || strings.TrimSpace(string(remainder)) != "" || !caCertificate.IsCA() {
@@ -183,6 +198,18 @@ func (r *reconcileState) parseSnapshotCertificate(snapshot Snapshot) bool {
 	sort.Strings(host.NebulaIPs)
 	if err := models.ValidateHostAddresses(host.NebulaIPs); err != nil {
 		r.block(IssueInvalidHostAddresses, snapshot.ID, host.Name, "certificate.networks", err.Error())
+	}
+	// Carry over the prefixes the existing certificate authorizes this host to
+	// route for. Dropping them would silently demote an imported gateway: the
+	// import succeeds, and the next re-issuance strips its routing authority,
+	// blackholing the LAN behind it. Order is normalized here because the
+	// import is the one place the value is derived rather than operator-typed.
+	for _, unsafe := range hostCertificate.UnsafeNetworks() {
+		host.UnsafeNetworks = append(host.UnsafeNetworks, unsafe.Masked().String())
+	}
+	sort.Strings(host.UnsafeNetworks)
+	if err := models.ValidateUnsafeNetworks(host.UnsafeNetworks, r.overlayCIDRs()); err != nil {
+		r.block(IssueInvalidUnsafeNetworks, snapshot.ID, host.Name, "certificate.unsafe_networks", err.Error())
 	}
 	r.hosts = append(r.hosts, parsedHost{
 		proposal: HostProposal{SnapshotID: snapshot.ID, Profile: snapshot.Profile, Host: host},

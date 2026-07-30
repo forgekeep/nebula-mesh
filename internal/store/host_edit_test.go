@@ -50,6 +50,7 @@ func TestApplyHostEdit_SchedulesRekeyForCertBoundFields(t *testing.T) {
 		{"ips", func(h *models.Host) { h.NebulaIPs = []string{"10.0.0.9"} }},
 		{"groups added", func(h *models.Host) { h.Groups = []string{"web", "admin"} }},
 		{"groups removed", func(h *models.Host) { h.Groups = nil }},
+		{"unsafe networks added", func(h *models.Host) { h.UnsafeNetworks = []string{"192.168.1.0/24"} }},
 	}
 
 	for _, tt := range tests {

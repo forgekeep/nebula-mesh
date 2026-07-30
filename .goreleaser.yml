@@ -312,8 +312,6 @@ release:
     ## nebula-mesh {{ .Tag }}
 
     **Install:** see [README](https://github.com/forgekeep/nebula-mesh#install) for install snippets (all packages/archives are in the assets below).
-
-    **Breaking credential-verifier upgrade:** this release invalidates Web sessions, operator API keys, TOTP recovery codes, and pending enrollment tokens. Password hashes, OIDC bindings, TOTP secrets, enrolled agents, and their certificates remain valid. Collecting mesh imports block startup until finalized or canceled. Read the [cutover guide](https://github.com/forgekeep/nebula-mesh/blob/{{ .Tag }}/docs/upgrade-credential-hmac-cutover.md) before upgrading.
   footer: |
     ---
 

@@ -142,6 +142,15 @@ func TestReleaseConfigPackagesCredentialHMACCutoverGuide(t *testing.T) {
 	}
 }
 
+func TestReleaseConfigDoesNotRepeatCredentialHMACCutoverNotice(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	releaseConfig := readFile(t, filepath.Join(repoRoot, ".goreleaser.yml"))
+
+	if strings.Contains(releaseConfig, "Breaking credential-verifier upgrade:") {
+		t.Error("release header must not repeat the one-time v0.12.0 credential cutover notice")
+	}
+}
+
 type changelogGroup struct {
 	Title  string `yaml:"title"`
 	Regexp string `yaml:"regexp"`

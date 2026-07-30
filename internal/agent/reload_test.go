@@ -171,6 +171,23 @@ func newReloadCommandPoller(t *testing.T, serverURL, dir, command string) *Polle
 	return p
 }
 
+// waitForAck blocks until acked is set, mirroring waitForFile. The happy-path
+// reload test observes the ack this way rather than asserting after a fixed
+// interval, so it does not care how long a slow runner takes to deliver it.
+func waitForAck(t *testing.T, acked *atomic.Bool, within time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for {
+		if acked.Load() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("config was not acked within %v", within)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // TestPoller_ReloadCommandFailure_BlocksAck: with nebula_reload_command
 // configured, a failing command must behave like a failed SIGHUP with a
 // configured pid file — the config version is NOT acknowledged so the
@@ -218,7 +235,9 @@ func TestPoller_ReloadCommandTimeout_BlocksAck(t *testing.T) {
 }
 
 // TestPoller_ReloadCommandSuccess_Acks: the happy path — the command runs,
-// the config is acknowledged.
+// the config is acknowledged. It polls for the ack instead of racing a fixed
+// wall-clock window, so a loaded CI runner cannot turn a delivered reload
+// into a spurious failure (see issue #346).
 func TestPoller_ReloadCommandSuccess_Acks(t *testing.T) {
 	dir := t.TempDir()
 	seedSigningKeyAt(t, dir)
@@ -228,12 +247,18 @@ func TestPoller_ReloadCommandSuccess_Acks(t *testing.T) {
 
 	p := newReloadCommandPoller(t, server.URL, dir, scriptSucceed)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	_ = p.Run(ctx)
+	done := make(chan struct{})
+	go func() { defer close(done); _ = p.Run(ctx) }()
 
-	if !acked.Load() {
-		t.Error("config should be acked when nebula_reload_command succeeds")
+	waitForAck(t, &acked, 10*time.Second)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("Run did not return after the ack within %v", 15*time.Second)
 	}
 }
 

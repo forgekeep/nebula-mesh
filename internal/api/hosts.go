@@ -18,14 +18,15 @@ import (
 )
 
 type createHostRequest struct {
-	NetworkID  string               `json:"network_id"`
-	Name       string               `json:"name"`
-	NebulaIPs  []string             `json:"nebula_ips"`
-	Groups     []string             `json:"groups"`
-	Role       string               `json:"role"`
-	PublicIP   string               `json:"public_ip,omitempty"`
-	ListenPort int                  `json:"listen_port,omitempty"`
-	Advanced   *models.HostAdvanced `json:"advanced,omitempty"`
+	NetworkID      string               `json:"network_id"`
+	Name           string               `json:"name"`
+	NebulaIPs      []string             `json:"nebula_ips"`
+	Groups         []string             `json:"groups"`
+	UnsafeNetworks []string             `json:"unsafe_networks,omitempty"`
+	Role           string               `json:"role"`
+	PublicIP       string               `json:"public_ip,omitempty"`
+	ListenPort     int                  `json:"listen_port,omitempty"`
+	Advanced       *models.HostAdvanced `json:"advanced,omitempty"`
 }
 
 type createHostResponse struct {
@@ -34,13 +35,14 @@ type createHostResponse struct {
 }
 
 type updateHostRequest struct {
-	Name       *string              `json:"name,omitempty"`
-	NebulaIPs  *[]string            `json:"nebula_ips,omitempty"`
-	Groups     *[]string            `json:"groups,omitempty"`
-	Role       *string              `json:"role,omitempty"`
-	PublicIP   *string              `json:"public_ip,omitempty"`
-	ListenPort *int                 `json:"listen_port,omitempty"`
-	Advanced   *models.HostAdvanced `json:"advanced,omitempty"`
+	Name           *string              `json:"name,omitempty"`
+	NebulaIPs      *[]string            `json:"nebula_ips,omitempty"`
+	Groups         *[]string            `json:"groups,omitempty"`
+	UnsafeNetworks *[]string            `json:"unsafe_networks,omitempty"`
+	Role           *string              `json:"role,omitempty"`
+	PublicIP       *string              `json:"public_ip,omitempty"`
+	ListenPort     *int                 `json:"listen_port,omitempty"`
+	Advanced       *models.HostAdvanced `json:"advanced,omitempty"`
 }
 
 // Bounds on host fields that are embedded in the signed Nebula certificate and
@@ -151,6 +153,11 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := models.ValidateUnsafeNetworks(req.UnsafeNetworks, network.CIDRs); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	// Host inherits the network's CA. Combined with the canAccessNetwork
 	// gate above, this binds new hosts to the same trust domain as the
 	// network's operator (closes the GHSA-598g class of cross-tenant cert
@@ -163,21 +170,22 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	host := &models.Host{
-		ID:           uuid.New().String(),
-		NetworkID:    req.NetworkID,
-		Name:         req.Name,
-		NebulaIPs:    req.NebulaIPs,
-		Groups:       req.Groups,
-		Role:         role,
-		IsLighthouse: role.Lighthouse(),
-		IsRelay:      role.Relay(),
-		PublicIP:     req.PublicIP,
-		ListenPort:   req.ListenPort,
-		Status:       models.HostStatusPending,
-		Advanced:     req.Advanced,
-		CAID:         caID,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:             uuid.New().String(),
+		NetworkID:      req.NetworkID,
+		Name:           req.Name,
+		NebulaIPs:      req.NebulaIPs,
+		Groups:         req.Groups,
+		UnsafeNetworks: req.UnsafeNetworks,
+		Role:           role,
+		IsLighthouse:   role.Lighthouse(),
+		IsRelay:        role.Relay(),
+		PublicIP:       req.PublicIP,
+		ListenPort:     req.ListenPort,
+		Status:         models.HostStatusPending,
+		Advanced:       req.Advanced,
+		CAID:           caID,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	if host.Groups == nil {
 		host.Groups = []string{}
@@ -710,6 +718,22 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		host.Groups = *req.Groups
+	}
+
+	if req.UnsafeNetworks != nil {
+		// The overlay-overlap check needs the parent network, which this
+		// handler otherwise has no reason to load.
+		network, err := s.store.GetNetwork(r.Context(), host.NetworkID)
+		if err != nil {
+			s.logger.Error("get network for unsafe networks validation", "error", err, "host_id", host.ID)
+			writeError(w, http.StatusInternalServerError, "failed to load network")
+			return
+		}
+		if err := models.ValidateUnsafeNetworks(*req.UnsafeNetworks, network.CIDRs); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		host.UnsafeNetworks = *req.UnsafeNetworks
 	}
 
 	if req.Role != nil {

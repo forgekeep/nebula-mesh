@@ -78,13 +78,20 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 		return nil, fmt.Errorf("build host prefixes: %w", err)
 	}
 
+	// Build the unsafe networks this host is authorized to route for.
+	unsafeNetworks, err := models.ParseUnsafeNetworks(host.UnsafeNetworks)
+	if err != nil {
+		return nil, fmt.Errorf("build unsafe networks: %w", err)
+	}
+
 	// Sign certificate.
 	hostCert, err := caMgr.Sign(pki.SignRequest{
-		Name:      host.Name,
-		PublicKey: pub,
-		Networks:  prefixes,
-		Groups:    host.Groups,
-		Duration:  pki.DefaultMobileCertDuration,
+		Name:           host.Name,
+		PublicKey:      pub,
+		Networks:       prefixes,
+		UnsafeNetworks: unsafeNetworks,
+		Groups:         host.Groups,
+		Duration:       pki.DefaultMobileCertDuration,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sign cert: %w", err)

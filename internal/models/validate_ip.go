@@ -139,6 +139,120 @@ func ValidateHostAddresses(addrs []string) error {
 	return nil
 }
 
+// ParseUnsafeNetworks parses the prefixes a host advertises as routable
+// through itself (Host.UnsafeNetworks) into the form the signer needs.
+//
+// Each entry must be in canonical masked form (10.0.0.0/24, not 10.0.0.1/24).
+// Canonical form is enforced rather than silently masked because the operator
+// who types 192.168.1.1/24 is describing the gateway's own address, not the
+// prefix it serves, and the distinction matters: Nebula stores what it is
+// given and matches the packet's local address against it.
+//
+// Both the write paths (via ValidateUnsafeNetworks) and the signing paths use
+// this, so a certificate can never carry a prefix in a shape validation would
+// have rejected.
+func ParseUnsafeNetworks(networks []string) ([]netip.Prefix, error) {
+	if len(networks) == 0 {
+		return nil, nil
+	}
+
+	prefixes := make([]netip.Prefix, len(networks))
+	for i, s := range networks {
+		field := fmt.Sprintf("unsafe_networks[%d]", i)
+		prefix, err := ValidateCIDR(field, s)
+		if err != nil {
+			return nil, err
+		}
+		if prefix.Masked() != prefix {
+			return nil, fmt.Errorf("%s: %q has host bits set; use %q", field, s, prefix.Masked())
+		}
+		prefixes[i] = prefix
+	}
+
+	return prefixes, nil
+}
+
+// ValidateUnsafeNetworks validates the prefixes a host advertises as routable
+// through itself, against the overlay CIDRs of the network it belongs to. It
+// checks that:
+//   - Each entry is a parseable CIDR in canonical masked form
+//   - There are no duplicates and no overlaps between entries
+//   - No entry overlaps one of the network's own overlay CIDRs
+//   - The list does not exceed MaxUnsafeNetworksPerHost
+//
+// An empty list is valid and means "this host routes nothing but itself".
+//
+// The overlay check is folded in rather than offered separately so no caller
+// can run half the validation: an unsafe network overlapping the overlay would
+// shadow real mesh peers, because Nebula builds one routing table from the
+// certificate's networks and unsafe networks together. Callers with no overlay
+// in hand — the mesh importer reading prefixes off an existing certificate —
+// pass nil.
+//
+// Containment checks against the parent network are deliberately absent. An
+// unsafe network is by definition outside the overlay — that is what makes it
+// unsafe.
+func ValidateUnsafeNetworks(networks, overlayCIDRs []string) error {
+	if len(networks) > MaxUnsafeNetworksPerHost {
+		return fmt.Errorf("maximum %d unsafe networks per host; got %d", MaxUnsafeNetworksPerHost, len(networks))
+	}
+
+	prefixes, err := ParseUnsafeNetworks(networks)
+	if err != nil {
+		return err
+	}
+
+	seen := make(map[string]int, len(prefixes))
+	for i, prefix := range prefixes {
+		normalized := prefix.String()
+		if idx, exists := seen[normalized]; exists {
+			return fmt.Errorf("unsafe_networks: duplicate network at index %d and %d: %q", idx, i, normalized)
+		}
+		seen[normalized] = i
+	}
+
+	for i := 0; i < len(prefixes); i++ {
+		for j := i + 1; j < len(prefixes); j++ {
+			if prefixes[i].Overlaps(prefixes[j]) {
+				return fmt.Errorf("unsafe_networks: network at index %d (%q) overlaps with network at index %d (%q)", i, prefixes[i], j, prefixes[j])
+			}
+		}
+	}
+
+	overlays, err := parsePrefixes(overlayCIDRs)
+	if err != nil {
+		return err
+	}
+	for i, prefix := range prefixes {
+		for _, overlay := range overlays {
+			if prefix.Overlaps(overlay) {
+				return fmt.Errorf("unsafe_networks[%d]: %q overlaps the overlay network %q", i, prefix, overlay)
+			}
+		}
+	}
+
+	return nil
+}
+
+// parsePrefixes parses a network's own CIDRs, which were validated by
+// ValidateNetworkCIDRs on their way in. A failure here means the stored
+// network is corrupt, so it surfaces as an error rather than being skipped —
+// silently ignoring it would drop the overlap check it was needed for.
+func parsePrefixes(cidrs []string) ([]netip.Prefix, error) {
+	if len(cidrs) == 0 {
+		return nil, nil
+	}
+	out := make([]netip.Prefix, len(cidrs))
+	for i, c := range cidrs {
+		prefix, err := netip.ParsePrefix(c)
+		if err != nil {
+			return nil, fmt.Errorf("network has invalid CIDR %q: %w", c, err)
+		}
+		out[i] = prefix
+	}
+	return out, nil
+}
+
 // ValidateHostAdvanced rejects obviously broken advanced overrides before
 // they reach the database. Empty / zero-value fields mean "inherit
 // network default" and pass validation. All error messages use the

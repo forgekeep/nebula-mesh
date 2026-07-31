@@ -99,6 +99,7 @@ const (
 	IssueCACertificateNearExpiry    = "ca_certificate_near_expiry"
 	IssueInvalidHostCertificate     = "invalid_host_certificate"
 	IssueInvalidHostAddresses       = "invalid_host_addresses"
+	IssueInvalidUnsafeNetworks      = "invalid_unsafe_networks"
 	IssueHostCertificateExpired     = "host_certificate_expired"
 	IssueHostCertificateNotYetValid = "host_certificate_not_yet_valid"
 	IssueHostCertificateNearExpiry  = "host_certificate_near_expiry"

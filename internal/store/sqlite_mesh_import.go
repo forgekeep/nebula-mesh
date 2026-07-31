@@ -742,10 +742,12 @@ func (s *SQLiteStore) FinalizeMeshImport(ctx context.Context, input MeshImportFi
 		}
 		result, err := tx.ExecContext(ctx, `UPDATE hosts SET name = ?, groups_json = ?, role = ?,
 			is_lighthouse = ?, is_relay = ?, public_ip = ?, listen_port = ?, advanced_json = ?,
+			unsafe_networks_json = ?,
 			status = ?, updated_at = ? WHERE id = ? AND network_id = ? AND ca_id = ? AND status = ?
 			AND EXISTS (SELECT 1 FROM mesh_import_snapshots s WHERE s.id = ? AND s.host_id = hosts.id AND s.mesh_import_id = ?)`,
 			host.Name, string(groupsJSON), host.Role, host.IsLighthouse, host.IsRelay, host.PublicIP,
-			host.ListenPort, advancedJSON, finalStatuses[host.ID], input.Now, host.ID, networkID, caID,
+			host.ListenPort, advancedJSON, marshalUnsafeNetworks(host.UnsafeNetworks),
+			finalStatuses[host.ID], input.Now, host.ID, networkID, caID,
 			models.HostStatusImporting, proposal.SnapshotID, input.ID)
 		if err != nil {
 			return fmt.Errorf("finalize imported host: %w", err)
@@ -972,12 +974,14 @@ func insertImportedHost(ctx context.Context, tx *sql.Tx, host *models.Host) erro
 	_, err = tx.ExecContext(ctx, `INSERT INTO hosts (
 		id, network_id, name, groups_json, role, is_lighthouse, is_relay,
 		public_ip, listen_port, status, cert_fingerprint, cert_expires_at,
-		created_at, updated_at, advanced_json, ca_id, signing_pub_pem, kind, variant)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		created_at, updated_at, advanced_json, ca_id, signing_pub_pem, kind, variant,
+		unsafe_networks_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		host.ID, host.NetworkID, host.Name, string(groupsJSON), host.Role,
 		host.IsLighthouse, host.IsRelay, host.PublicIP, host.ListenPort, host.Status,
 		host.CertFingerprint, host.CertExpiresAt, host.CreatedAt, host.UpdatedAt,
-		advancedJSON, host.CAID, host.SigningPubPEM, host.Kind, host.Variant)
+		advancedJSON, host.CAID, host.SigningPubPEM, host.Kind, host.Variant,
+		marshalUnsafeNetworks(host.UnsafeNetworks))
 	if err != nil {
 		return fmt.Errorf("insert imported host: %w", err)
 	}

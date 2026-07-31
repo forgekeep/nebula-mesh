@@ -941,12 +941,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var groups []string
-	if g := strings.TrimSpace(form.Groups); g != "" {
-		for _, s := range strings.Split(g, ",") {
-			groups = append(groups, strings.TrimSpace(s))
-		}
-	}
+	groups := splitCommaList(form.Groups)
 	if groups == nil {
 		groups = []string{}
 	}
@@ -957,6 +952,12 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := models.ValidateHostAdvanced(advanced); err != nil {
+		w.renderHostNewError(rw, r, form, err.Error())
+		return
+	}
+
+	unsafeNetworks := splitCommaList(form.UnsafeNetworks)
+	if err := models.ValidateUnsafeNetworks(unsafeNetworks, network.CIDRs); err != nil {
 		w.renderHostNewError(rw, r, form, err.Error())
 		return
 	}
@@ -984,23 +985,24 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	host := &models.Host{
-		ID:           uuid.New().String(),
-		NetworkID:    networkID,
-		CAID:         networkCAID(network),
-		Name:         form.Name,
-		NebulaIPs:    form.NebulaIPs,
-		Groups:       groups,
-		Role:         role,
-		IsLighthouse: role.Lighthouse(),
-		IsRelay:      role.Relay(),
-		PublicIP:     form.PublicIP,
-		ListenPort:   listenPort,
-		Status:       models.HostStatusPending,
-		Kind:         kind,
-		Variant:      variant,
-		Advanced:     advanced,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:             uuid.New().String(),
+		NetworkID:      networkID,
+		CAID:           networkCAID(network),
+		Name:           form.Name,
+		NebulaIPs:      form.NebulaIPs,
+		Groups:         groups,
+		UnsafeNetworks: unsafeNetworks,
+		Role:           role,
+		IsLighthouse:   role.Lighthouse(),
+		IsRelay:        role.Relay(),
+		PublicIP:       form.PublicIP,
+		ListenPort:     listenPort,
+		Status:         models.HostStatusPending,
+		Kind:           kind,
+		Variant:        variant,
+		Advanced:       advanced,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	// Mobile hosts don't use the agent enrollment flow — they get a
@@ -1219,12 +1221,7 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var groups []string
-	if g := strings.TrimSpace(form.Groups); g != "" {
-		for _, s := range strings.Split(g, ",") {
-			groups = append(groups, strings.TrimSpace(s))
-		}
-	}
+	groups := splitCommaList(form.Groups)
 	if groups == nil {
 		groups = []string{}
 	}
@@ -1235,6 +1232,12 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := models.ValidateHostAdvanced(advanced); err != nil {
+		w.renderHostEditError(rw, r, host, network, form, err.Error())
+		return
+	}
+
+	unsafeNetworks := splitCommaList(form.UnsafeNetworks)
+	if err := models.ValidateUnsafeNetworks(unsafeNetworks, network.CIDRs); err != nil {
 		w.renderHostEditError(rw, r, host, network, form, err.Error())
 		return
 	}
@@ -1250,6 +1253,7 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 	host.Name = name
 	host.NebulaIPs = form.NebulaIPs
 	host.Groups = groups
+	host.UnsafeNetworks = unsafeNetworks
 	host.Role = role
 	host.IsLighthouse = role.Lighthouse()
 	host.IsRelay = role.Relay()

@@ -157,6 +157,14 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	unsafeNetworks, err := models.ParseUnsafeNetworks(host.UnsafeNetworks)
+	if err != nil {
+		s.metrics.recordEnrollment(resultError)
+		s.logger.Error("build unsafe networks", "error", err, "host_id", host.ID)
+		writeError(w, http.StatusInternalServerError, "enrollment failed")
+		return
+	}
+
 	// Resolve the CA that owns this host's network and sign with it.
 	caMgr, err := s.caForHost(r.Context(), host)
 	if err != nil {
@@ -168,11 +176,12 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	defer caMgr.Wipe() // GHSA-8h84-fhqq-q58v: zeroise plaintext CA key on return.
 	hostCert, caCertPEM, err := func() (cert.Certificate, []byte, error) {
 		c, signErr := caMgr.Sign(pki.SignRequest{
-			Name:      host.Name,
-			PublicKey: pubKey,
-			Networks:  prefixes,
-			Groups:    host.Groups,
-			Duration:  pki.DefaultAgentCertDuration,
+			Name:           host.Name,
+			PublicKey:      pubKey,
+			Networks:       prefixes,
+			UnsafeNetworks: unsafeNetworks,
+			Groups:         host.Groups,
+			Duration:       pki.DefaultAgentCertDuration,
 		})
 		if signErr != nil {
 			return nil, nil, signErr

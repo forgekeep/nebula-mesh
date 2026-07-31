@@ -87,6 +87,11 @@
             <input type="text" name="groups" class="form-control" placeholder="web, prod" value="{{.Form.Groups}}">
         </div>
         <div class="form-group">
+            <label>Unsafe networks (comma-separated)</label>
+            <input type="text" name="unsafe_networks" class="form-control" placeholder="192.168.1.0/24" value="{{.Form.UnsafeNetworks}}">
+            <small class="form-text">Prefixes outside the overlay that this host is allowed to route for, signed into its certificate. Required on the gateway named as <code>via</code> by another host's unsafe route — Nebula silently refuses to route a prefix its certificate does not carry. Leave empty for ordinary hosts.</small>
+        </div>
+        <div class="form-group">
             <label>Public IP (for lighthouse/relay)</label>
             <input type="text" name="public_ip" class="form-control" placeholder="203.0.113.10" value="{{.Form.PublicIP}}">
         </div>

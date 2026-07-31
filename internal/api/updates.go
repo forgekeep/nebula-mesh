@@ -389,18 +389,24 @@ func (s *Server) signHostCert(ctx context.Context, host *models.Host, certInfo *
 		return nil, err
 	}
 
+	unsafeNetworks, err := models.ParseUnsafeNetworks(host.UnsafeNetworks)
+	if err != nil {
+		return nil, err
+	}
+
 	caMgr, err := s.caForHost(ctx, host)
 	if err != nil {
 		return nil, fmt.Errorf("resolve host CA: %w", err)
 	}
 	defer caMgr.Wipe() // GHSA-8h84-fhqq-q58v: zeroise plaintext CA key on return.
 	newCert, err := caMgr.Sign(pki.SignRequest{
-		Name:      host.Name,
-		PublicKey: currentCert.PublicKey(),
-		Networks:  prefixes,
-		Groups:    host.Groups,
-		Duration:  pki.DefaultAgentCertDuration,
-		Now:       now,
+		Name:           host.Name,
+		PublicKey:      currentCert.PublicKey(),
+		Networks:       prefixes,
+		UnsafeNetworks: unsafeNetworks,
+		Groups:         host.Groups,
+		Duration:       pki.DefaultAgentCertDuration,
+		Now:            now,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sign renewed cert: %w", err)

@@ -146,6 +146,7 @@ type Host struct {
 	Name                string        `json:"name"`
 	NebulaIPs           []string      `json:"nebula_ips"`
 	Groups              []string      `json:"groups"`
+	UnsafeNetworks      []string      `json:"unsafe_networks,omitempty"`
 	Role                HostRole      `json:"role"`
 	IsLighthouse        bool          `json:"is_lighthouse"`
 	IsRelay             bool          `json:"is_relay"`
@@ -171,8 +172,21 @@ type Host struct {
 // but practical deployments should not exceed this without good reason.
 const MaxAddressesPerHost = 16
 
+// MaxUnsafeNetworksPerHost caps the prefixes a single host may advertise.
+// Like MaxAddressesPerHost this is a cert-bloat guard rather than a Nebula
+// limit: unsafe networks ride inside the signed certificate and are handed to
+// every peer that completes a handshake.
+const MaxUnsafeNetworksPerHost = 16
+
 // UnsafeRoute is a single "unsafe route" entry: traffic for `Route` is sent
 // through the host with Nebula IP `Via`. See Nebula's tun.unsafe_routes.
+//
+// This is the *consumer* half of an unsafe route: it tells this host to send
+// traffic for Route into the tunnel toward Via. The *provider* half lives in
+// Host.UnsafeNetworks on the gateway, because Nebula authorizes routing on the
+// certificate: a via node that does not carry the prefix in its cert silently
+// refuses to route, and its peers drop the reply as ErrInvalidLocalIP. The two
+// halves are configured independently and both are required.
 type UnsafeRoute struct {
 	Route string `json:"route" yaml:"route"` // CIDR
 	Via   string `json:"via" yaml:"via"`     // Nebula IP of the gateway host

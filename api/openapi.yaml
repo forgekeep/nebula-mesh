@@ -1097,6 +1097,21 @@ components:
           type: array
           items:
             type: string
+        unsafe_networks:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+          description: >-
+            Prefixes outside the overlay that this host is authorized to route
+            for, signed into its certificate as Nebula's unsafe networks. Set
+            this on the gateway another host names as `via` in
+            `advanced.unsafe_routes`: Nebula authorizes routing on the
+            certificate, so a gateway whose cert omits the prefix silently
+            refuses to route it and peers drop the traffic before any firewall
+            rule is evaluated. Each entry must be a CIDR in canonical masked
+            form, must not duplicate or overlap another entry, and must not
+            overlap the network's own overlay CIDRs.
         role:
           type: string
           enum: [host, lighthouse, relay, lighthouse+relay]
@@ -1306,6 +1321,16 @@ components:
           type: array
           items:
             type: string
+        unsafe_networks:
+          type: array
+          items:
+            type: string
+          description: >-
+            Prefixes outside the overlay this host is authorized to route for,
+            carried in its certificate. Absent or empty means the host routes
+            only for itself. Certificate-bound: editing it sets `pending_rekey`
+            and the agent re-enrols on its next poll to obtain a certificate
+            carrying the new value.
         role:
           type: string
           enum: [host, lighthouse, relay, lighthouse+relay]

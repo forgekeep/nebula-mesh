@@ -163,6 +163,61 @@ func TestConsumeTokenAndEnrollHostWithProfile_SEC_PERSIST_001_PreservesRekeyAfte
 	}
 }
 
+// TestConsumeTokenAndEnrollHostWithProfile_SEC_PERSIST_001_PreservesRekeyAfterUnsafeNetworksChange
+// proves that a stale certificate cannot settle an UnsafeNetworks edit made
+// after the signing snapshot. UnsafeNetworks authorizes gateway routing in the
+// certificate, so clearing this rekey would leave a gateway on its old routing
+// authority indefinitely.
+func TestConsumeTokenAndEnrollHostWithProfile_SEC_PERSIST_001_PreservesRekeyAfterUnsafeNetworksChange(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	h := newHostFixture(t, s, "unsafe-networks-identity-race-host")
+
+	signedHost, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedIdentity := models.CertificateIdentityFromHost(signedHost)
+	const raw = "unsafe-networks-identity-race-token"
+	if err := s.CreateTokenForHost(ctx, h.ID, raw, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	edited := *signedHost
+	edited.UnsafeNetworks = []string{"10.42.0.0/16"}
+	edited.PendingRekey = true
+	if err := s.UpdateHost(ctx, &edited); err != nil {
+		t.Fatal(err)
+	}
+
+	profileDir := t.TempDir()
+	profile := models.AgentProfile{
+		NebulaConfigPath: filepath.Join(profileDir, "config.yml"),
+		NebulaCAPath:     filepath.Join(profileDir, "ca.crt"),
+		NebulaCertPath:   filepath.Join(profileDir, "host.crt"),
+		NebulaKeyPath:    filepath.Join(profileDir, "host.key"),
+		ConfigAckV1:      true,
+	}
+	if _, err := s.ConsumeTokenAndEnrollHostWithProfile(ctx, h.ID, raw, []byte("stale-cert"), "stale-fp",
+		time.Now(), time.Now().Add(time.Hour), "signing-pub", profile, &signedIdentity); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.PendingRekey {
+		t.Fatal("concurrent unsafe networks change was cleared; the stale certificate would never be replaced")
+	}
+	if got.CertFingerprint != "stale-fp" {
+		t.Errorf("cert fingerprint = %q, want stale-fp", got.CertFingerprint)
+	}
+	if len(got.UnsafeNetworks) != 1 || got.UnsafeNetworks[0] != "10.42.0.0/16" {
+		t.Errorf("unsafe networks = %v, want [10.42.0.0/16]", got.UnsafeNetworks)
+	}
+}
+
 // TestConsumeTokenAndEnrollHost_ConcurrentSameToken_ExactlyOneEnrolls fires N
 // goroutines at one token (as two agents racing a leaked token would) and
 // asserts exactly one enrolls while the rest get ErrTokenUsed — single-use holds

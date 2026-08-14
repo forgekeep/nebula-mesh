@@ -183,7 +183,7 @@ func TestMeshImportWebPreviewAndFinalize(t *testing.T) {
 	defer manager.Wipe()
 	hostCertificate, err := manager.Sign(pki.SignRequest{
 		Name: "adopted-host", PublicKey: make([]byte, 32), Networks: []netip.Prefix{netip.MustParsePrefix("10.75.0.10/16")},
-		Groups: []string{"prod"}, Duration: 90 * 24 * time.Hour,
+		Groups: []string{"prod"}, Duration: 90 * 24 * time.Hour, Now: now,
 	})
 	if err != nil {
 		t.Fatal(err)

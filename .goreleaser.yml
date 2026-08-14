@@ -300,6 +300,13 @@ changelog:
     - title: "Dependency updates"
       regexp: '^.*?chore\(deps\):.+$'
       order: 4
+    # build: changes the shipped artifact (Go toolchain, Dockerfile), so it is
+    # worth showing even though ci: next to it is not: a toolchain bump is how
+    # stdlib CVE fixes reach users, and dropping it leaves a security rebuild
+    # looking like an empty release (v0.13.1).
+    - title: "Toolchain / build"
+      regexp: '^.*?build(\(.+\))?:.+$'
+      order: 5
 
 release:
   github:

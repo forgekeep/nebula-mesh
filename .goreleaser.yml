@@ -284,28 +284,37 @@ changelog:
   # This replaces exclude-by-prefix (which previously drifted out of sync
   # for scoped commits, e.g. chore(deps): leaking past a bare ^chore: filter
   # in v0.7.1/v0.7.2) with an explicit whitelist of what's worth showing.
+  #
+  # Every regexp is anchored at the type. The upstream examples lead with
+  # `^.*?`, which matches the type anywhere in the subject: v0.13.1 filed
+  # "chore(release): show build: commits ..." under Toolchain / build. goreleaser
+  # matches these against the bare commit message (internal/pipe/changelog:
+  # `re.MatchString(entry.Message)`) and only then renders the SHA prefix via
+  # the format template, so anchoring is safe. Checked against all 310 subjects
+  # in the repo's history: anchoring reclassifies that one commit and nothing
+  # else.
   groups:
     - title: "Breaking changes"
-      regexp: '^.*?(feat|fix|perf)(\(.+\))?!:.+$'
+      regexp: '^(feat|fix|perf)(\(.+\))?!:.+$'
       order: 0
     - title: Features
-      regexp: '^.*?feat(\(.+\))?:.+$'
+      regexp: '^feat(\(.+\))?:.+$'
       order: 1
     - title: "Bug fixes"
-      regexp: '^.*?fix(\(.+\))?:.+$'
+      regexp: '^fix(\(.+\))?:.+$'
       order: 2
     - title: "Performance"
-      regexp: '^.*?perf(\(.+\))?:.+$'
+      regexp: '^perf(\(.+\))?:.+$'
       order: 3
     - title: "Dependency updates"
-      regexp: '^.*?chore\(deps\):.+$'
+      regexp: '^chore\(deps\):.+$'
       order: 4
     # build: changes the shipped artifact (Go toolchain, Dockerfile), so it is
     # worth showing even though ci: next to it is not: a toolchain bump is how
     # stdlib CVE fixes reach users, and dropping it leaves a security rebuild
     # looking like an empty release (v0.13.1).
     - title: "Toolchain / build"
-      regexp: '^.*?build(\(.+\))?:.+$'
+      regexp: '^build(\(.+\))?:.+$'
       order: 5
 
 release:

@@ -7,8 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
@@ -19,17 +18,17 @@ func createUserWithAPIKey(t *testing.T, srv *Server, role string) string {
 	t.Helper()
 	ctx := context.Background()
 	op := &models.Operator{
-		ID:           uuid.New().String(),
-		Username:     "non-admin-" + uuid.New().String()[:6],
+		ID:           uuid.NewV4().String(),
+		Username:     "non-admin-" + uuid.NewV4().String()[:6],
 		PasswordHash: "x",
 		Role:         role,
 	}
 	if err := srv.store.CreateOperator(ctx, op); err != nil {
 		t.Fatal(err)
 	}
-	rawKey := uuid.New().String()
+	rawKey := uuid.NewV4().String()
 	if err := srv.store.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
-		ID: uuid.New().String(), OperatorID: op.ID,
+		ID: uuid.NewV4().String(), OperatorID: op.ID,
 	}, rawKey); err != nil {
 		t.Fatal(err)
 	}
@@ -97,8 +96,8 @@ func TestDisableOperator_RequiresAdminRole(t *testing.T) {
 	srv, _ := newTestServer(t)
 	userKey := createUserWithAPIKey(t, srv, "user")
 	targetOp := &models.Operator{
-		ID:           uuid.New().String(),
-		Username:     "target-" + uuid.New().String()[:6],
+		ID:           uuid.NewV4().String(),
+		Username:     "target-" + uuid.NewV4().String()[:6],
 		PasswordHash: "x",
 		Role:         "user",
 	}
@@ -119,8 +118,8 @@ func TestEnableOperator_RequiresAdminRole(t *testing.T) {
 	srv, _ := newTestServer(t)
 	userKey := createUserWithAPIKey(t, srv, "user")
 	targetOp := &models.Operator{
-		ID:           uuid.New().String(),
-		Username:     "target-" + uuid.New().String()[:6],
+		ID:           uuid.NewV4().String(),
+		Username:     "target-" + uuid.NewV4().String()[:6],
 		PasswordHash: "x",
 		Role:         "user",
 	}
@@ -156,7 +155,7 @@ func TestRevokeOperatorAPIKey_RequiresAdminRole(t *testing.T) {
 	srv, _ := newTestServer(t)
 	userKey := createUserWithAPIKey(t, srv, "user")
 	targetID := createUserWithAPIKey(t, srv, "user")
-	keyID := uuid.New().String()
+	keyID := uuid.NewV4().String()
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/operators/"+targetID+"/api-keys/"+keyID, nil)
 	req.Header.Set("Authorization", "Bearer "+userKey)

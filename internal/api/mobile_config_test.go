@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -83,14 +83,14 @@ func TestMobileConfig_PutConflictsWithCollectingMeshImport(t *testing.T) {
 	srv, st := newTestServer(t)
 	key, operator, ca := createOperatorWithCA(t, srv)
 	network := &models.Network{
-		ID: uuid.NewString(), Name: "importing-network", CAID: ca.ID,
+		ID: uuid.NewV4().String(), Name: "importing-network", CAID: ca.ID,
 		CIDRs: []string{"10.44.0.0/16"}, CreatedAt: time.Now(),
 	}
 	require.NoError(t, st.CreateNetwork(context.Background(), network))
 	require.NoError(t, st.CreateMeshImport(context.Background(), &models.MeshImport{
-		ID: uuid.NewString(), NetworkID: network.ID, CAID: ca.ID,
+		ID: uuid.NewV4().String(), NetworkID: network.ID, CAID: ca.ID,
 		OwnerOperatorID: operator.ID, Status: models.MeshImportStatusCollecting,
-		TokenHash: uuid.NewString(), TokenExpiresAt: time.Now().Add(time.Hour),
+		TokenHash: uuid.NewV4().String(), TokenExpiresAt: time.Now().Add(time.Hour),
 	}, "mobile-config-import-token"))
 
 	response := mobileConfigRequest(t, srv, http.MethodPut,

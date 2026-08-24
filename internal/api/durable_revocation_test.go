@@ -12,8 +12,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
 
@@ -200,7 +200,7 @@ func createMobileHost(t *testing.T, srv *Server, st *store.SQLiteStore, netID, n
 	t.Helper()
 	now := time.Now()
 	host := &models.Host{
-		ID:        uuid.New().String(),
+		ID:        uuid.NewV4().String(),
 		NetworkID: netID,
 		Name:      name,
 		NebulaIPs: []string{ip},

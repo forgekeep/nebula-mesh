@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"time"
+	"uuid"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store"
@@ -71,7 +71,7 @@ func (s *Server) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 
 	network := &models.Network{
-		ID:        uuid.New().String(),
+		ID:        uuid.NewV4().String(),
 		Name:      req.Name,
 		CIDRs:     req.CIDRs,
 		CAID:      caID,

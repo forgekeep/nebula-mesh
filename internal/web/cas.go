@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/caimport"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
@@ -308,7 +308,7 @@ func (w *Web) mintCAForOperator(ctx context.Context, op *models.Operator, name s
 
 	// Mint the CA ID before sealing: both envelope layers bind it as AAD
 	// so an envelope copied into another CA's row fails to decrypt.
-	caID := uuid.New().String()
+	caID := uuid.NewV4().String()
 	dek, wrappedDEK, err := w.caMaster.GenerateDEK([]byte(caID))
 	if err != nil {
 		w.logger.Error("generate dek", "error", err)

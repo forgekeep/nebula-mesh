@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -93,7 +93,7 @@ func TestMobileBundle_AdminCanAccessForeignHost(t *testing.T) {
 
 	now := time.Now()
 	host := &models.Host{
-		ID:        uuid.New().String(),
+		ID:        uuid.NewV4().String(),
 		Name:      "iphone-cross",
 		NetworkID: net.ID,
 		CAID:      ca.ID,
@@ -148,7 +148,7 @@ func TestMobileBundle_OwningNonAdminCanAccess(t *testing.T) {
 
 	now := time.Now()
 	host := &models.Host{
-		ID:        uuid.New().String(),
+		ID:        uuid.NewV4().String(),
 		Name:      "iphone-own",
 		NetworkID: net.ID,
 		CAID:      ca.ID,

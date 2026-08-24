@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
 	"github.com/forgekeep/nebula-mesh/internal/meshimport"
@@ -110,7 +110,7 @@ func (w *Web) handleMeshImportCreate(rw http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	item := &models.MeshImport{
-		ID: uuid.NewString(), NetworkID: networkID, CAID: caID, OwnerOperatorID: op.ID,
+		ID: uuid.NewV4().String(), NetworkID: networkID, CAID: caID, OwnerOperatorID: op.ID,
 		Status: models.MeshImportStatusCollecting, ExpectedHosts: expectedHosts,
 		TokenExpiresAt: now.Add(webMeshImportTokenTTL),
 		CreatedAt:      now, UpdatedAt: now,

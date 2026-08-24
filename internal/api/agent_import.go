@@ -14,8 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/slackhq/nebula/cert"
 
 	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
@@ -99,7 +99,7 @@ func (s *Server) handleAgentImportChallenge(w http.ResponseWriter, r *http.Reque
 	now := s.now()
 	expiresAt := now.Add(agentImportChallengeTTL)
 	challenge := &models.MeshImportChallenge{
-		ID: uuid.NewString(), MeshImportID: verified.session.ID, TokenHash: verified.session.TokenHash,
+		ID: uuid.NewV4().String(), MeshImportID: verified.session.ID, TokenHash: verified.session.TokenHash,
 		CertificateFingerprint: verified.fingerprint, AgentSigningPubPEM: verified.signingPEM,
 		PayloadHash: verified.payloadHash, ServerNonce: expectedProofHash,
 		ExpiresAt: expiresAt, CreatedAt: now,
@@ -150,8 +150,8 @@ func (s *Server) handleAgentImport(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clear(proof)
 
-	hostID := uuid.NewString()
-	snapshotID := uuid.NewString()
+	hostID := uuid.NewV4().String()
+	snapshotID := uuid.NewV4().String()
 	verified.snapshot.ID = snapshotID
 	verified.snapshot.HostID = hostID
 	report := meshimport.Reconcile(meshimport.ReconcileInput{

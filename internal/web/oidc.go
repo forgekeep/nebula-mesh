@@ -15,9 +15,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"uuid"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 
 	"github.com/forgekeep/nebula-mesh/internal/config"
@@ -370,7 +370,7 @@ func (o *OIDC) upsertOperator(ctx context.Context, issuer, subject, username, di
 		role = "user"
 	}
 	op := &models.Operator{
-		ID:           uuid.New().String(),
+		ID:           uuid.NewV4().String(),
 		Username:     username,
 		DisplayName:  displayName,
 		PasswordHash: "oidc",

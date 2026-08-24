@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -170,7 +170,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	host := &models.Host{
-		ID:             uuid.New().String(),
+		ID:             uuid.NewV4().String(),
 		NetworkID:      req.NetworkID,
 		Name:           req.Name,
 		NebulaIPs:      req.NebulaIPs,
@@ -206,7 +206,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := &models.EnrollmentToken{
-		ID:        uuid.New().String(),
+		ID:        uuid.NewV4().String(),
 		HostID:    host.ID,
 		ExpiresAt: now.Add(s.tokenTTLFor(r.Context(), host.NetworkID)),
 		CreatedAt: now,

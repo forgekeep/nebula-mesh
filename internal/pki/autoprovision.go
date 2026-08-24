@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -76,7 +75,7 @@ func MintAndStoreCA(ctx context.Context, s MintStore, master *keystore.Master, l
 
 	// Extract and encrypt the private key. The CA ID is minted before
 	// sealing because both envelope layers bind it as AAD.
-	caID := uuid.New().String()
+	caID := uuid.NewV4().String()
 	rawKey := mgr.RawKey()
 	defer keystore.Zeroize(rawKey)
 

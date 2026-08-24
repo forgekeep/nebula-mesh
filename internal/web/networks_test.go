@@ -8,8 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
@@ -96,7 +95,7 @@ func TestHandleCreateNetwork_AdminWithCA_Succeeds(t *testing.T) {
 
 	// Create a CA for the admin to select
 	ca := &models.CA{
-		ID:                   uuid.New().String(),
+		ID:                   uuid.NewV4().String(),
 		Name:                 "test-ca",
 		OwnerOperatorID:      "op-admin",
 		CertPEM:              "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",

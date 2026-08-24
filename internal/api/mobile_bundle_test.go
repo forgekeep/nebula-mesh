@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -23,7 +23,7 @@ func TestHandleMobileBundle_Success(t *testing.T) {
 	// Create a mobile host
 	now := time.Now()
 	host := &models.Host{
-		ID:        uuid.New().String(),
+		ID:        uuid.NewV4().String(),
 		NetworkID: netID,
 		Name:      "iphone-1",
 		NebulaIPs: []string{"192.168.100.50"},
@@ -94,7 +94,7 @@ func TestHandleMobileBundle_RejectsNonMobile(t *testing.T) {
 	// Create an agent (non-mobile) host
 	now := time.Now()
 	host := &models.Host{
-		ID:        uuid.New().String(),
+		ID:        uuid.NewV4().String(),
 		NetworkID: netID,
 		Name:      "agent-1",
 		NebulaIPs: []string{"192.168.100.51"},

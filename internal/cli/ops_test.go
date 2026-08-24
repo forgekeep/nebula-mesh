@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
@@ -52,13 +52,13 @@ log_level: "info"
 	require.NoError(t, err)
 
 	adminOp := &models.Operator{
-		ID:           uuid.NewString(),
+		ID:           uuid.NewV4().String(),
 		Username:     DefaultAdminUsername,
 		PasswordHash: string(hash),
 		Role:         "admin",
 	}
 	adminKey := &models.OperatorAPIKey{
-		ID:         uuid.NewString(),
+		ID:         uuid.NewV4().String(),
 		OperatorID: adminOp.ID,
 		Name:       "initial-admin-key",
 		KeyHash:    "test-hash",

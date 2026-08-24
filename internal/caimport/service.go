@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/slackhq/nebula/cert"
 
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
@@ -167,7 +167,7 @@ func (s *Service) Import(ctx context.Context, request Request) (*models.CA, erro
 		return nil, fmt.Errorf("look up CA fingerprint: %w", err)
 	}
 
-	caID := uuid.NewString()
+	caID := uuid.NewV4().String()
 	dek, wrappedDEK, err := s.master.GenerateDEK([]byte(caID))
 	if err != nil {
 		return nil, fmt.Errorf("generate CA data key: %w", err)

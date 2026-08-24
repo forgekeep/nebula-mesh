@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/slackhq/nebula/cert"
 
 	"github.com/forgekeep/nebula-mesh/internal/caimport"
@@ -46,7 +46,7 @@ func newServerWithMaster(t *testing.T) (*Server, string) {
 	srv.WithCAResolver(resolver)
 	srv.WithMaster(master)
 
-	adminID := uuid.New().String()
+	adminID := uuid.NewV4().String()
 	if err := srv.store.CreateOperator(context.Background(), &models.Operator{
 		ID:           adminID,
 		Username:     "admin-cas",
@@ -55,9 +55,9 @@ func newServerWithMaster(t *testing.T) (*Server, string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rawKey := uuid.New().String()
+	rawKey := uuid.NewV4().String()
 	if err := srv.store.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{
-		ID: uuid.New().String(), OperatorID: adminID,
+		ID: uuid.NewV4().String(), OperatorID: adminID,
 	}, rawKey); err != nil {
 		t.Fatal(err)
 	}
@@ -478,15 +478,15 @@ func TestListCAs_ScopedToOwner(t *testing.T) {
 
 	// Two operators
 	makeOp := func(role string) string {
-		opID := uuid.New().String()
+		opID := uuid.NewV4().String()
 		if err := srv.store.CreateOperator(context.Background(), &models.Operator{
 			ID: opID, Username: "u-" + opID[:6], PasswordHash: "x", Role: role,
 		}); err != nil {
 			t.Fatal(err)
 		}
-		rawKey := uuid.New().String()
+		rawKey := uuid.NewV4().String()
 		if err := srv.store.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{
-			ID: uuid.New().String(), OperatorID: opID,
+			ID: uuid.NewV4().String(), OperatorID: opID,
 		}, rawKey); err != nil {
 			t.Fatal(err)
 		}
@@ -659,8 +659,8 @@ func TestRotateCA_Forbidden_NonOwner(t *testing.T) {
 	}
 
 	// Create non-admin operator
-	nonAdminID := uuid.New().String()
-	nonAdminKey := uuid.New().String()
+	nonAdminID := uuid.NewV4().String()
+	nonAdminKey := uuid.NewV4().String()
 	if err := srv.store.CreateOperator(context.Background(), &models.Operator{
 		ID:           nonAdminID,
 		Username:     "non-admin",
@@ -670,7 +670,7 @@ func TestRotateCA_Forbidden_NonOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := srv.store.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{
-		ID: uuid.New().String(), OperatorID: nonAdminID,
+		ID: uuid.NewV4().String(), OperatorID: nonAdminID,
 	}, nonAdminKey); err != nil {
 		t.Fatal(err)
 	}
@@ -761,18 +761,18 @@ func TestRotateCA_Idempotent_ReturnsExistingSuccessor(t *testing.T) {
 
 func createAdminKey(t *testing.T, srv *Server) string {
 	t.Helper()
-	adminID := uuid.New().String()
+	adminID := uuid.NewV4().String()
 	if err := srv.store.CreateOperator(context.Background(), &models.Operator{
 		ID:           adminID,
-		Username:     "admin-" + uuid.New().String(),
+		Username:     "admin-" + uuid.NewV4().String(),
 		PasswordHash: "x",
 		Role:         "admin",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rawKey := uuid.New().String()
+	rawKey := uuid.NewV4().String()
 	if err := srv.store.CreateOperatorAPIKey(context.Background(), &models.OperatorAPIKey{
-		ID: uuid.New().String(), OperatorID: adminID,
+		ID: uuid.NewV4().String(), OperatorID: adminID,
 	}, rawKey); err != nil {
 		t.Fatal(err)
 	}

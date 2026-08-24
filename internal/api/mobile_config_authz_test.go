@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -61,7 +61,7 @@ func TestMobileConfig_OwnerCanReadAndMutate(t *testing.T) {
 func mobileConfigNetwork(t *testing.T, st *store.SQLiteStore, caID string) *models.Network {
 	t.Helper()
 	network := &models.Network{
-		ID: uuid.NewString(), Name: "mobile-config-network", CAID: caID,
+		ID: uuid.NewV4().String(), Name: "mobile-config-network", CAID: caID,
 		CIDRs: []string{"10.55.0.0/16"}, CreatedAt: time.Now(),
 	}
 	require.NoError(t, st.CreateNetwork(context.Background(), network))

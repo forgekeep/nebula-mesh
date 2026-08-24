@@ -317,6 +317,13 @@ func Serve(configPath string, insecureHTTP bool) error {
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		// Tighter than net/http's DefaultMaxHeaderValueCount of 500. Browsers
+		// send ~20 header lines, the agent fewer, and a reverse proxy adds a
+		// handful, so 100 leaves several times the headroom any real client
+		// needs while cutting what a single request can force the server to
+		// parse. Comma-separated values on one line count once; repeated
+		// header lines count each.
+		MaxHeaderValueCount: 100,
 	}
 
 	// Graceful shutdown

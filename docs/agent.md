@@ -368,6 +368,31 @@ That firewall rule is necessary but **not sufficient** — see
 [Routing to a non-Nebula network](#routing-to-a-non-nebula-network) for the
 certificate half, without which the rule is never even evaluated.
 
+#### IPv6 and protocols Nebula does not parse
+
+Nebula classifies an IPv6 packet by its next header. The protocols it does not
+parse — SCTP, GRE, IP-in-IP and the rest — carry no ports it can match on, so
+such a packet matches only a rule with `proto: any`. A `tcp`, `udp` or `icmp`
+rule never covers it.
+
+Before v1.11.1 that did not hold. A crafted payload could steer the classifier
+into reading one of these packets as TCP or UDP, and it then matched a `tcp` or
+`udp` rule. That was a firewall bypass, closed in
+[slackhq/nebula#1840](https://github.com/slackhq/nebula/pull/1840).
+
+This reaches existing meshes rather than new ones. If you carry one of these
+protocols over an IPv6 overlay and it works today under a `tcp` or `udp` rule,
+it is passing through the bypass and will stop once those hosts move to Nebula
+v1.11.1. Add a rule with `proto: any`, scoped by `group`, `cidr` or
+`local_cidr`, before you upgrade them. The rule vocabulary here is
+`any`/`tcp`/`udp`/`icmp`, so `any` is the only way to name these protocols at
+all.
+
+The same release fixed IPv6 ICMP classification: the type byte was read at the
+wrong offset, so conntrack never picked up the echo identifier. That affects
+`proto: icmp` rules on IPv6 overlays, which is the inbound policy a new network
+starts with.
+
 ### Routing to a non-Nebula network
 
 Reaching a network that does not run Nebula takes three independent pieces of

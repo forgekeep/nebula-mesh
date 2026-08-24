@@ -184,7 +184,7 @@ Images: `ghcr.io/forgekeep/nebula-mgmt`, `ghcr.io/forgekeep/nebula-agent`. Tags:
 
 ### From source
 
-Requires Go 1.26+.
+Requires Go 1.27+.
 
 ```sh
 git clone https://github.com/forgekeep/nebula-mesh

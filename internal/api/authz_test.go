@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -25,8 +25,8 @@ func createOperatorWithCA(t *testing.T, srv *Server) (string, *models.Operator, 
 
 	// Create non-admin operator
 	op := &models.Operator{
-		ID:           uuid.New().String(),
-		Username:     "user-" + uuid.New().String()[:6],
+		ID:           uuid.NewV4().String(),
+		Username:     "user-" + uuid.NewV4().String()[:6],
 		PasswordHash: "test-hash",
 		Role:         "user",
 		Status:       models.OperatorStatusActive,
@@ -38,9 +38,9 @@ func createOperatorWithCA(t *testing.T, srv *Server) (string, *models.Operator, 
 	require.NoError(t, err)
 
 	// Create API key for operator
-	rawKey := uuid.New().String()
+	rawKey := uuid.NewV4().String()
 	err = srv.store.CreateOperatorAPIKey(ctx, &models.OperatorAPIKey{
-		ID:         uuid.New().String(),
+		ID:         uuid.NewV4().String(),
 		OperatorID: op.ID,
 	}, rawKey)
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func createOperatorWithCA(t *testing.T, srv *Server) (string, *models.Operator, 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ca, _, err := pki.MintAndStoreCA(ctx, srv.store, master, logger, pki.MintRequest{
 		Operator: op,
-		Name:     "test-ca-" + uuid.New().String()[:6],
+		Name:     "test-ca-" + uuid.NewV4().String()[:6],
 		Duration: 365 * 24 * time.Hour,
 	})
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestActorOwnsCA_NonOwner(t *testing.T) {
 	// Create different non-admin operator
 	ctx := context.Background()
 	other := &models.Operator{
-		ID:           uuid.New().String(),
+		ID:           uuid.NewV4().String(),
 		Username:     "other-user",
 		PasswordHash: "hash",
 		Role:         "user",
@@ -141,7 +141,7 @@ func TestActorOwnsCA_EmptyCAID(t *testing.T) {
 	ctx := context.Background()
 
 	op := &models.Operator{
-		ID:           uuid.New().String(),
+		ID:           uuid.NewV4().String(),
 		Username:     "test-user",
 		PasswordHash: "hash",
 		Role:         "user",
@@ -161,7 +161,7 @@ func TestActorOwnsCA_CANotFound(t *testing.T) {
 	ctx := context.Background()
 
 	op := &models.Operator{
-		ID:           uuid.New().String(),
+		ID:           uuid.NewV4().String(),
 		Username:     "test-user",
 		PasswordHash: "hash",
 		Role:         "user",
@@ -188,7 +188,7 @@ func TestCanAccessHost_Owner(t *testing.T) {
 
 	// Create host in operator's CA
 	host := &models.Host{
-		ID:        uuid.New().String(),
+		ID:        uuid.NewV4().String(),
 		NetworkID: "test-network",
 		CAID:      ca.ID,
 		Name:      "test-host",
@@ -205,7 +205,7 @@ func TestCanAccessHost_NonOwner(t *testing.T) {
 
 	// Create another operator
 	op2 := &models.Operator{
-		ID:           uuid.New().String(),
+		ID:           uuid.NewV4().String(),
 		Username:     "other-user",
 		PasswordHash: "hash",
 		Role:         "user",
@@ -220,7 +220,7 @@ func TestCanAccessHost_NonOwner(t *testing.T) {
 
 	// Try to access host in other operator's CA
 	host := &models.Host{
-		ID:        uuid.New().String(),
+		ID:        uuid.NewV4().String(),
 		NetworkID: "test-network",
 		CAID:      ca.ID,
 		Name:      "test-host",
@@ -241,7 +241,7 @@ func TestCanAccessNetwork_Owner(t *testing.T) {
 
 	// Create network in operator's CA
 	network := &models.Network{
-		ID:   uuid.New().String(),
+		ID:   uuid.NewV4().String(),
 		Name: "test-network",
 		CAID: ca.ID,
 	}
@@ -257,7 +257,7 @@ func TestCanAccessNetwork_NonOwner(t *testing.T) {
 
 	// Create another operator
 	op2 := &models.Operator{
-		ID:           uuid.New().String(),
+		ID:           uuid.NewV4().String(),
 		Username:     "other-user",
 		PasswordHash: "hash",
 		Role:         "user",
@@ -272,7 +272,7 @@ func TestCanAccessNetwork_NonOwner(t *testing.T) {
 
 	// Try to access network in other operator's CA
 	network := &models.Network{
-		ID:   uuid.New().String(),
+		ID:   uuid.NewV4().String(),
 		Name: "test-network",
 		CAID: ca.ID,
 	}

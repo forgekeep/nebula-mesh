@@ -3,8 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"uuid"
 
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -47,7 +47,7 @@ func SeedAdminOperator(ctx context.Context, s store.Store, uiPassword, apiKey st
 	}
 
 	op := &models.Operator{
-		ID:           uuid.New().String(),
+		ID:           uuid.NewV4().String(),
 		Username:     DefaultAdminUsername,
 		DisplayName:  "Administrator",
 		PasswordHash: string(hash),
@@ -56,7 +56,7 @@ func SeedAdminOperator(ctx context.Context, s store.Store, uiPassword, apiKey st
 	var key *models.OperatorAPIKey
 	if apiKey != "" {
 		key = &models.OperatorAPIKey{
-			ID:         uuid.New().String(),
+			ID:         uuid.NewV4().String(),
 			OperatorID: op.ID,
 			Name:       "initial-admin-key",
 		}

@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"time"
+	"uuid"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/config"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
@@ -84,7 +84,7 @@ func (s *Server) handleCreateWebhookSubscription(w http.ResponseWriter, r *http.
 
 	now := time.Now()
 	sub := &models.WebhookSubscription{
-		ID:              uuid.New().String(),
+		ID:              uuid.NewV4().String(),
 		OwnerOperatorID: ActorOf(r.Context()).ID,
 		URL:             req.URL,
 		Events:          req.Events,

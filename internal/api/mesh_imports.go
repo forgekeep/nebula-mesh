@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+	"uuid"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
 	"github.com/forgekeep/nebula-mesh/internal/meshimport"
@@ -109,7 +109,7 @@ func (s *Server) handleCreateMeshImport(w http.ResponseWriter, r *http.Request) 
 	}
 	now := s.now()
 	item := &models.MeshImport{
-		ID: uuid.NewString(), NetworkID: network.ID, CAID: ca.ID,
+		ID: uuid.NewV4().String(), NetworkID: network.ID, CAID: ca.ID,
 		OwnerOperatorID: ActorOf(r.Context()).ID, Status: models.MeshImportStatusCollecting,
 		ExpectedHosts:  request.ExpectedHosts,
 		TokenExpiresAt: now.Add(meshImportTokenTTL), CreatedAt: now, UpdatedAt: now,

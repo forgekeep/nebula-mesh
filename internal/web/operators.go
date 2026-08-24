@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -111,7 +111,7 @@ func (w *Web) handleOperatorCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op := &models.Operator{
-		ID:           uuid.New().String(),
+		ID:           uuid.NewV4().String(),
 		Username:     form.Username,
 		DisplayName:  form.DisplayName,
 		PasswordHash: string(hash),
@@ -273,7 +273,7 @@ func (w *Web) handleOperatorCreateAPIKey(rw http.ResponseWriter, r *http.Request
 		return
 	}
 	key := &models.OperatorAPIKey{
-		ID:         uuid.New().String(),
+		ID:         uuid.NewV4().String(),
 		OperatorID: id,
 		Name:       name,
 		CreatedAt:  time.Now(),

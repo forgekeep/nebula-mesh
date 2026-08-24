@@ -6,8 +6,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store"
@@ -53,7 +52,7 @@ func seedOperatorWithKey(t *testing.T, srv *Server, username, role string) (oper
 	if err := srv.store.CreateOperator(ctx, op); err != nil {
 		t.Fatalf("create operator %s: %v", username, err)
 	}
-	rawKey = uuid.New().String()
+	rawKey = uuid.NewV4().String()
 	key := &models.OperatorAPIKey{
 		ID:         "key-" + username,
 		OperatorID: op.ID,

@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/bcrypt"
 
@@ -252,7 +252,7 @@ func (w *Web) handleRegister(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op := &models.Operator{
-		ID:           uuid.New().String(),
+		ID:           uuid.NewV4().String(),
 		Username:     username,
 		DisplayName:  displayName,
 		PasswordHash: string(hash),
@@ -985,7 +985,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	host := &models.Host{
-		ID:             uuid.New().String(),
+		ID:             uuid.NewV4().String(),
 		NetworkID:      networkID,
 		CAID:           networkCAID(network),
 		Name:           form.Name,
@@ -1028,7 +1028,7 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := &models.EnrollmentToken{
-		ID:        uuid.New().String(),
+		ID:        uuid.NewV4().String(),
 		HostID:    host.ID,
 		ExpiresAt: now.Add(w.tokenTTLFor(r.Context(), networkID)),
 		CreatedAt: now,
@@ -1465,7 +1465,7 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	network := &models.Network{
-		ID:        uuid.New().String(),
+		ID:        uuid.NewV4().String(),
 		Name:      form.Name,
 		CIDRs:     form.CIDRs,
 		CAID:      caID,

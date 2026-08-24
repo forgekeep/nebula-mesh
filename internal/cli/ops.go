@@ -8,8 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/config"
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -71,7 +70,7 @@ func OpsMintAdminKey(configPath string) error {
 	plaintext := hex.EncodeToString(keyBytes)
 
 	entry := &models.OperatorAPIKey{
-		ID:         uuid.NewString(),
+		ID:         uuid.NewV4().String(),
 		OperatorID: adminOp.ID,
 		Name:       fmt.Sprintf("recovery-%s", time.Now().UTC().Format("20060102T150405Z")),
 	}

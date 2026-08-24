@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -173,13 +173,13 @@ func seedCanceledMeshImport(t *testing.T, st *store.SQLiteStore, ownerID string,
 	t.Helper()
 	now := time.Now()
 	network := &models.Network{
-		ID: uuid.NewString(), Name: "import-marker-" + ca.ID,
+		ID: uuid.NewV4().String(), Name: "import-marker-" + ca.ID,
 		CIDRs: []string{"172.31.0.0/16"}, CAID: ca.ID, CreatedAt: now,
 	}
 	require.NoError(t, st.CreateNetwork(context.Background(), network))
 	item := &models.MeshImport{
-		ID: uuid.NewString(), NetworkID: network.ID, CAID: ca.ID, OwnerOperatorID: ownerID,
-		Status: models.MeshImportStatusCollecting, TokenHash: uuid.NewString(),
+		ID: uuid.NewV4().String(), NetworkID: network.ID, CAID: ca.ID, OwnerOperatorID: ownerID,
+		Status: models.MeshImportStatusCollecting, TokenHash: uuid.NewV4().String(),
 		TokenExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
 	}
 	require.NoError(t, st.CreateMeshImport(context.Background(), item, "scoping-import-token-"+item.ID))
@@ -212,7 +212,7 @@ func concretePath(route string) string {
 func seedWebhookSub(t *testing.T, st *store.SQLiteStore, ownerID, url string) {
 	t.Helper()
 	require.NoError(t, st.CreateWebhookSubscription(context.Background(), &models.WebhookSubscription{
-		ID:              uuid.New().String(),
+		ID:              uuid.NewV4().String(),
 		OwnerOperatorID: ownerID,
 		URL:             url,
 		Active:          true,
@@ -228,8 +228,8 @@ func seedWebhookSub(t *testing.T, st *store.SQLiteStore, ownerID, url string) {
 func seedNetworkAndHost(t *testing.T, st *store.SQLiteStore, caID, label, cidr, ip string) (netID, hostID string) {
 	t.Helper()
 	ctx := context.Background()
-	netID = uuid.New().String()
-	hostID = uuid.New().String()
+	netID = uuid.NewV4().String()
+	hostID = uuid.NewV4().String()
 	require.NoError(t, st.CreateNetwork(ctx, &models.Network{
 		ID:        netID,
 		Name:      "net-" + label,

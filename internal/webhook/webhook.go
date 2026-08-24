@@ -29,8 +29,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 // HTTP headers attached to every delivery. Receivers authenticate the body via
@@ -166,7 +165,7 @@ func New(cfg Config, logger *slog.Logger) *Dispatcher {
 		d.now = time.Now
 	}
 	if d.newID == nil {
-		d.newID = func() string { return "evt_" + uuid.NewString() }
+		d.newID = func() string { return "evt_" + uuid.NewV4().String() }
 	}
 	if len(cfg.Events) > 0 {
 		d.staticEvents = make(map[string]bool, len(cfg.Events))

@@ -6,9 +6,9 @@ import (
 	"io"
 	"net/http"
 	"time"
+	"uuid"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/forgekeep/nebula-mesh/internal/caimport"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
@@ -127,7 +127,7 @@ func (s *Server) handleCreateCA(w http.ResponseWriter, r *http.Request) {
 	// The CA ID is minted before sealing because both envelope layers bind
 	// it as AAD — a (DEK, key-material) pair copied into another CA's row
 	// must fail to decrypt rather than sign under the wrong cert.
-	caID := uuid.New().String()
+	caID := uuid.NewV4().String()
 	dek, wrappedDEK, err := s.master.GenerateDEK([]byte(caID))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate DEK")

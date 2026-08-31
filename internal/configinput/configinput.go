@@ -29,6 +29,7 @@ func ApplyHostAdvanced(input *configgen.GeneratorInput, adv *models.HostAdvanced
 		return
 	}
 	input.PunchyOverride = adv.Punchy
+	input.PunchyRespondOverride = adv.PunchyRespond
 	input.ListenHost = adv.ListenHost
 	input.MTU = adv.MTU
 	input.TunDevice = adv.TunDevice

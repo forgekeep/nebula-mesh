@@ -70,6 +70,7 @@ type hostFormState struct {
 	AdvMTU             string
 	AdvTunDevice       string
 	AdvPunchy          string
+	AdvPunchyRespond   string
 	AdvUnsafeRoutes    string
 	AdvFirewallInbound string
 	Kind               string
@@ -91,6 +92,7 @@ func newHostFormState(r *http.Request) hostFormState {
 		AdvMTU:             r.FormValue("adv_mtu"),
 		AdvTunDevice:       r.FormValue("adv_tun_device"),
 		AdvPunchy:          r.FormValue("adv_punchy"),
+		AdvPunchyRespond:   r.FormValue("adv_punchy_respond"),
 		AdvUnsafeRoutes:    r.FormValue("adv_unsafe_routes"),
 		AdvFirewallInbound: r.FormValue("adv_firewall_inbound"),
 		Kind:               r.FormValue("kind"),
@@ -297,6 +299,13 @@ func hostFormStateFromHost(h *models.Host) hostFormState {
 				state.AdvPunchy = "true"
 			} else {
 				state.AdvPunchy = "false"
+			}
+		}
+		if h.Advanced.PunchyRespond != nil {
+			if *h.Advanced.PunchyRespond {
+				state.AdvPunchyRespond = "true"
+			} else {
+				state.AdvPunchyRespond = "false"
 			}
 		}
 

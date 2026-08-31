@@ -38,6 +38,7 @@ type ConfigSnapshot struct {
 	ListenHost         string              `json:"listen_host,omitempty"`
 	ListenPort         int                 `json:"listen_port,omitempty"`
 	Punchy             *bool               `json:"punchy,omitempty"`
+	PunchyRespond      *bool               `json:"punchy_respond,omitempty"`
 	MTU                int                 `json:"mtu,omitempty"`
 	TunDevice          string              `json:"tun_device,omitempty"`
 	UnsafeRoutes       []UnsafeRoute       `json:"unsafe_routes,omitempty"`

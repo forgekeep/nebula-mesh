@@ -12,7 +12,8 @@ import (
 // For basic fields (Name, NebulaIPs, Groups, UnsafeNetworks, Role, PublicIP,
 // ListenPort), the diff key is the field name in snake_case.
 //
-// For Advanced sub-fields (ListenHost, MTU, TunDevice, Punchy, UnsafeRoutes),
+// For Advanced sub-fields (ListenHost, MTU, TunDevice, Punchy, PunchyRespond,
+// UnsafeRoutes),
 // the diff key uses dot-notation: "advanced.mtu", "advanced.punchy", etc.
 //
 // The JSON format for each changed field is:
@@ -120,6 +121,14 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 		changes["advanced.punchy"] = map[string]any{
 			"before": beforeAdv.Punchy,
 			"after":  afterAdv.Punchy,
+		}
+	}
+
+	// PunchyRespond (tri-state)
+	if !punchyEqual(beforeAdv.PunchyRespond, afterAdv.PunchyRespond) {
+		changes["advanced.punchy_respond"] = map[string]any{
+			"before": beforeAdv.PunchyRespond,
+			"after":  afterAdv.PunchyRespond,
 		}
 	}
 

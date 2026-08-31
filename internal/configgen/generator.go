@@ -52,10 +52,13 @@ type GeneratorInput struct {
 
 	// Optional per-host overrides. Zero values mean "use the default".
 	PunchyOverride *bool
-	ListenHost     string
-	MTU            int
-	TunDevice      string
-	UnsafeRoutes   []AdvancedUnsafeRoute
+	// PunchyRespondOverride maps to punchy.respond. Nil leaves Nebula's own
+	// default (false) in place, so an unset override renders as before.
+	PunchyRespondOverride *bool
+	ListenHost            string
+	MTU                   int
+	TunDevice             string
+	UnsafeRoutes          []AdvancedUnsafeRoute
 
 	// Optional inline PEM blocks. When CACertPEM is non-empty, CertPEM and
 	// KeyPEM must also be non-empty; all three are emitted as literal-block

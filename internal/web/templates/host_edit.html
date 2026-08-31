@@ -78,7 +78,7 @@
             <input type="number" name="listen_port" class="form-control" placeholder="4242" value="{{.Form.ListenPort}}">
         </div>
 
-        <details style="margin: 16px 0;"{{if or .Form.AdvListenHost .Form.AdvMTU .Form.AdvTunDevice .Form.AdvPunchy .Form.AdvUnsafeRoutes .Form.AdvFirewallInbound}} open{{end}}>
+        <details style="margin: 16px 0;"{{if or .Form.AdvListenHost .Form.AdvMTU .Form.AdvTunDevice .Form.AdvPunchy .Form.AdvPunchyRespond .Form.AdvUnsafeRoutes .Form.AdvFirewallInbound}} open{{end}}>
             <summary style="cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 14px;">Advanced configuration (optional)</summary>
             <p style="font-size: 12px; color: var(--text-muted); margin: 8px 0;">Empty fields inherit the network default. See <a href="https://nebula.defined.net/docs/config" target="_blank">Nebula config docs</a>.</p>
             <div class="form-group"><label>Listen host (advanced.listen_host)</label><input type="text" name="adv_listen_host" class="form-control" placeholder="0.0.0.0" value="{{.Form.AdvListenHost}}"></div>
@@ -91,6 +91,15 @@
                     <option value="true"{{if eq .Form.AdvPunchy "true"}} selected{{end}}>force true</option>
                     <option value="false"{{if eq .Form.AdvPunchy "false"}} selected{{end}}>disable</option>
                 </select>
+            </div>
+            <div class="form-group">
+                <label>Punchy respond (advanced.punchy_respond)</label>
+                <select name="adv_punchy_respond" class="form-control">
+                    <option value=""{{if eq .Form.AdvPunchyRespond ""}} selected{{end}}>inherit (false)</option>
+                    <option value="true"{{if eq .Form.AdvPunchyRespond "true"}} selected{{end}}>force true</option>
+                    <option value="false"{{if eq .Form.AdvPunchyRespond "false"}} selected{{end}}>disable</option>
+                </select>
+                <small class="form-text">Enable for a host behind a difficult NAT: it connects back out to any peer that failed to reach it, instead of staying unreachable until it sends traffic itself.</small>
             </div>
             <div class="form-group"><label>Unsafe routes (one per line: <code>CIDR via NEBULA_IP</code>)</label><textarea name="adv_unsafe_routes" class="form-control" rows="3" placeholder="192.168.10.0/24 via 10.0.0.99">{{.Form.AdvUnsafeRoutes}}</textarea></div>
             <div class="form-group"><label>Inbound firewall rules (one per line: <code>PORT/PROTO from GROUP</code>, added after the network policy)</label><textarea name="adv_firewall_inbound" class="form-control" rows="3" placeholder="443/tcp from web">{{.Form.AdvFirewallInbound}}</textarea><small class="form-text">Select the peer by group (<code>from web</code>) or by prefix (<code>cidr=10.0.0.0/24</code>) — not both. Append <code>local_cidr=&lt;CIDR&gt;</code> to match traffic for a local address, which is required for prefixes you serve via unsafe routes.</small></div>

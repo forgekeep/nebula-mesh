@@ -43,6 +43,16 @@ func parseAdvancedFromForm(r *http.Request) (*models.HostAdvanced, error) {
 		adv.Punchy = &v
 		used = true
 	}
+	switch r.FormValue("adv_punchy_respond") {
+	case "true":
+		v := true
+		adv.PunchyRespond = &v
+		used = true
+	case "false":
+		v := false
+		adv.PunchyRespond = &v
+		used = true
+	}
 	if raw := strings.TrimSpace(r.FormValue("adv_unsafe_routes")); raw != "" {
 		for _, line := range strings.Split(raw, "\n") {
 			line = strings.TrimSpace(line)

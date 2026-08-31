@@ -141,6 +141,49 @@ func TestGenerate_PunchyOverride(t *testing.T) {
 	}
 }
 
+// TestGenerate_PunchyRespondOverride pins punchy.respond, the setting that
+// makes a host behind a difficult NAT connect back out to a peer that could
+// not reach it. Unset must stay absent so existing configs render unchanged.
+func TestGenerate_PunchyRespondOverride(t *testing.T) {
+	base := GeneratorInput{
+		HostName:   "h",
+		NebulaIPs:  []string{"10.0.0.1"},
+		CACertPath: "/etc/nebula/ca.crt",
+		CertPath:   "/etc/nebula/host.crt",
+		KeyPath:    "/etc/nebula/host.key",
+	}
+
+	out, err := Generate(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "respond:") {
+		t.Errorf("unset override must not emit respond; got:\n%s", out)
+	}
+
+	for _, tc := range []struct {
+		name string
+		want string
+		val  bool
+	}{
+		{name: "enabled", want: "respond: true", val: true},
+		{name: "disabled", want: "respond: false", val: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := base
+			v := tc.val
+			in.PunchyRespondOverride = &v
+			out, err := Generate(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(out), tc.want) {
+				t.Errorf("expected %q; got:\n%s", tc.want, out)
+			}
+		})
+	}
+}
+
 // TestGenerate_TunDevice_StructuralBreakCharsAreQuoted is the GHSA-7hp6
 // defense-in-depth assertion (issue #126): even if the upstream TunDevice
 // validator were bypassed, yaml.v3 marshaling MUST emit structural-break

@@ -61,6 +61,7 @@
         {{if .Host.Advanced.MTU}}<tr><th>MTU</th><td>{{.Host.Advanced.MTU}}</td></tr>{{end}}
         {{if .Host.Advanced.TunDevice}}<tr><th>TUN device</th><td>{{.Host.Advanced.TunDevice}}</td></tr>{{end}}
         {{if .Host.Advanced.Punchy}}<tr><th>Punchy</th><td>{{if deref .Host.Advanced.Punchy}}true{{else}}false{{end}}</td></tr>{{end}}
+        {{if .Host.Advanced.PunchyRespond}}<tr><th>Punchy respond</th><td>{{if deref .Host.Advanced.PunchyRespond}}true{{else}}false{{end}}</td></tr>{{end}}
         {{if .Host.Advanced.UnsafeRoutes}}<tr><th>Unsafe routes</th><td>{{range .Host.Advanced.UnsafeRoutes}}{{.Route}} via {{.Via}}<br>{{end}}</td></tr>{{end}}
         {{end}}
     </table>

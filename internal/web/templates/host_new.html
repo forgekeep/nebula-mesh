@@ -100,7 +100,7 @@
             <input type="number" name="listen_port" class="form-control" placeholder="4242" value="{{.Form.ListenPort}}">
         </div>
 
-        <details style="margin: 16px 0;"{{if or .Form.AdvListenHost .Form.AdvMTU .Form.AdvTunDevice .Form.AdvPunchy .Form.AdvUnsafeRoutes .Form.AdvFirewallInbound}} open{{end}}>
+        <details style="margin: 16px 0;"{{if or .Form.AdvListenHost .Form.AdvMTU .Form.AdvTunDevice .Form.AdvPunchy .Form.AdvPunchyRespond .Form.AdvUnsafeRoutes .Form.AdvFirewallInbound}} open{{end}}>
             <summary style="cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 14px;">
                 Advanced configuration (optional)
             </summary>
@@ -127,6 +127,15 @@
                     <option value="true"{{if eq .Form.AdvPunchy "true"}} selected{{end}}>force true</option>
                     <option value="false"{{if eq .Form.AdvPunchy "false"}} selected{{end}}>disable</option>
                 </select>
+            </div>
+            <div class="form-group">
+                <label>Punchy respond (advanced.punchy_respond)</label>
+                <select name="adv_punchy_respond" class="form-control">
+                    <option value=""{{if eq .Form.AdvPunchyRespond ""}} selected{{end}}>inherit (false)</option>
+                    <option value="true"{{if eq .Form.AdvPunchyRespond "true"}} selected{{end}}>force true</option>
+                    <option value="false"{{if eq .Form.AdvPunchyRespond "false"}} selected{{end}}>disable</option>
+                </select>
+                <small class="form-text">Enable for a host behind a difficult NAT: it connects back out to any peer that failed to reach it, instead of staying unreachable until it sends traffic itself.</small>
             </div>
             <div class="form-group">
                 <label>Unsafe routes (one per line: <code>CIDR via NEBULA_IP</code>)</label>

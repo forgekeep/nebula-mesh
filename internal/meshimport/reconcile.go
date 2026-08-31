@@ -251,7 +251,8 @@ func (r *reconcileState) addressWithinNetwork(hostPrefix netip.Prefix) bool {
 
 func advancedFromConfig(config ConfigSnapshot) *models.HostAdvanced {
 	advanced := &models.HostAdvanced{
-		Punchy: config.Punchy, ListenHost: config.ListenHost, MTU: config.MTU, TunDevice: config.TunDevice,
+		Punchy: config.Punchy, PunchyRespond: config.PunchyRespond,
+		ListenHost: config.ListenHost, MTU: config.MTU, TunDevice: config.TunDevice,
 	}
 	for _, route := range config.UnsafeRoutes {
 		advanced.UnsafeRoutes = append(advanced.UnsafeRoutes, models.UnsafeRoute{Route: route.Route, Via: route.Via})
@@ -262,7 +263,7 @@ func advancedFromConfig(config ConfigSnapshot) *models.HostAdvanced {
 		}
 		return advanced.UnsafeRoutes[i].Route < advanced.UnsafeRoutes[j].Route
 	})
-	if advanced.Punchy == nil && advanced.ListenHost == "" && advanced.MTU == 0 && advanced.TunDevice == "" && len(advanced.UnsafeRoutes) == 0 {
+	if advanced.Punchy == nil && advanced.PunchyRespond == nil && advanced.ListenHost == "" && advanced.MTU == 0 && advanced.TunDevice == "" && len(advanced.UnsafeRoutes) == 0 {
 		return nil
 	}
 	return advanced

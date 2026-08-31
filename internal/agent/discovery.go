@@ -240,6 +240,10 @@ func sanitizeNebulaConfig(configuration *nebulaconfig.C, caFingerprint string) m
 		value := configuration.GetBool("punchy.punch", false)
 		config.Punchy = &value
 	}
+	if configuration.IsSet("punchy.respond") {
+		value := configuration.GetBool("punchy.respond", false)
+		config.PunchyRespond = &value
+	}
 	config.UnsupportedKeys = sortedUniqueStrings(unsupported)
 	return config
 }
@@ -354,7 +358,7 @@ func supportedConfigLeaf(path string) bool {
 	case "pki.ca", "pki.cert", "pki.key", "pki.blocklist[]",
 		"lighthouse.am_lighthouse", "lighthouse.hosts[]",
 		"relay.am_relay", "relay.relays[]",
-		"listen.host", "listen.port", "punchy.punch", "tun.dev", "tun.mtu",
+		"listen.host", "listen.port", "punchy.punch", "punchy.respond", "tun.dev", "tun.mtu",
 		"tun.unsafe_routes[].route", "tun.unsafe_routes[].via",
 		"firewall.inbound[].port", "firewall.inbound[].proto", "firewall.inbound[].group", "firewall.inbound[].host",
 		"firewall.inbound[].cidr", "firewall.inbound[].local_cidr",

@@ -14,11 +14,13 @@ import (
 // override from every rendered config.
 func TestApplyHostAdvanced_CopiesEveryField(t *testing.T) {
 	punchy := false
+	punchyRespond := true
 	adv := &models.HostAdvanced{
-		Punchy:     &punchy,
-		ListenHost: "10.0.0.1",
-		MTU:        1300,
-		TunDevice:  "nebula1",
+		Punchy:        &punchy,
+		PunchyRespond: &punchyRespond,
+		ListenHost:    "10.0.0.1",
+		MTU:           1300,
+		TunDevice:     "nebula1",
 		UnsafeRoutes: []models.UnsafeRoute{
 			{Route: "192.168.10.0/24", Via: "10.0.0.99"},
 		},
@@ -34,6 +36,9 @@ func TestApplyHostAdvanced_CopiesEveryField(t *testing.T) {
 
 	if input.PunchyOverride == nil || *input.PunchyOverride {
 		t.Errorf("PunchyOverride = %v, want explicit false", input.PunchyOverride)
+	}
+	if input.PunchyRespondOverride == nil || !*input.PunchyRespondOverride {
+		t.Errorf("PunchyRespondOverride = %v, want explicit true", input.PunchyRespondOverride)
 	}
 	if input.ListenHost != "10.0.0.1" || input.MTU != 1300 || input.TunDevice != "nebula1" {
 		t.Errorf("scalar overrides not copied: %+v", input)
@@ -54,7 +59,7 @@ func TestApplyHostAdvanced_CopiesEveryField(t *testing.T) {
 	// Every exported field of HostAdvanced must be represented above, so that
 	// adding one to the model breaks this test rather than silently rendering
 	// nothing.
-	const wantFields = 6
+	const wantFields = 7
 	if got := reflect.TypeOf(models.HostAdvanced{}).NumField(); got != wantFields {
 		t.Errorf("models.HostAdvanced has %d fields, this test covers %d — wire the new field "+
 			"into ApplyHostAdvanced and extend this test", got, wantFields)

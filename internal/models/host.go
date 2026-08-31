@@ -225,11 +225,17 @@ const MaxHostFirewallRules = 64
 // config. All fields are optional. A field set to its zero value means
 // "inherit network default"; a field set to a non-zero value overrides.
 //
-// Punchy is a tri-state pointer so an operator can explicitly disable
-// hole-punching for a host (false) without it being indistinguishable from
-// "not set".
+// Punchy and PunchyRespond are tri-state pointers so an operator can
+// explicitly disable hole-punching for a host (false) without it being
+// indistinguishable from "not set".
+//
+// PunchyRespond maps to Nebula's punchy.respond. With it enabled a host that
+// cannot be reached inbound will connect back out to the peer that tried,
+// which is what makes a host behind a difficult (symmetric) NAT reachable
+// without waiting for it to initiate traffic on its own.
 type HostAdvanced struct {
 	Punchy          *bool              `json:"punchy,omitempty" yaml:"punchy,omitempty"`
+	PunchyRespond   *bool              `json:"punchy_respond,omitempty" yaml:"punchy_respond,omitempty"`
 	ListenHost      string             `json:"listen_host,omitempty" yaml:"listen_host,omitempty"`
 	MTU             int                `json:"mtu,omitempty" yaml:"mtu,omitempty"`
 	TunDevice       string             `json:"tun_device,omitempty" yaml:"tun_device,omitempty"`

@@ -306,8 +306,14 @@ func buildConfig(input GeneratorInput) nebulaConfig {
 		punch = *input.PunchyOverride
 	}
 	cfg.Punchy = punchySection{Punch: punch}
+	// Mobile clients pin respond:false; the mobile app drives its own
+	// reconnection. Everything else inherits Nebula's default unless the host
+	// explicitly asks for it, so an unset override renders exactly as before.
 	if input.Mobile != nil {
 		cfg.Punchy.Respond = boolPtr(false)
+	}
+	if input.PunchyRespondOverride != nil {
+		cfg.Punchy.Respond = boolPtr(*input.PunchyRespondOverride)
 	}
 
 	dev := input.TunDevice

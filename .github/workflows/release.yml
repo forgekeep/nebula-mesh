@@ -75,3 +75,48 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # The graphical installer is not a Go binary, so GoReleaser cannot produce
+  # it: it is an Inno Setup compile that only runs on Windows. Built after the
+  # release exists, then attached to it.
+  windows-installer:
+    needs: goreleaser
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress --yes
+
+      # -AgentVersion is pinned to the tag being released so the installer a
+      # user downloads from a release deploys that release's agent, not
+      # whatever is newest whenever they happen to run it. Nebula stays on
+      # "latest": it is a separate project on its own cadence.
+      - name: Build the installer
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:TAG -replace '^v', ''
+          .\deploy\windows\build-installer.ps1 -Version $version -AgentVersion $env:TAG
+          $exe = "dist\windows-installer\nebula-mesh-setup-$version.exe"
+          if (-not (Test-Path -LiteralPath $exe)) { throw "installer not produced: $exe" }
+          # sha256sum's own format, so `sha256sum -c` verifies the download as-is.
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
+          Set-Content -Path "$exe.sha256" -Encoding ascii `
+            -Value "$hash  nebula-mesh-setup-$version.exe"
+          "INSTALLER=$exe" >> $env:GITHUB_ENV
+
+      - name: Attach to the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Via a local: "$env:INSTALLER.sha256" would parse the dot as part of
+          # the environment variable's name and expand to nothing.
+          $exe = $env:INSTALLER
+          gh release upload $env:TAG $exe "$exe.sha256" --clobber

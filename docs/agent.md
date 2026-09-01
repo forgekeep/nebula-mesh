@@ -170,6 +170,20 @@ the config directory.
 
 ### 3. As a Windows service
 
+[`deploy/windows`](../deploy/windows/README.md) does everything in this section
+in one run — it downloads and checksum-verifies both Nebula and the agent,
+installs and hardens them, prompts for the server URL and enrollment token, and
+registers both services. Either as a graphical wizard
+(`nebula-mesh-setup-<version>.exe`, built by `build-installer.ps1`) or from an
+elevated PowerShell session:
+
+```powershell
+.\Install-NebulaMesh.ps1
+```
+
+The manual steps below are the reference for what it does, and what to do when
+you want a different layout.
+
 The Windows archive contains the same `nebula-agent.exe` used interactively.
 Run the following commands from an elevated PowerShell session. Install the
 binary below `%ProgramFiles%` before registering the service: Windows runs it as

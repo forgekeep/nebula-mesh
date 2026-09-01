@@ -278,6 +278,64 @@ jobs:
             }
           }
 
+  # deploy/windows is the one part of the tree no Linux job ever executes: the
+  # installer is PowerShell and the wizard's logic is Pascal inside the .iss.
+  # Compiling it here is what turns a typo in either into a red PR rather than
+  # a broken setup.exe an operator discovers.
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Parse the PowerShell scripts
+        shell: pwsh
+        run: |
+          $bad = 0
+          foreach ($psFile in Get-ChildItem deploy\windows\*.ps1) {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $psFile.FullName, [ref]$null, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              $bad += $errors.Count
+              foreach ($parseError in $errors) {
+                Write-Host ("::error file=deploy/windows/{0},line={1}::{2}" -f `
+                  $psFile.Name, $parseError.Extent.StartLineNumber, $parseError.Message)
+              }
+            } else {
+              Write-Host "ok  $($psFile.Name)"
+            }
+          }
+          if ($bad -gt 0) { throw "$bad PowerShell parse error(s)" }
+
+      # ISCC reads a script without a BOM in the system codepage, which turns
+      # the Spanish wizard messages into mojibake. It compiles either way, so
+      # nothing downstream catches this.
+      - name: Check the .iss byte-order mark
+        shell: pwsh
+        run: |
+          $iss = 'deploy\windows\nebula-mesh-setup.iss'
+          $head = [byte[]](Get-Content -LiteralPath $iss -AsByteStream -TotalCount 3)
+          if ($head.Count -ne 3 -or $head[0] -ne 0xEF -or $head[1] -ne 0xBB -or $head[2] -ne 0xBF) {
+            throw "$iss must be UTF-8 with BOM or Inno Setup misreads the es. messages"
+          }
+          Write-Host "ok  UTF-8 BOM present"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress --yes
+
+      - name: Build the installer
+        shell: pwsh
+        run: .\deploy\windows\build-installer.ps1 -Version 0.0.0
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: nebula-mesh-setup-ci
+          path: dist/windows-installer/*.exe
+          if-no-files-found: error
+
   docker:
     name: docker build
     runs-on: ubuntu-latest

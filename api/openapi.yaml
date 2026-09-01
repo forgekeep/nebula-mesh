@@ -951,6 +951,7 @@ components:
         listen_host: { type: string }
         listen_port: { type: integer }
         punchy: { type: boolean }
+        punchy_respond: { type: boolean }
         mtu: { type: integer }
         tun_device: { type: string }
         unsafe_routes:

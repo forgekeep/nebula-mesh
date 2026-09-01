@@ -290,6 +290,7 @@ object in the API:
     "mtu": 1300,                  // tun.mtu
     "tun_device": "nebula1",      // tun.dev
     "punchy": false,              // disable hole-punching for this host
+    "punchy_respond": true,       // connect back out to peers that could not reach this host
     "unsafe_routes": [
       { "route": "192.168.10.0/24", "via": "10.0.0.99" }
     ],
@@ -316,6 +317,13 @@ advanced block. Server-side validation rejects:
   `a-b`, an overlong (>64 chars) group, no peer selector at all, both a
   `group` and a `cidr`, a `cidr`/`local_cidr` that is neither a CIDR nor
   `any`, or more than 64 rules.
+
+`punchy_respond` maps to Nebula's `punchy.respond`: a host behind a difficult
+(symmetric) NAT connects back out to peers that failed to reach it, instead of
+staying unreachable until it sends traffic itself. Unset, the key renders only
+for mobile hosts, which pin it to `false` because the mobile app drives its own
+reconnection; an explicit `punchy_respond` wins over that pin, so a mobile
+bundle can carry `respond: true` when the operator asks for it.
 
 ### Per-host inbound firewall rules
 
@@ -720,7 +728,7 @@ Compatibility is intentionally narrow for the first adoption flow:
 | Existing installation | Import behavior |
 |---|---|
 | One Curve25519 CA certificate and one X25519 host certificate/key in regular files | Supported |
-| `static_host_map`, `lighthouse`, `relay`, and `lighthouse+relay` roles, `listen`, `punchy`, `tun`, `unsafe_routes`, firewall and CA blocklist | Imported and reconciled |
+| `static_host_map`, `lighthouse`, `relay`, and `lighthouse+relay` roles, `listen`, `punchy` (including `punchy.respond`), `tun`, `unsafe_routes`, firewall and CA blocklist | Imported and reconciled |
 | Unsafe networks carried in an existing host certificate | Imported into the host's `unsafe_networks`, so a gateway keeps its routing authority across the next re-issuance |
 | Logging, stats and SSH daemon settings | Reported as warnings; server does not manage them |
 | Other unsupported connectivity settings | Blocking preview issue |

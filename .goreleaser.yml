@@ -76,6 +76,8 @@ archives:
       - docs/agent.md
       - deploy/systemd/nebula-agent.service
       - deploy/systemd/README.md
+      - deploy/windows/Install-NebulaMesh.ps1
+      - deploy/windows/README.md
 
 nfpms:
   - id: nebula-mgmt

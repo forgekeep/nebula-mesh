@@ -2,7 +2,7 @@ package models
 
 import (
 	"fmt"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 )
@@ -36,7 +36,7 @@ func (p AgentProfile) Validate() error {
 	seen := make(map[string]string, len(paths))
 	for _, item := range paths {
 		if item.value == "" || len(item.value) > maxAgentProfilePathBytes || strings.ContainsRune(item.value, '\x00') ||
-			!filepath.IsAbs(item.value) || filepath.Clean(item.value) != item.value {
+			!isCleanAbsoluteAgentPath(item.value) {
 			return fmt.Errorf("invalid agent profile: %s must be a clean absolute path", item.name)
 		}
 		if previous, exists := seen[item.value]; exists {
@@ -45,6 +45,69 @@ func (p AgentProfile) Validate() error {
 		seen[item.value] = item.name
 	}
 	return nil
+}
+
+// isCleanAbsoluteAgentPath reports whether value is an absolute, already-clean
+// path in either POSIX or Windows form.
+//
+// path/filepath is deliberately NOT used here. It compiles to the *server's*
+// GOOS, while these paths describe the *agent's* filesystem — so a Windows
+// agent enrolling against a Linux server was rejected with "invalid agent
+// profile" for C:\ProgramData\Nebula\config.yml, which filepath.IsAbs on Linux
+// cannot recognise. The mirror case fails the same way, which is why the
+// package's own DefaultAgentProfile did not validate on a Windows host.
+//
+// The rules the check enforces are unchanged: rooted, canonical, no "." or
+// ".." segments, no repeated or trailing separator. Only the OS assumption is
+// gone.
+func isCleanAbsoluteAgentPath(value string) bool {
+	if strings.HasPrefix(value, "/") {
+		// path.Clean is the POSIX cleaner and is GOOS-independent, unlike
+		// filepath.Clean. A bare root names a directory, never one of the
+		// four files the profile points at.
+		return value != "/" && path.Clean(value) == value
+	}
+	return isCleanAbsoluteWindowsPath(value)
+}
+
+// isCleanAbsoluteWindowsPath accepts a drive-rooted path (C:\dir\file) or a UNC
+// share path (\\server\share\file).
+func isCleanAbsoluteWindowsPath(value string) bool {
+	// Windows accepts forward slashes too, but allowing both spellings would
+	// let one file be stored under two different paths — and the profile's
+	// "these four must differ" rule compares strings.
+	if strings.ContainsRune(value, '/') {
+		return false
+	}
+
+	var rest string
+	switch {
+	case len(value) >= 3 && isASCIILetter(value[0]) && value[1] == ':' && value[2] == '\\':
+		rest = value[3:]
+	case strings.HasPrefix(value, `\\`):
+		// The shortest valid UNC root is \\server\share.
+		parts := strings.Split(value[2:], `\`)
+		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+			return false
+		}
+		rest = strings.Join(parts[2:], `\`)
+	default:
+		return false
+	}
+
+	if rest == "" {
+		return false
+	}
+	for _, segment := range strings.Split(rest, `\`) {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func isASCIILetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 func (p AgentProfile) IsZero() bool {

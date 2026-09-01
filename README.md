@@ -160,6 +160,18 @@ Supported targets:
 | `nebula-mgmt` | ✅ | ✅ | – | ✅ | ✅ | – | – | – |
 | `nebula-agent` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
+### Windows (agent host)
+
+[`deploy/windows`](deploy/windows/README.md) provisions a Windows host in one run: it downloads and checksum-verifies both Nebula and `nebula-agent`, installs them under `%ProgramFiles%` with SYSTEM/Administrators-only ACLs, asks for the server URL and enrollment token, and registers `nebula` and `NebulaMeshAgent` as services.
+
+Graphical wizard — run `nebula-mesh-setup-<version>.exe` and accept the UAC prompt, or build it with `deploy\windows\build-installer.ps1`. Same thing from an elevated PowerShell session:
+
+```powershell
+.\Install-NebulaMesh.ps1
+# or, unattended:
+.\Install-NebulaMesh.ps1 -ServerUrl https://mgmt.example.com:8080 -TokenFile C:\provision\enroll.token -Unattended
+```
+
 ### Docker
 
 ```sh

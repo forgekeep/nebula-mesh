@@ -25,6 +25,28 @@ func TestNebulaReloader_CommandRuns(t *testing.T) {
 	}
 }
 
+// TestNebulaReloader_QuotedExecutablePath: a hook whose command line starts
+// with a quoted executable path must reach the shell exactly as typed. That is
+// the shape deploy/windows writes into agent.yml, and the shape an operator
+// writes whenever the interpreter lives under a path with a space in it.
+//
+// It is singled out because cmd.exe rewrites a command line whose first
+// character is a quote (`cmd /?`) - which is why reloadShellCommand hands the
+// line over through SysProcAttr.CmdLine instead of letting os/exec escape it.
+// No other reload test starts the line with a quote: scriptTouch's quotes come
+// after `type`, so they never meet that rule.
+func TestNebulaReloader_QuotedExecutablePath(t *testing.T) {
+	script, marker := writeReloadHookScript(t)
+
+	err := nebulaReloader(`"`+script+`"`, "")(context.Background())
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("hook at a quoted path did not run: %v", err)
+	}
+}
+
 func TestNebulaReloader_CommandFailureIncludesOutput(t *testing.T) {
 	reload := nebulaReloader(scriptFailNoisily, "")
 	err := reload(context.Background())

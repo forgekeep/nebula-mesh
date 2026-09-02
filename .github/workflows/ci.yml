@@ -120,6 +120,7 @@ jobs:
           # individual tests to have reported a pass.
           $expected = @(
             'TestNebulaReloader_CommandRuns',
+            'TestNebulaReloader_QuotedExecutablePath',
             'TestNebulaReloader_CommandFailureIncludesOutput',
             'TestNebulaReloader_CommandTimesOut',
             'TestNebulaReloader_CapsCommandOutput',

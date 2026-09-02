@@ -39,10 +39,11 @@ func (p AgentProfile) Validate() error {
 			!isCleanAbsoluteAgentPath(item.value) {
 			return fmt.Errorf("invalid agent profile: %s must be a clean absolute path", item.name)
 		}
-		if previous, exists := seen[item.value]; exists {
+		key := agentPathKey(item.value)
+		if previous, exists := seen[key]; exists {
 			return fmt.Errorf("invalid agent profile: %s and %s must differ", previous, item.name)
 		}
-		seen[item.value] = item.name
+		seen[key] = item.name
 	}
 	return nil
 }
@@ -54,12 +55,13 @@ func (p AgentProfile) Validate() error {
 // GOOS, while these paths describe the *agent's* filesystem — so a Windows
 // agent enrolling against a Linux server was rejected with "invalid agent
 // profile" for C:\ProgramData\Nebula\config.yml, which filepath.IsAbs on Linux
-// cannot recognise. The mirror case fails the same way, which is why the
+// cannot recognize. The mirror case fails the same way, which is why the
 // package's own DefaultAgentProfile did not validate on a Windows host.
 //
-// The rules the check enforces are unchanged: rooted, canonical, no "." or
-// ".." segments, no repeated or trailing separator. Only the OS assumption is
-// gone.
+// The rules are the familiar ones: rooted, canonical, no "." or ".." segments,
+// no repeated or trailing separator, and — since Windows treats several
+// spellings as one file — a single spelling per path. See agentPathKey for the
+// case rule that goes with them.
 func isCleanAbsoluteAgentPath(value string) bool {
 	if strings.HasPrefix(value, "/") {
 		// path.Clean is the POSIX cleaner and is GOOS-independent, unlike
@@ -70,13 +72,36 @@ func isCleanAbsoluteAgentPath(value string) bool {
 	return isCleanAbsoluteWindowsPath(value)
 }
 
+// agentPathKey is the identity a path is compared under by the "these four must
+// differ" rule. A POSIX filesystem distinguishes case, so a POSIX path is its
+// own key. Windows resolves names case-insensitively, so C:\Nebula\ca.crt and
+// c:\nebula\CA.CRT name one file and must collide here.
+//
+// Case folding is only ever allowed to merge two spellings, never to split
+// one, so the worst a locale-specific mapping can do is reject a profile that
+// would have been accepted — the safe direction for a rule whose whole job is
+// to stop two of these paths naming the same file.
+func agentPathKey(value string) string {
+	if strings.HasPrefix(value, "/") {
+		return value
+	}
+	return strings.ToLower(value)
+}
+
 // isCleanAbsoluteWindowsPath accepts a drive-rooted path (C:\dir\file) or a UNC
 // share path (\\server\share\file).
 func isCleanAbsoluteWindowsPath(value string) bool {
 	// Windows accepts forward slashes too, but allowing both spellings would
 	// let one file be stored under two different paths — and the profile's
-	// "these four must differ" rule compares strings.
+	// "these four must differ" rule compares text, not inodes.
 	if strings.ContainsRune(value, '/') {
+		return false
+	}
+	// \\?\ and \\.\ reach the same files through the Win32 device namespace,
+	// which would give every path a second spelling the distinctness rule
+	// cannot see through. \\?\ additionally switches off the normalization the
+	// segment rules below rely on.
+	if strings.HasPrefix(value, `\\?\`) || strings.HasPrefix(value, `\\.\`) {
 		return false
 	}
 
@@ -100,6 +125,13 @@ func isCleanAbsoluteWindowsPath(value string) bool {
 	}
 	for _, segment := range strings.Split(rest, `\`) {
 		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+		// Win32 strips trailing dots and spaces from a component before it
+		// reaches the filesystem, so "config.yml." and "config.yml " open the
+		// same file as "config.yml" — three spellings of one path, which the
+		// distinctness rule would read as three different files.
+		if strings.HasSuffix(segment, ".") || strings.HasSuffix(segment, " ") {
 			return false
 		}
 	}

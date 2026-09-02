@@ -82,14 +82,18 @@ jobs:
   windows-installer:
     needs: goreleaser
     runs-on: windows-latest
+    # Same approval gate as goreleaser: this job also writes to the release.
+    environment: release
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # Pinned so a release is reproducible and so CI compiles the .iss with
+      # the same compiler the release does. Bump it here and in ci.yml together.
       - name: Install Inno Setup
         shell: pwsh
-        run: choco install innosetup --no-progress --yes
+        run: choco install innosetup --version 6.7.1 --no-progress --yes
 
       # -AgentVersion is pinned to the tag being released so the installer a
       # user downloads from a release deploys that release's agent, not

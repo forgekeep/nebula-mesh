@@ -321,9 +321,11 @@ jobs:
           }
           Write-Host "ok  UTF-8 BOM present"
 
+      # Pinned to the version release.yml builds with, so a green PR means the
+      # release compile will behave the same. Bump both together.
       - name: Install Inno Setup
         shell: pwsh
-        run: choco install innosetup --no-progress --yes
+        run: choco install innosetup --version 6.7.1 --no-progress --yes
 
       - name: Build the installer
         shell: pwsh

@@ -2,7 +2,12 @@
 
 package agent
 
-import "strconv"
+import (
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
+)
 
 // Shell snippets for the reload tests, in the dialect of the interpreter
 // reloadShellCommand picks on this platform. The Windows file defines the
@@ -23,3 +28,21 @@ func scriptTouch(path string) string { return "touch " + strconv.Quote(path) }
 
 // scriptTouchThenSleep signals that the hook has really started, then hangs.
 func scriptTouchThenSleep(path string) string { return scriptTouch(path) + "; " + scriptSleepLong }
+
+// writeReloadHookScript is the twin of the Windows helper; see the comment
+// there for what the shape is guarding. `sh -c` has never had cmd.exe's
+// quote-stripping behavior, so here the case only has to keep holding.
+func writeReloadHookScript(t *testing.T) (script, marker string) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "hook dir")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script = filepath.Join(dir, "hook.sh")
+	marker = filepath.Join(dir, "ran")
+	body := "#!/bin/sh\ntouch \"$(dirname \"$0\")/ran\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return script, marker
+}

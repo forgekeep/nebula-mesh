@@ -29,7 +29,7 @@ func TestAgentProfileDefaultsAndValidation(t *testing.T) {
 // on the server's GOOS. A Windows agent enrolling against a Linux management
 // server was rejected with HTTP 400 "invalid agent profile"; the mirror case is
 // why TestAgentProfileDefaultsAndValidation failed when run on Windows.
-func TestAgentProfileValidate_AcceptsBothPathFlavours(t *testing.T) {
+func TestAgentProfileValidate_AcceptsBothPathFlavors(t *testing.T) {
 	valid := []AgentProfile{
 		{
 			NebulaConfigPath: `C:\ProgramData\Nebula\config.yml`,
@@ -67,6 +67,11 @@ func TestAgentProfileValidate_RejectsMalformedPaths(t *testing.T) {
 		"unc without share":    `\\fileserver`,
 		"unc bare root":        `\\fileserver\nebula`,
 		"unc empty server":     `\\\share\config.yml`,
+		"extended length":      `\\?\C:\ProgramData\Nebula\config.yml`,
+		"device namespace":     `\\.\C:\ProgramData\Nebula\config.yml`,
+		"trailing dot":         `C:\ProgramData\Nebula\config.yml.`,
+		"trailing space":       "C:\\ProgramData\\Nebula\\config.yml ",
+		"trailing dot segment": `C:\ProgramData.\Nebula\config.yml`,
 		"posix bare root":      `/`,
 		"posix traversal":      `/etc/nebula/../bad`,
 		"posix trailing slash": `/etc/nebula/`,
@@ -86,7 +91,7 @@ func TestAgentProfileValidate_RejectsMalformedPaths(t *testing.T) {
 	}
 }
 
-// The four paths must still be distinct, in either flavour.
+// The four paths must still be distinct, in either flavor.
 func TestAgentProfileValidate_RejectsDuplicateWindowsPaths(t *testing.T) {
 	profile := AgentProfile{
 		NebulaConfigPath: `C:\ProgramData\Nebula\same.yml`,
@@ -99,7 +104,32 @@ func TestAgentProfileValidate_RejectsDuplicateWindowsPaths(t *testing.T) {
 	}
 }
 
-// An over-long path stays rejected regardless of flavour.
+// Windows resolves names case-insensitively, so two spellings that differ only
+// in case are one file and must not pass as two distinct paths. POSIX paths
+// keep their case sensitivity: /etc/CA.crt and /etc/ca.crt are two files.
+func TestAgentProfileValidate_WindowsPathsAreCaseInsensitive(t *testing.T) {
+	duplicate := AgentProfile{
+		NebulaConfigPath: `C:\ProgramData\Nebula\config.yml`,
+		NebulaCAPath:     `c:\programdata\nebula\CONFIG.YML`,
+		NebulaCertPath:   `C:\ProgramData\Nebula\host.crt`,
+		NebulaKeyPath:    `C:\ProgramData\Nebula\host.key`,
+	}
+	if err := duplicate.Validate(); err == nil {
+		t.Error("accepted two spellings of one Windows path")
+	}
+
+	distinct := AgentProfile{
+		NebulaConfigPath: "/etc/nebula/config.yml",
+		NebulaCAPath:     "/etc/nebula/CONFIG.yml",
+		NebulaCertPath:   "/etc/nebula/host.crt",
+		NebulaKeyPath:    "/etc/nebula/host.key",
+	}
+	if err := distinct.Validate(); err != nil {
+		t.Errorf("rejected two distinct POSIX paths: %v", err)
+	}
+}
+
+// An over-long path stays rejected regardless of flavor.
 func TestAgentProfileValidate_RejectsOverlongPath(t *testing.T) {
 	long := `C:\` + strings.Repeat("a", maxAgentProfilePathBytes)
 	profile := AgentProfile{

@@ -169,11 +169,19 @@ Nebula through its service instead of a PID file:
 
 ```yaml
 nebula_pid_file: ""
-nebula_reload_command: '"%SystemRoot%\System32\net.exe" stop nebula & "%SystemRoot%\System32\net.exe" start nebula'
+nebula_reload_command: '%SystemRoot%\System32\net.exe stop nebula & %SystemRoot%\System32\net.exe start nebula'
 ```
 
 `net stop` waits for the stop to complete, and `&` (rather than `&&`) still
 starts Nebula when it was not already running.
+
+The executable is deliberately left unquoted: the agent runs the hook as
+`cmd /C <line>`, and `cmd` only preserves the quotes of a line holding exactly
+two of them — with four it strips the line's first and last quote instead,
+which would leave the `&` inside an unterminated quote. `net.exe` sits at a
+path with no spaces, so it needs none. A service name containing a space is
+quoted on its own, which keeps the first character of the line out of that
+rule's way.
 
 ## Options
 

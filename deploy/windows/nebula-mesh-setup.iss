@@ -123,6 +123,8 @@ en.ErrNoPowerShell=Cannot start Windows PowerShell.
 es.ErrNoPowerShell=No se puede iniciar Windows PowerShell.
 en.ErrTokenFile=Cannot write the temporary token file.
 es.ErrTokenFile=No se puede escribir el fichero temporal del token.
+en.ErrTokenAcl=Cannot restrict permissions on the temporary token file.
+es.ErrTokenAcl=No se pueden restringir los permisos del fichero temporal del token.
 en.ErrInstallFailed=The installation step failed (exit %1).
 es.ErrInstallFailed=El paso de instalación ha fallado (código %1).
 en.ErrFullLog=Full log: %1
@@ -565,18 +567,29 @@ begin
 end;
 
 { Writes the token where only SYSTEM and Administrators can read it, so the
-  secret never sits in a command line or in a world-readable temp file. }
+  secret never sits in a command line or in a world-readable temp file.
+
+  The order is the one Invoke-AgentEnroll uses in Install-NebulaMesh.ps1:
+  create the file empty, lock it down, and only then write the secret. Writing
+  first would leave the token readable by every user of the machine for as long
+  as icacls takes to run. icacls' exit code is checked - a silent failure here
+  is exactly the case this ordering exists to prevent - which is also why /C
+  ("continue on file errors") is gone: it has nothing to do on a single file
+  but mask the error. }
 function WriteTokenFile: String;
 var
   Path: String;
   ResultCode: Integer;
 begin
   Path := ExpandConstant('{tmp}\enroll.token');
+  if not SaveStringToFile(Path, '', False) then
+    RaiseException(Msg('ErrTokenFile'));
+  if (not Exec(ExpandConstant('{sys}\icacls.exe'),
+        Quoted(Path) + ' /inheritance:r /grant:r *S-1-5-18:F *S-1-5-32-544:F',
+        '', SW_HIDE, ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then
+    RaiseException(Msg('ErrTokenAcl'));
   if not SaveStringToFile(Path, Trim(EnrollPage.Values[1]), False) then
     RaiseException(Msg('ErrTokenFile'));
-  Exec(ExpandConstant('{sys}\icacls.exe'),
-    Quoted(Path) + ' /inheritance:r /grant:r *S-1-5-18:F *S-1-5-32-544:F /C',
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := Path;
 end;
 

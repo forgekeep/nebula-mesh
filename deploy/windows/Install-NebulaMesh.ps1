@@ -535,7 +535,12 @@ function Assert-ManagementServerReachable([string]$Url) {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $probe -TimeoutSec 20
     } catch {
-        $web = Get-WebException $_
+        # Captured before the switch: inside it $_ is the switch's input (the
+        # status string), not this catch's ErrorRecord, and under
+        # Set-StrictMode -Version 3.0 reading .Exception off a string throws
+        # PropertyNotFoundException on top of the failure being reported.
+        $record = $_
+        $web = Get-WebException $record
         $status = ''
         if ($web) { $status = [string]$web.Status }
 
@@ -574,7 +579,7 @@ function Assert-ManagementServerReachable([string]$Url) {
             default {
                 Set-Failure 'server-unreachable' @(
                     "Cannot reach $probe.",
-                    $_.Exception.Message)
+                    $record.Exception.Message)
             }
         }
         throw 'management server pre-flight failed'
@@ -897,13 +902,26 @@ function Set-AgentReloadCommand([string]$AgentConfigPath, [string]$NebulaService
         return
     }
 
-    $net = '"%SystemRoot%\System32\net.exe"'
-    $command = "$net stop $NebulaService & $net start $NebulaService"
+    # The executable is deliberately unquoted. The agent hands the hook to
+    # `cmd /C <line>` verbatim, and cmd only keeps the quotes of a line that
+    # holds exactly two of them; with four it falls back to stripping the
+    # line's first and last quote (cmd /?), which would leave the `&` inside
+    # an unterminated quote and neither half runnable.
+    # %SystemRoot%\System32\net.exe has no space to protect. A service name
+    # may have one, and quoting only that keeps the line's first character out
+    # of the stripping rule's way.
+    $net = '%SystemRoot%\System32\net.exe'
+    $service = $NebulaService
+    if ($service -match '\s') { $service = '"' + $service + '"' }
+    $command = "$net stop $service & $net start $service"
     $lines = @(Get-Content -LiteralPath $AgentConfigPath | Where-Object {
             $_ -notmatch '^\s*nebula_pid_file\s*:' -and $_ -notmatch '^\s*nebula_reload_command\s*:'
         })
     $lines += 'nebula_pid_file: ""'
-    $lines += "nebula_reload_command: '$command'"
+    # A YAML single-quoted scalar escapes its own quote by doubling it, which
+    # matters because a discovered service name may contain one.
+    $escaped = $command -replace "'", "''"
+    $lines += "nebula_reload_command: '$escaped'"
     # No BOM (the file is parsed by gopkg.in/yaml.v3); rewriting in place keeps
     # the ACL the agent's own 0600-equivalent write established.
     [IO.File]::WriteAllLines($AgentConfigPath, [string[]]$lines, (New-Object Text.UTF8Encoding($false)))

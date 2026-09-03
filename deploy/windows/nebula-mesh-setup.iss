@@ -693,13 +693,12 @@ begin
     { Not RaiseException: that prefixes the text with "Runtime error (at x:y)",
       which buries the explanation under something the operator cannot act on.
       An attended run gets the diagnosis in its own dialog and the final page;
-      SetErrorFlag makes both it and a silent run report the failed child
-      install to their caller. }
+      GetCustomSetupExitCode reports the failed child install to the caller
+      after Setup finishes its normal cleanup. }
     if ResultCode <> 0 then
     begin
       InstallFailed := True;
       FailureSummary := BuildFailureMessage(ResultCode);
-      SetErrorFlag(True);
       { A deployment system has nobody to dismiss this. Its non-zero Setup
         exit status is the actionable failure signal in a silent run. }
       if not WizardSilent then
@@ -717,6 +716,17 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
     RunInstallerScript;
+end;
+
+{ Setup calls this only while it would otherwise exit successfully. Preserve
+  its normal cleanup and final page, but report a failed PowerShell child to
+  deployment systems instead of claiming a successful installation. }
+function GetCustomSetupExitCode: Integer;
+begin
+  if InstallFailed then
+    Result := 1
+  else
+    Result := 0;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

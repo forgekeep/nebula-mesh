@@ -332,6 +332,28 @@ jobs:
         shell: pwsh
         run: .\deploy\windows\build-installer.ps1 -Version 0.0.0
 
+      # A failing child installer used to let Setup exit 0 in /VERYSILENT mode,
+      # so deployment systems reported a partially installed host as healthy.
+      # A missing local token file fails before any download or enrollment and
+      # makes this a deterministic end-to-end check of the setup exit status.
+      - name: Reject a failed unattended installation
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist\windows-installer\nebula-mesh-setup-0.0.0.exe | Select-Object -First 1).FullName
+          $testRoot = Join-Path $env:RUNNER_TEMP ('nebula-mesh-installer-failure-' + [guid]::NewGuid())
+          $installDir = Join-Path $testRoot 'install'
+          $missingToken = Join-Path $testRoot 'missing-enrollment.token'
+          New-Item -ItemType Directory -Force -Path $testRoot | Out-Null
+          try {
+            & $setup /VERYSILENT /SUPPRESSMSGBOXES /SP- "/DIR=$installDir" `
+              /SERVERURL=https://mgmt.example.invalid "/TOKENFILE=$missingToken"
+            if ($LASTEXITCODE -eq 0) {
+              throw 'silent installer exited 0 after its PowerShell child failed'
+            }
+          } finally {
+            Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Upload the installer
         uses: actions/upload-artifact@v7
         with:

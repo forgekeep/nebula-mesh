@@ -68,6 +68,8 @@ nebula-mesh-setup-0.14.0.exe /VERYSILENT /SUPPRESSMSGBOXES /SERVERURL=https://mg
 There is deliberately no `/TOKEN=`: a token on a command line is visible to every
 process on the box, which is exactly what the file hand-off avoids. With no
 `/SERVERURL=` a silent run installs everything and leaves the agent in standby.
+If the underlying install or enrollment fails, the setup executable exits
+non-zero so provisioning systems do not report the host as deployed.
 Inno's own `/DIR=`, `/COMPONENTS=` and `/TASKS=` work as usual; add
 `/PURGEDATA=1` to a silent uninstall to also delete the host's identity.
 

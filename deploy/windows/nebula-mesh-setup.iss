@@ -692,14 +692,18 @@ begin
 
     { Not RaiseException: that prefixes the text with "Runtime error (at x:y)",
       which buries the explanation under something the operator cannot act on.
-      Show the diagnosis on its own, then carry the failure to the final page.
-      The files are installed either way - only the enrollment step failed, and
-      it can be retried without reinstalling. }
+      An attended run gets the diagnosis in its own dialog and the final page;
+      SetErrorFlag makes both it and a silent run report the failed child
+      install to their caller. }
     if ResultCode <> 0 then
     begin
       InstallFailed := True;
       FailureSummary := BuildFailureMessage(ResultCode);
-      MsgBox(FailureSummary, mbCriticalError, MB_OK);
+      SetErrorFlag(True);
+      { A deployment system has nobody to dismiss this. Its non-zero Setup
+        exit status is the actionable failure signal in a silent run. }
+      if not WizardSilent then
+        MsgBox(FailureSummary, mbCriticalError, MB_OK);
     end;
   finally
     if Temporary and (TokenFile <> '') then

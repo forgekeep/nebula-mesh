@@ -705,6 +705,9 @@ func TestStaticFiles(t *testing.T) {
 	if rec.Body.Len() == 0 {
 		t.Error("htmx.min.js should not be empty")
 	}
+	if !strings.Contains(rec.Body.String(), `version:"2.0.10"`) {
+		t.Error("htmx.min.js should contain htmx 2.0.10")
+	}
 }
 
 func TestParseTemplates_IncludesHostEdit(t *testing.T) {

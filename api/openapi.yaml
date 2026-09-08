@@ -324,6 +324,15 @@ paths:
                 $ref: "#/components/schemas/CreateHostResponse"
         "400":
           $ref: "#/components/responses/Error"
+        "409":
+          description: >-
+            The name is already taken by another host in the network, one of
+            the requested nebula_ips is already assigned, or a mesh import is
+            collecting for this network.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/hosts/{id}:
     get:

@@ -879,8 +879,24 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		network = n
 	}
 
-	// Validate NebulaIPs against the network if selected
+	// Friendly fast-path for the name, alongside the one the IP rows get
+	// below: resolve the collision before writing so the form comes back
+	// with a reason. The store's UNIQUE guard still covers a lost race.
 	networkID := form.NetworkID
+	if networkID != "" {
+		existing, err := conflictingHostName(r.Context(), w.store, networkID, form.Name, "")
+		if err != nil {
+			w.logger.Error("check host name", "error", err)
+			http.Error(rw, "Failed to create host", http.StatusInternalServerError)
+			return
+		}
+		if existing != nil {
+			w.renderHostNewError(rw, r, form, duplicateHostNameMsg(form.Name))
+			return
+		}
+	}
+
+	// Validate NebulaIPs against the network if selected
 	if len(form.NebulaIPs) > 0 && networkID != "" {
 		perRowErrors := make(map[int]string)
 		for i, ip := range form.NebulaIPs {
@@ -1013,6 +1029,10 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 				http.Error(rw, "Mesh import collection is in progress for this network", http.StatusConflict)
 				return
 			}
+			if errors.Is(err, store.ErrDuplicateEntry) {
+				w.renderHostNewError(rw, r, form, duplicateHostNameMsg(form.Name))
+				return
+			}
 			w.logger.Error("create mobile host", "error", err)
 			http.Error(rw, "Failed to create host", http.StatusInternalServerError)
 			return
@@ -1036,6 +1056,15 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	if err := w.store.CreateHostAndToken(r.Context(), host, token, rawToken); err != nil {
 		if errors.Is(err, store.ErrMeshImportInProgress) {
 			http.Error(rw, "Mesh import collection is in progress for this network", http.StatusConflict)
+			return
+		}
+		// A name already taken in this network is operator input, not a
+		// server fault: route it through the same inline-error path as
+		// every other field so the form comes back populated with the
+		// reason, instead of the bare 500 that left operators unable to
+		// tell a typo from an outage.
+		if errors.Is(err, store.ErrDuplicateEntry) {
+			w.renderHostNewError(rw, r, form, duplicateHostNameMsg(form.Name))
 			return
 		}
 		w.logger.Error("create host and token", "error", err)
@@ -1169,6 +1198,15 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if existing, err := conflictingHostName(r.Context(), w.store, host.NetworkID, name, host.ID); err != nil {
+		w.logger.Error("check host name", "error", err)
+		http.Error(rw, "Failed to update host", http.StatusInternalServerError)
+		return
+	} else if existing != nil {
+		w.renderHostEditError(rw, r, host, network, form, duplicateHostNameMsg(name))
+		return
+	}
+
 	// Validate NebulaIPs
 	if len(form.NebulaIPs) == 0 {
 		w.renderHostEditError(rw, r, host, network, form, "at least one IP address is required")
@@ -1279,6 +1317,13 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 	// bump the network config version on a role change. config_version reset
 	// and the pending-rekey flag commit inside UpdateHost (SEC-PERSIST-001).
 	if err := store.ApplyHostEdit(r.Context(), w.store, w.logger, &before, host); err != nil {
+		// The fast-path above answered any collision visible at request time,
+		// so reaching the store's UNIQUE(network_id, name) guard means another
+		// writer claimed the name in between. Still the operator's to fix.
+		if errors.Is(err, store.ErrDuplicateEntry) {
+			w.renderHostEditError(rw, r, host, network, form, duplicateHostNameMsg(host.Name))
+			return
+		}
 		w.logger.Error("update host", "error", err)
 		http.Error(rw, "Failed to update host", http.StatusInternalServerError)
 		return

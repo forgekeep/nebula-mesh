@@ -1048,3 +1048,13 @@ func isSQLiteConstraint(err error) bool {
 	var sqliteErr interface{ Code() int }
 	return errors.As(err, &sqliteErr) && (sqliteErr.Code() == sqliteConstraintUnique || sqliteErr.Code() == sqliteConstraintPrimaryKey)
 }
+
+// isSQLiteUniqueViolation reports whether err is a UNIQUE constraint failure
+// specifically. Unlike isSQLiteConstraint it excludes PRIMARY KEY collisions,
+// so a caller can attribute the failure to the table's unique index without
+// also swallowing a duplicate server-generated id — which would be a genuine
+// bug, not operator input.
+func isSQLiteUniqueViolation(err error) bool {
+	var sqliteErr interface{ Code() int }
+	return errors.As(err, &sqliteErr) && sqliteErr.Code() == sqliteConstraintUnique
+}

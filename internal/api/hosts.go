@@ -194,6 +194,17 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Friendly fast-path, as validateHostIPs is for addresses: answer the
+	// collision before the write so the client reads a cause rather than a
+	// constraint failure. The store's UNIQUE guard below still covers the race.
+	if existing, err := conflictingHostName(r.Context(), s.store, host.NetworkID, host.Name, ""); err != nil {
+		s.logger.Error("check host name", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create host")
+		return
+	} else if existing != nil {
+		writeError(w, http.StatusConflict, duplicateHostNameMsg(host.Name))
+		return
+	}
 	if err := validateHostGroups(host.Groups); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -222,6 +233,14 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		// guard means another writer claimed the IP in between.
 		if errors.Is(err, store.ErrIPTaken) {
 			writeError(w, http.StatusConflict, "one or more nebula_ips are already assigned to another host in this network")
+			return
+		}
+		// Duplicate name in the same network — the table's only unique
+		// index. Like ErrIPTaken above this is a request the operator can
+		// fix, so answer 409 naming the collision rather than a 500 that
+		// reads as a server fault.
+		if errors.Is(err, store.ErrDuplicateEntry) {
+			writeError(w, http.StatusConflict, duplicateHostNameMsg(host.Name))
 			return
 		}
 		s.logger.Error("create host and token", "error", err)
@@ -696,6 +715,14 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if existing, err := conflictingHostName(r.Context(), s.store, host.NetworkID, name, host.ID); err != nil {
+			s.logger.Error("check host name", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to update host")
+			return
+		} else if existing != nil {
+			writeError(w, http.StatusConflict, duplicateHostNameMsg(name))
+			return
+		}
 		host.Name = name
 	}
 
@@ -805,6 +832,14 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		// IP in between.
 		if errors.Is(err, store.ErrIPTaken) {
 			writeError(w, http.StatusConflict, "one or more nebula_ips are already assigned to another host in this network")
+			return
+		}
+		// Same TOCTOU framing as ErrIPTaken: the fast-path above answered any
+		// name collision visible at request time, so reaching the store's
+		// UNIQUE(network_id, name) guard means another writer took the name in
+		// between.
+		if errors.Is(err, store.ErrDuplicateEntry) {
+			writeError(w, http.StatusConflict, duplicateHostNameMsg(host.Name))
 			return
 		}
 		s.logger.Error("update host", "error", err)

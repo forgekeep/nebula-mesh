@@ -1130,6 +1130,20 @@ func (s *SQLiteStore) CreateHost(ctx context.Context, h *models.Host) error {
 		h.NetworkID, models.MeshImportStatusCollecting,
 	)
 	if err != nil {
+		// A unique violation here is almost certainly the name, since
+		// UNIQUE(network_id, name) is the table's only unique index today —
+		// but confirm it instead of assuming. Were a later migration to add
+		// another unique index, guessing would blame the name for an
+		// unrelated failure; unconfirmed, the raw error stands and the caller
+		// reports a server fault, which is the honest answer. Non-constraint
+		// failures stay clear of this path entirely (a full disk raises
+		// SQLITE_FULL, not SQLITE_CONSTRAINT_UNIQUE). Overlay-address
+		// collisions are separate: setHostAddresses maps those to ErrIPTaken.
+		if isSQLiteUniqueViolation(err) {
+			if taken, lookupErr := hostNameTaken(ctx, tx, h.NetworkID, h.Name, h.ID); lookupErr == nil && taken {
+				return fmt.Errorf("host name %q: %w", h.Name, ErrDuplicateEntry)
+			}
+		}
 		return fmt.Errorf("insert host: %w", err)
 	}
 	if rows, err := result.RowsAffected(); err != nil {
@@ -1255,6 +1269,51 @@ func (s *SQLiteStore) GetHost(ctx context.Context, id string) (*models.Host, err
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get host: %w", err)
+	}
+
+	addrs, err := s.loadHostAddresses(ctx, h.ID)
+	if err != nil {
+		return nil, err
+	}
+	h.NebulaIPs = addrs
+
+	return h, nil
+}
+
+// GetHostByName resolves a host by the name it holds inside a network. The
+// UNIQUE(network_id, name) constraint makes the pair a key, so the lookup is
+// an index seek and can return at most one row. Transports use it as the
+// friendly pre-check before a create or rename, mirroring what
+// validateHostIPs does for overlay addresses: report the collision — naming
+// the host that already holds it — before attempting the write.
+// hostNameTaken reports whether some host *other than* excludeID already
+// holds name in the network. It runs on the caller's transaction rather than
+// s.db on purpose: an in-memory store caps the pool at a single connection
+// (see NewSQLiteStore), so querying s.db while a transaction is open would
+// deadlock. Reusing tx after a failed statement is sound — SQLite's default
+// ABORT conflict resolution rolls back only the offending statement, leaving
+// the transaction usable.
+func hostNameTaken(ctx context.Context, tx *sql.Tx, networkID, name, excludeID string) (bool, error) {
+	var taken int
+	err := tx.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM hosts WHERE network_id = ? AND name = ? AND id <> ?)`,
+		networkID, name, excludeID).Scan(&taken)
+	if err != nil {
+		return false, fmt.Errorf("check host name taken: %w", err)
+	}
+	return taken == 1, nil
+}
+
+func (s *SQLiteStore) GetHostByName(ctx context.Context, networkID, name string) (*models.Host, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+hostColumns+` FROM hosts WHERE network_id = ? AND name = ?`,
+		networkID, name)
+	h, err := s.scanHost(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get host by name: %w", err)
 	}
 
 	addrs, err := s.loadHostAddresses(ctx, h.ID)
@@ -1407,6 +1466,15 @@ func (s *SQLiteStore) UpdateHost(ctx context.Context, h *models.Host) error {
 		unsafeNetworksJSON, h.ID,
 	)
 	if err != nil {
+		// Same reasoning as the insert paths: a rename onto a name another
+		// host already holds trips UNIQUE(network_id, name). Excluding this
+		// host's own id keeps an edit that leaves the name untouched from
+		// looking like a collision with itself.
+		if isSQLiteUniqueViolation(err) {
+			if taken, lookupErr := hostNameTaken(ctx, tx, h.NetworkID, h.Name, h.ID); lookupErr == nil && taken {
+				return fmt.Errorf("host name %q: %w", h.Name, ErrDuplicateEntry)
+			}
+		}
 		return fmt.Errorf("update host: %w", err)
 	}
 
@@ -1875,6 +1943,20 @@ func (s *SQLiteStore) CreateHostAndToken(ctx context.Context, h *models.Host, t 
 		h.NetworkID, models.MeshImportStatusCollecting,
 	)
 	if err != nil {
+		// A unique violation here is almost certainly the name, since
+		// UNIQUE(network_id, name) is the table's only unique index today —
+		// but confirm it instead of assuming. Were a later migration to add
+		// another unique index, guessing would blame the name for an
+		// unrelated failure; unconfirmed, the raw error stands and the caller
+		// reports a server fault, which is the honest answer. Non-constraint
+		// failures stay clear of this path entirely (a full disk raises
+		// SQLITE_FULL, not SQLITE_CONSTRAINT_UNIQUE). Overlay-address
+		// collisions are separate: setHostAddresses maps those to ErrIPTaken.
+		if isSQLiteUniqueViolation(err) {
+			if taken, lookupErr := hostNameTaken(ctx, tx, h.NetworkID, h.Name, h.ID); lookupErr == nil && taken {
+				return fmt.Errorf("host name %q: %w", h.Name, ErrDuplicateEntry)
+			}
+		}
 		return fmt.Errorf("insert host: %w", err)
 	}
 	if rows, err := result.RowsAffected(); err != nil {

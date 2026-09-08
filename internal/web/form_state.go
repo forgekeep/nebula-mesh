@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -388,4 +389,11 @@ func (w *Web) renderOperatorNewError(rw http.ResponseWriter, r *http.Request, fo
 		"Form":         form,
 		"PasswordHint": hint,
 	})
+}
+
+// duplicateHostNameMsg phrases a UNIQUE(network_id, name) collision in the
+// operator's terms and points at both ways out, because the name may belong
+// to a host they no longer want — a stale pending enrolment, say.
+func duplicateHostNameMsg(name string) string {
+	return fmt.Sprintf("a host named %q already exists in this network — choose a different name, or delete the existing host first", name)
 }

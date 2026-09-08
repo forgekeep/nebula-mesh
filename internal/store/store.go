@@ -90,6 +90,7 @@ type Store interface {
 	CreateHost(ctx context.Context, h *models.Host) error
 	GetHost(ctx context.Context, id string) (*models.Host, error)
 	GetHostByFingerprint(ctx context.Context, fingerprint string) (*models.Host, error)
+	GetHostByName(ctx context.Context, networkID, name string) (*models.Host, error)
 	ListHosts(ctx context.Context, filter HostFilter) ([]*models.Host, error)
 	// UpdateHost persists the host row and atomically resets its
 	// config_version to 0 in the same transaction (SEC-PERSIST-001), so the

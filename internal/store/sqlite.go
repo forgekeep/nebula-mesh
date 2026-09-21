@@ -99,6 +99,15 @@ func NewSQLiteStore(dbPath string, options ...SQLiteStoreOption) (*SQLiteStore, 
 	if strings.Contains(dsn, "?") {
 		sep = "&"
 	}
+	// Defensive mode has no PRAGMA equivalent, so the DSN is the only way to
+	// reach SQLITE_DBCONFIG_DEFENSIVE; the driver sets it immediately after
+	// sqlite3_open_v2, before the `_pragma=` list and before any statement of
+	// ours. It closes the SQL routes that deliberately corrupt the file
+	// holding CA records, hosts and enrollment state (#354, SEC-PERSIST-001).
+	// The driver rejects _defensive together with _journal_mode=OFF; we set
+	// WAL, so the combination cannot arise here.
+	dsn += sep + "_defensive=1"
+	sep = "&"
 	for _, p := range pragmas {
 		dsn += sep + "_pragma=" + url.QueryEscape(p)
 		sep = "&"

@@ -318,6 +318,18 @@ leave a weaker or partially applied security state.
   rows in the networks, hosts, certificates, or blocklist tables.
 - Migration tests exercise upgrade, repeated migrate, rollback, and foreign-key
   enforcement.
+- The store opens every connection in SQLite's defensive mode (`_defensive=1` in
+  the DSN, `internal/store/sqlite.go`). `PRAGMA writable_schema`, `PRAGMA
+  schema_version=N` and `PRAGMA journal_mode=OFF` are ignored or refused by the
+  engine, as are direct writes to `sqlite_schema` and to a virtual table's
+  shadow tables, so a statement that means to corrupt the file holding CA
+  records, hosts and enrollment state cannot reach those routes. This is
+  hardening against deliberate corruption, not a sandbox: ordinary DDL still
+  runs, the mode is a property of the connection and not of the file, and a
+  second handle opened without the parameter is unrestricted — which is why
+  `NewSQLiteStore` is the only production open site. The backup snapshot runs on
+  the store's own handle (`internal/cli/ops_backup.go:49`) and inherits it;
+  `VACUUM INTO` is unaffected.
 
 ### Test anchors
 
@@ -346,6 +358,13 @@ leave a weaker or partially applied security state.
   rejection when no default CA is configured.
 - `internal/store/migration_023_test.go`, `migration_024_test.go`, and
   `migration_pinned_conn_test.go`: migration repeatability and constraints.
+- `internal/store/sqlite_defensive_test.go`:
+  `TestNewSQLiteStore_SEC_PERSIST_001_DefensiveModeProtectsSchema` pins that a
+  schema-version write is ignored and a direct `sqlite_schema` delete is refused
+  on a store connection (both succeed without the flag, so it fails if the DSN
+  parameter is dropped);
+  `TestNewSQLiteStore_DefensiveModeKeepsStoreOperational` pins that migrations,
+  ordinary writes and the `VACUUM INTO` snapshot still work under it.
 
 ### Review checklist
 

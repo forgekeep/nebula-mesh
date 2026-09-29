@@ -13,6 +13,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/config"
 	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
+	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
@@ -127,16 +128,30 @@ func OpsRestore(configPath, inputPath, passphrase string, force bool) error {
 	if err != nil {
 		return fmt.Errorf("list restored CAs: %w", err)
 	}
-	for _, ca := range cas {
-		if _, err := resolver.LoadByID(ctx, ca.ID); err != nil {
-			return fmt.Errorf("master key cannot decrypt CA %q (%s): %w — the restored database is in place at %s but NEBULA_MGMT_MASTER_KEY does not match this backup",
-				ca.Name, ca.ID, err, cfg.DBPath)
-		}
+	if err := verifyRestoredCAs(ctx, cas, cfg.DBPath, resolver.LoadByID); err != nil {
+		return err
 	}
 
 	_ = s.AddAuditEntry(ctx, "ops", "backup.restored", inputPath, "schema="+manifest.SchemaVersion)
 	fmt.Printf("restored %s (app %s, schema %s, taken %s); verified %d CA key(s) decrypt under the master key\n",
 		inputPath, manifest.AppVersion, manifest.SchemaVersion, manifest.CreatedAt.Format(time.RFC3339), len(cas))
+	return nil
+}
+
+// verifyRestoredCAs checks every restored CA and wipes each decrypted manager
+// as soon as the check no longer needs it, including when loading reports an
+// error alongside a manager.
+func verifyRestoredCAs(ctx context.Context, cas []*models.CA, dbPath string, load func(context.Context, string) (*pki.CAManager, error)) error {
+	for _, ca := range cas {
+		manager, err := load(ctx, ca.ID)
+		if manager != nil {
+			manager.Wipe()
+		}
+		if err != nil {
+			return fmt.Errorf("master key cannot decrypt CA %q (%s): %w — the restored database is in place at %s but NEBULA_MGMT_MASTER_KEY does not match this backup",
+				ca.Name, ca.ID, err, dbPath)
+		}
+	}
 	return nil
 }
 

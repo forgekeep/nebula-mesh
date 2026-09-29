@@ -3,12 +3,59 @@ package cli
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
+
+func TestVerifyRestoredCAs_SEC_SECRET_001WipesEveryLoadedManager(t *testing.T) {
+	manager1, err := pki.NewCA("first", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager2, err := pki.NewCA("second", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key1, key2 := manager1.RawKey(), manager2.RawKey()
+	loadCalls := 0
+	loadErr := errors.New("simulated CA verification failure")
+
+	err = verifyRestoredCAs(context.Background(), []*models.CA{
+		{ID: "first", Name: "first"},
+		{ID: "second", Name: "second"},
+		{ID: "third", Name: "third"},
+	}, "/restored/nebula.db", func(_ context.Context, id string) (*pki.CAManager, error) {
+		loadCalls++
+		switch id {
+		case "first":
+			return manager1, nil
+		case "second":
+			return manager2, loadErr
+		default:
+			t.Fatalf("unexpected load after failure: %s", id)
+			return nil, nil
+		}
+	})
+	if !errors.Is(err, loadErr) {
+		t.Fatalf("verifyRestoredCAs error = %v, want wrapped load error", err)
+	}
+	if loadCalls != 2 {
+		t.Fatalf("LoadByID calls = %d, want 2 before failure", loadCalls)
+	}
+	for name, key := range map[string][]byte{"first": key1, "second": key2} {
+		for i, b := range key {
+			if b != 0 {
+				t.Fatalf("%s manager key byte %d remains after verification: %d", name, i, b)
+			}
+		}
+	}
+}
 
 func masterKeyB64(seed byte) string {
 	k := make([]byte, 32)

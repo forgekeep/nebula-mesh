@@ -211,6 +211,8 @@ does not permit avoidable application-level copies.
 - Web CA import validates CSRF without populating `Request.MultipartForm` or
   `PostForm`, restores a bounded body for streaming handler parsing, and
   zeroizes both middleware and handler secret buffers.
+- CLI restore wipes every CA manager immediately after the post-restore
+  decryption check, including managers returned alongside an error.
 
 ### Test anchors
 
@@ -226,6 +228,9 @@ does not permit avoidable application-level copies.
 - `internal/web/cas_test.go`:
   `TestCAImport_WebDoesNotRetainSecretFormCopies` and Web transport/body-limit
   coverage.
+- `internal/cli/ops_backup_test.go`:
+  `TestVerifyRestoredCAs_SEC_SECRET_001WipesEveryLoadedManager` verifies cleanup
+  after successful loads and when a failed load also returns a manager.
 
 ### Review checklist
 

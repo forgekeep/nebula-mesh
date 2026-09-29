@@ -65,21 +65,21 @@ The old CA retains `status = 'active'` explicitly — this allows existing host 
 
 ### Trust bundle distribution
 
-When an agent polls `/api/v1/agents/{id}/updates`, it receives:
+When an agent polls `/api/v1/agent/updates`, it receives:
 
 ```json
 {
-  "host_updates": { ... },
-  "ca_cert_pem": "<old-ca-cert>\\n<new-ca-cert>"
+  "has_updates": true,
+  "ca_certificate_pem": "<old-ca-cert>\n<new-ca-cert>"
 }
 ```
 
-The `ca_cert_pem` field contains a multi-cert PEM block (both the old and new CA certificates concatenated with newlines). This **trust bundle** is returned when:
+The `ca_certificate_pem` field contains both CA certificates concatenated with newlines. This **trust bundle** is returned when:
 
 - The host's CA (`host.ca_id`) exists in the database.
 - That CA has a successor (i.e., another CA with `predecessor_id = host.ca_id`).
 
-The agent's existing PEM parser (used by Nebula) natively handles multi-cert PEM files, so no agent-side code changes are required. On the next poll, the agent atomically writes the trust bundle to disk, overwriting the previous single-cert PEM.
+The agent validates each certificate in the bundle before writing any update files. It then atomically replaces the CA file with the full bundle and applies the configuration from the same poll. Nebula reads both roots from the CA file.
 
 **Depth limit**: The trust bundle contains at most two CA certificates (old + new). Deeper chains (old → new → newer) are not supported; they become a follow-up task if needed.
 
@@ -147,7 +147,7 @@ Every code path (Web UI, REST API, CLI, auto-rotate worker) calls this shared he
 ### Breaking changes
 
 - **New migration 015**: Adds the `predecessor_id` column. Rollback is supported (migration `.down.sql` drops the column).
-- **Agent updates API semantics change**: The `ca_cert_pem` field may now contain multiple PEM blocks (trust bundle) instead of a single certificate. The Nebula client natively parses multi-cert PEM, so client-side code is unaffected, but non-Nebula parsers must handle multi-cert PEM.
+- **Agent updates API semantics change**: The `ca_certificate_pem` field may contain two PEM blocks instead of one. Agents must validate both blocks before applying the update; Nebula reads both from the CA file.
 - **New REST endpoint**: `POST /api/v1/cas/{id}/rotate`. Existing clients are unaffected; new tooling can use this endpoint.
 
 ### Operational migration

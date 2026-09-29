@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -356,6 +357,9 @@ func (p *Poller) poll(ctx context.Context) error {
 			return fmt.Errorf("fingerprint returned certificate: %w", err)
 		}
 	}
+	if updates.CACertPEM != nil && !validReturnedCABundle(*updates.CACertPEM, time.Now()) {
+		return fmt.Errorf("validate returned CA certificate: invalid or expired CA")
+	}
 	if updates.ConfigYAML != nil {
 		if err := p.validateCandidateConfig(*updates.ConfigYAML); err != nil {
 			return err
@@ -375,11 +379,6 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 
 	if updates.CACertPEM != nil {
-		caCert, remainder, err := cert.UnmarshalCertificateFromPEM([]byte(*updates.CACertPEM))
-		if err != nil || strings.TrimSpace(string(remainder)) != "" || !caCert.IsCA() ||
-			caCert.Curve() != cert.Curve_CURVE25519 || caCert.Expired(time.Now()) {
-			return fmt.Errorf("validate returned CA certificate: invalid or expired CA")
-		}
 		if err := fsutil.AtomicWriteFile(p.nebulaCAPath(), []byte(*updates.CACertPEM), 0o644); err != nil {
 			return fmt.Errorf("write CA cert: %w", err)
 		}
@@ -413,6 +412,25 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// validReturnedCABundle accepts the current CA and, during rotation, its
+// successor. Validate every certificate before poll writes any update files.
+func validReturnedCABundle(raw string, now time.Time) bool {
+	remaining := bytes.TrimSpace([]byte(raw))
+	count := 0
+	for len(remaining) > 0 {
+		if count == 2 || !bytes.HasPrefix(remaining, []byte("-----BEGIN ")) {
+			return false
+		}
+		caCert, rest, err := cert.UnmarshalCertificateFromPEM(remaining)
+		if err != nil || !caCert.IsCA() || caCert.Curve() != cert.Curve_CURVE25519 || caCert.Expired(now) {
+			return false
+		}
+		count++
+		remaining = bytes.TrimSpace(rest)
+	}
+	return count > 0
 }
 
 func (p *Poller) acknowledgeConfig(ctx context.Context, version int) error {

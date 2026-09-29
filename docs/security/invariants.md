@@ -307,6 +307,10 @@ leave a weaker or partially applied security state.
 - Host updates persist Host fields and reset `config_version` in the same
   transaction, so a failed update preserves both the previous firewall state
   and its published version.
+- The agent validates every CA certificate in a rotation bundle before writing
+  the returned host certificate, CA file, or configuration. Valid two-root
+  bundles allow the `pki.blocklist` update to reach disk; malformed bundles
+  leave the prior files untouched.
 - Every certificate-signing path re-checks blocked Host and disabled owning
   Operator state from the store.
 - Mobile bundle generation reads the durable CA blocklist and current enrolled
@@ -338,6 +342,10 @@ leave a weaker or partially applied security state.
   `TestFinalizeMeshImportRollsBackChallengeCleanup`.
 - `internal/api/durable_revocation_test.go`: blocked Host and disabled owner
   prevent enrollment, renewal, re-enrollment, and mobile bundle issuance.
+- `internal/agent/poller_ca_bundle_test.go`:
+  `TestPollerRejectsInvalidRotationCABundleBeforeWriting` preserves all update
+  files on malformed bundles; `TestPollerAppliesRotationCABundleAndBlocklistConfig`
+  covers delivery of the blocklist with a valid bundle.
 - `internal/mobilebundle/mobile_profile_test.go`:
   `TestBuild_SEC_PERSIST_001IncludesCurrentBlocklistAndEnrolledRelays` and
   `TestBuild_SEC_PERSIST_001InvalidSettingsDoNotEnrollOrRotateCertificate`, and

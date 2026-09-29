@@ -15,7 +15,7 @@ import (
 
 const operatorColumns = `id, username, display_name, password_hash, auth_provider, status, role, totp_secret, totp_enabled, oidc_issuer, oidc_subject, created_at, updated_at, last_login_at, failed_login_attempts, locked_until`
 
-func scanOperator(scanner interface {
+func (s *SQLiteStore) scanOperator(scanner interface {
 	Scan(dest ...any) error
 }) (*models.Operator, error) {
 	var op models.Operator
@@ -23,17 +23,23 @@ func scanOperator(scanner interface {
 		lastLogin   sql.NullTime
 		lockedUntil sql.NullTime
 		totpEnabled int
+		sealedTOTP  string
 	)
 	if err := scanner.Scan(
 		&op.ID, &op.Username, &op.DisplayName, &op.PasswordHash,
 		&op.AuthProvider, &op.Status, &op.Role,
-		&op.TOTPSecret, &totpEnabled,
+		&sealedTOTP, &totpEnabled,
 		&op.OIDCIssuer, &op.OIDCSubject,
 		&op.CreatedAt, &op.UpdatedAt, &lastLogin,
 		&op.FailedLoginAttempts, &lockedUntil,
 	); err != nil {
 		return nil, err
 	}
+	secret, err := s.openTOTPSecret(op.ID, sealedTOTP)
+	if err != nil {
+		return nil, fmt.Errorf("operator TOTP secret: %w", err)
+	}
+	op.TOTPSecret = secret
 	op.TOTPEnabled = totpEnabled != 0
 	if lastLogin.Valid {
 		t := lastLogin.Time
@@ -196,7 +202,7 @@ func (s *SQLiteStore) GetOperatorByOIDC(ctx context.Context, issuer, subject str
 		`SELECT `+operatorColumns+` FROM operators WHERE oidc_issuer = ? AND oidc_subject = ?`,
 		issuer, subject,
 	)
-	op, err := scanOperator(row)
+	op, err := s.scanOperator(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -208,7 +214,7 @@ func (s *SQLiteStore) GetOperatorByOIDC(ctx context.Context, issuer, subject str
 
 func (s *SQLiteStore) GetOperator(ctx context.Context, id string) (*models.Operator, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+operatorColumns+` FROM operators WHERE id = ?`, id)
-	op, err := scanOperator(row)
+	op, err := s.scanOperator(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -220,7 +226,7 @@ func (s *SQLiteStore) GetOperator(ctx context.Context, id string) (*models.Opera
 
 func (s *SQLiteStore) GetOperatorByUsername(ctx context.Context, username string) (*models.Operator, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+operatorColumns+` FROM operators WHERE username = ?`, username)
-	op, err := scanOperator(row)
+	op, err := s.scanOperator(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -242,7 +248,7 @@ func (s *SQLiteStore) ListOperators(ctx context.Context) ([]*models.Operator, er
 	}()
 	var out []*models.Operator
 	for rows.Next() {
-		op, err := scanOperator(rows)
+		op, err := s.scanOperator(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan operator: %w", err)
 		}
@@ -377,6 +383,10 @@ func (s *SQLiteStore) EnableOperator(ctx context.Context, id string) error {
 // SetOperatorTOTP records the operator's TOTP secret and enabled flag.
 // Passing enabled=false with secret="" clears 2FA entirely.
 func (s *SQLiteStore) SetOperatorTOTP(ctx context.Context, id, secret string, enabled bool) error {
+	sealedSecret, err := s.sealTOTPSecret(id, secret)
+	if err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -392,7 +402,7 @@ func (s *SQLiteStore) SetOperatorTOTP(ctx context.Context, id, secret string, en
 	}
 	result, err := tx.ExecContext(ctx,
 		`UPDATE operators SET totp_secret=?, totp_enabled=?, updated_at=? WHERE id=?`,
-		secret, enabledInt, time.Now(), id,
+		sealedSecret, enabledInt, time.Now(), id,
 	)
 	if err != nil {
 		return fmt.Errorf("update totp: %w", err)
@@ -620,7 +630,7 @@ func (s *SQLiteStore) GetOperatorByAPIKey(ctx context.Context, rawKey string) (*
 	}
 
 	opRow := s.db.QueryRowContext(ctx, `SELECT `+operatorColumns+` FROM operators WHERE id = ?`, k.OperatorID)
-	op, err := scanOperator(opRow)
+	op, err := s.scanOperator(opRow)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
 	}
@@ -787,7 +797,7 @@ func (s *SQLiteStore) GetOperatorBySession(ctx context.Context, token string) (*
 		return nil, ErrNotFound
 	}
 	opRow := s.db.QueryRowContext(ctx, `SELECT `+operatorColumns+` FROM operators WHERE id=?`, operatorID)
-	op, err := scanOperator(opRow)
+	op, err := s.scanOperator(opRow)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -830,7 +840,7 @@ func (s *SQLiteStore) GetPendingTwoFactorOperator(ctx context.Context, token str
 		return nil, ErrNotFound
 	}
 	opRow := s.db.QueryRowContext(ctx, `SELECT `+operatorColumns+` FROM operators WHERE id=?`, operatorID)
-	op, err := scanOperator(opRow)
+	op, err := s.scanOperator(opRow)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

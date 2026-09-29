@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,13 +10,18 @@ import (
 	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 func newTestStore(t *testing.T) *SQLiteStore {
 	t.Helper()
 	hasher := newTestCredentialHasher(t)
-	s, err := NewSQLiteStore(":memory:", WithCredentialHasher(hasher))
+	master, err := keystore.NewMaster(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewSQLiteStore(":memory:", WithCredentialHasher(hasher), WithTOTPSecretMaster(master))
 	if err != nil {
 		t.Fatal(err)
 	}

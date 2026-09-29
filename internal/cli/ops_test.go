@@ -138,10 +138,10 @@ func TestOpsResetTOTP_SEC_CREDENTIAL_001_RequiresConfirmationAndResets(t *testin
 	require.NoError(t, os.WriteFile(configPath, []byte(
 		"db_path: \""+dbPath+"\"\ndata_dir: \""+tmpDir+"\"\n"), 0o600))
 
-	_, hasher, err := loadRuntimeKeys(masterB64)
+	master, hasher, err := loadRuntimeKeys(masterB64)
 	require.NoError(t, err)
 	t.Cleanup(hasher.Destroy)
-	s, err := store.NewSQLiteStore(dbPath, store.WithCredentialHasher(hasher))
+	s, err := store.NewSQLiteStore(dbPath, store.WithCredentialHasher(hasher), store.WithTOTPSecretMaster(master))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 	require.NoError(t, s.Migrate(context.Background()))

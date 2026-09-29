@@ -66,7 +66,11 @@ func openTestSQLiteStore(t testing.TB) (*store.SQLiteStore, error) {
 		return nil, err
 	}
 	t.Cleanup(hasher.Destroy)
-	return store.NewSQLiteStore(":memory:", store.WithCredentialHasher(hasher))
+	master, err := keystore.NewMaster(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
+	if err != nil {
+		return nil, err
+	}
+	return store.NewSQLiteStore(":memory:", store.WithCredentialHasher(hasher), store.WithTOTPSecretMaster(master))
 }
 
 func loginSession(t *testing.T, w *Web) []*http.Cookie {

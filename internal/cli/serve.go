@@ -101,6 +101,7 @@ func Serve(configPath string, insecureHTTP bool) error {
 	// Open database
 	s, err := store.NewSQLiteStore(cfg.DBPath,
 		store.WithCredentialHasher(hasher),
+		store.WithTOTPSecretMaster(master),
 		store.WithCredentialCutoverGuard(credentialCutoverMasterGuard(master)),
 	)
 	if err != nil {

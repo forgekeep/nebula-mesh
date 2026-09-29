@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/credentialhash"
+	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store/migrations"
 
@@ -54,6 +55,7 @@ var (
 type SQLiteStore struct {
 	db                     *sql.DB
 	hasher                 *credentialhash.Hasher
+	totpCipher             totpSecretCipher
 	credentialCutoverGuard func(context.Context, *SQLiteStore) error
 }
 
@@ -64,6 +66,18 @@ type SQLiteStoreOption func(*SQLiteStore)
 func WithCredentialHasher(hasher *credentialhash.Hasher) SQLiteStoreOption {
 	return func(store *SQLiteStore) {
 		store.hasher = hasher
+	}
+}
+
+// WithTOTPSecretMaster provides the master key used to encrypt operator TOTP
+// seeds. Without it, stores reject non-empty TOTP reads and writes.
+func WithTOTPSecretMaster(master *keystore.Master) SQLiteStoreOption {
+	return func(store *SQLiteStore) {
+		if master == nil {
+			store.totpCipher = nil
+			return
+		}
+		store.totpCipher = master
 	}
 }
 
@@ -221,6 +235,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"026_redeliver_wdf_config.up.sql",
 		"027_keyed_credential_cutover.up.sql",
 		"028_host_unsafe_networks.up.sql",
+		"029_encrypt_operator_totp.up.sql",
 	}
 
 	conn, err := s.db.Conn(ctx)
@@ -274,6 +289,12 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 			}
 			continue
 		}
+		if f == "029_encrypt_operator_totp.up.sql" {
+			if err := applyMigration029(ctx, s, conn, f); err != nil {
+				return err
+			}
+			continue
+		}
 		// Migration 018 enforces UNIQUE(network_id, address). Before applying it,
 		// resolve the data conditions that would otherwise make it fail with a raw
 		// SQLite error: a cross-host duplicate (a security defect with no safe
@@ -303,6 +324,12 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		if _, err := conn.ExecContext(ctx, `INSERT OR REPLACE INTO schema_migrations(name) VALUES (?)`, f); err != nil {
 			return fmt.Errorf("record migration %s: %w", f, err)
 		}
+	}
+
+	// A restored or reopened database must fail at startup if its TOTP secrets
+	// cannot be authenticated under the configured master key.
+	if err := s.validateTOTPSecrets(ctx, conn); err != nil {
+		return fmt.Errorf("validate operator TOTP secrets: %w", err)
 	}
 
 	// Repair path for databases that applied the broken pre-#37 loader:

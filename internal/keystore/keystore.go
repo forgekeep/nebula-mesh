@@ -1,5 +1,5 @@
-// Package keystore implements envelope encryption for CA private key
-// material persisted in SQLite. Each CA gets a fresh data-encryption key
+// Package keystore implements encryption for cryptographic material persisted
+// in SQLite. Each CA gets a fresh data-encryption key
 // (DEK) wrapped under a process-wide master key (KEK) supplied through
 // NEBULA_MGMT_MASTER_KEY. AES-256-GCM is used for both wraps.
 //
@@ -116,6 +116,30 @@ func (m *Master) UnwrapDEK(w WrappedKey, aad []byte) ([]byte, error) {
 	pt, err := m.aead.Open(nil, w.Nonce, w.Ciphertext, aad)
 	if err != nil {
 		return nil, fmt.Errorf("unwrap dek: %w", err)
+	}
+	return pt, nil
+}
+
+// Seal encrypts a small secret directly under the master key. Callers must
+// supply purpose-separated AAD that also binds the owning record.
+func (m *Master) Seal(plaintext, aad []byte) (WrappedBlob, error) {
+	nonce := make([]byte, NonceSize)
+	if _, err := rand.Read(nonce); err != nil {
+		return WrappedBlob{}, fmt.Errorf("rand nonce: %w", err)
+	}
+	ct := m.aead.Seal(nil, nonce, plaintext, aad) // #nosec G407 -- nonce is freshly generated via crypto/rand above
+	return WrappedBlob{Ciphertext: ct, Nonce: nonce}, nil
+}
+
+// Open decrypts a secret sealed under the master key with the same AAD.
+// The caller owns and must zeroize the returned plaintext buffer.
+func (m *Master) Open(w WrappedBlob, aad []byte) ([]byte, error) {
+	if len(w.Nonce) != NonceSize {
+		return nil, fmt.Errorf("wrapped blob nonce: %d bytes, want %d", len(w.Nonce), NonceSize)
+	}
+	pt, err := m.aead.Open(nil, w.Nonce, w.Ciphertext, aad)
+	if err != nil {
+		return nil, fmt.Errorf("open master-sealed blob: %w", err)
 	}
 	return pt, nil
 }

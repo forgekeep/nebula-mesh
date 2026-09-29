@@ -83,6 +83,72 @@ master_key: "` + masterB64 + `"
 	return cfgPath, dbPath
 }
 
+func TestOpsBackup_SEC_TOTP_001_RefusesPlainArchiveBeforeSeedMigration(t *testing.T) {
+	t.Setenv("NEBULA_MGMT_MASTER_KEY", "")
+	dir := t.TempDir()
+	cfgPath, dbPath := writeServerConfig(t, dir, masterKeyB64(42))
+	if err := Init(cfgPath); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`DROP TRIGGER operator_totp_secret_insert`,
+		`DROP TRIGGER operator_totp_secret_update`,
+		`DELETE FROM schema_migrations WHERE name = '029_encrypt_operator_totp.up.sql'`,
+		`UPDATE operators SET totp_secret = 'JBSWY3DPEHPK3PXP' WHERE username = 'admin'`,
+	} {
+		if _, err := s.DB().ExecContext(context.Background(), stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	plainArchive := filepath.Join(t.TempDir(), "plain.tar.gz")
+	if err := OpsBackup(cfgPath, plainArchive, "", "vtest"); err == nil || !contains(err.Error(), "plaintext TOTP seed") {
+		t.Fatalf("plain backup error = %v", err)
+	}
+	if _, err := os.Stat(plainArchive); !os.IsNotExist(err) {
+		t.Fatalf("plain backup artifact exists or stat failed: %v", err)
+	}
+	protectedArchive := filepath.Join(t.TempDir(), "protected.tar.gz")
+	if err := OpsBackup(cfgPath, protectedArchive, "test-backup-passphrase", "vtest"); err != nil {
+		t.Fatalf("encrypted backup of legacy DB: %v", err)
+	}
+	restoreDir := t.TempDir()
+	restoreCfg, restoreDB := writeServerConfig(t, restoreDir, masterKeyB64(42))
+	if err := OpsRestore(restoreCfg, protectedArchive, "test-backup-passphrase", false); err != nil {
+		t.Fatalf("restore and migrate legacy TOTP seed: %v", err)
+	}
+	master, hasher, err := loadRuntimeKeys(masterKeyB64(42))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hasher.Destroy()
+	restored, err := store.NewSQLiteStore(restoreDB, store.WithTOTPSecretMaster(master))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	op, err := restored.GetOperatorByUsername(context.Background(), "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op.TOTPSecret != "JBSWY3DPEHPK3PXP" {
+		t.Fatal("restored TOTP seed differs from the legacy value")
+	}
+	var stored string
+	if err := restored.DB().QueryRow(`SELECT totp_secret FROM operators WHERE username = 'admin'`).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored == op.TOTPSecret {
+		t.Fatal("restored database still contains the legacy plaintext TOTP seed")
+	}
+}
+
 // TestOpsBackupRestore_RoundTripWithMasterKeyCheck initializes a control plane
 // (which mints a default CA), backs it up, restores into a fresh data dir under
 // the same master key, and asserts the restored CA decrypts.

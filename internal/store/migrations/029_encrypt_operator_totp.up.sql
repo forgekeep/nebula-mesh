@@ -1,0 +1,2 @@
+-- SEC-TOTP-001: applied by applyMigration029 in one transaction because
+-- existing operator TOTP seeds must be encrypted with the configured master.

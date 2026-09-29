@@ -154,7 +154,11 @@ func New(tb TB, opts ...Option) *Harness {
 		tb.Fatalf("new credential hasher: %v", err)
 	}
 	tb.Cleanup(hasher.Destroy)
-	s, err := store.NewSQLiteStore(dbPath, store.WithCredentialHasher(hasher))
+	master, err := keystore.NewMaster(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
+	if err != nil {
+		tb.Fatalf("new master: %v", err)
+	}
+	s, err := store.NewSQLiteStore(dbPath, store.WithCredentialHasher(hasher), store.WithTOTPSecretMaster(master))
 	if err != nil {
 		tb.Fatalf("new store: %v", err)
 	}
@@ -168,10 +172,6 @@ func New(tb TB, opts ...Option) *Harness {
 	clk := &simClock{}
 	srv.WithClock(clk.now)
 
-	master, err := keystore.NewMaster(bytes.Repeat([]byte{0x77}, keystore.MasterKeySize))
-	if err != nil {
-		tb.Fatalf("new master: %v", err)
-	}
 	srv.WithMaster(master)
 	srv.WithCAResolver(pki.NewCAResolver(s, master))
 

@@ -38,6 +38,16 @@ func OpsBackup(configPath, outputPath, passphrase, appVersion string) error {
 	if err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
+	if passphrase == "" && schemaVer >= "006_operator_totp.up.sql" && schemaVer < "029_encrypt_operator_totp.up.sql" {
+		var legacySeeds int
+		if err := s.DB().QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM operators WHERE totp_secret <> ''`).Scan(&legacySeeds); err != nil {
+			return fmt.Errorf("check legacy TOTP seeds before backup: %w", err)
+		}
+		if legacySeeds != 0 {
+			return fmt.Errorf("unencrypted backup would contain %d plaintext TOTP seed(s): start the server to migrate the database or supply a backup passphrase", legacySeeds)
+		}
+	}
 
 	// O_EXCL: never silently overwrite an existing backup file.
 	out, err := os.OpenFile(outputPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // #nosec G304 -- outputPath is the operator-supplied --output CLI argument
@@ -109,6 +119,7 @@ func OpsRestore(configPath, inputPath, passphrase string, force bool) error {
 	ctx := context.Background()
 	s, err := store.NewSQLiteStore(cfg.DBPath,
 		store.WithCredentialHasher(hasher),
+		store.WithTOTPSecretMaster(master),
 		store.WithCredentialCutoverGuard(credentialCutoverMasterGuard(master)),
 	)
 	if err != nil {

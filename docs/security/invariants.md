@@ -169,6 +169,60 @@ not be accepted.
 4. Do negative regression tests name `SEC-CREDENTIAL-001` or the applicable
    lifecycle invariant?
 
+## SEC-TOTP-001: encrypted operator TOTP seeds
+
+### Rule
+
+Every non-empty pending or enabled operator TOTP seed persisted in SQLite must
+be authenticated ciphertext under the configured master key. Encryption must
+use a fresh AES-256-GCM nonce and bind the storage purpose and operator ID as
+associated data. Empty seeds remain empty.
+
+- After cutover, a missing or wrong master key, unknown format, malformed
+  ciphertext, or failed authentication must not expose a seed or permit TOTP
+  verification.
+- The legacy plaintext cutover must encrypt all non-empty seeds and record its
+  migration marker in one transaction. Any failure must leave the prior rows
+  and marker unchanged.
+- Once migrated, the database must reject plaintext TOTP writes. There is no
+  plaintext read fallback or downgrade compatibility.
+- Backup and restore continue to require the same out-of-band master key;
+  archive passphrase encryption is a separate option.
+- Before migration, an unencrypted backup containing plaintext TOTP seeds must
+  be refused. An encrypted archive remains available for recovery.
+
+### Current enforcement
+
+- `SQLiteStore` seals on `SetOperatorTOTP` and authenticates on every operator
+  scan. Migration 029 transforms legacy rows transactionally, installs format
+  triggers, and validates encrypted rows on every `Migrate` call.
+- Server, init, restore, and recovery CLI paths supply the configured master
+  key before opening and migrating the store.
+- `OpsBackup` refuses an archive without a passphrase when a pre-migration
+  database still has TOTP seeds.
+- A legacy database with TOTP seeds but no CA has no authenticated record of
+  its former master key. Its first migration uses the configured key; operators
+  must supply the same key they used before upgrade.
+
+### Test anchors
+
+- `internal/store/migration_029_test.go` covers enabled and pending legacy
+  seeds, missing master and SQL-failure rollback, repeat migration, wrong-key
+  startup, ciphertext swap rejection, and plaintext-write rejection.
+- `internal/web/totp_test.go` covers TOTP enrollment and login through the
+  unchanged operator-facing workflow.
+- `internal/cli/ops_backup_test.go`:
+  `TestOpsBackup_SEC_TOTP_001_RefusesPlainArchiveBeforeSeedMigration` covers
+  the pre-migration backup guard.
+
+### Review checklist
+
+1. Does any operator write bypass authenticated encryption or cleartext
+   rejection, including pending enrollment and reset paths?
+2. Do reads fail closed under missing or mismatched key material and copied or
+   corrupted ciphertext?
+3. Does a failed migration preserve every row and its marker for a safe retry?
+
 ## SEC-SECRET-001: mutable cryptographic secret ingress
 
 ### Rule
@@ -213,6 +267,8 @@ does not permit avoidable application-level copies.
   zeroizes both middleware and handler secret buffers.
 - CLI restore wipes every CA manager immediately after the post-restore
   decryption check, including managers returned alongside an error.
+- Migration 029 scans legacy TOTP seeds into owned byte buffers and wipes them
+  after encryption or rollback.
 
 ### Test anchors
 
@@ -231,6 +287,9 @@ does not permit avoidable application-level copies.
 - `internal/cli/ops_backup_test.go`:
   `TestVerifyRestoredCAs_SEC_SECRET_001WipesEveryLoadedManager` verifies cleanup
   after successful loads and when a failed load also returns a manager.
+- `internal/store/migration_029_test.go`:
+  `TestMigration029_SEC_PERSIST_001_SQLFailureRollsBackEverySeed` also verifies
+  `SEC-SECRET-001` buffer cleanup on the failure path.
 
 ### Review checklist
 

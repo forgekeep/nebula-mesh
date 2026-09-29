@@ -59,6 +59,7 @@ func Init(configPath string) error {
 	// Initialize database
 	s, err := store.NewSQLiteStore(cfg.DBPath,
 		store.WithCredentialHasher(hasher),
+		store.WithTOTPSecretMaster(master),
 		store.WithCredentialCutoverGuard(credentialCutoverMasterGuard(master)),
 	)
 	if err != nil {

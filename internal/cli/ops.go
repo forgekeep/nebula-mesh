@@ -40,6 +40,7 @@ func OpsMintAdminKey(configPath string) error {
 
 	s, err := store.NewSQLiteStore(cfg.DBPath,
 		store.WithCredentialHasher(hasher),
+		store.WithTOTPSecretMaster(master),
 		store.WithCredentialCutoverGuard(credentialCutoverMasterGuard(master)),
 	)
 	if err != nil {
@@ -122,6 +123,7 @@ func OpsResetTOTP(configPath, username string, confirm bool) error {
 
 	s, err := store.NewSQLiteStore(cfg.DBPath,
 		store.WithCredentialHasher(hasher),
+		store.WithTOTPSecretMaster(master),
 		store.WithCredentialCutoverGuard(credentialCutoverMasterGuard(master)),
 	)
 	if err != nil {

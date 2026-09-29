@@ -202,6 +202,8 @@ does not permit avoidable application-level copies.
 
 ### Current enforcement
 
+- The credential cutover guard wipes each decrypted CA manager immediately
+  after its key-decryption check, including when loading returns an error.
 - API CA import accepts bounded `multipart/form-data`, rejects JSON and
   malformed field sets, and zeroizes private-key and passphrase buffers.
 - CLI CA import decrypts locally, sends a mutable multipart buffer, refuses
@@ -212,6 +214,10 @@ does not permit avoidable application-level copies.
 
 ### Test anchors
 
+- `internal/cli/runtime_keys_test.go`:
+  `TestCredentialCutoverMasterGuard_SEC_SECRET_001WipesLoadedCAManager` proves
+  the cutover guard wipes a returned CA key even when the loader also reports
+  an error.
 - `internal/api/cas_test.go`: JSON rejection, fail-closed multipart parsing,
   transport-before-body, and importer-buffer zeroization.
 - `internal/cli/ca_test.go`: local encrypted-key handling and redirect refusal.

@@ -267,8 +267,6 @@ does not permit avoidable application-level copies.
   zeroizes both middleware and handler secret buffers.
 - CLI restore wipes every CA manager immediately after the post-restore
   decryption check, including managers returned alongside an error.
-- Migration 029 scans legacy TOTP seeds into owned byte buffers and wipes them
-  after encryption or rollback.
 
 ### Test anchors
 
@@ -287,9 +285,6 @@ does not permit avoidable application-level copies.
 - `internal/cli/ops_backup_test.go`:
   `TestVerifyRestoredCAs_SEC_SECRET_001WipesEveryLoadedManager` verifies cleanup
   after successful loads and when a failed load also returns a manager.
-- `internal/store/migration_029_test.go`:
-  `TestMigration029_SEC_PERSIST_001_SQLFailureRollsBackEverySeed` also verifies
-  `SEC-SECRET-001` buffer cleanup on the failure path.
 
 ### Review checklist
 
@@ -302,6 +297,11 @@ When a change touches secret ingress, verify:
 4. Are transport and identity checks executed before the first body read?
 5. Do negative tests prove rejection and cleanup, rather than only a successful
    round trip?
+
+Migration 029 scans legacy TOTP seeds into owned byte buffers and wipes them
+after encryption or rollback. `internal/store/migration_029_test.go`:
+`TestMigration029_SEC_PERSIST_001_SQLFailureRollsBackEverySeed` verifies
+`SEC-SECRET-001` buffer cleanup on the failure path.
 
 ## SEC-DIAGNOSTIC-001: CLI unclassified argument diagnostics
 

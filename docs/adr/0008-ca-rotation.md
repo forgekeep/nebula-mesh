@@ -87,7 +87,7 @@ The agent validates each certificate in the bundle before writing any update fil
 
 ### Opt-in auto-rotate worker
 
-A background scanner (`internal/cawatch/scanner.go`) can be enabled to automatically rotate approaching-expiry CAs. Configuration in `server.yaml`:
+A background scanner (`internal/cawatch/scanner.go`) can be enabled to automatically rotate approaching-expiry CAs. Configuration in `server.yml`:
 
 ```yaml
 ca_auto_rotate:

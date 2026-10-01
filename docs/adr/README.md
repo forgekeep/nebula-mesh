@@ -11,3 +11,4 @@
 | [0007](0007-remove-legacy-ca-stack.md) | Remove legacy on-disk CA stack | Accepted |
 | [0008](0008-ca-rotation.md) | Hybrid CA rotation | Accepted |
 | [0009](0009-scale-and-fuzz-testing.md) | Scale, concurrency, and fuzz testing | Proposed |
+| [0010](0010-keyed-credential-verifiers.md) | Keyed credential verifiers | Accepted |

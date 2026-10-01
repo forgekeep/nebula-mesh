@@ -342,7 +342,7 @@ nebula-mgmt ca delete --server ... --api-key "$OPERATOR_KEY" --id "$CA_ID"
 
 Non-admin operators see and manage only the CAs they own; admins see all. Hosts enrolled under a tenant CA receive **that** CA's certificate, not the default one. Audit log entries (`ca.created`, `ca.deleted`, plus existing `host.*` events with the host's `ca_id`) record both the actor and the affected CA. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the encryption-at-rest design.
 
-**CA rotation**: when a CA approaches its expiry (≤20% lifetime remaining), the UI shows a warning badge on the CA pages. Operators can click **Rotate** to create a successor CA; existing host certificates remain valid until their natural expiry. CLI: `nebula-mgmt ca rotate <id>`. Optional opt-in auto-rotation: set `ca_auto_rotate.enabled: true` in `server.yaml` to enable automatic rotation (disabled by default). See [ADR 0008](docs/adr/0008-ca-rotation.md) for the hybrid model and trust bundle distribution.
+**CA rotation**: when a CA approaches its expiry (≤20% lifetime remaining), the UI shows a warning badge on the CA pages. Operators can click **Rotate** to create a successor CA; existing host certificates remain valid until their natural expiry. CLI: `nebula-mgmt ca rotate <id>`. Optional opt-in auto-rotation: set `ca_auto_rotate.enabled: true` in `server.yml` to enable automatic rotation (disabled by default). See [ADR 0008](docs/adr/0008-ca-rotation.md) for the hybrid model and trust bundle distribution.
 
 To adopt hosts that already run Nebula, import their CA, create an empty Network,
 then use `/ui/mesh-imports`. The agent discovers the existing config and keeps
@@ -378,7 +378,7 @@ The server administrator can decrypt every CA on the box (the master key is in p
 <a name="endpoints"></a>
 ## Endpoints
 
-The router (issue #69) splits the listener three ways: `/api/` for the API surface, root + `/ui/` for the Web UI, and a fixed list of ops paths kept at the root for monitoring scrapes. The bare `/` redirects browsers to `/ui/`.
+The router splits the listener three ways: `/api/` for the API surface, root + `/ui/` for the Web UI, and a fixed list of ops paths kept at the root for monitoring scrapes. The bare `/` redirects browsers to `/ui/`.
 
 | Prefix | Path | Auth | Purpose |
 |---|---|---|---|
@@ -423,7 +423,7 @@ Ops endpoints (`/healthz`, `/readyz`, `/metrics`, `/debug/`, `/favicon.ico`, `/s
 
 - **Authentication.** Interactive logins are bcrypt-verified against the operator's password; sessions are DB-backed and revoked atomically on `user disable`. Optional TOTP 2FA + recovery codes. Optional OIDC SSO.
 - **Authorization.** Operator-management API and CA-management API require `role: admin`; non-admin operators can only see and act on the CAs they own.
-- **API keys.** Per-operator, stored as SHA-256 hashes — disable an operator and every key revokes in the same transaction. All admin authentication runs through DB-backed operator_api_keys (SHA-256 hashed).
+- **API keys.** Per-operator, stored only as keyed HMAC-SHA-256 verifiers derived from the master key ([ADR 0010](docs/adr/0010-keyed-credential-verifiers.md)) — a database-only leak does not yield a usable credential. Disable an operator and every key revokes in the same transaction.
 - **CA key material.** Stored encrypted at rest in SQLite under a process-wide AES-256-GCM master key (`NEBULA_MGMT_MASTER_KEY`), supplied at startup and never persisted. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the threat-model discussion and [ADR 0003](docs/adr/0003-ca-encryption-model.md) for the operator-derived-KEK / zero-knowledge alternatives we evaluated and deferred.
 - **Transport.** Always run the management server behind TLS — set `tls_cert` + `tls_key`, or front with nginx/caddy/traefik. Without TLS the server binds only a loopback address by default; it refuses to serve cleartext on a routable address unless you opt in with `allow_insecure_http: true` (or `--insecure-http`) — credentials would otherwise transit in the clear (#179).
 - **Disclosure.** Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).

@@ -353,7 +353,7 @@ func TestMintCAForOperator_ErrorWhenMasterNil(t *testing.T) {
 	}
 }
 
-// TestHandleCACreate_StillWorks verifies rефакторинг doesn't break existing handler.
+// TestHandleCACreate_StillWorks verifies the refactoring doesn't break existing handler.
 func TestHandleCACreate_StillWorks(t *testing.T) {
 	w, s := newOperatorsWebWithMaster(t)
 	cookie := mintSession(t, s, "frank", "user")

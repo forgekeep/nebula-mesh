@@ -37,4 +37,4 @@ risks are documented in [docs/security/threat-model.md](docs/security/threat-mod
 
 ## Hardening guidance
 
-See the "Security notes" section of [README.md](README.md) and the [deployment notes](deploy/) for the baseline we recommend.
+See the [Security](README.md#security) section of the README and the [deployment notes](deploy/) for the baseline we recommend.

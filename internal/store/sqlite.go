@@ -18,7 +18,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store/migrations"
 
-	_ "modernc.org/sqlite" // database/sql driver registration
+	"modernc.org/sqlite" // also registers the database/sql driver
 )
 
 var (
@@ -126,6 +126,13 @@ func NewSQLiteStore(dbPath string, options ...SQLiteStoreOption) (*SQLiteStore, 
 		dsn += sep + "_pragma=" + url.QueryEscape(p)
 		sep = "&"
 	}
+
+	// dbPath comes from the server configuration and its query string reaches
+	// the driver, which runs a `_pragma` value as SQL text: anything after a
+	// `;` would run too. Strict pragmas reject such a value before any DSN
+	// parameter is applied (#386, SEC-PERSIST-001). The switch is process-wide
+	// by design, not a DSN parameter, since the DSN is what it guards.
+	sqlite.StrictPragmas(true)
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

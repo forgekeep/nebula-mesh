@@ -404,6 +404,14 @@ leave a weaker or partially applied security state.
   `NewSQLiteStore` is the only production open site. The backup snapshot runs on
   the store's own handle (`internal/cli/ops_backup.go:49`) and inherits it;
   `VACUUM INTO` is unaffected.
+- `NewSQLiteStore` turns on the driver's strict pragmas (`sqlite.StrictPragmas`)
+  before it opens a connection. The query string of `db_path` reaches the
+  driver, which runs a `_pragma` value as SQL text; with the switch on, a value
+  holding more than one statement fails the open with `ErrMultiStatementPragma`
+  before any DSN parameter is applied. This narrows a configured `_pragma` to
+  the one PRAGMA it names and nothing more: a single PRAGMA can still change the
+  database file, and the file name stays the configuration's to choose. The
+  switch is process-wide, so it covers every connection opened afterwards.
 
 ### Test anchors
 
@@ -443,6 +451,13 @@ leave a weaker or partially applied security state.
   parameter is dropped);
   `TestNewSQLiteStore_DefensiveModeKeepsStoreOperational` pins that migrations,
   ordinary writes and the `VACUUM INTO` snapshot still work under it.
+- `internal/store/sqlite_strict_pragmas_test.go`:
+  `TestNewSQLiteStore_SEC_PERSIST_001_RejectsMultiStatementPragma` pins that a
+  `db_path` carrying a multi-statement `_pragma` fails the open and its trailing
+  `ATTACH` does not create the side database (without the switch the open
+  succeeds and the file appears);
+  `TestNewSQLiteStore_StrictPragmasKeepsStoreOperational` pins that an ordinary
+  open still succeeds with WAL in effect.
 
 ### Review checklist
 

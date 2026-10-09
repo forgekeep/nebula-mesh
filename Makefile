@@ -1,5 +1,5 @@
 # Keep GOLANGCI_VERSION in sync with .github/workflows/ci.yml
-GOLANGCI_VERSION ?= v2.13.1
+GOLANGCI_VERSION ?= v2.14.0
 GOSEC_VERSION ?= v2.28.0
 GOVULNCHECK_VERSION ?= v1.7.0
 

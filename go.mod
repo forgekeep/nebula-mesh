@@ -1,6 +1,6 @@
 module github.com/forgekeep/nebula-mesh
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/boombuler/barcode v1.1.0

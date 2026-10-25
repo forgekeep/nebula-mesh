@@ -3,6 +3,7 @@ package configgen
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -270,17 +271,19 @@ func buildConfig(input GeneratorInput) nebulaConfig {
 	}
 
 	cfg.StaticHostMap = map[safeString][]safeString{}
-	if input.IsLighthouse {
-		cfg.Lighthouse = lighthouseSection{AmLighthouse: true}
-	} else {
-		var hosts []safeString
-		for _, lh := range input.Lighthouses {
-			for _, ip := range lh.NebulaIPs {
-				cfg.StaticHostMap[safeString(ip)] = []safeString{safeString(lh.PublicAddr)}
-				hosts = append(hosts, safeString(ip))
+	cfg.Lighthouse = lighthouseSection{AmLighthouse: input.IsLighthouse}
+	// Lighthouses do not query one another, but still need static endpoints
+	// to establish tunnels to their peers, including for relayed traffic.
+	for _, lh := range input.Lighthouses {
+		for _, ip := range lh.NebulaIPs {
+			if input.IsLighthouse && slices.Contains(input.NebulaIPs, ip) {
+				continue
+			}
+			cfg.StaticHostMap[safeString(ip)] = []safeString{safeString(lh.PublicAddr)}
+			if !input.IsLighthouse {
+				cfg.Lighthouse.Hosts = append(cfg.Lighthouse.Hosts, safeString(ip))
 			}
 		}
-		cfg.Lighthouse = lighthouseSection{AmLighthouse: false, Hosts: hosts}
 	}
 
 	listenHost := input.ListenHost

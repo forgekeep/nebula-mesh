@@ -992,6 +992,12 @@ or deleted, the server bumps the network's `config_version`; each peer's next
 agent poll observes the version change and receives an updated `config.yml` in
 the same response — no manual reconfiguration required.
 
+Lighthouses receive the same `static_host_map` entries for every other
+lighthouse in the network, so one lighthouse can open a tunnel to another
+without waiting for it to connect first. A lighthouse never lists its own
+addresses there, and its `lighthouse.hosts` stays empty: lighthouses do not
+query each other.
+
 The server resolves enrolled `role: relay` hosts and writes their overlay
 addresses to `relay.relays`. It excludes pending, importing and blocked relays.
 

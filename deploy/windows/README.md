@@ -177,6 +177,9 @@ nebula_reload_command: '%SystemRoot%\System32\net.exe stop nebula & %SystemRoot%
 `net stop` waits for the stop to complete, and `&` (rather than `&&`) still
 starts Nebula when it was not already running.
 
+It writes the same command to `nebula_restart_command`, which the agent runs
+when a config changes keys Nebula reads only at startup.
+
 The installer also points `nebula_binary_path` at the `nebula.exe` it
 manages, because the install directory is not on `PATH`. The agent reports
 that binary's version to the server, which renders config for that Nebula

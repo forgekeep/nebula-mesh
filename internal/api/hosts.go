@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
+	"github.com/forgekeep/nebula-mesh/internal/configinput"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 	"github.com/forgekeep/nebula-mesh/internal/webhook"
@@ -190,6 +191,10 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		host.Groups = []string{}
 	}
 	if err := validateHostName(host.Name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := configinput.CheckGatedOverrides(nil, host); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -798,6 +803,10 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		host.Advanced = req.Advanced
+	}
+	if err := configinput.CheckGatedOverrides(&before, host); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	// Validate role reachability

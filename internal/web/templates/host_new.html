@@ -100,7 +100,7 @@
             <input type="number" name="listen_port" class="form-control" placeholder="4242" value="{{.Form.ListenPort}}">
         </div>
 
-        <details style="margin: 16px 0;"{{if or .Form.AdvListenHost .Form.AdvMTU .Form.AdvTunDevice .Form.AdvNebulaVersion .Form.AdvPunchy .Form.AdvPunchyRespond .Form.AdvUnsafeRoutes .Form.AdvFirewallInbound}} open{{end}}>
+        <details style="margin: 16px 0;"{{if or .Form.AdvListenHost .Form.AdvMTU .Form.AdvTunDevice .Form.AdvNebulaVersion .Form.AdvRoutines .Form.AdvUDPOffloads .Form.AdvTunOffloads .Form.AdvPinThreads .Form.AdvPinThreadsKey .Form.AdvCPUAffinity .Form.AdvLocalAPIEnabled .Form.AdvLocalAPIGroup .Form.AdvPunchy .Form.AdvPunchyRespond .Form.AdvUnsafeRoutes .Form.AdvFirewallInbound}} open{{end}}>
             <summary style="cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 14px;">
                 Advanced configuration (optional)
             </summary>
@@ -151,6 +151,62 @@
                 <textarea name="adv_firewall_inbound" class="form-control" rows="3" placeholder="443/tcp from web">{{.Form.AdvFirewallInbound}}</textarea>
                 <small class="form-text">Select the peer by group (<code>from web</code>) or by prefix (<code>cidr=10.0.0.0/24</code>) — not both. Append <code>local_cidr=&lt;CIDR&gt;</code> to match traffic for a local address, which is required for prefixes you serve via unsafe routes.</small>
             </div>
+            <fieldset style="margin-top: 16px; border: 1px solid var(--border); padding: 8px 12px;">
+                <legend style="font-size: 14px;">Nebula 1.12 tuning</legend>
+                <p class="help-text">Applied only to hosts whose Nebula release and OS support them; the host page lists any setting a host does not get. Offloads and thread pinning need a Nebula restart to take effect.</p>
+                <div class="form-group">
+                    <label>Routines (advanced.routines, all releases)</label>
+                    <input type="number" name="adv_routines" class="form-control" placeholder="1" min="1" max="64" value="{{.Form.AdvRoutines}}">
+                </div>
+                <div class="form-group">
+                    <label>UDP offloads (advanced.udp_offloads, Linux, 1.12+)</label>
+                    <select name="adv_udp_offloads" class="form-control">
+                        <option value=""{{if eq .Form.AdvUDPOffloads ""}} selected{{end}}>inherit (false)</option>
+                        <option value="true"{{if eq .Form.AdvUDPOffloads "true"}} selected{{end}}>enable</option>
+                        <option value="false"{{if eq .Form.AdvUDPOffloads "false"}} selected{{end}}>disable</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Tun offloads (advanced.tun_offloads, Linux, 1.12+)</label>
+                    <select name="adv_tun_offloads" class="form-control">
+                        <option value=""{{if eq .Form.AdvTunOffloads ""}} selected{{end}}>inherit (false)</option>
+                        <option value="true"{{if eq .Form.AdvTunOffloads "true"}} selected{{end}}>enable</option>
+                        <option value="false"{{if eq .Form.AdvTunOffloads "false"}} selected{{end}}>disable</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Pin threads (advanced.pin_threads, Linux, 1.12+, routines above 1)</label>
+                    <select name="adv_pin_threads" class="form-control">
+                        <option value=""{{if eq .Form.AdvPinThreads ""}} selected{{end}}>inherit (true)</option>
+                        <option value="true"{{if eq .Form.AdvPinThreads "true"}} selected{{end}}>enable</option>
+                        <option value="false"{{if eq .Form.AdvPinThreads "false"}} selected{{end}}>disable</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Pin threads key (advanced.pin_threads_key)</label>
+                    <select name="adv_pin_threads_key" class="form-control">
+                        <option value=""{{if eq .Form.AdvPinThreadsKey ""}} selected{{end}}>inherit (pid)</option>
+                        <option value="pid"{{if eq .Form.AdvPinThreadsKey "pid"}} selected{{end}}>pid</option>
+                        <option value="port"{{if eq .Form.AdvPinThreadsKey "port"}} selected{{end}}>port</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>CPU affinity (advanced.cpu_affinity, comma-separated CPU numbers)</label>
+                    <input type="text" name="adv_cpu_affinity" class="form-control" placeholder="0, 2" value="{{.Form.AdvCPUAffinity}}">
+                </div>
+                <div class="form-group">
+                    <label>Local API control socket (advanced.local_api_control_enabled, 1.12+)</label>
+                    <select name="adv_local_api_control_enabled" class="form-control">
+                        <option value=""{{if eq .Form.AdvLocalAPIEnabled ""}} selected{{end}}>inherit (enabled)</option>
+                        <option value="true"{{if eq .Form.AdvLocalAPIEnabled "true"}} selected{{end}}>enable</option>
+                        <option value="false"{{if eq .Form.AdvLocalAPIEnabled "false"}} selected{{end}}>disable</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Local API control group (advanced.local_api_control_group, 1.12+)</label>
+                    <input type="text" name="adv_local_api_control_group" class="form-control" placeholder="nebula" value="{{.Form.AdvLocalAPIGroup}}">
+                </div>
+            </fieldset>
         </details>
 
         <button type="submit" class="btn btn-primary">Create Host</button>

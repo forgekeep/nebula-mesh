@@ -71,6 +71,14 @@ type hostFormState struct {
 	AdvMTU             string
 	AdvTunDevice       string
 	AdvNebulaVersion   string
+	AdvRoutines        string
+	AdvUDPOffloads     string
+	AdvTunOffloads     string
+	AdvPinThreads      string
+	AdvPinThreadsKey   string
+	AdvCPUAffinity     string
+	AdvLocalAPIEnabled string
+	AdvLocalAPIGroup   string
 	AdvPunchy          string
 	AdvPunchyRespond   string
 	AdvUnsafeRoutes    string
@@ -94,6 +102,14 @@ func newHostFormState(r *http.Request) hostFormState {
 		AdvMTU:             r.FormValue("adv_mtu"),
 		AdvTunDevice:       r.FormValue("adv_tun_device"),
 		AdvNebulaVersion:   r.FormValue("adv_nebula_version"),
+		AdvRoutines:        r.FormValue("adv_routines"),
+		AdvUDPOffloads:     r.FormValue("adv_udp_offloads"),
+		AdvTunOffloads:     r.FormValue("adv_tun_offloads"),
+		AdvPinThreads:      r.FormValue("adv_pin_threads"),
+		AdvPinThreadsKey:   r.FormValue("adv_pin_threads_key"),
+		AdvCPUAffinity:     r.FormValue("adv_cpu_affinity"),
+		AdvLocalAPIEnabled: r.FormValue("adv_local_api_control_enabled"),
+		AdvLocalAPIGroup:   r.FormValue("adv_local_api_control_group"),
 		AdvPunchy:          r.FormValue("adv_punchy"),
 		AdvPunchyRespond:   r.FormValue("adv_punchy_respond"),
 		AdvUnsafeRoutes:    r.FormValue("adv_unsafe_routes"),
@@ -298,6 +314,16 @@ func hostFormStateFromHost(h *models.Host) hostFormState {
 		}
 		state.AdvTunDevice = h.Advanced.TunDevice
 		state.AdvNebulaVersion = h.Advanced.NebulaVersion
+		if h.Advanced.Routines != 0 {
+			state.AdvRoutines = strconv.Itoa(h.Advanced.Routines)
+		}
+		state.AdvUDPOffloads = triStateFormValue(h.Advanced.UDPOffloads)
+		state.AdvTunOffloads = triStateFormValue(h.Advanced.TunOffloads)
+		state.AdvPinThreads = triStateFormValue(h.Advanced.PinThreads)
+		state.AdvPinThreadsKey = h.Advanced.PinThreadsKey
+		state.AdvCPUAffinity = joinInts(h.Advanced.CPUAffinity)
+		state.AdvLocalAPIEnabled = triStateFormValue(h.Advanced.LocalAPIControlEnabled)
+		state.AdvLocalAPIGroup = h.Advanced.LocalAPIControlGroup
 		if h.Advanced.Punchy != nil {
 			if *h.Advanced.Punchy {
 				state.AdvPunchy = "true"

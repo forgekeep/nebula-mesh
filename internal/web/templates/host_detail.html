@@ -67,6 +67,15 @@
         {{if .Host.Advanced.Punchy}}<tr><th>Punchy</th><td>{{if deref .Host.Advanced.Punchy}}true{{else}}false{{end}}</td></tr>{{end}}
         {{if .Host.Advanced.PunchyRespond}}<tr><th>Punchy respond</th><td>{{if deref .Host.Advanced.PunchyRespond}}true{{else}}false{{end}}</td></tr>{{end}}
         {{if .Host.Advanced.UnsafeRoutes}}<tr><th>Unsafe routes</th><td>{{range .Host.Advanced.UnsafeRoutes}}{{.Route}} via {{.Via}}<br>{{end}}</td></tr>{{end}}
+        {{if .Host.Advanced.Routines}}<tr><th>Routines</th><td>{{.Host.Advanced.Routines}}</td></tr>{{end}}
+        {{if .Host.Advanced.UDPOffloads}}<tr><th>UDP offloads</th><td>{{if deref .Host.Advanced.UDPOffloads}}true{{else}}false{{end}}</td></tr>{{end}}
+        {{if .Host.Advanced.TunOffloads}}<tr><th>Tun offloads</th><td>{{if deref .Host.Advanced.TunOffloads}}true{{else}}false{{end}}</td></tr>{{end}}
+        {{if .Host.Advanced.PinThreads}}<tr><th>Pin threads</th><td>{{if deref .Host.Advanced.PinThreads}}true{{else}}false{{end}}</td></tr>{{end}}
+        {{if .Host.Advanced.PinThreadsKey}}<tr><th>Pin threads key</th><td>{{.Host.Advanced.PinThreadsKey}}</td></tr>{{end}}
+        {{if .Host.Advanced.CPUAffinity}}<tr><th>CPU affinity</th><td>{{joinInts .Host.Advanced.CPUAffinity}}</td></tr>{{end}}
+        {{if .Host.Advanced.LocalAPIControlEnabled}}<tr><th>Local API control</th><td>{{if deref .Host.Advanced.LocalAPIControlEnabled}}enabled{{else}}disabled{{end}}</td></tr>{{end}}
+        {{if .Host.Advanced.LocalAPIControlGroup}}<tr><th>Local API group</th><td>{{.Host.Advanced.LocalAPIControlGroup}}</td></tr>{{end}}
+        {{range unappliedOverrides .Host}}<tr class="host-unapplied"><th>Not applied</th><td>{{range $i, $f := .Fields}}{{if $i}}, {{end}}<code>{{$f}}</code>{{end}} — {{.Status.Reason}}</td></tr>{{end}}
         {{end}}
     </table>
 </div>

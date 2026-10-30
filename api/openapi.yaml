@@ -103,6 +103,42 @@ paths:
         "409":
           $ref: "#/components/responses/Error"
 
+  /api/v1/agent/runtime/{os}/{version}:
+    post:
+      operationId: reportAgentRuntime
+      summary: Report the Nebula release and OS the host runs.
+      description: >-
+        Uses the same signed proof-of-possession headers as agent polling. Both
+        values are path parameters because the signature covers the path. A
+        changed version or OS makes the next poll redeliver the host's config.
+      security: []
+      parameters:
+        - { in: path, name: os, required: true, schema: { type: string, enum: [darwin, freebsd, linux, windows] } }
+        - { in: path, name: version, required: true, schema: { type: string, maxLength: 64, example: "1.12.0" } }
+        - { in: header, name: X-Nebula-Fingerprint, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Timestamp, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Nonce, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Signature, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Runtime recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [nebula_version, os]
+                properties:
+                  nebula_version: { type: string }
+                  os: { type: string }
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+
   /api/v1/agent/import/challenge:
     post:
       operationId: createAgentImportChallenge

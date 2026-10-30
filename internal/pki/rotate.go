@@ -51,7 +51,7 @@ func RotateAndStoreCA(
 	duration := oldCA.NotAfter.Sub(oldCA.NotBefore)
 
 	// Generate new name.
-	newName := oldCA.Name + "-rotated"
+	newName := models.CertNameWithSuffix(oldCA.Name, "-rotated")
 
 	// Mint a new CA.
 	mgr, err := NewCA(newName, duration)

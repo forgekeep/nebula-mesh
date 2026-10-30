@@ -82,7 +82,7 @@
             <summary style="cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 14px;">Advanced configuration (optional)</summary>
             <p style="font-size: 12px; color: var(--text-muted); margin: 8px 0;">Empty fields inherit the network default. See <a href="https://nebula.defined.net/docs/config" target="_blank">Nebula config docs</a>.</p>
             <div class="form-group"><label>Listen host (advanced.listen_host)</label><input type="text" name="adv_listen_host" class="form-control" placeholder="0.0.0.0" value="{{.Form.AdvListenHost}}"></div>
-            <div class="form-group"><label>TUN MTU (advanced.mtu)</label><input type="number" name="adv_mtu" class="form-control" placeholder="1300" min="576" max="9216" value="{{.Form.AdvMTU}}"></div>
+            <div class="form-group"><label>TUN MTU (advanced.mtu)</label><input type="number" name="adv_mtu" class="form-control" placeholder="1300" min="576" max="8937" value="{{.Form.AdvMTU}}"></div>
             <div class="form-group"><label>TUN device name (advanced.tun_device)</label><input type="text" name="adv_tun_device" class="form-control" placeholder="nebula1" value="{{.Form.AdvTunDevice}}"></div>
             <div class="form-group">
                 <label>Punchy (advanced.punchy)</label>

@@ -388,7 +388,7 @@ func (w *Web) provisionDefaultCA(ctx context.Context, op *models.Operator) error
 
 	// Mint the default CA with a 10-year lifetime.
 	const tenYears = 10 * 365 * 24 * time.Hour
-	_, err = w.mintCAForOperator(ctx, op, op.Username+"-default", tenYears)
+	_, err = w.mintCAForOperator(ctx, op, models.CertNameWithSuffix(op.Username, "-default"), tenYears)
 	return err
 }
 
@@ -411,6 +411,14 @@ func (w *Web) handleCACreate(rw http.ResponseWriter, r *http.Request) {
 		w.renderForRequest(rw, r, "ca_new.html", map[string]any{
 			"Active":      "cas",
 			"Error":       "Name is required",
+			"MasterReady": true,
+		})
+		return
+	}
+	if err := models.ValidateCertName("Name", name); err != nil {
+		w.renderForRequest(rw, r, "ca_new.html", map[string]any{
+			"Active":      "cas",
+			"Error":       err.Error(),
 			"MasterReady": true,
 		})
 		return

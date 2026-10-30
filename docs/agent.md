@@ -322,7 +322,7 @@ All advanced fields are optional. Omitted / empty fields inherit the network
 default — render output for those hosts is byte-identical to a host with no
 advanced block. Server-side validation rejects:
 
-- `mtu` outside the 576–9216 range;
+- `mtu` outside the 576–8937 range;
 - non-IP `listen_host`;
 - whitespace or slashes in `tun_device`;
 - malformed CIDR or non-IP `via` in `unsafe_routes`;

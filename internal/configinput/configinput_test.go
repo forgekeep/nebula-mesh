@@ -15,12 +15,21 @@ import (
 func TestApplyHostAdvanced_CopiesEveryField(t *testing.T) {
 	punchy := false
 	punchyRespond := true
+	udpOffloads, tunOffloads, pinThreads, localAPI := true, false, true, false
 	adv := &models.HostAdvanced{
-		Punchy:        &punchy,
-		PunchyRespond: &punchyRespond,
-		ListenHost:    "10.0.0.1",
-		MTU:           1300,
-		TunDevice:     "nebula1",
+		Punchy:                 &punchy,
+		PunchyRespond:          &punchyRespond,
+		ListenHost:             "10.0.0.1",
+		MTU:                    1300,
+		TunDevice:              "nebula1",
+		Routines:               4,
+		UDPOffloads:            &udpOffloads,
+		TunOffloads:            &tunOffloads,
+		PinThreads:             &pinThreads,
+		PinThreadsKey:          "port",
+		CPUAffinity:            []int{0, 2},
+		LocalAPIControlEnabled: &localAPI,
+		LocalAPIControlGroup:   "nebula",
 		UnsafeRoutes: []models.UnsafeRoute{
 			{Route: "192.168.10.0/24", Via: "10.0.0.99"},
 		},
@@ -43,6 +52,14 @@ func TestApplyHostAdvanced_CopiesEveryField(t *testing.T) {
 	if input.ListenHost != "10.0.0.1" || input.MTU != 1300 || input.TunDevice != "nebula1" {
 		t.Errorf("scalar overrides not copied: %+v", input)
 	}
+	if input.Routines != 4 || input.PinThreadsKey != "port" || input.LocalAPIControlGroup != "nebula" ||
+		!reflect.DeepEqual(input.CPUAffinity, []int{0, 2}) {
+		t.Errorf("tuning overrides not copied: %+v", input)
+	}
+	if input.UDPOffloads != &udpOffloads || input.TunOffloads != &tunOffloads ||
+		input.PinThreads != &pinThreads || input.LocalAPIControlEnabled != &localAPI {
+		t.Errorf("tri-state tuning overrides not copied: %+v", input)
+	}
 	wantRoutes := []configgen.AdvancedUnsafeRoute{{Route: "192.168.10.0/24", Via: "10.0.0.99"}}
 	if !reflect.DeepEqual(input.UnsafeRoutes, wantRoutes) {
 		t.Errorf("UnsafeRoutes = %+v, want %+v", input.UnsafeRoutes, wantRoutes)
@@ -63,7 +80,7 @@ func TestApplyHostAdvanced_CopiesEveryField(t *testing.T) {
 	// the config is rendered for, together with the agent's report, so the
 	// caller resolves it (nebulacompat.Effective), not ApplyHostAdvanced.
 	notOverrides := map[string]bool{"NebulaVersion": true}
-	const wantFields = 7
+	const wantFields = 15
 	got := 0
 	for _, f := range reflect.VisibleFields(reflect.TypeOf(models.HostAdvanced{})) {
 		if !notOverrides[f.Name] {

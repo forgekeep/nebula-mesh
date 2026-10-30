@@ -167,6 +167,7 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 		},
 	}
 	configinput.ApplyHostAdvanced(&input, host.Advanced)
+	input.Runtime = configinput.HostRuntime(host)
 
 	configYAML, err := configgen.Generate(input)
 	if err != nil {

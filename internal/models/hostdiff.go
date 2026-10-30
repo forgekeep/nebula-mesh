@@ -148,6 +148,8 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 		}
 	}
 
+	diffHostTuning(changes, beforeAdv, afterAdv)
+
 	// FirewallInbound
 	if !hostFirewallRulesEqual(beforeAdv.FirewallInbound, afterAdv.FirewallInbound) {
 		changes["advanced.firewall_inbound"] = map[string]any{

@@ -267,6 +267,9 @@ func ValidateHostAdvanced(adv *HostAdvanced) error {
 	if adv.MTU != 0 && (adv.MTU < 576 || adv.MTU > MaxMTU) {
 		return fmt.Errorf("advanced.mtu must be between 576 and %d", MaxMTU)
 	}
+	if err := validateHostTuning(adv); err != nil {
+		return err
+	}
 	if adv.NebulaVersion != "" {
 		if _, err := nebulacompat.ParseVersion(adv.NebulaVersion); err != nil {
 			return fmt.Errorf("advanced.nebula_version must be a Nebula release such as 1.12.0")

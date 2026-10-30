@@ -8,6 +8,8 @@ import (
 	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/forgekeep/nebula-mesh/internal/nebulacompat"
 )
 
 // nebulaConfig is the internal typed-struct representation of a Nebula agent
@@ -27,6 +29,7 @@ import (
 // for their readable block form.
 type nebulaConfig struct {
 	PKI           pkiSection                  `yaml:"pki"`
+	Routines      int                         `yaml:"routines,omitempty"`
 	StaticHostMap map[safeString][]safeString `yaml:"static_host_map"`
 	Lighthouse    lighthouseSection           `yaml:"lighthouse"`
 	Listen        listenSection               `yaml:"listen"`
@@ -37,6 +40,7 @@ type nebulaConfig struct {
 	Logging       loggingSection              `yaml:"logging"`
 	Firewall      firewallSection             `yaml:"firewall"`
 	Handshakes    *handshakesSection          `yaml:"handshakes,omitempty"`
+	LocalAPI      *localAPISection            `yaml:"local_api,omitempty"`
 	MobileNebula  *mobileNebulaSection        `yaml:"mobile_nebula,omitempty"`
 }
 
@@ -163,6 +167,7 @@ type listenSection struct {
 	Host             safeString `yaml:"host"`
 	Port             int        `yaml:"port"`
 	WindowsBypassWDF bool       `yaml:"windows_bypass_wdf"`
+	UDPOffloads      *bool      `yaml:"udp_offloads,omitempty"`
 }
 
 type punchySection struct {
@@ -178,6 +183,19 @@ type tunSection struct {
 	UnsafeRoutes       []unsafeRoute `yaml:"unsafe_routes,omitempty"`
 	WindowsBypassWDF   bool          `yaml:"windows_bypass_wdf"`
 	NetworkCategory    safeString    `yaml:"network_category"`
+	UseOffloads        *bool         `yaml:"use_offloads,omitempty"`
+	PinThreads         *bool         `yaml:"pin_threads,omitempty"`
+	PinThreadsKey      safeString    `yaml:"pin_threads_key,omitempty"`
+	CPUAffinity        []int         `yaml:"cpu_affinity,omitempty"`
+}
+
+type localAPISection struct {
+	Control localAPIControlSection `yaml:"control"`
+}
+
+type localAPIControlSection struct {
+	Enabled *bool      `yaml:"enabled,omitempty"`
+	Group   safeString `yaml:"group,omitempty"`
 }
 
 type tunnelsSection struct {
@@ -346,6 +364,7 @@ func buildConfig(input GeneratorInput) nebulaConfig {
 		})
 	}
 	cfg.Tun = ts
+	applyGatedFeatures(&cfg, input)
 
 	if input.IsRelay {
 		cfg.Relay = &relaySection{AmRelay: boolPtr(true)}
@@ -463,4 +482,28 @@ func toSafeStringsPreserveEmpty(in []string) []safeString {
 		return []safeString{}
 	}
 	return toSafeStrings(in)
+}
+
+// applyGatedFeatures renders the overrides only some Nebula releases or
+// platforms understand, each when the host's runtime passes the matching
+// nebulacompat feature. A host with an unknown version gets none of them.
+func applyGatedFeatures(cfg *nebulaConfig, input GeneratorInput) {
+	cfg.Routines = input.Routines
+	rt := input.Runtime
+	if rt.Check(nebulacompat.FeatureOffloads).Rendered {
+		cfg.Listen.UDPOffloads = input.UDPOffloads
+		cfg.Tun.UseOffloads = input.TunOffloads
+	}
+	if rt.Check(nebulacompat.FeaturePinThreads).Rendered {
+		cfg.Tun.PinThreads = input.PinThreads
+		cfg.Tun.PinThreadsKey = safeString(input.PinThreadsKey)
+		cfg.Tun.CPUAffinity = input.CPUAffinity
+	}
+	if rt.Check(nebulacompat.FeatureLocalAPI).Rendered &&
+		(input.LocalAPIControlEnabled != nil || input.LocalAPIControlGroup != "") {
+		cfg.LocalAPI = &localAPISection{Control: localAPIControlSection{
+			Enabled: input.LocalAPIControlEnabled,
+			Group:   safeString(input.LocalAPIControlGroup),
+		}}
+	}
 }

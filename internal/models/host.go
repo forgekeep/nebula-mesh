@@ -250,4 +250,24 @@ type HostAdvanced struct {
 	// for hosts without an agent to report it (mobile clients). A version
 	// the agent reported takes precedence (nebulacompat.Effective).
 	NebulaVersion string `json:"nebula_version,omitempty" yaml:"nebula_version,omitempty"`
+
+	// Routines is Nebula's `routines`: how many reader/writer routine pairs
+	// run. Zero inherits Nebula's default of 1. Every supported release
+	// reads it.
+	Routines int `json:"routines,omitempty" yaml:"routines,omitempty"`
+	// UDPOffloads and TunOffloads are listen.udp_offloads and
+	// tun.use_offloads (Linux, Nebula 1.12+, restart-only).
+	UDPOffloads *bool `json:"udp_offloads,omitempty" yaml:"udp_offloads,omitempty"`
+	TunOffloads *bool `json:"tun_offloads,omitempty" yaml:"tun_offloads,omitempty"`
+	// PinThreads, PinThreadsKey and CPUAffinity are tun.pin_threads,
+	// tun.pin_threads_key and tun.cpu_affinity (Linux, Nebula 1.12+,
+	// restart-only). They only take effect with Routines above 1.
+	PinThreads    *bool  `json:"pin_threads,omitempty" yaml:"pin_threads,omitempty"`
+	PinThreadsKey string `json:"pin_threads_key,omitempty" yaml:"pin_threads_key,omitempty"`
+	CPUAffinity   []int  `json:"cpu_affinity,omitempty" yaml:"cpu_affinity,omitempty"`
+	// LocalAPIControlEnabled and LocalAPIControlGroup are
+	// local_api.control.enabled and local_api.control.group (Nebula 1.12+).
+	// Nebula enables the control socket by default.
+	LocalAPIControlEnabled *bool  `json:"local_api_control_enabled,omitempty" yaml:"local_api_control_enabled,omitempty"`
+	LocalAPIControlGroup   string `json:"local_api_control_group,omitempty" yaml:"local_api_control_group,omitempty"`
 }

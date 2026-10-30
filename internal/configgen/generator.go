@@ -1,5 +1,7 @@
 package configgen
 
+import "github.com/forgekeep/nebula-mesh/internal/nebulacompat"
+
 // LighthouseInfo describes a lighthouse node for config generation.
 type LighthouseInfo struct {
 	NebulaIPs  []string
@@ -59,6 +61,24 @@ type GeneratorInput struct {
 	MTU                   int
 	TunDevice             string
 	UnsafeRoutes          []AdvancedUnsafeRoute
+
+	// Runtime is what the server knows about the host's Nebula release and
+	// OS. The zero value renders the conservative config every supported
+	// release understands: keys gated by a nebulacompat feature are emitted
+	// only when Runtime.Check passes for it.
+	Runtime nebulacompat.Runtime
+	// Routines maps to `routines`; zero leaves Nebula's default of 1.
+	Routines int
+	// Gated by nebulacompat.FeatureOffloads.
+	UDPOffloads *bool
+	TunOffloads *bool
+	// Gated by nebulacompat.FeaturePinThreads.
+	PinThreads    *bool
+	PinThreadsKey string
+	CPUAffinity   []int
+	// Gated by nebulacompat.FeatureLocalAPI.
+	LocalAPIControlEnabled *bool
+	LocalAPIControlGroup   string
 
 	// Optional inline PEM blocks. When CACertPEM is non-empty, CertPEM and
 	// KeyPEM must also be non-empty; all three are emitted as literal-block

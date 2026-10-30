@@ -15,6 +15,8 @@ write_files:
       nebula_pid_file: "/run/nebula.pid"
       # Replace the SIGHUP with a service-manager call instead:
       # nebula_reload_command: "systemctl reload nebula"
+      # Binary whose version is reported to the server; default: nebula on PATH.
+      # nebula_binary_path: "/usr/local/bin/nebula"
 
 runcmd:
   - |

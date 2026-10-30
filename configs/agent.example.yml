@@ -10,4 +10,5 @@ nebula_config_path: "/etc/nebula/config.yml"
 # import_session_id: ""  # managed by nebula-agent during mesh import
 nebula_pid_file: "/run/nebula.pid"
 # nebula_reload_command: "systemctl reload nebula"  # optional — run via shell instead of the SIGHUP; takes precedence over nebula_pid_file
+# nebula_binary_path: "/usr/local/bin/nebula"  # optional — binary whose version is reported to the server; default: nebula on PATH
 # signing_key_path: "/etc/nebula-agent/host.signing.key"  # default; override for non-root setups (parent dir must be writable by the agent user)

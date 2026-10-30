@@ -177,6 +177,15 @@ nebula_reload_command: '%SystemRoot%\System32\net.exe stop nebula & %SystemRoot%
 `net stop` waits for the stop to complete, and `&` (rather than `&&`) still
 starts Nebula when it was not already running.
 
+The installer also points `nebula_binary_path` at the `nebula.exe` it
+manages, because the install directory is not on `PATH`. The agent reports
+that binary's version to the server, which renders config for that Nebula
+release:
+
+```yaml
+nebula_binary_path: 'C:\Program Files\Nebula Mesh\nebula.exe'
+```
+
 The executable is deliberately left unquoted: the agent runs the hook as
 `cmd /C <line>`, and `cmd` only preserves the quotes of a line holding exactly
 two of them — with four it strips the line's first and last quote instead,

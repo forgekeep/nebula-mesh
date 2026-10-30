@@ -361,6 +361,7 @@ func (s *Server) renderHostConfig(ctx context.Context, host *models.Host) ([]byt
 		FirewallOutbound: fwOutbound,
 	}
 	configinput.ApplyHostAdvanced(&input, host.Advanced)
+	input.Runtime = configinput.HostRuntime(host)
 
 	// Emit the per-CA blocklist into pki.blocklist so the Nebula daemon
 	// rejects handshakes from revoked peers (GHSA-cm26-5974-52h8).

@@ -16,7 +16,22 @@ package configinput
 import (
 	"github.com/forgekeep/nebula-mesh/internal/configgen"
 	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/nebulacompat"
 )
+
+// HostRuntime is the Nebula release and OS config is rendered for: the
+// agent's report, else the operator's advanced.nebula_version. Every caller
+// building a GeneratorInput for a host sets input.Runtime from it.
+func HostRuntime(host *models.Host) nebulacompat.Runtime {
+	if host == nil {
+		return nebulacompat.Runtime{}
+	}
+	var operator string
+	if host.Advanced != nil {
+		operator = host.Advanced.NebulaVersion
+	}
+	return nebulacompat.HostRuntime(host.NebulaVersion, host.NebulaOS, operator, host.Kind == models.HostKindMobile)
+}
 
 // ApplyHostAdvanced copies a host's advanced overrides onto input.
 //
@@ -33,6 +48,14 @@ func ApplyHostAdvanced(input *configgen.GeneratorInput, adv *models.HostAdvanced
 	input.ListenHost = adv.ListenHost
 	input.MTU = adv.MTU
 	input.TunDevice = adv.TunDevice
+	input.Routines = adv.Routines
+	input.UDPOffloads = adv.UDPOffloads
+	input.TunOffloads = adv.TunOffloads
+	input.PinThreads = adv.PinThreads
+	input.PinThreadsKey = adv.PinThreadsKey
+	input.CPUAffinity = adv.CPUAffinity
+	input.LocalAPIControlEnabled = adv.LocalAPIControlEnabled
+	input.LocalAPIControlGroup = adv.LocalAPIControlGroup
 	for _, u := range adv.UnsafeRoutes {
 		input.UnsafeRoutes = append(input.UnsafeRoutes, configgen.AdvancedUnsafeRoute{Route: u.Route, Via: u.Via})
 	}

@@ -106,7 +106,7 @@
             <div class="form-group"><label>Inbound firewall rules (one per line: <code>PORT/PROTO from GROUP</code>, added after the network policy)</label><textarea name="adv_firewall_inbound" class="form-control" rows="3" placeholder="443/tcp from web">{{.Form.AdvFirewallInbound}}</textarea><small class="form-text">Select the peer by group (<code>from web</code>) or by prefix (<code>cidr=10.0.0.0/24</code>) — not both. Append <code>local_cidr=&lt;CIDR&gt;</code> to match traffic for a local address, which is required for prefixes you serve via unsafe routes.</small></div>
             <fieldset style="margin-top: 16px; border: 1px solid var(--border); padding: 8px 12px;">
                 <legend style="font-size: 14px;">Nebula 1.12 tuning</legend>
-                <p class="help-text">Applied only to hosts whose Nebula release and OS support them; the host page lists any setting a host does not get. Offloads and thread pinning need a Nebula restart to take effect.</p>
+                <p class="help-text">Applied only to hosts whose Nebula release and OS support them; the host page lists any setting a host does not get. Routines, offloads and thread pinning need a Nebula restart: the agent runs nebula_restart_command if it has one, otherwise the host page shows that a restart is pending.</p>
                 <div class="form-group">
                     <label>Routines (advanced.routines, all releases)</label>
                     <input type="number" name="adv_routines" class="form-control" placeholder="1" min="1" max="64" value="{{.Form.AdvRoutines}}">

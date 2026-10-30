@@ -153,7 +153,7 @@
             </div>
             <fieldset style="margin-top: 16px; border: 1px solid var(--border); padding: 8px 12px;">
                 <legend style="font-size: 14px;">Nebula 1.12 tuning</legend>
-                <p class="help-text">Applied only to hosts whose Nebula release and OS support them; the host page lists any setting a host does not get. Offloads and thread pinning need a Nebula restart to take effect.</p>
+                <p class="help-text">Applied only to hosts whose Nebula release and OS support them; the host page lists any setting a host does not get. Routines, offloads and thread pinning need a Nebula restart: the agent runs nebula_restart_command if it has one, otherwise the host page shows that a restart is pending.</p>
                 <div class="form-group">
                     <label>Routines (advanced.routines, all releases)</label>
                     <input type="number" name="adv_routines" class="form-control" placeholder="1" min="1" max="64" value="{{.Form.AdvRoutines}}">

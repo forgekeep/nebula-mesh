@@ -3,6 +3,8 @@ package web
 import (
 	"context"
 	"errors"
+	"net/http"
+	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/configinput"
 	"github.com/forgekeep/nebula-mesh/internal/hostdns"
@@ -75,4 +77,28 @@ func (w *Web) hostDNSView(ctx context.Context, h *models.Host) *hostDNSStatusVie
 		tunDevice = h.Advanced.TunDevice
 	}
 	return &hostDNSStatusView{Settings: settings, Status: configinput.HostRuntime(h).CheckHostDNS(tunDevice)}
+}
+
+// handleHostClearRestartPending lets an operator clear the restart mark on a
+// host whose agent cannot see Nebula restart, such as one with no PID file.
+func (w *Web) handleHostClearRestartPending(rw http.ResponseWriter, r *http.Request) {
+	host, ok := w.loadAccessibleHost(rw, r)
+	if !ok {
+		return
+	}
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
+		return
+	}
+	changed, err := w.store.SetHostNebulaRestartPending(r.Context(), host.ID, false, time.Now().UTC())
+	if err != nil {
+		w.logger.Error("clear restart pending", "host", host.ID, "error", err)
+		http.Error(rw, "Failed to update host", http.StatusInternalServerError)
+		return
+	}
+	if changed {
+		_ = w.store.AddAuditEntry(r.Context(), op.Username, "host.nebula_restart_pending.changed", host.ID, "state=cleared by operator")
+	}
+	http.Redirect(rw, r, "/ui/hosts/"+host.ID, http.StatusSeeOther) // #nosec G710 -- same-origin redirect: host.ID is a server-generated UUID, hardcoded /ui/hosts/ prefix keeps Location on the current host
 }

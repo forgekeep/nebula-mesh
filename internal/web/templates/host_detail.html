@@ -57,6 +57,8 @@
         {{with nebulaRuntime .Host}}<tr><th>Nebula version</th><td class="host-nebula-version">{{if .Known}}{{.Version}} ({{.SourceLabel}}){{if not .Supported}} — below the oldest supported release {{.MinSupported}}, so the host gets the conservative config{{end}}{{else}}unknown — the host gets the conservative config every supported release understands{{end}}</td></tr>{{end}}
         {{if .Host.NebulaOS}}<tr><th>OS</th><td>{{.Host.NebulaOS}}</td></tr>{{end}}
         {{if .Host.NebulaReportedAt}}<tr><th>Nebula reported</th><td>{{.Host.NebulaReportedAt.Format "2006-01-02 15:04 UTC"}}</td></tr>{{end}}
+        {{if .Host.NebulaRestartPendingAt}}<tr class="host-restart-pending"><th>Nebula restart</th><td>needed since {{.Host.NebulaRestartPendingAt.Format "2006-01-02 15:04 UTC"}}: a delivered config changed keys Nebula reads only at startup.
+            <form method="post" action="/ui/hosts/{{.Host.ID}}/clear-restart-pending" style="display:inline">{{ csrfField }}<button type="submit" class="btn btn-sm">Mark as restarted</button></form></td></tr>{{end}}
         {{with .HostDNS}}<tr class="host-dns"><th>Host DNS <span class="badge" title="Nebula marks the dns stanza experimental; use at your own risk">experimental</span></th><td>{{if .Status.Rendered}}{{range $i, $ns := .Settings.Nameservers}}{{if $i}}, {{end}}{{$ns}}{{end}} for {{range $i, $d := .Settings.MatchDomains}}{{if $i}}, {{end}}{{$d}}{{end}}{{else}}not applied — {{.Status.Reason}}{{end}}</td></tr>{{end}}
         <tr><th>Created</th><td>{{.Host.CreatedAt.Format "2006-01-02 15:04 UTC"}}</td></tr>
         {{if .Host.Advanced}}

@@ -229,6 +229,7 @@ func (s *Server) setupRoutes() {
 		r.Use(s.rateLimitMiddleware("agent_poll"))
 		r.Get("/api/v1/agent/updates", s.handleAgentUpdates)
 		r.Post("/api/v1/agent/config-ack/{version}", s.handleAgentConfigAck)
+		r.Post("/api/v1/agent/runtime/{os}/{version}", s.handleAgentRuntime)
 	})
 	r.Group(func(r chi.Router) {
 		r.Use(s.rateLimitMiddleware("agent_import"))

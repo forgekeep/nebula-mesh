@@ -81,6 +81,9 @@ and resource-scoped, TTL-bounded, and accepted at most once.
 - Enrollment consumes a host-bound token in the same transaction that enrolls
   the Host; failed enrollment does not burn the token.
 - Poll nonces are keyed by Host and stored in SQLite until expiry.
+- Signed agent requests that carry data (`config-ack/{version}`,
+  `runtime/{os}/{version}`) pass it in the path, which the proof covers; the
+  body and query are not signed.
 - Mesh import challenges bind the session, certificate fingerprint, signing
   key, and payload hash. Challenge use and Host registration are serialized.
 - Mesh import token rotation and terminal state changes delete challenges
@@ -94,6 +97,9 @@ and resource-scoped, TTL-bounded, and accepted at most once.
   durability, tenant namespacing, and concurrent exactly-once acceptance.
 - `internal/api/agent_import_test.go`:
   `TestAgentImportChallengeExpiryReplayAndIdempotency`.
+- `internal/api/agent_runtime_test.go`:
+  `TestAgentRuntime_SEC_REPLAY_001_RejectsUnauthenticated` (unsigned,
+  foreign-key, path-tampered, and replayed runtime reports).
 - `internal/store/sqlite_mesh_import_test.go`: atomic rotation, challenge use,
   registration, cancel, and finalize coverage.
 

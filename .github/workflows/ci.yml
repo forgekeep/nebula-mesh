@@ -33,6 +33,14 @@ jobs:
       - name: build
         run: go build ./...
 
+      # A separate module pinned to the oldest supported Nebula release
+      # (nebulacompat.MinSupported) runs Nebula's own config test on configs
+      # the server renders. Dependabot watches only the root module, so the
+      # pin stays put.
+      - name: rendered configs load on the oldest supported Nebula
+        working-directory: tests/nebulacompat
+        run: go test ./...
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:

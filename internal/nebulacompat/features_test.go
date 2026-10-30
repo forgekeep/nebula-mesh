@@ -47,3 +47,16 @@ func TestHostRuntime_AgentReportWins(t *testing.T) {
 		t.Errorf("runtime = %+v", rt)
 	}
 }
+
+func TestRuntimeCheckHostDNS_WindowsNeedsTunDevice(t *testing.T) {
+	win := HostRuntime("1.12.0", "windows", "", false)
+	if st := win.CheckHostDNS(""); st.Rendered || !st.Definite {
+		t.Errorf("windows without tun device: %+v", st)
+	}
+	if st := win.CheckHostDNS("nebula1"); !st.Rendered {
+		t.Errorf("windows with tun device: %+v", st)
+	}
+	if st := HostRuntime("1.12.0", "darwin", "", false).CheckHostDNS(""); !st.Rendered {
+		t.Errorf("darwin without tun device: %+v", st)
+	}
+}

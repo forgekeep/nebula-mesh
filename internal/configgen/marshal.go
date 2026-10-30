@@ -517,7 +517,7 @@ func applyGatedFeatures(cfg *nebulaConfig, input GeneratorInput) {
 	// An empty match_domains would send every lookup to the overlay
 	// nameservers, so the stanza needs both lists.
 	if dns := input.HostDNS; dns != nil && len(dns.Nameservers) > 0 && len(dns.MatchDomains) > 0 &&
-		rt.Check(nebulacompat.FeatureHostDNS).Rendered {
+		rt.CheckHostDNS(input.TunDevice).Rendered {
 		cfg.DNS = &dnsSection{
 			Enabled:       true,
 			Nameservers:   toSafeStrings(dns.Nameservers),

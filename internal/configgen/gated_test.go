@@ -102,3 +102,17 @@ func TestGenerate_HostDNSNeedsMatchDomains(t *testing.T) {
 		t.Errorf("dns stanza = %#v", c.Get("dns"))
 	}
 }
+
+func TestGenerate_HostDNSOnWindowsNeedsTunDevice(t *testing.T) {
+	in := baseRoundTripInput()
+	in.Runtime = nebulacompat.HostRuntime("1.12.0", "windows", "", false)
+	in.HostDNS = &HostDNS{Nameservers: []string{"10.0.0.53"}, MatchDomains: []string{"mesh.example"}}
+	in.TunDevice = ""
+	if c := loadGenerated(t, in); c.IsSet("dns") {
+		t.Error("dns rendered for a Windows host with no tun.dev")
+	}
+	in.TunDevice = "nebula1"
+	if c := loadGenerated(t, in); !c.GetBool("dns.enabled", false) {
+		t.Error("dns not rendered for a Windows host with tun.dev")
+	}
+}

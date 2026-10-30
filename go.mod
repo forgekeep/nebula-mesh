@@ -3,6 +3,7 @@ module github.com/forgekeep/nebula-mesh
 go 1.27.3
 
 require (
+	github.com/DefinedNet/dnsconfig v0.0.0-20261028201825-617c971e7a6a
 	github.com/boombuler/barcode v1.1.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-chi/chi/v5 v5.5.0

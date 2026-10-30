@@ -70,5 +70,9 @@ func (w *Web) hostDNSView(ctx context.Context, h *models.Host) *hostDNSStatusVie
 	if !settings.Enabled() {
 		return nil
 	}
-	return &hostDNSStatusView{Settings: settings, Status: configinput.HostRuntime(h).Check(nebulacompat.FeatureHostDNS)}
+	var tunDevice string
+	if h.Advanced != nil {
+		tunDevice = h.Advanced.TunDevice
+	}
+	return &hostDNSStatusView{Settings: settings, Status: configinput.HostRuntime(h).CheckHostDNS(tunDevice)}
 }

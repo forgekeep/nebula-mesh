@@ -11,6 +11,8 @@ import (
 	"net/netip"
 	"strings"
 	"unicode"
+
+	"github.com/DefinedNet/dnsconfig"
 )
 
 const (
@@ -81,6 +83,7 @@ func (s Settings) Normalize() (Settings, error) {
 	}
 	out := Default()
 	seen := map[string]bool{}
+	addrs := make([]netip.Addr, 0, len(s.Nameservers))
 	for i, ns := range s.Nameservers {
 		addr, err := netip.ParseAddr(strings.TrimSpace(ns))
 		if err != nil || addr.Zone() != "" {
@@ -90,6 +93,7 @@ func (s Settings) Normalize() (Settings, error) {
 			return Settings{}, fmt.Errorf("nameservers[%d] duplicates %q", i, addr.String())
 		}
 		seen[addr.String()] = true
+		addrs = append(addrs, addr)
 		out.Nameservers = append(out.Nameservers, addr.String())
 	}
 	var err error
@@ -115,6 +119,13 @@ func (s Settings) Normalize() (Settings, error) {
 			return Settings{}, fmt.Errorf("search_domains[%d] %q must fall under a match_domains entry", i, search)
 		}
 	}
+	// Nebula 1.12 runs the same check on the stanza and refuses to start when
+	// it fails, so a setting that passed here but not there would take every
+	// host in the network down.
+	cfg := dnsconfig.Config{Nameservers: addrs, MatchDomains: out.MatchDomains, SearchDomains: out.SearchDomains}
+	if err := cfg.Validate(); err != nil {
+		return Settings{}, fmt.Errorf("nebula would reject this host dns: %w", err)
+	}
 	return out, nil
 }
 
@@ -125,10 +136,10 @@ func normalizeDomains(field string, values []string) ([]string, error) {
 	out := make([]string, 0, len(values))
 	seen := map[string]bool{}
 	for i, raw := range values {
-		value := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(raw)), ".")
+		value := strings.TrimRight(strings.ToLower(strings.TrimSpace(raw)), ".")
 		switch {
 		case value == "":
-			return nil, fmt.Errorf("%s[%d] must not be empty", field, i)
+			return nil, fmt.Errorf("%s[%d] must name a domain, not be empty or the root", field, i)
 		case len(value) > maxDomainBytes:
 			return nil, fmt.Errorf("%s[%d] must not exceed %d bytes", field, i, maxDomainBytes)
 		case strings.IndexFunc(value, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0:

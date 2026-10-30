@@ -97,7 +97,9 @@ func TestOpsBackup_SEC_TOTP_001_RefusesPlainArchiveBeforeSeedMigration(t *testin
 	for _, stmt := range []string{
 		`DROP TRIGGER operator_totp_secret_insert`,
 		`DROP TRIGGER operator_totp_secret_update`,
-		`DELETE FROM schema_migrations WHERE name = '029_encrypt_operator_totp.up.sql'`,
+		// A pre-029 database has applied no migration from 029 on; the backup
+		// gate reads the latest applied one.
+		`DELETE FROM schema_migrations WHERE name >= '029_encrypt_operator_totp.up.sql'`,
 		`UPDATE operators SET totp_secret = 'JBSWY3DPEHPK3PXP' WHERE username = 'admin'`,
 	} {
 		if _, err := s.DB().ExecContext(context.Background(), stmt); err != nil {

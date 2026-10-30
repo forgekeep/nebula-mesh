@@ -140,31 +140,36 @@ func ValidateRoleReachability(role HostRole, publicIP string, listenPort int) er
 }
 
 type Host struct {
-	ID                  string        `json:"id"`
-	NetworkID           string        `json:"network_id"`
-	CAID                string        `json:"ca_id,omitempty"`
-	Name                string        `json:"name"`
-	NebulaIPs           []string      `json:"nebula_ips"`
-	Groups              []string      `json:"groups"`
-	UnsafeNetworks      []string      `json:"unsafe_networks,omitempty"`
-	Role                HostRole      `json:"role"`
-	IsLighthouse        bool          `json:"is_lighthouse"`
-	IsRelay             bool          `json:"is_relay"`
-	PublicIP            string        `json:"public_ip,omitempty"`
-	ListenPort          int           `json:"listen_port,omitempty"`
-	Status              HostStatus    `json:"status"`
-	CertFingerprint     string        `json:"cert_fingerprint,omitempty"`
-	PrevCertFingerprint string        `json:"prev_cert_fingerprint,omitempty"`
-	CertExpiresAt       *time.Time    `json:"cert_expires_at,omitempty"`
-	CertRotatedAt       *time.Time    `json:"cert_rotated_at,omitempty"`
-	PendingRekey        bool          `json:"pending_rekey,omitempty"`
-	SigningPubPEM       string        `json:"signing_pub_pem,omitempty"`
-	LastSeenAt          *time.Time    `json:"last_seen_at,omitempty"`
-	Advanced            *HostAdvanced `json:"advanced,omitempty"`
-	Kind                HostKind      `json:"kind"`
-	Variant             HostVariant   `json:"variant,omitempty"`
-	CreatedAt           time.Time     `json:"created_at"`
-	UpdatedAt           time.Time     `json:"updated_at"`
+	ID                  string     `json:"id"`
+	NetworkID           string     `json:"network_id"`
+	CAID                string     `json:"ca_id,omitempty"`
+	Name                string     `json:"name"`
+	NebulaIPs           []string   `json:"nebula_ips"`
+	Groups              []string   `json:"groups"`
+	UnsafeNetworks      []string   `json:"unsafe_networks,omitempty"`
+	Role                HostRole   `json:"role"`
+	IsLighthouse        bool       `json:"is_lighthouse"`
+	IsRelay             bool       `json:"is_relay"`
+	PublicIP            string     `json:"public_ip,omitempty"`
+	ListenPort          int        `json:"listen_port,omitempty"`
+	Status              HostStatus `json:"status"`
+	CertFingerprint     string     `json:"cert_fingerprint,omitempty"`
+	PrevCertFingerprint string     `json:"prev_cert_fingerprint,omitempty"`
+	CertExpiresAt       *time.Time `json:"cert_expires_at,omitempty"`
+	CertRotatedAt       *time.Time `json:"cert_rotated_at,omitempty"`
+	PendingRekey        bool       `json:"pending_rekey,omitempty"`
+	SigningPubPEM       string     `json:"signing_pub_pem,omitempty"`
+	LastSeenAt          *time.Time `json:"last_seen_at,omitempty"`
+	// NebulaVersion and NebulaOS are what the host's agent last reported;
+	// only the agent runtime report writes them.
+	NebulaVersion    string        `json:"nebula_version,omitempty"`
+	NebulaOS         string        `json:"nebula_os,omitempty"`
+	NebulaReportedAt *time.Time    `json:"nebula_reported_at,omitempty"`
+	Advanced         *HostAdvanced `json:"advanced,omitempty"`
+	Kind             HostKind      `json:"kind"`
+	Variant          HostVariant   `json:"variant,omitempty"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
 }
 
 // MaxAddressesPerHost is the maximum number of overlay addresses a host can have.

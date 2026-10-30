@@ -243,6 +243,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"027_keyed_credential_cutover.up.sql",
 		"028_host_unsafe_networks.up.sql",
 		"029_encrypt_operator_totp.up.sql",
+		"030_host_nebula_runtime.up.sql",
 	}
 
 	conn, err := s.db.Conn(ctx)
@@ -1249,6 +1250,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	var kind string
 	var variant string
 	var unsafeNetworksJSON string
+	var nebulaReportedAt sql.NullTime
 
 	err := scanner.Scan(
 		&h.ID, &h.NetworkID, &h.Name, &groupsJSON,
@@ -1256,7 +1258,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 		&h.Status, &certFP, &certExpires, &lastSeen,
 		&h.CreatedAt, &h.UpdatedAt, &advancedJSON, &h.CAID,
 		&prevCertFP, &certRotatedAt, &h.PendingRekey, &signingPub, &kind, &variant,
-		&unsafeNetworksJSON,
+		&unsafeNetworksJSON, &h.NebulaVersion, &h.NebulaOS, &nebulaReportedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -1293,6 +1295,9 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	if lastSeen.Valid {
 		h.LastSeenAt = &lastSeen.Time
 	}
+	if nebulaReportedAt.Valid {
+		h.NebulaReportedAt = &nebulaReportedAt.Time
+	}
 	if signingPub.Valid {
 		h.SigningPubPEM = signingPub.String
 	}
@@ -1302,7 +1307,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	return h, nil
 }
 
-const hostColumns = `id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem, kind, variant, unsafe_networks_json`
+const hostColumns = `id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem, kind, variant, unsafe_networks_json, nebula_version, nebula_os, nebula_reported_at`
 
 func (s *SQLiteStore) GetHost(ctx context.Context, id string) (*models.Host, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
@@ -1555,6 +1560,52 @@ func (s *SQLiteStore) UpdateHostLastSeen(ctx context.Context, id string, t time.
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ReportHostNebulaRuntime records the Nebula version and OS an agent reported
+// and reports whether either changed. A change resets config_version in the
+// same transaction (SEC-PERSIST-001), so the next poll renders config for the
+// new version; a repeated report only refreshes nebula_reported_at.
+func (s *SQLiteStore) ReportHostNebulaRuntime(ctx context.Context, id, version, os string, at time.Time) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	result, err := tx.ExecContext(ctx,
+		`UPDATE hosts SET nebula_version=?, nebula_os=?, config_version=0, updated_at=?
+		 WHERE id=? AND (nebula_version<>? OR nebula_os<>?)`,
+		version, os, time.Now(), id, version, os,
+	)
+	if err != nil {
+		return false, fmt.Errorf("update host nebula runtime: %w", err)
+	}
+	changedRows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("update host nebula runtime rows affected: %w", err)
+	}
+
+	result, err = tx.ExecContext(ctx, `UPDATE hosts SET nebula_reported_at=? WHERE id=?`, at, id)
+	if err != nil {
+		return false, fmt.Errorf("update host nebula reported at: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("update host nebula reported at rows affected: %w", err)
+	}
+	if rows == 0 {
+		return false, ErrNotFound
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit tx: %w", err)
+	}
+	return changedRows > 0, nil
 }
 
 func (s *SQLiteStore) UpdateHostCert(ctx context.Context, id, fingerprint string, expiresAt time.Time) error {

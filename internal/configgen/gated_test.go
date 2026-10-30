@@ -88,3 +88,17 @@ func TestGenerate_NoTuningRendersNoNewKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerate_HostDNSNeedsMatchDomains(t *testing.T) {
+	in := baseRoundTripInput()
+	in.Runtime = nebulacompat.HostRuntime("1.12.0", "darwin", "", false)
+	in.HostDNS = &HostDNS{Nameservers: []string{"10.0.0.53"}}
+	if c := loadGenerated(t, in); c.IsSet("dns") {
+		t.Error("dns rendered without match_domains, which would redirect every lookup")
+	}
+	in.HostDNS.MatchDomains = []string{"mesh.example"}
+	c := loadGenerated(t, in)
+	if !c.GetBool("dns.enabled", false) || !reflect.DeepEqual(c.GetStringSlice("dns.match_domains", nil), []string{"mesh.example"}) {
+		t.Errorf("dns stanza = %#v", c.Get("dns"))
+	}
+}

@@ -339,6 +339,44 @@ for mobile hosts, which pin it to `false` because the mobile app drives its own
 reconnection; an explicit `punchy_respond` wins over that pin, so a mobile
 bundle can carry `respond: true` when the operator asks for it.
 
+### Settings that depend on the host's Nebula release
+
+The server renders config for the Nebula release each host runs (see
+[Nebula version report](#nebula-version-report)); `advanced.nebula_version`
+sets it for a host without an agent, such as a mobile client. Nebula 1.10 and
+newer are supported. A host with an unknown version gets the conservative
+config every supported release understands.
+
+| Field | Nebula key | Rendered for |
+|---|---|---|
+| `routines` (1–64) | `routines` | every release |
+| `udp_offloads`, `tun_offloads` | `listen.udp_offloads`, `tun.use_offloads` | 1.12+, Linux |
+| `pin_threads`, `pin_threads_key` (`pid`/`port`), `cpu_affinity` | `tun.pin_threads`, `tun.pin_threads_key`, `tun.cpu_affinity` | 1.12+, Linux; need `routines` above 1 |
+| `local_api_control_enabled`, `local_api_control_group` | `local_api.control.enabled`, `local_api.control.group` | 1.12+ |
+
+Saving a field that the host's known release or OS cannot use fails with the
+reason. When the version is unknown the field is stored and renders once the
+host reports a release that supports it. The host page lists every stored
+field the host does not get and says why. Offloads and thread pinning take
+effect only after Nebula restarts; a reload leaves the old values running.
+
+### Network host DNS (experimental)
+
+`PUT /api/v1/networks/{id}/host-dns` sets split DNS for a network:
+
+```json
+{"nameservers": ["10.0.0.53"], "match_domains": ["mesh.example"], "search_domains": []}
+```
+
+The server renders it as Nebula's `dns` stanza for hosts running Nebula 1.12+
+on macOS or Windows; Nebula needs root or admin there to change the resolver.
+Nebula marks the stanza experimental, so treat it as use at your own risk.
+`match_domains` must list at least one domain: sending every lookup to the
+overlay nameservers is not offered. Each `search_domains` entry must fall under
+a `match_domains` entry. Empty `nameservers` turns the stanza off. An update
+makes every host in the network receive its config again. The host page shows
+whether the host gets the stanza.
+
 ### Per-host inbound firewall rules
 
 `advanced.firewall_inbound` appends host-specific inbound rules **after** the

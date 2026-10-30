@@ -360,6 +360,7 @@ func (w *Web) setupRoutes() {
 			r.Post("/ui/hosts/{id}/edit", w.handleHostUpdate)
 			r.Post("/ui/hosts/{id}/mobile-bundle/generate", w.handleGenerateMobileBundle)
 			r.Post("/ui/hosts/{id}/block", w.handleHostBlock)
+			r.Post("/ui/hosts/{id}/clear-restart-pending", w.handleHostClearRestartPending)
 			r.Delete("/ui/hosts/{id}", w.handleHostDelete)
 			r.Get("/ui/networks", w.handleNetworks)
 			r.Post("/ui/networks", w.handleNetworkCreate)

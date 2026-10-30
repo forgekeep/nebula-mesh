@@ -44,18 +44,18 @@ func nebulaReloader(reloadCommand, pidFile string) func(context.Context) error {
 	if reloadCommand == "" {
 		return func(context.Context) error { return signalNebulaFromPID(pidFile) }
 	}
-	return func(ctx context.Context) error { return runReloadCommand(ctx, reloadCommand) }
+	return func(ctx context.Context) error { return runHookCommand(ctx, "nebula_reload_command", reloadCommand) }
 }
 
-// runReloadCommand executes one reload hook, bounded by both the caller's
-// context and the reload timeout. The command runs in its own process group
+// runHookCommand executes one reload or restart hook, named by its agent.yml
+// field in errors, bounded by both the caller's context and the reload timeout. The command runs in its own process group
 // so either bound can take down everything it spawned rather than just the
 // shell (see terminateReloadCommand).
-func runReloadCommand(parent context.Context, reloadCommand string) error {
+func runHookCommand(parent context.Context, field, command string) error {
 	ctx, cancel := context.WithTimeout(parent, reloadCommandTimeout)
 	defer cancel()
 
-	cmd := reloadShellCommand(ctx, reloadCommand)
+	cmd := reloadShellCommand(ctx, command)
 	out := &cappedBuffer{limit: reloadCommandOutputLimit}
 	// Same writer for both streams: os/exec then shares a single pipe and
 	// copier, so stdout and stderr stay interleaved as CombinedOutput had them.
@@ -67,14 +67,14 @@ func runReloadCommand(parent context.Context, reloadCommand string) error {
 	err := cmd.Run()
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return fmt.Errorf("nebula_reload_command timed out after %s (process group terminated): %s",
-			reloadCommandTimeout, out.String())
+		return fmt.Errorf("%s timed out after %s (process group terminated): %s",
+			field, reloadCommandTimeout, out.String())
 	case errors.Is(ctx.Err(), context.Canceled):
 		// The agent is shutting down. Whether the reload landed is
 		// unknowable, so this stays an error and the config ack is
 		// suppressed — the next start re-applies and retries.
-		return fmt.Errorf("nebula_reload_command interrupted by shutdown (process group terminated): %s",
-			out.String())
+		return fmt.Errorf("%s interrupted by shutdown (process group terminated): %s",
+			field, out.String())
 	case err == nil:
 		return nil
 	case errors.Is(err, exec.ErrWaitDelay):
@@ -84,7 +84,7 @@ func runReloadCommand(parent context.Context, reloadCommand string) error {
 		// already stopped reading, so nothing leaks on our side.
 		return nil
 	default:
-		return fmt.Errorf("nebula_reload_command failed: %w: %s", err, out.String())
+		return fmt.Errorf("%s failed: %w: %s", field, err, out.String())
 	}
 }
 

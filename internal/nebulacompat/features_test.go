@@ -1,6 +1,9 @@
 package nebulacompat
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestRuntimeCheck(t *testing.T) {
 	tests := []struct {
@@ -58,5 +61,23 @@ func TestRuntimeCheckHostDNS_WindowsNeedsTunDevice(t *testing.T) {
 	}
 	if st := HostRuntime("1.12.0", "darwin", "", false).CheckHostDNS(""); !st.Rendered {
 		t.Errorf("darwin without tun device: %+v", st)
+	}
+}
+
+func TestRestartKeys(t *testing.T) {
+	linux := RestartKeys("linux")
+	for _, key := range []string{"routines", "listen.port", "listen.udp_offloads", "tun.use_offloads", "tun.pin_threads", "tun.cpu_affinity"} {
+		if !slices.Contains(linux, key) {
+			t.Errorf("linux restart keys miss %s", key)
+		}
+	}
+	if slices.Contains(linux, "tun.mtu") {
+		t.Error("tun.mtu is reloadable on linux")
+	}
+	if !slices.Contains(RestartKeys("windows"), "tun.mtu") {
+		t.Error("windows restart keys miss tun.mtu")
+	}
+	if slices.Contains(RestartKeys("darwin"), "listen.udp_offloads") {
+		t.Error("linux-only key listed for darwin")
 	}
 }

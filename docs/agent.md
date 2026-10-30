@@ -523,8 +523,9 @@ Before each poll the agent tells the server which Nebula release and OS the
 host runs, so the server can render config for that release. It runs
 `<nebula_binary_path> -version`, reads the `Version: X.Y.Z` line, and sends a
 signed `POST /api/v1/agent/runtime/{os}/{version}`. It runs the binary again
-only when the file changes, and reports only when the result differs from the
-last accepted report. After a Nebula upgrade the next poll therefore reports
+only when the file changes. It reports when the result differs from the last
+accepted report, and once a day otherwise, so a server restored from an older
+backup learns the release again. After a Nebula upgrade the next poll therefore reports
 the new version and receives config rendered for it.
 
 The report never blocks a poll:

@@ -23,16 +23,23 @@ const nebulaVersionTimeout = 5 * time.Second
 // maxNebulaVersionOutput bounds what is read from `nebula -version`.
 const maxNebulaVersionOutput = 4 << 10
 
+// runtimeReportRefresh re-sends an unchanged report, so a server that lost it
+// (a restore from backup, say) learns the host's release again without
+// waiting for the agent to restart.
+const runtimeReportRefresh = 24 * time.Hour
+
 // runtimeReporter tells the server which Nebula release and OS this host runs
 // (#400), so it can render config for that release. It runs `nebula -version`
-// again only when the binary file changes, and reports only when the result
-// differs from the last accepted report.
+// again only when the binary file changes, and reports when the result differs
+// from the last accepted report or that report is runtimeReportRefresh old.
 type runtimeReporter struct {
 	binaryPath  string
 	runVersion  func(ctx context.Context, binary string) ([]byte, error)
 	stamp       binaryStamp
 	version     string
 	reported    string
+	reportedAt  time.Time
+	now         func() time.Time
 	unsupported bool
 	lastErr     string
 }
@@ -45,7 +52,7 @@ type binaryStamp struct {
 }
 
 func newRuntimeReporter(binaryPath string) *runtimeReporter {
-	return &runtimeReporter{binaryPath: binaryPath, runVersion: runNebulaVersion}
+	return &runtimeReporter{binaryPath: binaryPath, runVersion: runNebulaVersion, now: time.Now}
 }
 
 func runNebulaVersion(ctx context.Context, binary string) ([]byte, error) {
@@ -133,7 +140,7 @@ func (r *runtimeReporter) detect(ctx context.Context) (string, error) {
 }
 
 // reportRuntime sends the Nebula version and OS to the server when they
-// changed since the last accepted report. Failures never stop the poll: the
+// changed since the last accepted report, or that report is old. Failures never stop the poll: the
 // server keeps rendering the conservative config until a report lands.
 func (p *Poller) reportRuntime(ctx context.Context) {
 	r := p.runtime
@@ -146,7 +153,7 @@ func (p *Poller) reportRuntime(ctx context.Context) {
 		return
 	}
 	key := runtime.GOOS + "/" + version
-	if key == r.reported {
+	if key == r.reported && r.now().Sub(r.reportedAt) < runtimeReportRefresh {
 		return
 	}
 	status, err := p.postRuntime(ctx, runtime.GOOS, version)
@@ -161,7 +168,7 @@ func (p *Poller) reportRuntime(ctx context.Context) {
 	case status != http.StatusOK:
 		p.warnRuntimeOnce(fmt.Errorf("runtime report failed (HTTP %d)", status))
 	default:
-		r.reported, r.lastErr = key, ""
+		r.reported, r.reportedAt, r.lastErr = key, r.now(), ""
 		p.logger.Info("reported nebula runtime", "nebula_version", version, "os", runtime.GOOS)
 	}
 }

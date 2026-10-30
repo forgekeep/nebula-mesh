@@ -248,3 +248,29 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func TestPoller_RefreshesUnchangedRuntimeReport(t *testing.T) {
+	p, srv, _, _ := newRuntimePoller(t, http.StatusOK)
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	p.runtime.now = func() time.Time { return now }
+	if err := p.PollOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(runtimeReportRefresh - time.Minute)
+	if err := p.PollOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Minute)
+	if err := p.PollOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	reports := 0
+	for _, r := range srv.requests() {
+		if r[:4] == "POST" {
+			reports++
+		}
+	}
+	if reports != 2 {
+		t.Errorf("runtime reports = %d, want the first plus one refresh after %v", reports, runtimeReportRefresh)
+	}
+}

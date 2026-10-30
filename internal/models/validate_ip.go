@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/forgekeep/nebula-mesh/internal/nebulacompat"
 )
 
 // tunDeviceRe is the strict whitelist for TunDevice (advanced.tun_device).
@@ -264,6 +266,11 @@ func ValidateHostAdvanced(adv *HostAdvanced) error {
 	}
 	if adv.MTU != 0 && (adv.MTU < 576 || adv.MTU > MaxMTU) {
 		return fmt.Errorf("advanced.mtu must be between 576 and %d", MaxMTU)
+	}
+	if adv.NebulaVersion != "" {
+		if _, err := nebulacompat.ParseVersion(adv.NebulaVersion); err != nil {
+			return fmt.Errorf("advanced.nebula_version must be a Nebula release such as 1.12.0")
+		}
 	}
 	if adv.ListenHost != "" {
 		if _, err := ValidateIPAddr("advanced.listen_host", adv.ListenHost); err != nil {

@@ -1410,6 +1410,20 @@ components:
         last_seen_at:
           type: string
           format: date-time
+        nebula_version:
+          type: string
+          description: >-
+            Nebula release the host's agent last reported, for example
+            `1.12.0`. Absent until the agent reports one; the server then
+            renders the conservative config every supported release
+            understands, unless `advanced.nebula_version` sets a version.
+        nebula_os:
+          type: string
+          enum: [darwin, freebsd, linux, windows]
+          description: OS the host's agent last reported.
+        nebula_reported_at:
+          type: string
+          format: date-time
         kind:
           type: string
         variant:

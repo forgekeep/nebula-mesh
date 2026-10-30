@@ -9,7 +9,7 @@
 {{if .Hosts}}
 <div class="card">
     <table id="hosts-table">
-        <thead><tr><th>Name</th><th>Overlay Addresses</th><th>Groups</th><th>Network</th><th>Role</th><th>Status</th><th>Online</th><th>Last Seen</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Overlay Addresses</th><th>Groups</th><th>Network</th><th>Role</th><th>Status</th><th>Online</th><th>Last Seen</th><th>Nebula</th><th></th></tr></thead>
         <tbody>
         {{range .Hosts}}
         <tr id="host-{{.ID}}" data-host-id="{{.ID}}">
@@ -21,6 +21,7 @@
             <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
             <td><span class="badge badge-online" data-online="{{.Online}}">{{if .Online}}online{{else}}offline{{end}}</span></td>
             <td class="host-last-seen">{{if .LastSeenAt}}{{.LastSeenAt.Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
+            <td class="host-nebula">{{with nebulaRuntime .Host}}{{if .Known}}<span title="{{.SourceLabel}}">{{.Version}}</span>{{if not .Supported}} (unsupported){{end}}{{else}}—{{end}}{{end}}</td>
             <td>
                 {{if and (ne (printf "%s" .Status) "blocked") (ne (printf "%s" .Status) "importing")}}
                 <button class="btn btn-sm btn-danger"

@@ -240,6 +240,7 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 			}
 			return *p
 		},
+		"nebulaRuntime": newNebulaRuntimeView,
 		// Stub functions for CSRF token injection; overridden per-request in renderWithStatus.
 		// Render helper (renderWithStatus) clones the template and replaces these with per-request closures.
 		"csrfToken": func() string { return "" },

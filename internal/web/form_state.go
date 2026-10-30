@@ -70,6 +70,7 @@ type hostFormState struct {
 	AdvListenHost      string
 	AdvMTU             string
 	AdvTunDevice       string
+	AdvNebulaVersion   string
 	AdvPunchy          string
 	AdvPunchyRespond   string
 	AdvUnsafeRoutes    string
@@ -92,6 +93,7 @@ func newHostFormState(r *http.Request) hostFormState {
 		AdvListenHost:      r.FormValue("adv_listen_host"),
 		AdvMTU:             r.FormValue("adv_mtu"),
 		AdvTunDevice:       r.FormValue("adv_tun_device"),
+		AdvNebulaVersion:   r.FormValue("adv_nebula_version"),
 		AdvPunchy:          r.FormValue("adv_punchy"),
 		AdvPunchyRespond:   r.FormValue("adv_punchy_respond"),
 		AdvUnsafeRoutes:    r.FormValue("adv_unsafe_routes"),
@@ -295,6 +297,7 @@ func hostFormStateFromHost(h *models.Host) hostFormState {
 			state.AdvMTU = strconv.Itoa(h.Advanced.MTU)
 		}
 		state.AdvTunDevice = h.Advanced.TunDevice
+		state.AdvNebulaVersion = h.Advanced.NebulaVersion
 		if h.Advanced.Punchy != nil {
 			if *h.Advanced.Punchy {
 				state.AdvPunchy = "true"

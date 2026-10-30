@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -183,5 +184,47 @@ func TestAgentRuntime_RejectsMalformedValues(t *testing.T) {
 	host, _ := st.GetHost(t.Context(), agent.hostID)
 	if host.NebulaVersion != "" || host.NebulaOS != "" {
 		t.Errorf("malformed report recorded %q/%q", host.NebulaVersion, host.NebulaOS)
+	}
+}
+
+func TestHostAPI_ExposesNebulaRuntimeAndOperatorVersion(t *testing.T) {
+	srv, st := newTestServer(t)
+	agent := enrolledFixture(t, srv)
+	if rec := postRuntime(t, srv, agent, "/api/v1/agent/runtime/windows/1.11.2"); rec.Code != http.StatusOK {
+		t.Fatalf("report: %d %s", rec.Code, rec.Body.String())
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/v1/hosts/"+agent.hostID, nil)
+	authRequest(get)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, get)
+	var host map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&host); err != nil {
+		t.Fatal(err)
+	}
+	if host["nebula_version"] != "1.11.2" || host["nebula_os"] != "windows" || host["nebula_reported_at"] == nil {
+		t.Errorf("host JSON runtime = %v/%v/%v", host["nebula_version"], host["nebula_os"], host["nebula_reported_at"])
+	}
+
+	patch := func(version string) int {
+		raw, _ := json.Marshal(map[string]any{"advanced": map[string]any{"nebula_version": version}})
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/hosts/"+agent.hostID, bytes.NewReader(raw))
+		authRequest(req)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := patch("latest"); code != http.StatusBadRequest {
+		t.Errorf("invalid advanced.nebula_version: status = %d, want 400", code)
+	}
+	if code := patch("1.10.3"); code != http.StatusOK {
+		t.Fatalf("valid advanced.nebula_version: status = %d", code)
+	}
+	stored, _ := st.GetHost(t.Context(), agent.hostID)
+	if stored.Advanced == nil || stored.Advanced.NebulaVersion != "1.10.3" {
+		t.Errorf("advanced = %+v", stored.Advanced)
+	}
+	if stored.NebulaVersion != "1.11.2" {
+		t.Errorf("operator edit overwrote the reported version: %q", stored.NebulaVersion)
 	}
 }

@@ -86,7 +86,11 @@ func parseAdvancedFromForm(r *http.Request) (*models.HostAdvanced, error) {
 		}
 	}
 
-	if !used {
+	tuningUsed, err := parseTuningFromForm(r, adv)
+	if err != nil {
+		return nil, err
+	}
+	if !used && !tuningUsed {
 		return nil, nil
 	}
 	return adv, nil

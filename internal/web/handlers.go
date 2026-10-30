@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/forgekeep/nebula-mesh/internal/bootstraptoken"
+	"github.com/forgekeep/nebula-mesh/internal/configinput"
 	"github.com/forgekeep/nebula-mesh/internal/mobilebundle"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
@@ -1024,6 +1025,10 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
+	if err := configinput.CheckGatedOverrides(nil, host); err != nil {
+		w.renderHostNewError(rw, r, form, err.Error())
+		return
+	}
 
 	// Mobile hosts don't use the agent enrollment flow — they get a
 	// self-contained YAML bundle on creation, so no enrollment token is needed.
@@ -1302,6 +1307,10 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 	host.PublicIP = form.PublicIP
 	host.ListenPort = listenPort
 	host.Advanced = advanced
+	if err := configinput.CheckGatedOverrides(&before, host); err != nil {
+		w.renderHostEditError(rw, r, &before, network, form, err.Error())
+		return
+	}
 
 	// Compute diff
 	jsonDiff, hasChanges, err := models.HostDiff(&before, host)

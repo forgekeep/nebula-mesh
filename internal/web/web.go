@@ -16,6 +16,7 @@ import (
 
 	"github.com/forgekeep/nebula-mesh/internal/auth"
 	"github.com/forgekeep/nebula-mesh/internal/caimport"
+	"github.com/forgekeep/nebula-mesh/internal/configinput"
 	"github.com/forgekeep/nebula-mesh/internal/enrollment"
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
@@ -240,7 +241,9 @@ func New(s store.Store, logger *slog.Logger) (*Web, error) {
 			}
 			return *p
 		},
-		"nebulaRuntime": newNebulaRuntimeView,
+		"nebulaRuntime":      newNebulaRuntimeView,
+		"unappliedOverrides": configinput.UnappliedOverrides,
+		"joinInts":           joinInts,
 		// Stub functions for CSRF token injection; overridden per-request in renderWithStatus.
 		// Render helper (renderWithStatus) clones the template and replaces these with per-request closures.
 		"csrfToken": func() string { return "" },

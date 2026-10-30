@@ -101,8 +101,8 @@ func (s *Server) handleCreateCA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if len(req.Name) > 255 {
-		writeError(w, http.StatusBadRequest, "name must be at most 255 characters")
+	if err := models.ValidateCertName("name", req.Name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	duration := 365 * 24 * time.Hour

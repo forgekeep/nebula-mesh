@@ -840,6 +840,10 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	form := newHostFormState(r)
+	if err := models.ValidateCertName("name", form.Name); err != nil {
+		w.renderHostNewError(rw, r, form, err.Error())
+		return
+	}
 
 	// Resolve the chosen network and check that the operator is allowed
 	// to attach a host to it (issue #93). admins keep their existing
@@ -1193,8 +1197,8 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 
 	// Validation pipeline
 	name := strings.TrimSpace(form.Name)
-	if name == "" {
-		w.renderHostEditError(rw, r, host, network, form, "name must not be empty")
+	if err := models.ValidateCertName("name", name); err != nil {
+		w.renderHostEditError(rw, r, host, network, form, err.Error())
 		return
 	}
 

@@ -262,8 +262,8 @@ func ValidateHostAdvanced(adv *HostAdvanced) error {
 	if adv == nil {
 		return nil
 	}
-	if adv.MTU != 0 && (adv.MTU < 576 || adv.MTU > 9216) {
-		return fmt.Errorf("advanced.mtu must be between 576 and 9216")
+	if adv.MTU != 0 && (adv.MTU < 576 || adv.MTU > MaxMTU) {
+		return fmt.Errorf("advanced.mtu must be between 576 and %d", MaxMTU)
 	}
 	if adv.ListenHost != "" {
 		if _, err := ValidateIPAddr("advanced.listen_host", adv.ListenHost); err != nil {

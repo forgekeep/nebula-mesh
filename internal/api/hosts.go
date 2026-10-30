@@ -49,7 +49,9 @@ type updateHostRequest struct {
 // then distributed to every peer; without caps an operator could bloat certs
 // mesh-wide (#186). Generous relative to real use, but bounded.
 const (
-	maxHostNameLen = 255
+	// maxHostNameLen is the Nebula certificate name bound; a longer name
+	// passes here but can never be signed into a loadable certificate.
+	maxHostNameLen = models.MaxCertNameLen
 	// maxGroupNameLen is the domain-layer bound, aliased here so the API and
 	// models.ValidateHostAdvanced cannot enforce different caps.
 	maxGroupNameLen = models.MaxGroupNameLen
@@ -58,10 +60,7 @@ const (
 
 // validateHostName bounds the host name length.
 func validateHostName(name string) error {
-	if len(name) > maxHostNameLen {
-		return fmt.Errorf("name must be at most %d characters", maxHostNameLen)
-	}
-	return nil
+	return models.ValidateCertName("name", name)
 }
 
 // validateHostGroups bounds the group count and each group's length, and keeps

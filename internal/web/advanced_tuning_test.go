@@ -94,3 +94,26 @@ func getHostEditForm(t *testing.T, w *Web, cookies []*http.Cookie) string {
 	}
 	return rec.Body.String()
 }
+
+func TestHostDetail_ShowsHostDNSStatus(t *testing.T) {
+	w, s := newTestWeb(t)
+	cookies := loginSession(t, w)
+	seedHostWithGroups(t, s, []string{})
+	ctx := context.Background()
+	if err := s.SetNetworkConfig(ctx, "n-1", "host_dns",
+		`{"nameservers":["10.0.0.53"],"match_domains":["mesh.example"],"search_domains":[]}`); err != nil {
+		t.Fatal(err)
+	}
+
+	detail := getHostDetail(t, w, cookies, "h-1")
+	if !strings.Contains(detail, "experimental") || !strings.Contains(detail, "not applied — host DNS requires Nebula 1.12.0 or newer; the host&#39;s Nebula version is unknown") {
+		t.Errorf("unknown-version host page does not explain the host DNS status:\n%s", detail)
+	}
+
+	if _, err := s.ReportHostNebulaRuntime(ctx, "h-1", "1.12.0", "windows", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if detail := getHostDetail(t, w, cookies, "h-1"); !strings.Contains(detail, "10.0.0.53 for mesh.example") {
+		t.Errorf("windows 1.12 host page does not show the applied host DNS")
+	}
+}

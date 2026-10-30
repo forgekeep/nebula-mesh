@@ -201,6 +201,7 @@ var auditActionsExercisedElsewhere = map[string]string{
 	auditMeshImportHostRegistered:  "agent_import_test.go",
 	auditMeshImportFinalized:       "mesh_imports_test.go",
 	auditHostNebulaRuntimeChanged:  "agent_runtime_test.go",
+	auditNetworkHostDNSUpdate:      "host_dns_test.go",
 }
 
 // auditActionsPendingImplementation lists audit constants that were

@@ -1140,8 +1140,9 @@ func (w *Web) handleHostDetail(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	w.renderForRequest(rw, r, "host_detail.html", map[string]any{
-		"Active": "hosts",
-		"Host":   host,
+		"Active":  "hosts",
+		"Host":    host,
+		"HostDNS": w.hostDNSView(r.Context(), host),
 	})
 }
 

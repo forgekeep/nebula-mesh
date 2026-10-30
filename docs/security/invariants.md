@@ -37,8 +37,8 @@ broaden it.
   route without a scoping decision fails CI.
 - Managed webhook subscriptions are selected by CA owner; the deployer-owned
   static webhook is intentionally global.
-- Mobile profile settings are read and replaced only after authorization through
-  the owning Network and CA.
+- Mobile profile and host DNS settings are read and replaced only after
+  authorization through the owning Network and CA.
 
 ### Test anchors
 
@@ -48,6 +48,8 @@ broaden it.
   non-disclosure.
 - `internal/api/mobile_config_authz_test.go`: foreign mobile profile reads do
   not disclose settings and foreign writes do not mutate them.
+- `internal/api/host_dns_test.go`: foreign host DNS reads do not disclose
+  settings and foreign writes do not mutate them.
 - `internal/web/tenant_scope_test.go`: Web read and mutation isolation.
 - `internal/webhook/fanout_test.go`:
   `TestDispatcher_ManagedTargetsAreCAOwnerScopedAndStaticTargetIsGlobal`.

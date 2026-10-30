@@ -16,7 +16,7 @@ import (
 
 func (s *Server) handleGetMobileConfig(w http.ResponseWriter, r *http.Request) {
 	networkID := chi.URLParam(r, "id")
-	if !s.requireMobileConfigAccess(w, r, networkID) {
+	if !s.requireNetworkConfigAccess(w, r, networkID) {
 		return
 	}
 
@@ -31,7 +31,7 @@ func (s *Server) handleGetMobileConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateMobileConfig(w http.ResponseWriter, r *http.Request) {
 	networkID := chi.URLParam(r, "id")
-	if !s.requireMobileConfigAccess(w, r, networkID) {
+	if !s.requireNetworkConfigAccess(w, r, networkID) {
 		return
 	}
 
@@ -66,20 +66,22 @@ func (s *Server) handleUpdateMobileConfig(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, settings)
 }
 
-func (s *Server) requireMobileConfigAccess(w http.ResponseWriter, r *http.Request, networkID string) bool {
+// requireNetworkConfigAccess authorizes reads and writes of a network-scoped
+// setting (mobile-config, host-dns) through the network's CA owner.
+func (s *Server) requireNetworkConfigAccess(w http.ResponseWriter, r *http.Request, networkID string) bool {
 	network, err := s.store.GetNetwork(r.Context(), networkID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "network not found")
 		return false
 	}
 	if err != nil {
-		s.logger.Error("get network for mobile config", "network", networkID, "error", err)
+		s.logger.Error("get network for network config", "network", networkID, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to load network")
 		return false
 	}
 	ok, err := s.canAccessNetwork(r.Context(), network)
 	if err != nil {
-		s.logger.Error("mobile config authz check", "network", networkID, "error", err)
+		s.logger.Error("network config authz check", "network", networkID, "error", err)
 		writeError(w, http.StatusInternalServerError, "authz check failed")
 		return false
 	}

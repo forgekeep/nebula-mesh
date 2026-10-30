@@ -362,6 +362,11 @@ func (s *Server) renderHostConfig(ctx context.Context, host *models.Host) ([]byt
 	}
 	configinput.ApplyHostAdvanced(&input, host.Advanced)
 	input.Runtime = configinput.HostRuntime(host)
+	hostDNS, err := loadNetworkHostDNS(ctx, s.store, host.NetworkID)
+	if err != nil {
+		return nil, fmt.Errorf("get host dns: %w", err)
+	}
+	input.HostDNS = generatorHostDNS(hostDNS)
 
 	// Emit the per-CA blocklist into pki.blocklist so the Nebula daemon
 	// rejects handshakes from revoked peers (GHSA-cm26-5974-52h8).

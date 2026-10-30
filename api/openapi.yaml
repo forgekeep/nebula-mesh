@@ -277,6 +277,66 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
+  /api/v1/networks/{id}/host-dns:
+    get:
+      operationId: getNetworkHostDNS
+      summary: Get the network's split DNS setting for Nebula's experimental dns stanza.
+      description: >-
+        Experimental in Nebula: rendered only for hosts running Nebula 1.12 or
+        newer on macOS or Windows, and needs root or admin there. Empty
+        nameservers means the stanza is off.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Host DNS setting.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HostDNS"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: updateNetworkHostDNS
+      summary: Replace the network's split DNS setting.
+      description: >-
+        Moves the network config version, so every host receives its config
+        again. match_domains must list at least one domain: redirecting every
+        lookup to the overlay nameservers is not offered.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HostDNS"
+      responses:
+        "200":
+          description: Updated host DNS setting.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HostDNS"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
   /api/v1/networks/{id}/mobile-config:
     get:
       operationId: getNetworkMobileConfig
@@ -1104,6 +1164,29 @@ components:
         created_at:
           type: string
           format: date-time
+
+    HostDNS:
+      type: object
+      additionalProperties: false
+      required: [nameservers, match_domains, search_domains]
+      properties:
+        nameservers:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            maxLength: 45
+            description: IPv4 or IPv6 address without a zone identifier.
+        match_domains:
+          type: array
+          maxItems: 64
+          description: Domains resolved through the nameservers. Required when nameservers is set.
+          items: { type: string, minLength: 1, maxLength: 253 }
+        search_domains:
+          type: array
+          maxItems: 64
+          description: Domains tried for bare labels; each must fall under a match_domains entry.
+          items: { type: string, minLength: 1, maxLength: 253 }
 
     MobileConfig:
       type: object

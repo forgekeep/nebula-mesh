@@ -1,8 +1,14 @@
 package web
 
 import (
+	"context"
+	"errors"
+
+	"github.com/forgekeep/nebula-mesh/internal/configinput"
+	"github.com/forgekeep/nebula-mesh/internal/hostdns"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/nebulacompat"
+	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 // nebulaRuntimeView is the host's effective Nebula version as the templates
@@ -37,4 +43,32 @@ func newNebulaRuntimeView(h *models.Host) nebulaRuntimeView {
 	view.Version = version.String()
 	view.Supported = version.Supported()
 	return view
+}
+
+// hostDNSStatusView is the network's experimental split DNS setting as it
+// applies to one host.
+type hostDNSStatusView struct {
+	Settings hostdns.Settings
+	Status   nebulacompat.Status
+}
+
+// hostDNSView returns nil when the network has no host DNS, or when it cannot
+// be read; the host page then omits the row.
+func (w *Web) hostDNSView(ctx context.Context, h *models.Host) *hostDNSStatusView {
+	raw, err := w.store.GetNetworkConfig(ctx, h.NetworkID, hostdns.StoreKey)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			w.logger.Error("get host dns for host page", "network", h.NetworkID, "error", err)
+		}
+		return nil
+	}
+	settings, err := hostdns.Decode(raw)
+	if err != nil {
+		w.logger.Error("decode host dns for host page", "network", h.NetworkID, "error", err)
+		return nil
+	}
+	if !settings.Enabled() {
+		return nil
+	}
+	return &hostDNSStatusView{Settings: settings, Status: configinput.HostRuntime(h).Check(nebulacompat.FeatureHostDNS)}
 }

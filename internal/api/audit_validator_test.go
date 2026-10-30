@@ -50,6 +50,7 @@ var knownAuditActions = map[string]struct{}{
 	auditNetworkCreate:             {},
 	auditNetworkFirewallUpdate:     {},
 	auditNetworkMobileConfigUpdate: {},
+	auditNetworkHostDNSUpdate:      {},
 	auditOperatorCreate:            {},
 	auditOperatorDisable:           {},
 	auditOperatorEnable:            {},

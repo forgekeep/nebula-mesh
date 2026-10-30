@@ -41,6 +41,7 @@ type nebulaConfig struct {
 	Firewall      firewallSection             `yaml:"firewall"`
 	Handshakes    *handshakesSection          `yaml:"handshakes,omitempty"`
 	LocalAPI      *localAPISection            `yaml:"local_api,omitempty"`
+	DNS           *dnsSection                 `yaml:"dns,omitempty"`
 	MobileNebula  *mobileNebulaSection        `yaml:"mobile_nebula,omitempty"`
 }
 
@@ -187,6 +188,13 @@ type tunSection struct {
 	PinThreads         *bool         `yaml:"pin_threads,omitempty"`
 	PinThreadsKey      safeString    `yaml:"pin_threads_key,omitempty"`
 	CPUAffinity        []int         `yaml:"cpu_affinity,omitempty"`
+}
+
+type dnsSection struct {
+	Enabled       bool         `yaml:"enabled"`
+	Nameservers   []safeString `yaml:"nameservers"`
+	MatchDomains  []safeString `yaml:"match_domains"`
+	SearchDomains []safeString `yaml:"search_domains,omitempty"`
 }
 
 type localAPISection struct {
@@ -505,5 +513,16 @@ func applyGatedFeatures(cfg *nebulaConfig, input GeneratorInput) {
 			Enabled: input.LocalAPIControlEnabled,
 			Group:   safeString(input.LocalAPIControlGroup),
 		}}
+	}
+	// An empty match_domains would send every lookup to the overlay
+	// nameservers, so the stanza needs both lists.
+	if dns := input.HostDNS; dns != nil && len(dns.Nameservers) > 0 && len(dns.MatchDomains) > 0 &&
+		rt.Check(nebulacompat.FeatureHostDNS).Rendered {
+		cfg.DNS = &dnsSection{
+			Enabled:       true,
+			Nameservers:   toSafeStrings(dns.Nameservers),
+			MatchDomains:  toSafeStrings(dns.MatchDomains),
+			SearchDomains: toSafeStrings(dns.SearchDomains),
+		}
 	}
 }

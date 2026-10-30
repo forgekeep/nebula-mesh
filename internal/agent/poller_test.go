@@ -54,6 +54,9 @@ func newTestPoller(t *testing.T, cfg PollerConfig) *Poller {
 		t.Fatal(err)
 	}
 	p.signalFunc = func(context.Context) error { return nil }
+	// Keep poll tests independent of whether a nebula binary is on PATH;
+	// runtime_test.go installs its own reporter.
+	p.runtime = nil
 	return p
 }
 

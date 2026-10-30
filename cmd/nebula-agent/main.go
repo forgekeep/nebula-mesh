@@ -418,6 +418,7 @@ func startPoller(ctx context.Context, cfg *config.AgentConfig, logger *slog.Logg
 			NebulaCertPath:   cfg.ResolvedNebulaCertPath(),
 			NebulaKeyPath:    cfg.ResolvedNebulaKeyPath(),
 			ImportSessionID:  cfg.ImportSessionID,
+			NebulaBinaryPath: cfg.NebulaBinaryPath,
 		}, logger)
 		if err != nil {
 			return fmt.Errorf("create poller: %w", err)
@@ -618,6 +619,7 @@ func runEnroll(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		NebulaCertPath:   cfg.ResolvedNebulaCertPath(),
 		NebulaKeyPath:    cfg.ResolvedNebulaKeyPath(),
 		ImportSessionID:  cfg.ImportSessionID,
+		NebulaBinaryPath: cfg.NebulaBinaryPath,
 	}, logger)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "warning: poller init failed: %v\n", err)
@@ -674,6 +676,7 @@ func confirmBootstrapPoll(ctx context.Context, cfg *config.AgentConfig, stdout, 
 		NebulaCertPath:   cfg.ResolvedNebulaCertPath(),
 		NebulaKeyPath:    cfg.ResolvedNebulaKeyPath(),
 		ImportSessionID:  cfg.ImportSessionID,
+		NebulaBinaryPath: cfg.NebulaBinaryPath,
 	}, logger)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "warning: poller init failed: %v\n", err)

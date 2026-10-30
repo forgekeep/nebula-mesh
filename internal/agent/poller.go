@@ -157,6 +157,9 @@ type PollerConfig struct {
 	// HTTPTimeout bounds a single poll request. Zero or negative falls back
 	// to defaultAgentHTTPTimeout.
 	HTTPTimeout time.Duration
+	// NebulaBinaryPath is the nebula binary whose version the agent reports.
+	// Empty looks "nebula" up on PATH.
+	NebulaBinaryPath string
 }
 
 // Poller periodically checks the management server for updates.
@@ -166,6 +169,7 @@ type Poller struct {
 	signalFunc func(context.Context) error // for testing: override reload delivery
 	signingKey ed25519.PrivateKey
 	httpClient *http.Client
+	runtime    *runtimeReporter
 }
 
 // NewPoller creates a new Poller and loads the Ed25519 signing key needed to
@@ -189,6 +193,7 @@ func NewPoller(cfg PollerConfig, logger *slog.Logger) (*Poller, error) {
 		logger:     logger,
 		signingKey: priv,
 		httpClient: &http.Client{Timeout: timeout},
+		runtime:    newRuntimeReporter(cfg.NebulaBinaryPath),
 	}
 	p.signalFunc = nebulaReloader(cfg.ReloadCommand, cfg.PIDFile)
 	return p, nil
@@ -286,6 +291,9 @@ func (p *Poller) PollOnce(ctx context.Context) error {
 }
 
 func (p *Poller) poll(ctx context.Context) error {
+	// Report first: a changed Nebula version makes this very poll receive
+	// config rendered for it.
+	p.reportRuntime(ctx)
 	u := p.config.ServerURL + "/api/v1/agent/updates"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {

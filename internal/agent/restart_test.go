@@ -183,7 +183,7 @@ func TestPoll_PendingRestartClearsWhenPIDChanges(t *testing.T) {
 	if !slices.Equal(*posts, []string{restartRequiredPath, restartClearedPath}) {
 		t.Fatalf("posts = %q, want a cleared report after the PID changed", *posts)
 	}
-	if _, ok := p.loadRestartState(); ok {
+	if _, ok := p.restartMarks().load(); ok {
 		t.Error("restart state kept after the clear")
 	}
 }
@@ -247,14 +247,14 @@ func TestPoll_RestartReportRetriedThenDroppedOnOldServer(t *testing.T) {
 	if len(*posts) != 2 {
 		t.Fatalf("posts = %q, want a retry on each poll after the mark", *posts)
 	}
-	if _, ok := p.loadRestartState(); !ok {
+	if _, ok := p.restartMarks().load(); !ok {
 		t.Fatal("restart state lost after a failed report")
 	}
 	*status = http.StatusNotFound
 	if err := p.PollOnce(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := p.loadRestartState(); ok {
+	if _, ok := p.restartMarks().load(); ok {
 		t.Error("restart state kept against a server without the endpoint")
 	}
 }

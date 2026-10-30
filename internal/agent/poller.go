@@ -203,9 +203,7 @@ func NewPoller(cfg PollerConfig, logger *slog.Logger) (*Poller, error) {
 	}
 	p.signalFunc = nebulaReloader(cfg.ReloadCommand, cfg.PIDFile)
 	if cfg.RestartCommand != "" {
-		p.restartFunc = func(ctx context.Context) error {
-			return runHookCommand(ctx, "nebula_restart_command", cfg.RestartCommand)
-		}
+		p.restartFunc = restartCommandHook(cfg.RestartCommand)
 	}
 	return p, nil
 }

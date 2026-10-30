@@ -589,8 +589,9 @@ Nebula reads some keys only at startup, among them `listen.port`, `routines`,
 offloads and thread pinning. A reload leaves their running values in place:
 Nebula 1.12 logs that a restart is needed, and older releases say nothing.
 
-Before writing a delivered config, the agent compares those keys with the file
-on disk. The list comes from Nebula 1.12 and applies to every release.
+Before writing a delivered config, whether it arrives by poll or through a
+server-requested rekey, the agent compares those keys with the file on disk. The
+list comes from Nebula 1.12 and applies to every release.
 
 - If a key changed and `nebula_restart_command` is set, the agent runs the
   command instead of the reload. The command gets the same 30-second bound and

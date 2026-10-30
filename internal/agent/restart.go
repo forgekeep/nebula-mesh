@@ -49,31 +49,45 @@ func changedRestartKeys(path, candidate string) []string {
 	return changed
 }
 
-// applyRestart runs the restart command for a config that changed restart-only
-// keys and reports whether it took the place of the reload. A host with no
-// command, or whose command failed, keeps the reload so reloadable changes
-// still apply; the file is already written, so no later poll would see the
-// difference and Nebula stays on the old values until someone restarts it.
-func (p *Poller) applyRestart(ctx context.Context, keys []string) bool {
+// applyStartupKeys runs the restart hook for a config that changed restart-only
+// keys and reports whether it took the place of the reload. With no hook, or
+// when it fails, the caller reloads so reloadable changes still apply and the
+// restart stays marked: the file is already written, so no later delivery
+// would see the difference and Nebula keeps the old values until it restarts.
+func applyStartupKeys(ctx context.Context, keys []string, restart func(context.Context) error, marks restartMarks, logger *slog.Logger) bool {
 	if len(keys) == 0 {
 		return false
 	}
-	if p.restartFunc == nil {
-		p.logger.Warn("config changed keys nebula reads only at startup; restart nebula to apply them", "keys", keys)
-		p.markRestartPending()
+	if restart == nil {
+		logger.Warn("config changed keys nebula reads only at startup; restart nebula to apply them", "keys", keys)
+		marks.mark()
 		return false
 	}
-	if err := p.restartFunc(ctx); err != nil {
-		p.logger.Warn("failed to restart nebula", "keys", keys, "error", err)
-		p.markRestartPending()
+	if err := restart(ctx); err != nil {
+		logger.Warn("failed to restart nebula", "keys", keys, "error", err)
+		marks.mark()
 		return false
 	}
-	p.logger.Info("nebula restarted", "keys", keys)
-	if st, ok := p.loadRestartState(); ok {
+	logger.Info("nebula restarted", "keys", keys)
+	if st, ok := marks.load(); ok {
 		st.Restarted = true
-		p.saveRestartState(st)
+		marks.save(st)
 	}
 	return true
+}
+
+func restartCommandHook(command string) func(context.Context) error {
+	return func(ctx context.Context) error {
+		return runHookCommand(ctx, "nebula_restart_command", command)
+	}
+}
+
+func (p *Poller) applyRestart(ctx context.Context, keys []string) bool {
+	return applyStartupKeys(ctx, keys, p.restartFunc, p.restartMarks(), p.logger)
+}
+
+func (p *Poller) restartMarks() restartMarks {
+	return restartMarks{dataDir: p.config.DataDir, pidFile: p.config.PIDFile, logger: p.logger}
 }
 
 // restartStateFile, under the data dir, holds a pending restart until the
@@ -89,74 +103,83 @@ type restartState struct {
 	Restarted bool `json:"restarted"`
 }
 
-func (p *Poller) restartStatePath() string {
-	return filepath.Join(p.config.DataDir, restartStateFile)
+// restartMarks reads and writes the pending-restart state file. The poller and
+// re-enrollment share it; the next poll reports what either left there.
+type restartMarks struct {
+	dataDir string
+	pidFile string
+	logger  *slog.Logger
 }
 
-func (p *Poller) loadRestartState() (restartState, bool) {
+func (m restartMarks) path() string {
+	return filepath.Join(m.dataDir, restartStateFile)
+}
+
+func (m restartMarks) load() (restartState, bool) {
 	var st restartState
-	raw, err := os.ReadFile(p.restartStatePath())
+	raw, err := os.ReadFile(m.path()) // #nosec G304 -- fixed file name under the operator-controlled data dir
 	if err != nil {
 		return st, false
 	}
 	if err := json.Unmarshal(raw, &st); err != nil {
-		p.logger.Warn("discarding unreadable restart state", "error", err)
-		p.dropRestartState()
+		m.logger.Warn("discarding unreadable restart state", "error", err)
+		m.drop()
 		return st, false
 	}
 	return st, true
 }
 
-func (p *Poller) saveRestartState(st restartState) {
+func (m restartMarks) save(st restartState) {
 	raw, err := json.Marshal(st)
 	if err == nil {
-		err = fsutil.AtomicWriteFile(p.restartStatePath(), raw, 0o600)
+		err = fsutil.AtomicWriteFile(m.path(), raw, 0o600)
 	}
 	if err != nil {
-		p.logger.Warn("cannot save restart state", "error", err)
+		m.logger.Warn("cannot save restart state", "error", err)
 	}
 }
 
-func (p *Poller) dropRestartState() {
-	if err := os.Remove(p.restartStatePath()); err != nil && !errors.Is(err, os.ErrNotExist) {
-		p.logger.Warn("cannot remove restart state", "error", err)
+func (m restartMarks) drop() {
+	if err := os.Remove(m.path()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		m.logger.Warn("cannot remove restart state", "error", err)
 	}
 }
 
-func (p *Poller) currentNebulaPID() int {
-	if p.config.PIDFile == "" {
+func (m restartMarks) currentPID() int {
+	if m.pidFile == "" {
 		return 0
 	}
-	pid, err := readNebulaPID(p.config.PIDFile)
+	pid, err := readNebulaPID(m.pidFile)
 	if err != nil {
 		return 0
 	}
 	return pid
 }
 
-// markRestartPending records that Nebula still runs the old startup-only
-// values. Every mark is reported anew, even over an earlier one: an operator
-// may have cleared that on the server, and the server keeps the first time.
-func (p *Poller) markRestartPending() {
-	p.saveRestartState(restartState{PID: p.currentNebulaPID()})
+// mark records that Nebula still runs the old startup-only values. Every mark
+// is reported anew, even over an earlier one: an operator may have cleared
+// that on the server, and the server keeps the first time.
+func (m restartMarks) mark() {
+	m.save(restartState{PID: m.currentPID()})
 }
 
 // syncRestartPending brings the server in line with the state file. Nebula
 // counts as restarted when the restart command succeeded or the PID file names
 // a new process. Failures never stop the poll and are retried on the next one.
 func (p *Poller) syncRestartPending(ctx context.Context) {
-	st, ok := p.loadRestartState()
+	marks := p.restartMarks()
+	st, ok := marks.load()
 	if !ok {
 		return
 	}
-	pid := p.currentNebulaPID()
+	pid := marks.currentPID()
 	restarted := st.Restarted || (st.PID != 0 && pid != 0 && pid != st.PID)
 	switch {
 	case restarted && !st.Reported:
-		p.dropRestartState()
+		marks.drop()
 	case restarted:
 		if _, ok := p.postRestartState(ctx, "cleared"); ok {
-			p.dropRestartState()
+			marks.drop()
 		}
 	case !st.Reported:
 		status, ok := p.postRestartState(ctx, "required")
@@ -164,10 +187,10 @@ func (p *Poller) syncRestartPending(ctx context.Context) {
 		case !ok:
 		case status == http.StatusNotFound:
 			// A server older than #400 cannot show the mark.
-			p.dropRestartState()
+			marks.drop()
 		default:
 			st.Reported = true
-			p.saveRestartState(st)
+			marks.save(st)
 		}
 	}
 }

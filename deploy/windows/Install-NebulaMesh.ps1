@@ -915,13 +915,16 @@ function Set-AgentReloadCommand([string]$AgentConfigPath, [string]$NebulaService
     if ($service -match '\s') { $service = '"' + $service + '"' }
     $command = "$net stop $service & $net start $service"
     $lines = @(Get-Content -LiteralPath $AgentConfigPath | Where-Object {
-            $_ -notmatch '^\s*nebula_pid_file\s*:' -and $_ -notmatch '^\s*nebula_reload_command\s*:'
+            $_ -notmatch '^\s*nebula_pid_file\s*:' -and $_ -notmatch '^\s*nebula_reload_command\s*:' -and
+            $_ -notmatch '^\s*nebula_restart_command\s*:'
         })
     $lines += 'nebula_pid_file: ""'
     # A YAML single-quoted scalar escapes its own quote by doubling it, which
     # matters because a discovered service name may contain one.
     $escaped = $command -replace "'", "''"
     $lines += "nebula_reload_command: '$escaped'"
+    # The reload already restarts the service, so startup-only keys apply too.
+    $lines += "nebula_restart_command: '$escaped'"
     # No BOM (the file is parsed by gopkg.in/yaml.v3); rewriting in place keeps
     # the ACL the agent's own 0600-equivalent write established.
     [IO.File]::WriteAllLines($AgentConfigPath, [string[]]$lines, (New-Object Text.UTF8Encoding($false)))

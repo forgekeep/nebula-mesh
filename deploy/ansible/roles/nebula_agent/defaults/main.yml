@@ -10,6 +10,10 @@ nebula_agent_nebula_pid_file: /run/nebula.pid
 # Set to run a command instead of the SIGHUP, e.g. "systemctl reload nebula".
 # Takes precedence over nebula_agent_nebula_pid_file when non-empty.
 nebula_agent_nebula_reload_command: ""
+# Set to restart Nebula when a config changes keys it reads only at startup,
+# e.g. "systemctl restart nebula". Empty leaves such a change waiting for a
+# manual restart, and the host page says so.
+nebula_agent_nebula_restart_command: ""
 # Nebula binary whose version the agent reports to the server. Empty looks
 # "nebula" up on PATH.
 nebula_agent_nebula_binary_path: ""

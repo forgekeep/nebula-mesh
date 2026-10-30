@@ -35,8 +35,9 @@ jobs:
 
       # A separate module pinned to the oldest supported Nebula release
       # (nebulacompat.MinSupported) runs Nebula's own config test on configs
-      # the server renders. Dependabot watches only the root module, so the
-      # pin stays put.
+      # the server renders. Dependabot's version updates cover only the root
+      # module; its security updates can still open PRs for this one, so check
+      # that such a PR leaves the Nebula pin alone.
       - name: rendered configs load on the oldest supported Nebula
         working-directory: tests/nebulacompat
         run: go test ./...

@@ -357,8 +357,9 @@ config every supported release understands.
 Saving a field that the host's known release or OS cannot use fails with the
 reason. When the version is unknown the field is stored and renders once the
 host reports a release that supports it. The host page lists every stored
-field the host does not get and says why. Offloads and thread pinning take
-effect only after Nebula restarts; a reload leaves the old values running.
+field the host does not get and says why. `routines`, offloads and thread
+pinning take effect only after Nebula restarts; see
+[Keys that need a Nebula restart](#keys-that-need-a-nebula-restart).
 
 ### Network host DNS (experimental)
 
@@ -542,6 +543,7 @@ poll_interval: "30s"                          # how often to ask for updates
 nebula_config_path: "/etc/nebula/config.yml"  # full path to the rendered nebula config
 nebula_pid_file: "/run/nebula.pid"            # optional — if set, SIGHUP'd on changes
 # nebula_reload_command: "systemctl reload nebula"  # optional — replaces the SIGHUP when set
+# nebula_restart_command: "systemctl restart nebula"  # optional — replaces the reload for startup-only keys
 # nebula_binary_path: "/usr/local/bin/nebula"       # optional — binary whose version is reported; default: nebula on PATH
 signing_key_path: "/etc/nebula-agent/host.signing.key"  # Ed25519 PoP signing key — parent dir must be writable by the agent user
 ```
@@ -554,6 +556,7 @@ signing_key_path: "/etc/nebula-agent/host.signing.key"  # Ed25519 PoP signing ke
 | `nebula_config_path` | `/etc/nebula/config.yml` | The agent overwrites this file atomically. |
 | `nebula_pid_file` | (empty) | When set and the file holds a numeric PID, the agent sends `SIGHUP` after every successful write. |
 | `nebula_reload_command` | (empty) | When set, run through the system shell (`sh -c`, `cmd /C` on Windows) after every successful write **instead of** the SIGHUP — takes precedence over `nebula_pid_file`. Use it to hook a service manager, e.g. `systemctl reload nebula`. See [Reload command contract](#reload-command-contract). |
+| `nebula_restart_command` | (empty) | Run through the system shell **instead of** the reload when a delivered config changes keys Nebula reads only at startup. Same contract as `nebula_reload_command`. See [Keys that need a Nebula restart](#keys-that-need-a-nebula-restart). |
 | `nebula_binary_path` | (empty) | The nebula binary whose version the agent reports to the server. Empty looks `nebula` up on `PATH`. See [Nebula version report](#nebula-version-report). |
 | `signing_key_path` | `/etc/nebula-agent/host.signing.key` | Ed25519 PoP signing key (ADR 0004). Override for non-root setups so the parent directory is writable by the agent user. |
 | `allow_insecure_http` | `false` | Opts out of the `https`-required guard on `server_url` (or pass `--insecure-http`). Only for isolated lab networks; credentials transit in the clear. |
@@ -579,6 +582,32 @@ The report never blocks a poll:
 Until a report arrives, the server renders the conservative config that every
 supported Nebula release (1.10 and newer) understands. The host page shows the
 reported version, OS and report time.
+
+### Keys that need a Nebula restart
+
+Nebula reads some keys only at startup, among them `listen.port`, `routines`,
+offloads and thread pinning. A reload leaves their running values in place:
+Nebula 1.12 logs that a restart is needed, and older releases say nothing.
+
+Before writing a delivered config, the agent compares those keys with the file
+on disk. The list comes from Nebula 1.12 and applies to every release.
+
+- If a key changed and `nebula_restart_command` is set, the agent runs the
+  command instead of the reload. The command gets the same 30-second bound and
+  process-group handling as the reload command.
+- If no command is set, or the command fails, the agent reloads so reloadable
+  changes still apply. It does not retry the command, because the file is
+  already written and later polls see no difference. It reports the restart as
+  pending, and the host page shows that until the mark is cleared.
+- The mark clears when `nebula_pid_file` names a new process, or when a later
+  `nebula_restart_command` succeeds. An operator can also clear it on the host
+  page. A host with no PID file relies on that button.
+
+The mark lives in `nebula-restart-pending.json` in `data_dir`, so it survives an
+agent restart. The Windows installer sets `nebula_restart_command` to the same
+service restart as the reload. On a Windows host installed before this setting
+existed, the reload already restarts Nebula, yet the host page can still show a
+pending restart until the installer runs again or an operator clears the mark.
 
 ### Reload command contract
 

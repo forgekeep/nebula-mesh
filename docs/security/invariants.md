@@ -50,6 +50,8 @@ broaden it.
   not disclose settings and foreign writes do not mutate them.
 - `internal/api/host_dns_test.go`: foreign host DNS reads do not disclose
   settings and foreign writes do not mutate them.
+- `internal/web/restart_pending_test.go`: a non-owner cannot clear a foreign
+  host's restart mark.
 - `internal/web/tenant_scope_test.go`: Web read and mutation isolation.
 - `internal/webhook/fanout_test.go`:
   `TestDispatcher_ManagedTargetsAreCAOwnerScopedAndStaticTargetIsGlobal`.
@@ -84,8 +86,8 @@ and resource-scoped, TTL-bounded, and accepted at most once.
   the Host; failed enrollment does not burn the token.
 - Poll nonces are keyed by Host and stored in SQLite until expiry.
 - Signed agent requests that carry data (`config-ack/{version}`,
-  `runtime/{os}/{version}`) pass it in the path, which the proof covers; the
-  body and query are not signed.
+  `runtime/{os}/{version}`, `restart-pending/{state}`) pass it in the path,
+  which the proof covers; the body and query are not signed.
 - Mesh import challenges bind the session, certificate fingerprint, signing
   key, and payload hash. Challenge use and Host registration are serialized.
 - Mesh import token rotation and terminal state changes delete challenges
@@ -101,7 +103,8 @@ and resource-scoped, TTL-bounded, and accepted at most once.
   `TestAgentImportChallengeExpiryReplayAndIdempotency`.
 - `internal/api/agent_runtime_test.go`:
   `TestAgentRuntime_SEC_REPLAY_001_RejectsUnauthenticated` (unsigned,
-  foreign-key, path-tampered, and replayed runtime reports).
+  foreign-key, path-tampered, and replayed runtime reports) and
+  `TestAgentRestartPending_SEC_REPLAY_001_RejectsUnauthenticated`.
 - `internal/store/sqlite_mesh_import_test.go`: atomic rotation, challenge use,
   registration, cancel, and finalize coverage.
 

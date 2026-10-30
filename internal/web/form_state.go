@@ -130,6 +130,7 @@ type networkFormState struct {
 	CIDRs      []string
 	CIDRErrors map[int]string
 	CAID       string
+	DNS        networkDNSForm
 }
 
 func newNetworkFormState(r *http.Request) networkFormState {
@@ -138,6 +139,7 @@ func newNetworkFormState(r *http.Request) networkFormState {
 		CIDRs:      trimEmpty(r.Form["cidrs"]),
 		CIDRErrors: make(map[int]string),
 		CAID:       r.FormValue("ca_id"),
+		DNS:        newNetworkDNSForm(r),
 	}
 }
 
@@ -271,7 +273,7 @@ func (w *Web) renderNetworksError(rw http.ResponseWriter, r *http.Request, form 
 	isAdmin := op != nil && op.Role == "admin"
 	w.renderForRequestWithStatus(rw, r, http.StatusBadRequest, "networks.html", map[string]any{
 		"Active":     "networks",
-		"Networks":   networks,
+		"Networks":   w.buildNetworkViews(r.Context(), networks),
 		"CAs":        cas,
 		"HasCAs":     len(cas) > 0,
 		"IsAdmin":    isAdmin,

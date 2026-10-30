@@ -60,6 +60,10 @@
             Signed by CA: <strong>{{$only.Name}}</strong>
         </div>
         {{end}}
+        <details style="margin: 16px 0;"{{if or .Form.DNS.Nameservers .Form.DNS.MatchDomains .Form.DNS.SearchDomains}} open{{end}}>
+            <summary style="cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 14px;">Host DNS (experimental, optional)</summary>
+            {{template "hostDNSFields" .Form.DNS}}
+        </details>
         <button type="submit" class="btn btn-primary">Create</button>
     </form>
 </div>
@@ -68,13 +72,23 @@
 {{if .Networks}}
 <div class="card">
     <table>
-        <thead><tr><th>Name</th><th>CIDRs</th><th>Hosts</th><th>Created</th></tr></thead>
+        <thead><tr><th>Name</th><th>CIDRs</th><th>Hosts</th><th>Host DNS</th><th>Created</th></tr></thead>
         <tbody>
         {{range .Networks}}
         <tr>
             <td>{{.Name}}</td>
             <td>{{range $i, $cidr := .CIDRs}}{{if $i}}, {{end}}{{$cidr}}{{end}}</td>
             <td>—</td>
+            <td class="network-host-dns">
+                <details{{if .DNSOpen}} open{{end}}>
+                    <summary style="cursor: pointer;">{{if .HostDNS.Enabled}}{{range $i, $ns := .HostDNS.Nameservers}}{{if $i}}, {{end}}{{$ns}}{{end}} for {{range $i, $d := .HostDNS.MatchDomains}}{{if $i}}, {{end}}{{$d}}{{end}}{{else}}off{{end}}</summary>
+                    <form method="POST" action="/ui/networks/{{.ID}}/host-dns">
+                        {{ csrfField }}
+                        {{template "hostDNSFields" .DNSForm}}
+                        <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                    </form>
+                </details>
+            </td>
             <td>{{.CreatedAt.Format "2006-01-02"}}</td>
         </tr>
         {{end}}
@@ -84,4 +98,21 @@
 {{else}}
 <div class="card empty">No networks yet.</div>
 {{end}}
+{{end}}
+
+{{define "hostDNSFields"}}
+{{if .Error}}<div class="error" role="alert" style="color: var(--danger); margin: 8px 0;">{{.Error}}</div>{{end}}
+<p class="help-text">Experimental in Nebula: use at your own risk. Applies only to hosts on Nebula 1.12 or newer running macOS or Windows; Nebula needs root or admin there, and a Windows host also needs advanced.tun_device. Saving sends every host in the network its config again. Leave the nameservers empty to turn it off.</p>
+<div class="form-group">
+    <label>Nameservers (one per line)</label>
+    <textarea name="host_dns_nameservers" class="form-control" rows="2" placeholder="10.0.0.53">{{.Nameservers}}</textarea>
+</div>
+<div class="form-group">
+    <label>Match domains (one per line, required with nameservers)</label>
+    <textarea name="host_dns_match_domains" class="form-control" rows="2" placeholder="mesh.example">{{.MatchDomains}}</textarea>
+</div>
+<div class="form-group">
+    <label>Search domains (one per line, optional, under a match domain)</label>
+    <textarea name="host_dns_search_domains" class="form-control" rows="2">{{.SearchDomains}}</textarea>
+</div>
 {{end}}

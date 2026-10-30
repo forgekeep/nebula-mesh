@@ -364,6 +364,7 @@ func (w *Web) setupRoutes() {
 			r.Delete("/ui/hosts/{id}", w.handleHostDelete)
 			r.Get("/ui/networks", w.handleNetworks)
 			r.Post("/ui/networks", w.handleNetworkCreate)
+			r.Post("/ui/networks/{id}/host-dns", w.handleNetworkHostDNS)
 			r.Get("/ui/profile", w.handleProfilePage)
 			r.Post("/ui/profile/change-password", w.handleChangePassword)
 			r.Get("/ui/2fa", w.handleTwoFAPage)

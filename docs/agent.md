@@ -363,7 +363,9 @@ pinning take effect only after Nebula restarts; see
 
 ### Network host DNS (experimental)
 
-`PUT /api/v1/networks/{id}/host-dns` sets split DNS for a network:
+The networks page sets split DNS when a network is created and changes it for
+each network in the list. `PUT /api/v1/networks/{id}/host-dns` does the same
+through the API:
 
 ```json
 {"nameservers": ["10.0.0.53"], "match_domains": ["mesh.example"], "search_domains": []}

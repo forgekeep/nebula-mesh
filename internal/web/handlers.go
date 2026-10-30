@@ -1440,7 +1440,7 @@ func (w *Web) handleNetworks(rw http.ResponseWriter, r *http.Request) {
 	}
 	w.renderForRequest(rw, r, "networks.html", map[string]any{
 		"Active":     "networks",
-		"Networks":   networks,
+		"Networks":   w.buildNetworkViews(r.Context(), networks),
 		"CAs":        cas,
 		"HasCAs":     len(cas) > 0,
 		"IsAdmin":    op.Role == "admin",
@@ -1522,6 +1522,12 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 		w.renderNetworksError(rw, r, form, cas, "selected CA is not accessible to you")
 		return
 	}
+	// Validate before CreateNetwork, so a rejected value leaves no network.
+	hostDNS, err := form.DNS.settings()
+	if err != nil {
+		w.renderNetworksError(rw, r, form, cas, err.Error())
+		return
+	}
 
 	network := &models.Network{
 		ID:        uuid.NewV4().String(),
@@ -1542,6 +1548,13 @@ func (w *Web) handleNetworkCreate(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = w.store.AddAuditEntry(r.Context(), op.Username, "network.create", network.ID, network.Name)
+	if hostDNS.Enabled() {
+		if err := w.saveNetworkHostDNS(r.Context(), op.Username, network.ID, hostDNS); err != nil {
+			w.logger.Error("save host dns for new network", "network", network.ID, "error", err)
+			http.Error(rw, "Network created, but host DNS was not saved; set it on the networks page", http.StatusInternalServerError)
+			return
+		}
+	}
 	http.Redirect(rw, r, "/ui/networks", http.StatusSeeOther)
 }
 

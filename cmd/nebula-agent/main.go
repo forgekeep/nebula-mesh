@@ -419,6 +419,7 @@ func startPoller(ctx context.Context, cfg *config.AgentConfig, logger *slog.Logg
 			NebulaKeyPath:    cfg.ResolvedNebulaKeyPath(),
 			ImportSessionID:  cfg.ImportSessionID,
 			NebulaBinaryPath: cfg.NebulaBinaryPath,
+			RestartCommand:   cfg.NebulaRestartCommand,
 		}, logger)
 		if err != nil {
 			return fmt.Errorf("create poller: %w", err)

@@ -33,6 +33,12 @@ type AgentConfig struct {
 	// SIGHUP does not exist — a working reload path.
 	NebulaReloadCommand string `yaml:"nebula_reload_command,omitempty"`
 
+	// NebulaRestartCommand, when set, is run through the system shell instead
+	// of the reload when a delivered config changes a key Nebula reads only at
+	// startup (e.g. "systemctl restart nebula"). Without it the agent reloads
+	// and the host page shows that a restart is pending.
+	NebulaRestartCommand string `yaml:"nebula_restart_command,omitempty"`
+
 	// NebulaBinaryPath is the nebula binary whose version the agent reports
 	// to the server, which renders config for that Nebula release. Empty
 	// looks "nebula" up on PATH; when neither works the server keeps the

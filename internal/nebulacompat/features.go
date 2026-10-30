@@ -92,3 +92,52 @@ func (r Runtime) CheckHostDNS(tunDevice string) Status {
 	}
 	return st
 }
+
+// restartKeys are the config keys Nebula reads only at startup, on every OS.
+// A SIGHUP leaves their running values alone: 1.12 logs that a restart is
+// needed, older releases say nothing. The list comes from Nebula 1.12's
+// RestartRequiredIfChanged calls and is applied to every release.
+var restartKeys = []string{
+	"cipher",
+	"dns.identity",
+	"firewall.conntrack.routine_cache_timeout",
+	"handshakes.query_buffer",
+	"handshakes.retries",
+	"handshakes.trigger_buffer",
+	"handshakes.try_interval",
+	"lighthouse.am_lighthouse",
+	"listen.host",
+	"listen.port",
+	"listen.rebind_on_network_change",
+	"listen.routines",
+	"routines",
+	"stats.lighthouse_metrics",
+	"stats.message_metrics",
+	"timers.connection_alive_interval",
+	"timers.pending_deletion_interval",
+	"tun.disabled",
+	"tun.drop_local_broadcast",
+	"tun.drop_multicast",
+	"tun.routines",
+	"tun.tx_queue",
+}
+
+// osRestartKeys are the startup-only keys of one OS.
+var osRestartKeys = map[string][]string{
+	"darwin":  {"tun.dev", "tun.mtu"},
+	"freebsd": {"tun.dev", "tun.mtu"},
+	"linux": {
+		"listen.batch", "listen.udp_offloads", "tun.cpu_affinity", "tun.dev",
+		"tun.pin_threads", "tun.pin_threads_key", "tun.use_offloads",
+		"tun.use_system_route_table", "tun.use_system_route_table_buffer_size",
+	},
+	"windows": {
+		"listen.windows_bypass_wdf", "tun.dev", "tun.mtu",
+		"tun.network_category", "tun.windows_bypass_wdf",
+	},
+}
+
+// RestartKeys lists the config keys a reload does not apply on goos.
+func RestartKeys(goos string) []string {
+	return slices.Concat(restartKeys, osRestartKeys[goos])
+}

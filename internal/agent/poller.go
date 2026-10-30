@@ -157,6 +157,9 @@ type PollerConfig struct {
 	// HTTPTimeout bounds a single poll request. Zero or negative falls back
 	// to defaultAgentHTTPTimeout.
 	HTTPTimeout time.Duration
+	// RestartCommand, when set, replaces the reload when a delivered config
+	// changes a key Nebula reads only at startup.
+	RestartCommand string
 	// NebulaBinaryPath is the nebula binary whose version the agent reports.
 	// Empty looks "nebula" up on PATH.
 	NebulaBinaryPath string
@@ -164,12 +167,13 @@ type PollerConfig struct {
 
 // Poller periodically checks the management server for updates.
 type Poller struct {
-	config     PollerConfig
-	logger     *slog.Logger
-	signalFunc func(context.Context) error // for testing: override reload delivery
-	signingKey ed25519.PrivateKey
-	httpClient *http.Client
-	runtime    *runtimeReporter
+	config      PollerConfig
+	logger      *slog.Logger
+	signalFunc  func(context.Context) error // for testing: override reload delivery
+	restartFunc func(context.Context) error // nil when no restart command is set
+	signingKey  ed25519.PrivateKey
+	httpClient  *http.Client
+	runtime     *runtimeReporter
 }
 
 // NewPoller creates a new Poller and loads the Ed25519 signing key needed to
@@ -196,6 +200,11 @@ func NewPoller(cfg PollerConfig, logger *slog.Logger) (*Poller, error) {
 		runtime:    newRuntimeReporter(cfg.NebulaBinaryPath),
 	}
 	p.signalFunc = nebulaReloader(cfg.ReloadCommand, cfg.PIDFile)
+	if cfg.RestartCommand != "" {
+		p.restartFunc = func(ctx context.Context) error {
+			return runHookCommand(ctx, "nebula_restart_command", cfg.RestartCommand)
+		}
+	}
 	return p, nil
 }
 
@@ -368,6 +377,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	if updates.CACertPEM != nil && !validReturnedCABundle(*updates.CACertPEM, time.Now()) {
 		return fmt.Errorf("validate returned CA certificate: invalid or expired CA")
 	}
+	var restartKeys []string
 	if updates.ConfigYAML != nil {
 		if err := p.validateCandidateConfig(*updates.ConfigYAML); err != nil {
 			return err
@@ -375,6 +385,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		if err := p.ensureImportBackup(); err != nil {
 			return err
 		}
+		restartKeys = changedRestartKeys(p.nebulaConfigPath(), *updates.ConfigYAML)
 	}
 
 	if updates.CertificatePEM != nil {
@@ -403,6 +414,9 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 
 	reloadDelivered := true
+	if needsReload && p.applyRestart(ctx, restartKeys) {
+		needsReload = false
+	}
 	if needsReload {
 		if err := p.signalFunc(ctx); err != nil {
 			p.logger.Warn("failed to reload nebula", "via", p.reloadMechanism(), "error", err)

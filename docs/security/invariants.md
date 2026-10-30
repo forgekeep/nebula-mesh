@@ -52,6 +52,8 @@ broaden it.
   settings and foreign writes do not mutate them.
 - `internal/web/restart_pending_test.go`: a non-owner cannot clear a foreign
   host's restart mark.
+- `internal/web/network_host_dns_test.go`: a non-owner cannot change a foreign
+  network's host DNS through the UI.
 - `internal/web/tenant_scope_test.go`: Web read and mutation isolation.
 - `internal/webhook/fanout_test.go`:
   `TestDispatcher_ManagedTargetsAreCAOwnerScopedAndStaticTargetIsGlobal`.

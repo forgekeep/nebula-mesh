@@ -61,6 +61,7 @@ const (
 	auditHostReenrollRequested     = "host.reenroll.requested"
 	auditHostRekeyCompleted        = "host.rekey.completed"
 	auditHostNebulaRuntimeChanged  = "host.nebula_runtime.changed"
+	auditHostNebulaRestartPending  = "host.nebula_restart_pending.changed"
 	auditHostMobileBundleIssued    = "host.mobile_bundle.issued"
 	auditHostMobileBundleForbidden = "host.mobile_bundle.forbidden"
 	auditCACreated                 = "ca.created"
@@ -205,7 +206,7 @@ func newMetrics(s store.Store) *metrics {
 	m.caSignatures.WithLabelValues(caIDFallback).Add(0)
 	for _, action := range []string{
 		auditHostCreate, auditHostDelete, auditHostUpdate, auditHostBlock, auditHostUnblock,
-		auditHostEnrolled, auditHostRekeyCompleted, auditHostNebulaRuntimeChanged,
+		auditHostEnrolled, auditHostRekeyCompleted, auditHostNebulaRuntimeChanged, auditHostNebulaRestartPending,
 		auditCACreated, auditCAImported, auditCADeleted, auditCARotated,
 		auditMeshImportCreated, auditMeshImportTokenRotated, auditMeshImportCanceled, auditMeshImportHostRegistered, auditMeshImportFinalized,
 		auditNetworkCreate, auditNetworkFirewallUpdate, auditNetworkMobileConfigUpdate, auditNetworkHostDNSUpdate,

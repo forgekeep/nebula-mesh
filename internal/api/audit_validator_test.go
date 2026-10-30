@@ -36,6 +36,7 @@ var knownAuditActions = map[string]struct{}{
 	auditHostReenrollRequested:     {},
 	auditHostRekeyCompleted:        {},
 	auditHostNebulaRuntimeChanged:  {},
+	auditHostNebulaRestartPending:  {},
 	auditHostMobileBundleIssued:    {},
 	auditHostMobileBundleForbidden: {},
 	auditCACreated:                 {},

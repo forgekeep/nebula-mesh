@@ -228,3 +228,91 @@ func TestHostAPI_ExposesNebulaRuntimeAndOperatorVersion(t *testing.T) {
 		t.Errorf("operator edit overwrote the reported version: %q", stored.NebulaVersion)
 	}
 }
+
+func TestAgentRestartPending_RecordsAndClears(t *testing.T) {
+	srv, st := newTestServer(t)
+	agent := enrolledFixture(t, srv)
+
+	if rec := postRuntime(t, srv, agent, "/api/v1/agent/restart-pending/required"); rec.Code != http.StatusOK {
+		t.Fatalf("required: %d %s", rec.Code, rec.Body.String())
+	}
+	host, _ := st.GetHost(t.Context(), agent.hostID)
+	if host.NebulaRestartPendingAt == nil {
+		t.Fatal("restart pending not recorded")
+	}
+	if rec := postRuntime(t, srv, agent, "/api/v1/agent/restart-pending/required"); rec.Code != http.StatusOK {
+		t.Fatalf("repeat: %d", rec.Code)
+	}
+	if n := countAudit(t, st, auditHostNebulaRestartPending, agent.hostID); n != 1 {
+		t.Errorf("audit entries = %d, want 1", n)
+	}
+	if rec := postRuntime(t, srv, agent, "/api/v1/agent/restart-pending/cleared"); rec.Code != http.StatusOK {
+		t.Fatalf("cleared: %d", rec.Code)
+	}
+	host, _ = st.GetHost(t.Context(), agent.hostID)
+	if host.NebulaRestartPendingAt != nil {
+		t.Fatal("restart pending not cleared")
+	}
+}
+
+// SEC-REPLAY-001: the restart report reuses the signed-poll proof.
+func TestAgentRestartPending_SEC_REPLAY_001_RejectsUnauthenticated(t *testing.T) {
+	srv, st := newTestServer(t)
+	agent := enrolledFixture(t, srv)
+	const path = "/api/v1/agent/restart-pending/required"
+	assertClear := func(step string) {
+		t.Helper()
+		host, err := st.GetHost(t.Context(), agent.hostID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if host.NebulaRestartPendingAt != nil {
+			t.Fatalf("%s: restart pending recorded", step)
+		}
+	}
+
+	unsigned := httptest.NewRequest(http.MethodPost, path, nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, unsigned)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unsigned status = %d", rec.Code)
+	}
+	assertClear("unsigned")
+
+	_, wrongPrivate, _ := ed25519.GenerateKey(rand.Reader)
+	if rec := postRuntime(t, srv, agent, path, withPrivateKey(wrongPrivate)); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong-key status = %d", rec.Code)
+	}
+	assertClear("wrong key")
+
+	tampered := httptest.NewRequest(http.MethodPost, "/api/v1/agent/restart-pending/cleared", nil)
+	signPoll(t, tampered, agent)
+	tampered.URL.Path = path
+	tampered.RequestURI = path
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, tampered)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("tampered path status = %d", rec.Code)
+	}
+	assertClear("tampered path")
+
+	if rec := postRuntime(t, srv, agent, "/api/v1/agent/restart-pending/maybe"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad state status = %d", rec.Code)
+	}
+
+	const nonce = "fixed-restart-nonce"
+	if rec := postRuntime(t, srv, agent, "/api/v1/agent/restart-pending/cleared", withNonce(nonce)); rec.Code != http.StatusOK {
+		t.Fatalf("valid status = %d", rec.Code)
+	}
+	if rec := postRuntime(t, srv, agent, "/api/v1/agent/restart-pending/cleared", withNonce(nonce)); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("replayed status = %d", rec.Code)
+	}
+
+	if _, err := st.BlockHostAndAddToBlocklist(t.Context(), agent.hostID, "test block"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := postRuntime(t, srv, agent, path); rec.Code != http.StatusForbidden {
+		t.Fatalf("blocked status = %d", rec.Code)
+	}
+	assertClear("blocked")
+}

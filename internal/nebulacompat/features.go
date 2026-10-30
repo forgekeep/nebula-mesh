@@ -81,3 +81,14 @@ func (r Runtime) Check(f Feature) Status {
 		return Status{Rendered: true}
 	}
 }
+
+// CheckHostDNS is Check(FeatureHostDNS) plus the Windows rule: Nebula hands
+// tun.dev to the DNS backend as the adapter to configure, and with none set
+// it logs an error and leaves host DNS unapplied.
+func (r Runtime) CheckHostDNS(tunDevice string) Status {
+	st := r.Check(FeatureHostDNS)
+	if st.Rendered && r.OS == "windows" && tunDevice == "" {
+		return Status{Definite: true, Reason: "host DNS on Windows needs advanced.tun_device to name the adapter"}
+	}
+	return st
+}

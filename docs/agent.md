@@ -370,6 +370,9 @@ effect only after Nebula restarts; a reload leaves the old values running.
 
 The server renders it as Nebula's `dns` stanza for hosts running Nebula 1.12+
 on macOS or Windows; Nebula needs root or admin there to change the resolver.
+On Windows the host also needs `advanced.tun_device`, which Nebula passes as
+the adapter to configure. The server rejects any value Nebula's own DNS check
+would reject, because Nebula refuses to start on one.
 Nebula marks the stanza experimental, so treat it as use at your own risk.
 `match_domains` must list at least one domain: sending every lookup to the
 overlay nameservers is not offered. Each `search_domains` entry must fall under

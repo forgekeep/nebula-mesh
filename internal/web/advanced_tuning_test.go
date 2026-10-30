@@ -113,7 +113,14 @@ func TestHostDetail_ShowsHostDNSStatus(t *testing.T) {
 	if _, err := s.ReportHostNebulaRuntime(ctx, "h-1", "1.12.0", "windows", time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	if detail := getHostDetail(t, w, cookies, "h-1"); !strings.Contains(detail, "not applied — host DNS on Windows needs advanced.tun_device") {
+		t.Errorf("windows host without a tun device must show host DNS as not applied")
+	}
+
+	if rec := postHostEditTuning(t, w, cookies, url.Values{"adv_tun_device": {"nebula1"}}); rec.Code != http.StatusSeeOther {
+		t.Fatalf("set tun device: %d %s", rec.Code, rec.Body.String())
+	}
 	if detail := getHostDetail(t, w, cookies, "h-1"); !strings.Contains(detail, "10.0.0.53 for mesh.example") {
-		t.Errorf("windows 1.12 host page does not show the applied host DNS")
+		t.Errorf("windows 1.12 host with a tun device does not show the applied host DNS")
 	}
 }

@@ -174,6 +174,8 @@ type Poller struct {
 	signingKey  ed25519.PrivateKey
 	httpClient  *http.Client
 	runtime     *runtimeReporter
+	// lastRestartErr keeps a failing restart report to one warning per message.
+	lastRestartErr string
 }
 
 // NewPoller creates a new Poller and loads the Ed25519 signing key needed to
@@ -303,6 +305,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	// Report first: a changed Nebula version makes this very poll receive
 	// config rendered for it.
 	p.reportRuntime(ctx)
+	p.syncRestartPending(ctx)
 	u := p.config.ServerURL + "/api/v1/agent/updates"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
@@ -605,23 +608,31 @@ func (p *Poller) nebulaKeyPath() string {
 	return filepath.Join(p.config.DataDir, "host.key")
 }
 
+// readNebulaPID reads the nebula PID from pidFile.
+func readNebulaPID(pidFile string) (int, error) {
+	data, err := os.ReadFile(pidFile) // #nosec G304 -- operator-controlled PID file path from agent config, documented API contract
+	if err != nil {
+		return 0, fmt.Errorf("read PID file %s: %w", pidFile, err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("parse PID from %s: %w", pidFile, err)
+	}
+	if pid <= 1 {
+		return 0, fmt.Errorf("invalid PID %d from %s: must be greater than 1", pid, pidFile)
+	}
+	return pid, nil
+}
+
 // signalNebulaFromPID reads the PID from file and sends SIGHUP to the nebula process.
 func signalNebulaFromPID(pidFile string) error {
 	if pidFile == "" {
 		return fmt.Errorf("nebula PID file not configured")
 	}
 
-	data, err := os.ReadFile(pidFile) // #nosec G304 -- operator-controlled PID file path from agent config, documented API contract
+	pid, err := readNebulaPID(pidFile)
 	if err != nil {
-		return fmt.Errorf("read PID file %s: %w", pidFile, err)
-	}
-
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return fmt.Errorf("parse PID from %s: %w", pidFile, err)
-	}
-	if pid <= 1 {
-		return fmt.Errorf("invalid PID %d from %s: must be greater than 1", pid, pidFile)
+		return err
 	}
 
 	proc, err := os.FindProcess(pid)

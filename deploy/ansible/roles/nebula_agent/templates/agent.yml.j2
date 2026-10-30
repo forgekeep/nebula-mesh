@@ -10,3 +10,6 @@ nebula_pid_file: "{{ nebula_agent_nebula_pid_file }}"
    backslashes that would break a naively quoted YAML scalar. #}
 nebula_reload_command: {{ nebula_agent_nebula_reload_command | to_json }}
 {% endif %}
+{% if nebula_agent_nebula_binary_path %}
+nebula_binary_path: {{ nebula_agent_nebula_binary_path | to_json }}
+{% endif %}

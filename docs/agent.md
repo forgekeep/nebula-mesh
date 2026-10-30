@@ -501,6 +501,7 @@ poll_interval: "30s"                          # how often to ask for updates
 nebula_config_path: "/etc/nebula/config.yml"  # full path to the rendered nebula config
 nebula_pid_file: "/run/nebula.pid"            # optional — if set, SIGHUP'd on changes
 # nebula_reload_command: "systemctl reload nebula"  # optional — replaces the SIGHUP when set
+# nebula_binary_path: "/usr/local/bin/nebula"       # optional — binary whose version is reported; default: nebula on PATH
 signing_key_path: "/etc/nebula-agent/host.signing.key"  # Ed25519 PoP signing key — parent dir must be writable by the agent user
 ```
 
@@ -512,8 +513,30 @@ signing_key_path: "/etc/nebula-agent/host.signing.key"  # Ed25519 PoP signing ke
 | `nebula_config_path` | `/etc/nebula/config.yml` | The agent overwrites this file atomically. |
 | `nebula_pid_file` | (empty) | When set and the file holds a numeric PID, the agent sends `SIGHUP` after every successful write. |
 | `nebula_reload_command` | (empty) | When set, run through the system shell (`sh -c`, `cmd /C` on Windows) after every successful write **instead of** the SIGHUP — takes precedence over `nebula_pid_file`. Use it to hook a service manager, e.g. `systemctl reload nebula`. See [Reload command contract](#reload-command-contract). |
+| `nebula_binary_path` | (empty) | The nebula binary whose version the agent reports to the server. Empty looks `nebula` up on `PATH`. See [Nebula version report](#nebula-version-report). |
 | `signing_key_path` | `/etc/nebula-agent/host.signing.key` | Ed25519 PoP signing key (ADR 0004). Override for non-root setups so the parent directory is writable by the agent user. |
 | `allow_insecure_http` | `false` | Opts out of the `https`-required guard on `server_url` (or pass `--insecure-http`). Only for isolated lab networks; credentials transit in the clear. |
+
+### Nebula version report
+
+Before each poll the agent tells the server which Nebula release and OS the
+host runs, so the server can render config for that release. It runs
+`<nebula_binary_path> -version`, reads the `Version: X.Y.Z` line, and sends a
+signed `POST /api/v1/agent/runtime/{os}/{version}`. It runs the binary again
+only when the file changes, and reports only when the result differs from the
+last accepted report. After a Nebula upgrade the next poll therefore reports
+the new version and receives config rendered for it.
+
+The report never blocks a poll:
+
+- If the binary is missing or its output has no version line, the agent logs
+  a warning once and retries on later polls.
+- If the server answers 404 because it predates the endpoint, the agent stops
+  reporting until it restarts.
+
+Until a report arrives, the server renders the conservative config that every
+supported Nebula release (1.10 and newer) understands. The host page shows the
+reported version, OS and report time.
 
 ### Reload command contract
 

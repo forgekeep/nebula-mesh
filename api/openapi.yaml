@@ -139,6 +139,39 @@ paths:
         "409":
           $ref: "#/components/responses/Error"
 
+  /api/v1/agent/restart-pending/{state}:
+    post:
+      operationId: reportAgentRestartPending
+      summary: Report whether a delivered config still waits for a Nebula restart.
+      description: >-
+        Uses the same signed proof-of-possession headers as agent polling. The
+        state is a path parameter because the signature covers the path.
+      security: []
+      parameters:
+        - { in: path, name: state, required: true, schema: { type: string, enum: [required, cleared] } }
+        - { in: header, name: X-Nebula-Fingerprint, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Timestamp, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Nonce, required: true, schema: { type: string } }
+        - { in: header, name: X-Nebula-Signature, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: State recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [restart_pending]
+                properties:
+                  restart_pending: { type: boolean }
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+
   /api/v1/agent/import/challenge:
     post:
       operationId: createAgentImportChallenge
@@ -1507,6 +1540,13 @@ components:
         nebula_reported_at:
           type: string
           format: date-time
+        nebula_restart_pending_at:
+          type: string
+          format: date-time
+          description: >-
+            Set while a delivered config waits for a Nebula restart: keys
+            Nebula reads only at startup changed and the agent could not
+            restart it.
         kind:
           type: string
         variant:

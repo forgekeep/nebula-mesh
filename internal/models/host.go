@@ -162,14 +162,17 @@ type Host struct {
 	LastSeenAt          *time.Time `json:"last_seen_at,omitempty"`
 	// NebulaVersion and NebulaOS are what the host's agent last reported;
 	// only the agent runtime report writes them.
-	NebulaVersion    string        `json:"nebula_version,omitempty"`
-	NebulaOS         string        `json:"nebula_os,omitempty"`
-	NebulaReportedAt *time.Time    `json:"nebula_reported_at,omitempty"`
-	Advanced         *HostAdvanced `json:"advanced,omitempty"`
-	Kind             HostKind      `json:"kind"`
-	Variant          HostVariant   `json:"variant,omitempty"`
-	CreatedAt        time.Time     `json:"created_at"`
-	UpdatedAt        time.Time     `json:"updated_at"`
+	NebulaVersion    string     `json:"nebula_version,omitempty"`
+	NebulaOS         string     `json:"nebula_os,omitempty"`
+	NebulaReportedAt *time.Time `json:"nebula_reported_at,omitempty"`
+	// NebulaRestartPendingAt is set while a delivered config waits for a
+	// Nebula restart; only the agent report and the operator's clear write it.
+	NebulaRestartPendingAt *time.Time    `json:"nebula_restart_pending_at,omitempty"`
+	Advanced               *HostAdvanced `json:"advanced,omitempty"`
+	Kind                   HostKind      `json:"kind"`
+	Variant                HostVariant   `json:"variant,omitempty"`
+	CreatedAt              time.Time     `json:"created_at"`
+	UpdatedAt              time.Time     `json:"updated_at"`
 }
 
 // MaxAddressesPerHost is the maximum number of overlay addresses a host can have.

@@ -244,6 +244,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"028_host_unsafe_networks.up.sql",
 		"029_encrypt_operator_totp.up.sql",
 		"030_host_nebula_runtime.up.sql",
+		"031_host_nebula_restart_pending.up.sql",
 	}
 
 	conn, err := s.db.Conn(ctx)
@@ -1251,6 +1252,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	var variant string
 	var unsafeNetworksJSON string
 	var nebulaReportedAt sql.NullTime
+	var restartPendingAt sql.NullTime
 
 	err := scanner.Scan(
 		&h.ID, &h.NetworkID, &h.Name, &groupsJSON,
@@ -1258,7 +1260,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 		&h.Status, &certFP, &certExpires, &lastSeen,
 		&h.CreatedAt, &h.UpdatedAt, &advancedJSON, &h.CAID,
 		&prevCertFP, &certRotatedAt, &h.PendingRekey, &signingPub, &kind, &variant,
-		&unsafeNetworksJSON, &h.NebulaVersion, &h.NebulaOS, &nebulaReportedAt,
+		&unsafeNetworksJSON, &h.NebulaVersion, &h.NebulaOS, &nebulaReportedAt, &restartPendingAt,
 	)
 	if err != nil {
 		return nil, err
@@ -1298,6 +1300,9 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	if nebulaReportedAt.Valid {
 		h.NebulaReportedAt = &nebulaReportedAt.Time
 	}
+	if restartPendingAt.Valid {
+		h.NebulaRestartPendingAt = &restartPendingAt.Time
+	}
 	if signingPub.Valid {
 		h.SigningPubPEM = signingPub.String
 	}
@@ -1307,7 +1312,7 @@ func (s *SQLiteStore) scanHost(scanner interface {
 	return h, nil
 }
 
-const hostColumns = `id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem, kind, variant, unsafe_networks_json, nebula_version, nebula_os, nebula_reported_at`
+const hostColumns = `id, network_id, name, groups_json, role, is_lighthouse, is_relay, public_ip, listen_port, status, cert_fingerprint, cert_expires_at, last_seen_at, created_at, updated_at, advanced_json, ca_id, prev_cert_fingerprint, cert_rotated_at, pending_rekey, signing_pub_pem, kind, variant, unsafe_networks_json, nebula_version, nebula_os, nebula_reported_at, nebula_restart_pending_at`
 
 func (s *SQLiteStore) GetHost(ctx context.Context, id string) (*models.Host, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
@@ -1606,6 +1611,40 @@ func (s *SQLiteStore) ReportHostNebulaRuntime(ctx context.Context, id, version, 
 		return false, fmt.Errorf("commit tx: %w", err)
 	}
 	return changedRows > 0, nil
+}
+
+// SetHostNebulaRestartPending marks or clears a pending Nebula restart and
+// reports whether the state changed. Marking keeps the time of the first
+// report, so the host page shows how long the host has waited.
+func (s *SQLiteStore) SetHostNebulaRestartPending(ctx context.Context, id string, pending bool, at time.Time) (bool, error) {
+	var result sql.Result
+	var err error
+	if pending {
+		result, err = s.db.ExecContext(ctx,
+			`UPDATE hosts SET nebula_restart_pending_at=? WHERE id=? AND nebula_restart_pending_at IS NULL`, at, id)
+	} else {
+		result, err = s.db.ExecContext(ctx,
+			`UPDATE hosts SET nebula_restart_pending_at=NULL WHERE id=? AND nebula_restart_pending_at IS NOT NULL`, id)
+	}
+	if err != nil {
+		return false, fmt.Errorf("set host nebula restart pending: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("set host nebula restart pending rows affected: %w", err)
+	}
+	if rows > 0 {
+		return true, nil
+	}
+	var exists int
+	err = s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM hosts WHERE id=?)`, id).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check host exists: %w", err)
+	}
+	if exists == 0 {
+		return false, ErrNotFound
+	}
+	return false, nil
 }
 
 func (s *SQLiteStore) UpdateHostCert(ctx context.Context, id, fingerprint string, expiresAt time.Time) error {

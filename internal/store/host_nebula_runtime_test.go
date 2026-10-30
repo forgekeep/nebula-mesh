@@ -132,3 +132,39 @@ func TestMigration030_ExistingHostsStartUnknown(t *testing.T) {
 		t.Errorf("new host runtime = %q/%q/%v, want empty", got.NebulaVersion, got.NebulaOS, got.NebulaReportedAt)
 	}
 }
+
+func TestSetHostNebulaRestartPending(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	h := createTestHost(t, s, createTestNetwork(t, s))
+	first := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+
+	if changed, err := s.SetHostNebulaRestartPending(ctx, h.ID, true, first); err != nil || !changed {
+		t.Fatalf("mark: %v, %v", changed, err)
+	}
+	if changed, err := s.SetHostNebulaRestartPending(ctx, h.ID, true, first.Add(time.Hour)); err != nil || changed {
+		t.Fatalf("mark again: %v, %v", changed, err)
+	}
+	got, _ := s.GetHost(ctx, h.ID)
+	if got.NebulaRestartPendingAt == nil || !got.NebulaRestartPendingAt.Equal(first) {
+		t.Errorf("pending at = %v, want the first report %v", got.NebulaRestartPendingAt, first)
+	}
+
+	// An operator edit from a copy read while pending must not outlive a clear.
+	stale, _ := s.GetHost(ctx, h.ID)
+	if changed, err := s.SetHostNebulaRestartPending(ctx, h.ID, false, time.Now()); err != nil || !changed {
+		t.Fatalf("clear: %v, %v", changed, err)
+	}
+	if err := s.UpdateHost(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetHost(ctx, h.ID); got.NebulaRestartPendingAt != nil {
+		t.Errorf("stale edit restored pending: %v", got.NebulaRestartPendingAt)
+	}
+	if changed, err := s.SetHostNebulaRestartPending(ctx, h.ID, false, time.Now()); err != nil || changed {
+		t.Fatalf("clear again: %v, %v", changed, err)
+	}
+	if _, err := s.SetHostNebulaRestartPending(ctx, "nonexistent", true, time.Now()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing host: %v", err)
+	}
+}

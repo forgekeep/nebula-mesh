@@ -33,6 +33,12 @@ type AgentConfig struct {
 	// SIGHUP does not exist — a working reload path.
 	NebulaReloadCommand string `yaml:"nebula_reload_command,omitempty"`
 
+	// NebulaBinaryPath is the nebula binary whose version the agent reports
+	// to the server, which renders config for that Nebula release. Empty
+	// looks "nebula" up on PATH; when neither works the server keeps the
+	// conservative config every supported release understands.
+	NebulaBinaryPath string `yaml:"nebula_binary_path,omitempty"`
+
 	// AllowInsecureHTTP opts out of the https-required guard on server_url.
 	// Without it a plaintext http:// URL is only accepted for loopback
 	// hosts — over any other network the enrollment token, certificates,

@@ -928,6 +928,24 @@ function Set-AgentReloadCommand([string]$AgentConfigPath, [string]$NebulaService
     Write-Ok "agent.yml reload hook -> restart of service '$NebulaService'"
 }
 
+# The agent reports the installed Nebula version to the server, which renders
+# config for that release. The install directory is not on PATH, so point
+# nebula_binary_path at the nebula.exe this script manages.
+function Set-AgentNebulaBinaryPath([string]$AgentConfigPath, [string]$NebulaExe) {
+    if (-not (Test-Path -LiteralPath $AgentConfigPath)) {
+        Write-Note ("no agent.yml yet - after enrolling, set nebula_binary_path: '$NebulaExe' so the server " +
+            'renders config for this Nebula version (see deploy/windows/README.md).')
+        return
+    }
+    $lines = @(Get-Content -LiteralPath $AgentConfigPath | Where-Object {
+            $_ -notmatch '^\s*nebula_binary_path\s*:'
+        })
+    $escaped = $NebulaExe -replace "'", "''"
+    $lines += "nebula_binary_path: '$escaped'"
+    [IO.File]::WriteAllLines($AgentConfigPath, [string[]]$lines, (New-Object Text.UTF8Encoding($false)))
+    Write-Ok "agent.yml nebula_binary_path -> $NebulaExe"
+}
+
 function Install-AgentService([string]$AgentExe, [string]$AgentConfigPath) {
     if (Get-ServiceOrNull $script:AgentServiceName) {
         Invoke-Native -Exe $AgentExe -Arguments @('service', 'stop') -What 'agent service stop' -IgnoreFailure | Out-Null
@@ -1199,6 +1217,9 @@ function Invoke-Install {
             Set-AgentReloadCommand -AgentConfigPath $agentConfigPath -NebulaService $reloadService
         } else {
             Write-Note 'no Nebula service on this host - leaving nebula_reload_command unset; restart Nebula yourself after config updates.'
+        }
+        if (Test-Path -LiteralPath $nebulaExe) {
+            Set-AgentNebulaBinaryPath -AgentConfigPath $agentConfigPath -NebulaExe $nebulaExe
         }
 
         # ---- services --------------------------------------------------

@@ -443,7 +443,7 @@ func startPoller(ctx context.Context, cfg *config.AgentConfig, logger *slog.Logg
 			logger.Info("performing server-requested rekey")
 			if err := agent.Reenroll(ctx, cfg.ServerURL, re.Token, agent.ReenrollOptions{
 				DataDir: cfg.DataDir, SigningKeyPath: cfg.SigningKeyPath, PIDFile: cfg.NebulaPIDFile,
-				ReloadCommand: cfg.NebulaReloadCommand,
+				ReloadCommand: cfg.NebulaReloadCommand, RestartCommand: cfg.NebulaRestartCommand,
 				Profile: models.AgentProfile{
 					NebulaConfigPath: cfg.NebulaConfigPath, NebulaCAPath: cfg.ResolvedNebulaCAPath(),
 					NebulaCertPath: cfg.ResolvedNebulaCertPath(), NebulaKeyPath: cfg.ResolvedNebulaKeyPath(),

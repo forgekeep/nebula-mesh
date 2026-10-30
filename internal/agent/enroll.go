@@ -51,7 +51,10 @@ type ReenrollOptions struct {
 	// ReloadCommand, when set, replaces the SIGHUP-to-PIDFile reload with a
 	// shell command (see nebulaReloader).
 	ReloadCommand string
-	Profile       models.AgentProfile
+	// RestartCommand, when set, replaces the reload when the delivered config
+	// changes a key Nebula reads only at startup.
+	RestartCommand string
+	Profile        models.AgentProfile
 }
 
 // Reenroll replaces an existing agent identity using its current profile.
@@ -66,7 +69,26 @@ func reenrollWithSignal(
 	signal func(string) error,
 ) error {
 	return enrollWithProfile(ctx, serverURL, token, options.DataDir, options.SigningKeyPath, options.Profile,
-		reenrollReload(ctx, options, signal))
+		reenrollApply(ctx, options, signal))
+}
+
+// reenrollApply returns the hook that brings a running Nebula onto the config
+// a re-enrollment wrote. keys are the startup-only keys it changed; they follow
+// the same rule as a polled config (see applyStartupKeys).
+func reenrollApply(ctx context.Context, options ReenrollOptions, signal func(string) error) func(keys []string) error {
+	reload := reenrollReload(ctx, options, signal)
+	var restart func(context.Context) error
+	if options.RestartCommand != "" {
+		restart = restartCommandHook(options.RestartCommand)
+	}
+	logger := slog.Default()
+	marks := restartMarks{dataDir: options.DataDir, pidFile: options.PIDFile, logger: logger}
+	return func(keys []string) error {
+		if applyStartupKeys(ctx, keys, restart, marks, logger) || reload == nil {
+			return nil
+		}
+		return reload()
+	}
 }
 
 // reenrollReload picks the reload hook for a re-enrollment: the shell
@@ -143,7 +165,7 @@ func enrollWithProfile(
 	ctx context.Context,
 	serverURL, token, dataDir, signingKeyPath string,
 	profile models.AgentProfile,
-	reload func() error,
+	apply func(restartKeys []string) error,
 ) error {
 	if dataDir == "" {
 		return fmt.Errorf("dataDir is required")
@@ -290,6 +312,11 @@ func enrollWithProfile(
 		return fmt.Errorf("enrollment config validation: %w", err)
 	}
 
+	var restartKeys []string
+	if apply != nil {
+		restartKeys = changedRestartKeys(profile.NebulaConfigPath, enrollResp.ConfigYAML)
+	}
+
 	// Save config. 0o640 — rendered Nebula daemon config (host name,
 	// nebula IPs, lighthouse list, firewall rules, paths to key/cert
 	// files). No secrets in the file itself; the actual private key
@@ -297,8 +324,8 @@ func enrollWithProfile(
 	if err := fsutil.AtomicWriteFile(profile.NebulaConfigPath, []byte(enrollResp.ConfigYAML), 0o640); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
-	if reload != nil {
-		if err := reload(); err != nil {
+	if apply != nil {
+		if err := apply(restartKeys); err != nil {
 			return fmt.Errorf("reload nebula after re-enrollment: %w", err)
 		}
 	}

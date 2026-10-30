@@ -1,0 +1,54 @@
+pki:
+  ca: /nebulacompat/ca.crt
+  cert: /nebulacompat/host.crt
+  key: /nebulacompat/host.key
+  blocklist:
+    - c99d4e650533b92061b09918e838a5a0a6aaee21eed1d12fd937682865936c72
+routines: 2
+static_host_map:
+  192.168.100.1:
+    - 203.0.113.10:4242
+lighthouse:
+  am_lighthouse: false
+  hosts:
+    - 192.168.100.1
+listen:
+  host: '[::]'
+  port: 4242
+  windows_bypass_wdf: false
+punchy:
+  punch: false
+  respond: true
+tun:
+  dev: nebula9
+  mtu: 1400
+  unsafe_routes:
+    - route: 10.20.0.0/16
+      via: 192.168.100.5
+  windows_bypass_wdf: false
+  network_category: unset
+relay:
+  relays:
+    - 192.168.100.2
+logging:
+  level: info
+  format: text
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+  inbound:
+    - port: any
+      proto: icmp
+      host: any
+    - port: "22"
+      proto: tcp
+      group: admin
+    - port: "443"
+      proto: tcp
+      cidr: 192.168.100.0/24
+    - port: any
+      proto: any
+      group: gw
+      local_cidr: 10.20.0.0/16

@@ -97,6 +97,7 @@ type Store interface {
 	// agent re-renders its config on the next poll.
 	UpdateHost(ctx context.Context, h *models.Host) error
 	UpdateHostLastSeen(ctx context.Context, id string, t time.Time) error
+	ReportHostNebulaRuntime(ctx context.Context, id, version, os string, at time.Time) (bool, error)
 	UpdateHostCert(ctx context.Context, id, fingerprint string, expiresAt time.Time) error
 	UpdateHostStatus(ctx context.Context, id string, status models.HostStatus) error
 	DeleteHost(ctx context.Context, id string) error

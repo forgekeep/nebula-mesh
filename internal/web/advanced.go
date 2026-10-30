@@ -33,6 +33,10 @@ func parseAdvancedFromForm(r *http.Request) (*models.HostAdvanced, error) {
 		adv.TunDevice = d
 		used = true
 	}
+	if v := strings.TrimSpace(r.FormValue("adv_nebula_version")); v != "" {
+		adv.NebulaVersion = v
+		used = true
+	}
 	switch r.FormValue("adv_punchy") {
 	case "true":
 		v := true

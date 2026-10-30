@@ -108,6 +108,14 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 		}
 	}
 
+	// NebulaVersion
+	if beforeAdv.NebulaVersion != afterAdv.NebulaVersion {
+		changes["advanced.nebula_version"] = map[string]any{
+			"before": beforeAdv.NebulaVersion,
+			"after":  afterAdv.NebulaVersion,
+		}
+	}
+
 	// TunDevice
 	if beforeAdv.TunDevice != afterAdv.TunDevice {
 		changes["advanced.tun_device"] = map[string]any{

@@ -54,12 +54,16 @@
         <tr><th>Certificate</th><td>{{if .Host.CertFingerprint}}{{.Host.CertFingerprint}}{{else}}—{{end}}</td></tr>
         {{if .Host.CertExpiresAt}}<tr><th>Cert Expires</th><td>{{.Host.CertExpiresAt.Format "2006-01-02 15:04 UTC"}}</td></tr>{{end}}
         {{if .Host.LastSeenAt}}<tr><th>Last Seen</th><td>{{.Host.LastSeenAt.Format "2006-01-02 15:04 UTC"}}</td></tr>{{end}}
+        {{with nebulaRuntime .Host}}<tr><th>Nebula version</th><td class="host-nebula-version">{{if .Known}}{{.Version}} ({{.SourceLabel}}){{if not .Supported}} — below the oldest supported release {{.MinSupported}}, so the host gets the conservative config{{end}}{{else}}unknown — the host gets the conservative config every supported release understands{{end}}</td></tr>{{end}}
+        {{if .Host.NebulaOS}}<tr><th>OS</th><td>{{.Host.NebulaOS}}</td></tr>{{end}}
+        {{if .Host.NebulaReportedAt}}<tr><th>Nebula reported</th><td>{{.Host.NebulaReportedAt.Format "2006-01-02 15:04 UTC"}}</td></tr>{{end}}
         <tr><th>Created</th><td>{{.Host.CreatedAt.Format "2006-01-02 15:04 UTC"}}</td></tr>
         {{if .Host.Advanced}}
         <tr><th colspan="2" style="background:var(--bg-muted)">Advanced</th></tr>
         {{if .Host.Advanced.ListenHost}}<tr><th>Listen host</th><td>{{.Host.Advanced.ListenHost}}</td></tr>{{end}}
         {{if .Host.Advanced.MTU}}<tr><th>MTU</th><td>{{.Host.Advanced.MTU}}</td></tr>{{end}}
         {{if .Host.Advanced.TunDevice}}<tr><th>TUN device</th><td>{{.Host.Advanced.TunDevice}}</td></tr>{{end}}
+        {{if .Host.Advanced.NebulaVersion}}<tr><th>Nebula version (operator)</th><td>{{.Host.Advanced.NebulaVersion}}</td></tr>{{end}}
         {{if .Host.Advanced.Punchy}}<tr><th>Punchy</th><td>{{if deref .Host.Advanced.Punchy}}true{{else}}false{{end}}</td></tr>{{end}}
         {{if .Host.Advanced.PunchyRespond}}<tr><th>Punchy respond</th><td>{{if deref .Host.Advanced.PunchyRespond}}true{{else}}false{{end}}</td></tr>{{end}}
         {{if .Host.Advanced.UnsafeRoutes}}<tr><th>Unsafe routes</th><td>{{range .Host.Advanced.UnsafeRoutes}}{{.Route}} via {{.Via}}<br>{{end}}</td></tr>{{end}}

@@ -59,8 +59,18 @@ func TestApplyHostAdvanced_CopiesEveryField(t *testing.T) {
 	// Every exported field of HostAdvanced must be represented above, so that
 	// adding one to the model breaks this test rather than silently rendering
 	// nothing.
+	// NebulaVersion overrides no config key: it selects which Nebula release
+	// the config is rendered for, together with the agent's report, so the
+	// caller resolves it (nebulacompat.Effective), not ApplyHostAdvanced.
+	notOverrides := map[string]bool{"NebulaVersion": true}
 	const wantFields = 7
-	if got := reflect.TypeOf(models.HostAdvanced{}).NumField(); got != wantFields {
+	got := 0
+	for _, f := range reflect.VisibleFields(reflect.TypeOf(models.HostAdvanced{})) {
+		if !notOverrides[f.Name] {
+			got++
+		}
+	}
+	if got != wantFields {
 		t.Errorf("models.HostAdvanced has %d fields, this test covers %d — wire the new field "+
 			"into ApplyHostAdvanced and extend this test", got, wantFields)
 	}

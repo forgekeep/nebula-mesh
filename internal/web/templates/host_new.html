@@ -100,7 +100,7 @@
             <input type="number" name="listen_port" class="form-control" placeholder="4242" value="{{.Form.ListenPort}}">
         </div>
 
-        <details style="margin: 16px 0;"{{if or .Form.AdvListenHost .Form.AdvMTU .Form.AdvTunDevice .Form.AdvPunchy .Form.AdvPunchyRespond .Form.AdvUnsafeRoutes .Form.AdvFirewallInbound}} open{{end}}>
+        <details style="margin: 16px 0;"{{if or .Form.AdvListenHost .Form.AdvMTU .Form.AdvTunDevice .Form.AdvNebulaVersion .Form.AdvPunchy .Form.AdvPunchyRespond .Form.AdvUnsafeRoutes .Form.AdvFirewallInbound}} open{{end}}>
             <summary style="cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 14px;">
                 Advanced configuration (optional)
             </summary>
@@ -119,6 +119,11 @@
             <div class="form-group">
                 <label>TUN device name (advanced.tun_device)</label>
                 <input type="text" name="adv_tun_device" class="form-control" placeholder="nebula1" value="{{.Form.AdvTunDevice}}">
+            </div>
+            <div class="form-group">
+                <label>Nebula version (advanced.nebula_version)</label>
+                <input type="text" name="adv_nebula_version" class="form-control" placeholder="1.12.0" value="{{.Form.AdvNebulaVersion}}">
+                <p class="help-text">For hosts without an agent, such as mobile clients. A version the agent reports takes precedence.</p>
             </div>
             <div class="form-group">
                 <label>Punchy (advanced.punchy)</label>

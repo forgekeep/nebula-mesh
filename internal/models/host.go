@@ -246,4 +246,8 @@ type HostAdvanced struct {
 	TunDevice       string             `json:"tun_device,omitempty" yaml:"tun_device,omitempty"`
 	UnsafeRoutes    []UnsafeRoute      `json:"unsafe_routes,omitempty" yaml:"unsafe_routes,omitempty"`
 	FirewallInbound []HostFirewallRule `json:"firewall_inbound,omitempty" yaml:"firewall_inbound,omitempty"`
+	// NebulaVersion is the Nebula release an operator says the host runs,
+	// for hosts without an agent to report it (mobile clients). A version
+	// the agent reported takes precedence (nebulacompat.Effective).
+	NebulaVersion string `json:"nebula_version,omitempty" yaml:"nebula_version,omitempty"`
 }

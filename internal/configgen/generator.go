@@ -27,6 +27,13 @@ type AdvancedUnsafeRoute struct {
 
 // MobileProfile enables defaults and settings used by Mobile Nebula clients.
 // A nil profile preserves the agent configuration shape.
+// HostDNS mirrors hostdns.Settings for the experimental `dns` stanza.
+type HostDNS struct {
+	Nameservers   []string
+	MatchDomains  []string
+	SearchDomains []string
+}
+
 type MobileProfile struct {
 	DNSResolvers        []string
 	MatchDomains        []string
@@ -79,6 +86,9 @@ type GeneratorInput struct {
 	// Gated by nebulacompat.FeatureLocalAPI.
 	LocalAPIControlEnabled *bool
 	LocalAPIControlGroup   string
+	// HostDNS is the network's split DNS setting, gated by
+	// nebulacompat.FeatureHostDNS. Nil or no nameservers renders nothing.
+	HostDNS *HostDNS
 
 	// Optional inline PEM blocks. When CACertPEM is non-empty, CertPEM and
 	// KeyPEM must also be non-empty; all three are emitted as literal-block

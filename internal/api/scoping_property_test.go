@@ -80,6 +80,7 @@ var protectedGETScoping = map[string]listScoping{
 	"/api/v1/networks/{id}":               singleResource,
 	"/api/v1/networks/{id}/firewall":      singleResource,
 	"/api/v1/networks/{id}/mobile-config": singleResource,
+	"/api/v1/networks/{id}/host-dns":      singleResource,
 	"/api/v1/hosts/{id}":                  singleResource,
 	"/api/v1/cas/{id}":                    singleResource,
 	"/api/v1/mesh-imports/{id}":           singleResource,

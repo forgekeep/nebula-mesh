@@ -143,7 +143,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	if role == "" {
 		role = models.HostRoleHost
 	}
-	if err := models.ValidateRoleReachability(role, req.PublicIP, req.ListenPort); err != nil {
+	if err := models.ValidateRoleReachability(role, req.PublicIP, req.ListenPort, req.Advanced); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -810,7 +810,7 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate role reachability
-	if err := models.ValidateRoleReachability(host.Role, host.PublicIP, host.ListenPort); err != nil {
+	if err := models.ValidateRoleReachability(host.Role, host.PublicIP, host.ListenPort, host.Advanced); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -830,8 +830,9 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist, schedule a cert re-issuance if a cert-bound field moved, and
-	// bump the network config version on a role change. config_version reset
-	// and the pending-rekey flag commit inside UpdateHost (SEC-PERSIST-001).
+	// bump the network config version when the edit changes what peers
+	// render (role, lighthouse endpoints). config_version reset and the
+	// pending-rekey flag commit inside UpdateHost (SEC-PERSIST-001).
 	if err := store.ApplyHostEdit(r.Context(), s.store, s.logger, &before, host); err != nil {
 		// ErrIPTaken is reachable only via a TOCTOU race between concurrent
 		// host writes: the validateHostIPs fast-path above returns 400 for any

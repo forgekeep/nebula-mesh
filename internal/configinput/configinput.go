@@ -14,6 +14,8 @@
 package configinput
 
 import (
+	"sort"
+
 	"github.com/forgekeep/nebula-mesh/internal/configgen"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/nebulacompat"
@@ -68,4 +70,44 @@ func ApplyHostAdvanced(input *configgen.GeneratorInput, adv *models.HostAdvanced
 			LocalCidr: fr.LocalCidr,
 		})
 	}
+}
+
+// Lighthouses translates the lighthouses among hosts into the static
+// endpoints every peer renders, keeping the order of hosts. The API's config
+// rendering and the mobile bundle builder share it and Relays so agents and
+// mobile clients are given the same topology.
+func Lighthouses(hosts []*models.Host) []configgen.LighthouseInfo {
+	result := make([]configgen.LighthouseInfo, 0)
+	for _, h := range hosts {
+		endpoints := h.LighthouseEndpoints()
+		if len(endpoints) == 0 {
+			continue
+		}
+		result = append(result, configgen.LighthouseInfo{
+			NebulaIPs:  h.NebulaIPs,
+			PublicAddr: endpoints[0],
+			ExtraAddrs: endpoints[1:],
+		})
+	}
+	return result
+}
+
+// Relays returns the sorted, de-duplicated overlay addresses of the relays
+// among hosts, for relay.relays.
+func Relays(hosts []*models.Host) []string {
+	set := make(map[string]struct{})
+	for _, host := range hosts {
+		if !host.Role.Relay() && !host.IsRelay {
+			continue
+		}
+		for _, address := range host.NebulaIPs {
+			set[address] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(set))
+	for address := range set {
+		result = append(result, address)
+	}
+	sort.Strings(result)
+	return result
 }

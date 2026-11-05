@@ -313,7 +313,8 @@ object in the API:
       { "port": "443", "proto": "tcp", "cidr": "10.0.5.0/24" },
       { "port": "any", "proto": "any", "group": "gw",
         "local_cidr": "192.168.10.0/24" }
-    ]
+    ],
+    "extra_endpoints": ["192.168.1.10:4242"]  // lighthouses only, see below
   }
 }
 ```
@@ -330,7 +331,12 @@ advanced block. Server-side validation rejects:
   port that is not `any`, a single port `1-65535` or an ascending range
   `a-b`, an overlong (>64 chars) group, no peer selector at all, both a
   `group` and a `cidr`, a `cidr`/`local_cidr` that is neither a CIDR nor
-  `any`, or more than 64 rules.
+  `any`, or more than 64 rules;
+- `extra_endpoints` on a host whose role is not `lighthouse` or
+  `lighthouse+relay`, entries that are not a literal `IP:PORT` (IPv6 in
+  brackets, no zone), unspecified, loopback, multicast or IPv6 link-local
+  addresses, port 0, duplicates, a repeat of `public_ip:listen_port` (an
+  IPv4-mapped IPv6 address counts as its IPv4 form), or more than 8 entries.
 
 `punchy_respond` maps to Nebula's `punchy.respond`: a host behind a difficult
 (symmetric) NAT connects back out to peers that failed to reach it, instead of
@@ -1094,6 +1100,18 @@ lighthouse in the network, so one lighthouse can open a tunnel to another
 without waiting for it to connect first. A lighthouse never lists its own
 addresses there, and its `lighthouse.hosts` stays empty: lighthouses do not
 query each other.
+
+`advanced.extra_endpoints` lists further underlay addresses of a lighthouse.
+Peers render them after `public_ip:listen_port` in the same `static_host_map`
+entry, and Nebula tries every address there when it builds a tunnel. Use it
+for a lighthouse behind NAT whose LAN has other Nebula hosts: they reach the
+public address only if the router hairpins their packets, and even then the
+replies are lost when the lighthouse routes them back by another path, for
+example through a second interface on the router's own subnet. With the LAN
+address listed, those hosts reach the lighthouse directly, and peers elsewhere
+fail over to the public address. Changing a lighthouse's `public_ip`,
+`listen_port` or `extra_endpoints` bumps the network's `config_version`, so
+every peer picks up the new `static_host_map` on its next poll.
 
 The server resolves enrolled `role: relay` hosts and writes their overlay
 addresses to `relay.relays`. It excludes pending, importing and blocked relays.

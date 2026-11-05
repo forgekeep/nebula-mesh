@@ -305,7 +305,10 @@ func buildConfig(input GeneratorInput) nebulaConfig {
 			if input.IsLighthouse && slices.Contains(input.NebulaIPs, ip) {
 				continue
 			}
-			cfg.StaticHostMap[safeString(ip)] = []safeString{safeString(lh.PublicAddr)}
+			addrs := make([]safeString, 0, 1+len(lh.ExtraAddrs))
+			addrs = append(addrs, safeString(lh.PublicAddr))
+			addrs = append(addrs, toSafeStrings(lh.ExtraAddrs)...)
+			cfg.StaticHostMap[safeString(ip)] = addrs
 			if !input.IsLighthouse {
 				cfg.Lighthouse.Hosts = append(cfg.Lighthouse.Hosts, safeString(ip))
 			}

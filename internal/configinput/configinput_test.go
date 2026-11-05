@@ -79,7 +79,9 @@ func TestApplyHostAdvanced_CopiesEveryField(t *testing.T) {
 	// NebulaVersion overrides no config key: it selects which Nebula release
 	// the config is rendered for, together with the agent's report, so the
 	// caller resolves it (nebulacompat.Effective), not ApplyHostAdvanced.
-	notOverrides := map[string]bool{"NebulaVersion": true}
+	// ExtraEndpoints shapes the static_host_map of the lighthouse's peers,
+	// not its own config; Lighthouses carries it.
+	notOverrides := map[string]bool{"NebulaVersion": true, "ExtraEndpoints": true}
 	const wantFields = 15
 	got := 0
 	for _, f := range reflect.VisibleFields(reflect.TypeOf(models.HostAdvanced{})) {
@@ -124,5 +126,25 @@ func TestApplyHostAdvanced_AppendsRatherThanReplaces(t *testing.T) {
 	}
 	if len(input.HostFirewallInbound) != 2 || input.HostFirewallInbound[1].Group != "admin" {
 		t.Errorf("host rules should be appended in order: %+v", input.HostFirewallInbound)
+	}
+}
+
+// TestLighthouses_CarriesExtraEndpoints: the API and the mobile bundle builder
+// both advertise lighthouses through Lighthouses, so this is where an extra
+// endpoint must survive the translation, after the public one.
+func TestLighthouses_CarriesExtraEndpoints(t *testing.T) {
+	hosts := []*models.Host{
+		{Name: "lh-lan", IsLighthouse: true, NebulaIPs: []string{"10.0.0.1"}, PublicIP: "203.0.113.10", ListenPort: 4242,
+			Advanced: &models.HostAdvanced{ExtraEndpoints: []string{"192.168.1.10:4242"}}},
+		{Name: "web", NebulaIPs: []string{"10.0.0.10"}, PublicIP: "203.0.113.30", ListenPort: 4242},
+		{Name: "lh", IsLighthouse: true, NebulaIPs: []string{"10.0.0.2"}, PublicIP: "203.0.113.20"},
+	}
+	got := Lighthouses(hosts)
+	want := []configgen.LighthouseInfo{
+		{NebulaIPs: []string{"10.0.0.1"}, PublicAddr: "203.0.113.10:4242", ExtraAddrs: []string{"192.168.1.10:4242"}},
+		{NebulaIPs: []string{"10.0.0.2"}, PublicAddr: "203.0.113.20:4242", ExtraAddrs: []string{}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Lighthouses = %+v, want %+v", got, want)
 	}
 }

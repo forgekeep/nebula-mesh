@@ -957,10 +957,6 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	if role == "" {
 		role = models.HostRoleHost
 	}
-	if err := models.ValidateRoleReachability(role, form.PublicIP, listenPort); err != nil {
-		w.renderHostNewError(rw, r, form, err.Error())
-		return
-	}
 
 	groups := splitCommaList(form.Groups)
 	if groups == nil {
@@ -973,6 +969,12 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := models.ValidateHostAdvanced(advanced); err != nil {
+		w.renderHostNewError(rw, r, form, err.Error())
+		return
+	}
+	// After the advanced block is parsed: reachability covers the extra
+	// endpoints peers dial as well as public_ip and listen_port.
+	if err := models.ValidateRoleReachability(role, form.PublicIP, listenPort, advanced); err != nil {
 		w.renderHostNewError(rw, r, form, err.Error())
 		return
 	}
@@ -1264,11 +1266,6 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		role = models.HostRoleHost
 	}
 
-	if err := models.ValidateRoleReachability(role, form.PublicIP, listenPort); err != nil {
-		w.renderHostEditError(rw, r, host, network, form, err.Error())
-		return
-	}
-
 	groups := splitCommaList(form.Groups)
 	if groups == nil {
 		groups = []string{}
@@ -1280,6 +1277,12 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := models.ValidateHostAdvanced(advanced); err != nil {
+		w.renderHostEditError(rw, r, host, network, form, err.Error())
+		return
+	}
+	// After the advanced block is parsed: reachability covers the extra
+	// endpoints peers dial as well as public_ip and listen_port.
+	if err := models.ValidateRoleReachability(role, form.PublicIP, listenPort, advanced); err != nil {
 		w.renderHostEditError(rw, r, host, network, form, err.Error())
 		return
 	}
@@ -1328,8 +1331,9 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist, schedule a cert re-issuance if a cert-bound field moved, and
-	// bump the network config version on a role change. config_version reset
-	// and the pending-rekey flag commit inside UpdateHost (SEC-PERSIST-001).
+	// bump the network config version when the edit changes what peers
+	// render (role, lighthouse endpoints). config_version reset and the
+	// pending-rekey flag commit inside UpdateHost (SEC-PERSIST-001).
 	if err := store.ApplyHostEdit(r.Context(), w.store, w.logger, &before, host); err != nil {
 		// The fast-path above answered any collision visible at request time,
 		// so reaching the store's UNIQUE(network_id, name) guard means another

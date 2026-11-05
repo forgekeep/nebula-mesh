@@ -57,33 +57,25 @@ func parseAdvancedFromForm(r *http.Request) (*models.HostAdvanced, error) {
 		adv.PunchyRespond = &v
 		used = true
 	}
-	if raw := strings.TrimSpace(r.FormValue("adv_unsafe_routes")); raw != "" {
-		for _, line := range strings.Split(raw, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			parts := strings.Fields(line)
-			if len(parts) != 3 || parts[1] != "via" {
-				return nil, fmt.Errorf("adv_unsafe_routes line %q: expected '<CIDR> via <NEBULA_IP>'", line)
-			}
-			adv.UnsafeRoutes = append(adv.UnsafeRoutes, models.UnsafeRoute{Route: parts[0], Via: parts[2]})
-			used = true
+	for _, line := range formLines(r, "adv_unsafe_routes") {
+		parts := strings.Fields(line)
+		if len(parts) != 3 || parts[1] != "via" {
+			return nil, fmt.Errorf("adv_unsafe_routes line %q: expected '<CIDR> via <NEBULA_IP>'", line)
 		}
+		adv.UnsafeRoutes = append(adv.UnsafeRoutes, models.UnsafeRoute{Route: parts[0], Via: parts[2]})
+		used = true
 	}
-	if raw := strings.TrimSpace(r.FormValue("adv_firewall_inbound")); raw != "" {
-		for _, line := range strings.Split(raw, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			rule, err := parseFirewallInboundLine(line)
-			if err != nil {
-				return nil, err
-			}
-			adv.FirewallInbound = append(adv.FirewallInbound, rule)
-			used = true
+	for _, line := range formLines(r, "adv_firewall_inbound") {
+		rule, err := parseFirewallInboundLine(line)
+		if err != nil {
+			return nil, err
 		}
+		adv.FirewallInbound = append(adv.FirewallInbound, rule)
+		used = true
+	}
+	if endpoints := formLines(r, "adv_extra_endpoints"); len(endpoints) > 0 {
+		adv.ExtraEndpoints = endpoints
+		used = true
 	}
 
 	tuningUsed, err := parseTuningFromForm(r, adv)
@@ -94,6 +86,18 @@ func parseAdvancedFromForm(r *http.Request) (*models.HostAdvanced, error) {
 		return nil, nil
 	}
 	return adv, nil
+}
+
+// formLines returns the trimmed, non-blank lines of a one-entry-per-line
+// textarea, the shape of every list field in the advanced form.
+func formLines(r *http.Request, field string) []string {
+	var lines []string
+	for _, line := range strings.Split(r.FormValue(field), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }
 
 // firewallInboundSyntax is the one-line grammar the host form accepts for a

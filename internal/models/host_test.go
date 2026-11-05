@@ -61,7 +61,7 @@ func TestValidateRoleReachability(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ValidateRoleReachability(tt.role, tt.publicIP, tt.listenPort)
+			got := ValidateRoleReachability(tt.role, tt.publicIP, tt.listenPort, nil)
 			if tt.wantErr == nil {
 				if got != nil {
 					t.Errorf("got error %v, want nil", got)

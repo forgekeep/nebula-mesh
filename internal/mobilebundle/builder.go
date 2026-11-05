@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/netip"
-	"sort"
 	"strconv"
 
 	"github.com/slackhq/nebula/cert"
@@ -256,24 +254,7 @@ func listLighthouses(ctx context.Context, s store.Store, networkID string) ([]co
 		return nil, err
 	}
 
-	result := make([]configgen.LighthouseInfo, 0)
-	for _, h := range hosts {
-		if !h.IsLighthouse || h.PublicIP == "" {
-			continue
-		}
-		if len(h.NebulaIPs) == 0 {
-			continue
-		}
-		port := h.ListenPort
-		if port == 0 {
-			port = 4242
-		}
-		result = append(result, configgen.LighthouseInfo{
-			NebulaIPs:  h.NebulaIPs,
-			PublicAddr: net.JoinHostPort(h.PublicIP, strconv.Itoa(port)),
-		})
-	}
-	return result, nil
+	return configinput.Lighthouses(hosts), nil
 }
 
 // listRelays returns sorted overlay addresses for enrolled relay hosts.
@@ -286,19 +267,5 @@ func listRelays(ctx context.Context, s store.Store, networkID string) ([]string,
 		return nil, err
 	}
 
-	set := make(map[string]struct{})
-	for _, host := range hosts {
-		if !host.Role.Relay() && !host.IsRelay {
-			continue
-		}
-		for _, address := range host.NebulaIPs {
-			set[address] = struct{}{}
-		}
-	}
-	result := make([]string, 0, len(set))
-	for address := range set {
-		result = append(result, address)
-	}
-	sort.Strings(result)
-	return result, nil
+	return configinput.Relays(hosts), nil
 }

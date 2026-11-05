@@ -661,7 +661,7 @@ func (s *SQLiteStore) FinalizeMeshImport(ctx context.Context, input MeshImportFi
 		host := proposal.Host
 		if proposal.SnapshotID == "" || host.ID == "" || host.NetworkID != networkID || host.CAID != caID ||
 			(host.Status != models.HostStatusImporting && host.Status != models.HostStatusBlocked) || !models.ValidRole(host.Role) ||
-			models.ValidateRoleReachability(host.Role, host.PublicIP, host.ListenPort) != nil ||
+			models.ValidateRoleReachability(host.Role, host.PublicIP, host.ListenPort, host.Advanced) != nil ||
 			models.ValidateHostAdvanced(host.Advanced) != nil {
 			return ErrMeshImportConflict
 		}

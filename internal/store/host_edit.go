@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"log/slog"
+	"slices"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
@@ -39,8 +40,9 @@ func ApplyHostEdit(ctx context.Context, s Store, logger *slog.Logger, before, af
 	}
 
 	// A role change alters the topology every peer renders (lighthouse and
-	// relay entries), not just this host's own config.
-	if before.Role != after.Role {
+	// relay entries), not just this host's own config, and so does moving a
+	// lighthouse's endpoints: peers dial whatever their static_host_map says.
+	if before.Role != after.Role || !slices.Equal(before.LighthouseEndpoints(), after.LighthouseEndpoints()) {
 		if err := s.BumpNetworkConfigVersion(ctx, after.NetworkID); err != nil {
 			logger.Error("bump network config version", "network", after.NetworkID, "error", err)
 		}

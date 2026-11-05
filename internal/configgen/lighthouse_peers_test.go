@@ -1,6 +1,7 @@
 package configgen
 
 import (
+	"slices"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -44,6 +45,36 @@ func TestGenerate_LighthousesCanReachEachOther(t *testing.T) {
 						t.Errorf("cannot locate peer %s: got %v, want [%s]", ip, got, peer.PublicAddr)
 					}
 				}
+			}
+		})
+	}
+}
+
+// TestGenerate_LighthouseExtraAddrs: a lighthouse's extra endpoints follow its
+// public one in the same static_host_map entry, for plain hosts and for peer
+// lighthouses alike, so Nebula tries every address of that lighthouse.
+func TestGenerate_LighthouseExtraAddrs(t *testing.T) {
+	lighthouses := []LighthouseInfo{
+		{NebulaIPs: []string{"192.168.100.1"}, PublicAddr: "203.0.113.10:4242",
+			ExtraAddrs: []string{"192.168.1.10:4242", "[2001:db8::10]:4242"}},
+		{NebulaIPs: []string{"192.168.100.2"}, PublicAddr: "203.0.113.20:4242"},
+	}
+	want := []string{"203.0.113.10:4242", "192.168.1.10:4242", "[2001:db8::10]:4242"}
+	for name, input := range map[string]GeneratorInput{
+		"host":            {NebulaIPs: []string{"192.168.100.10"}, Lighthouses: lighthouses},
+		"peer lighthouse": {NebulaIPs: []string{"192.168.100.2"}, IsLighthouse: true, Lighthouses: lighthouses},
+	} {
+		t.Run(name, func(t *testing.T) {
+			data, err := Generate(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parsed parsedConfig
+			if err := yaml.Unmarshal(data, &parsed); err != nil {
+				t.Fatal(err)
+			}
+			if got := parsed.StaticHostMap["192.168.100.1"]; !slices.Equal(got, want) {
+				t.Fatalf("static_host_map[192.168.100.1] = %v, want %v", got, want)
 			}
 		})
 	}

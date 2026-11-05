@@ -8,6 +8,7 @@ routines: 2
 static_host_map:
   192.168.100.1:
     - 203.0.113.10:4242
+    - 192.0.2.10:4242
 lighthouse:
   am_lighthouse: false
   hosts:

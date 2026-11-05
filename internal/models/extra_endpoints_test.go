@@ -87,6 +87,12 @@ func TestValidateRoleReachability_ExtraEndpoints(t *testing.T) {
 	if err := ValidateRoleReachability(HostRoleLighthouse, "203.0.113.10", 4242, mapped); err == nil {
 		t.Error("public endpoint repeated in IPv4-mapped form: accepted")
 	}
+	// listen_port is compared as an int: narrowing 70000 to uint16 would wrap
+	// to 4464 and report a repeat that is not there.
+	wrapped := &HostAdvanced{ExtraEndpoints: []string{"203.0.113.10:4464"}}
+	if err := ValidateRoleReachability(HostRoleLighthouse, "203.0.113.10", 70000, wrapped); err != nil {
+		t.Errorf("out-of-range listen_port wrapped onto an extra endpoint: %v", err)
+	}
 	if err := ValidateRoleReachability(HostRoleLighthouse, "203.0.113.10", 4243, public); err != nil {
 		t.Errorf("same address on another port is a distinct endpoint: %v", err)
 	}

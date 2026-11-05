@@ -326,10 +326,13 @@ func ValidateHostAdvanced(adv *HostAdvanced) error {
 // extra endpoint gets its own message from the caller's checks, so it only
 // disables the comparison here.
 func extraEndpointsRepeatPublic(publicIP string, listenPort int, extra []string) error {
-	addr, publicErr := netip.ParseAddr(strings.TrimSpace(publicIP))
-	public := netip.AddrPortFrom(addr.Unmap(), uint16(listenPort))
+	public, publicErr := netip.ParseAddr(strings.TrimSpace(publicIP))
+	public = public.Unmap()
 	for i, raw := range extra {
-		if endpoint, err := parseUnderlayEndpoint(raw); err == nil && publicErr == nil && endpoint == public {
+		// Widen the parsed port instead of narrowing listenPort: the caller's
+		// range check is not this function's to rely on.
+		if endpoint, err := parseUnderlayEndpoint(raw); err == nil && publicErr == nil &&
+			endpoint.Addr() == public && int(endpoint.Port()) == listenPort {
 			return fmt.Errorf("advanced.extra_endpoints[%d]: %q repeats public_ip:listen_port", i, raw)
 		}
 	}

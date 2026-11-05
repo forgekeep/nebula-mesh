@@ -69,6 +69,7 @@
         {{if .Host.Advanced.NebulaVersion}}<tr><th>Nebula version (operator)</th><td>{{.Host.Advanced.NebulaVersion}}</td></tr>{{end}}
         {{if .Host.Advanced.Punchy}}<tr><th>Punchy</th><td>{{if deref .Host.Advanced.Punchy}}true{{else}}false{{end}}</td></tr>{{end}}
         {{if .Host.Advanced.PunchyRespond}}<tr><th>Punchy respond</th><td>{{if deref .Host.Advanced.PunchyRespond}}true{{else}}false{{end}}</td></tr>{{end}}
+        {{if .Host.Advanced.ExtraEndpoints}}<tr><th>Extra lighthouse endpoints</th><td>{{range .Host.Advanced.ExtraEndpoints}}{{.}}<br>{{end}}</td></tr>{{end}}
         {{if .Host.Advanced.UnsafeRoutes}}<tr><th>Unsafe routes</th><td>{{range .Host.Advanced.UnsafeRoutes}}{{.Route}} via {{.Via}}<br>{{end}}</td></tr>{{end}}
         {{if .Host.Advanced.Routines}}<tr><th>Routines</th><td>{{.Host.Advanced.Routines}}</td></tr>{{end}}
         {{if .Host.Advanced.UDPOffloads}}<tr><th>UDP offloads</th><td>{{if deref .Host.Advanced.UDPOffloads}}true{{else}}false{{end}}</td></tr>{{end}}

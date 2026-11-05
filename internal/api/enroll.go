@@ -4,11 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/netip"
-	"sort"
-	"strconv"
 
 	"github.com/slackhq/nebula/cert"
 
@@ -388,21 +385,7 @@ func (s *Server) getRelays(ctx context.Context, networkID string) ([]string, err
 	if err != nil {
 		return nil, err
 	}
-	set := make(map[string]struct{})
-	for _, host := range hosts {
-		if !host.Role.Relay() && !host.IsRelay {
-			continue
-		}
-		for _, address := range host.NebulaIPs {
-			set[address] = struct{}{}
-		}
-	}
-	result := make([]string, 0, len(set))
-	for address := range set {
-		result = append(result, address)
-	}
-	sort.Strings(result)
-	return result, nil
+	return configinput.Relays(hosts), nil
 }
 
 // getLighthouses returns every enrolled lighthouse in the given network. Pending
@@ -417,22 +400,5 @@ func (s *Server) getLighthouses(ctx context.Context, networkID string) ([]config
 		return nil, err
 	}
 
-	result := make([]configgen.LighthouseInfo, 0)
-	for _, h := range hosts {
-		if !h.IsLighthouse || h.PublicIP == "" {
-			continue
-		}
-		if len(h.NebulaIPs) == 0 {
-			continue
-		}
-		port := h.ListenPort
-		if port == 0 {
-			port = 4242
-		}
-		result = append(result, configgen.LighthouseInfo{
-			NebulaIPs:  h.NebulaIPs,
-			PublicAddr: net.JoinHostPort(h.PublicIP, strconv.Itoa(port)),
-		})
-	}
-	return result, nil
+	return configinput.Lighthouses(hosts), nil
 }

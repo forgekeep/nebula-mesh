@@ -6,6 +6,9 @@ import "github.com/forgekeep/nebula-mesh/internal/nebulacompat"
 type LighthouseInfo struct {
 	NebulaIPs  []string
 	PublicAddr string // "1.2.3.4:4242"
+	// ExtraAddrs are rendered after PublicAddr in the same static_host_map
+	// entry (models.HostAdvanced.ExtraEndpoints).
+	ExtraAddrs []string
 }
 
 // FirewallRule represents a single firewall rule. A rule carries exactly one

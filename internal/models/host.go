@@ -2,6 +2,8 @@ package models
 
 import (
 	"errors"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -121,12 +123,23 @@ var ErrRoleRequiresPublicIP = errors.New("public_ip is required when role is lig
 // "public_ip:listen_port", so a zero port produces the same silent failure.
 var ErrRoleRequiresListenPort = errors.New("listen_port is required when role is lighthouse or relay")
 
+// ErrExtraEndpointsRequireLighthouse rejects advanced.extra_endpoints on a
+// host peers never dial by static address, including a lighthouse being
+// demoted while the list is still set.
+var ErrExtraEndpointsRequireLighthouse = errors.New("advanced.extra_endpoints requires the lighthouse role")
+
 // ValidateRoleReachability rejects role/reachability combinations that
 // would result in a silently-useless host. role=lighthouse and role=relay
 // must both ship with a routable public_ip and a non-zero listen_port —
 // otherwise peer config.yml renders an empty static_host_map and the host
-// is never dialed (issue #94).
-func ValidateRoleReachability(role HostRole, publicIP string, listenPort int) error {
+// is never dialed (issue #94). advanced.extra_endpoints, the other half of
+// what peers dial, is only meaningful on a lighthouse and must not repeat its
+// public endpoint; their syntax is ValidateHostAdvanced's job.
+func ValidateRoleReachability(role HostRole, publicIP string, listenPort int, adv *HostAdvanced) error {
+	hasExtra := adv != nil && len(adv.ExtraEndpoints) > 0
+	if hasExtra && !role.Lighthouse() {
+		return ErrExtraEndpointsRequireLighthouse
+	}
 	if !role.Lighthouse() && !role.Relay() {
 		return nil
 	}
@@ -135,6 +148,9 @@ func ValidateRoleReachability(role HostRole, publicIP string, listenPort int) er
 	}
 	if listenPort == 0 {
 		return ErrRoleRequiresListenPort
+	}
+	if hasExtra {
+		return extraEndpointsRepeatPublic(publicIP, listenPort, adv.ExtraEndpoints)
 	}
 	return nil
 }
@@ -273,4 +289,36 @@ type HostAdvanced struct {
 	// Nebula enables the control socket by default.
 	LocalAPIControlEnabled *bool  `json:"local_api_control_enabled,omitempty" yaml:"local_api_control_enabled,omitempty"`
 	LocalAPIControlGroup   string `json:"local_api_control_group,omitempty" yaml:"local_api_control_group,omitempty"`
+
+	// ExtraEndpoints are further "IP:PORT" underlay addresses of a
+	// lighthouse, rendered in every peer's static_host_map after
+	// public_ip:listen_port; Nebula tries each one when it builds a tunnel.
+	// A lighthouse behind NAT lists its LAN address here for the peers on
+	// that LAN: their packets to the public address only arrive if the
+	// router hairpins them, and the replies are lost whenever the lighthouse
+	// routes them back by another path. Only lighthouses may set it
+	// (ValidateRoleReachability).
+	ExtraEndpoints []string `json:"extra_endpoints,omitempty" yaml:"extra_endpoints,omitempty"`
+}
+
+// MaxExtraEndpoints caps advanced.extra_endpoints: every peer in the network
+// renders and dials each entry.
+const MaxExtraEndpoints = 8
+
+// LighthouseEndpoints returns the underlay addresses peers dial to reach h,
+// public_ip:listen_port first and then advanced.extra_endpoints, or nil when
+// h is not a lighthouse that peers can locate.
+func (h *Host) LighthouseEndpoints() []string {
+	if h == nil || !h.IsLighthouse || h.PublicIP == "" || len(h.NebulaIPs) == 0 {
+		return nil
+	}
+	port := h.ListenPort
+	if port == 0 {
+		port = 4242
+	}
+	endpoints := []string{net.JoinHostPort(h.PublicIP, strconv.Itoa(port))}
+	if h.Advanced != nil {
+		endpoints = append(endpoints, h.Advanced.ExtraEndpoints...)
+	}
+	return endpoints
 }

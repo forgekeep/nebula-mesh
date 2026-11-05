@@ -205,6 +205,67 @@ func TestApplyHostEdit_RoleChangeBumpsNetworkVersion(t *testing.T) {
 	}
 }
 
+// TestApplyHostEdit_LighthouseEndpointChangeBumpsNetworkVersion: peers render
+// a lighthouse's public and extra endpoints in their static_host_map, so
+// moving either has to re-publish network-wide; the same fields on a plain
+// host reach no peer config and must not churn every host in the network.
+func TestApplyHostEdit_LighthouseEndpointChangeBumpsNetworkVersion(t *testing.T) {
+	asLighthouse := func(h *models.Host) {
+		h.Role = models.HostRoleLighthouse
+		h.IsLighthouse = true
+		h.PublicIP = "203.0.113.1"
+		h.ListenPort = 4242
+	}
+	tests := []struct {
+		name       string
+		lighthouse bool
+		mutate     func(*models.Host)
+		wantBump   bool
+	}{
+		{"lighthouse extra endpoint added", true, func(h *models.Host) {
+			h.Advanced = &models.HostAdvanced{ExtraEndpoints: []string{"192.168.1.10:4242"}}
+		}, true},
+		{"lighthouse public ip moved", true, func(h *models.Host) { h.PublicIP = "203.0.113.2" }, true},
+		{"lighthouse listen port moved", true, func(h *models.Host) { h.ListenPort = 4243 }, true},
+		{"lighthouse mtu changed", true, func(h *models.Host) {
+			h.Advanced = &models.HostAdvanced{MTU: 1300}
+		}, false},
+		{"plain host public ip changed", false, func(h *models.Host) { h.PublicIP = "203.0.113.9" }, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestStore(t)
+			ctx := context.Background()
+			host := seedEditableHost(t, s)
+			if tt.lighthouse {
+				asLighthouse(host)
+				if err := s.UpdateHost(ctx, host); err != nil {
+					t.Fatal(err)
+				}
+			}
+			initial, err := s.GetNetworkConfigVersion(ctx, "n-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			before := *host
+			after := *host
+			tt.mutate(&after)
+			if err := ApplyHostEdit(ctx, s, quietLogger(), &before, &after); err != nil {
+				t.Fatalf("ApplyHostEdit: %v", err)
+			}
+
+			got, err := s.GetNetworkConfigVersion(ctx, "n-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bumped := got > initial; bumped != tt.wantBump {
+				t.Errorf("network config version %d -> %d, want bump=%v", initial, got, tt.wantBump)
+			}
+		})
+	}
+}
+
 // TestApplyHostEdit_PropagatesStoreError: a failed persist must reach the
 // caller so it can map the status, and must not be masked by the follow-up
 // writes.

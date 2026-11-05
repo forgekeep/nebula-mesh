@@ -304,7 +304,61 @@ func ValidateHostAdvanced(adv *HostAdvanced) error {
 			return fmt.Errorf("advanced.firewall_inbound[%d]: %w", i, err)
 		}
 	}
+	if len(adv.ExtraEndpoints) > MaxExtraEndpoints {
+		return fmt.Errorf("advanced.extra_endpoints: at most %d endpoints allowed", MaxExtraEndpoints)
+	}
+	seen := make(map[netip.AddrPort]struct{}, len(adv.ExtraEndpoints))
+	for i, raw := range adv.ExtraEndpoints {
+		endpoint, err := parseUnderlayEndpoint(raw)
+		if err != nil {
+			return fmt.Errorf("advanced.extra_endpoints[%d]: %w", i, err)
+		}
+		if _, dup := seen[endpoint]; dup {
+			return fmt.Errorf("advanced.extra_endpoints[%d]: %q is listed twice", i, raw)
+		}
+		seen[endpoint] = struct{}{}
+	}
 	return nil
+}
+
+// extraEndpointsRepeatPublic reports the first extra endpoint that equals
+// public_ip:listen_port once both are normalized. A malformed public_ip or
+// extra endpoint gets its own message from the caller's checks, so it only
+// disables the comparison here.
+func extraEndpointsRepeatPublic(publicIP string, listenPort int, extra []string) error {
+	addr, publicErr := netip.ParseAddr(strings.TrimSpace(publicIP))
+	public := netip.AddrPortFrom(addr.Unmap(), uint16(listenPort))
+	for i, raw := range extra {
+		if endpoint, err := parseUnderlayEndpoint(raw); err == nil && publicErr == nil && endpoint == public {
+			return fmt.Errorf("advanced.extra_endpoints[%d]: %q repeats public_ip:listen_port", i, raw)
+		}
+	}
+	return nil
+}
+
+// parseUnderlayEndpoint accepts the literal "IP:PORT" form (IPv6 in brackets)
+// that Nebula reads from static_host_map and returns it normalized: an
+// IPv4-mapped IPv6 address compares equal to its IPv4 form, as in mesh import.
+// Hostnames are rejected, as for public_ip, and so are addresses no peer can
+// usefully dial. IPv6 link-local addresses need a zone to be dialed, and a
+// zone names an interface of one machine, so neither can be shared with peers.
+func parseUnderlayEndpoint(raw string) (netip.AddrPort, error) {
+	endpoint, err := netip.ParseAddrPort(raw)
+	if err != nil {
+		return netip.AddrPort{}, fmt.Errorf("%q must be IP:PORT, with an IPv6 address in brackets", raw)
+	}
+	addr := endpoint.Addr()
+	switch {
+	case addr.Zone() != "":
+		return netip.AddrPort{}, fmt.Errorf("%q must not carry an IPv6 zone", raw)
+	case endpoint.Port() == 0:
+		return netip.AddrPort{}, fmt.Errorf("%q needs a port between 1 and 65535", raw)
+	}
+	addr = addr.Unmap()
+	if addr.IsUnspecified() || addr.IsLoopback() || addr.IsMulticast() || (addr.Is6() && addr.IsLinkLocalUnicast()) {
+		return netip.AddrPort{}, fmt.Errorf("%q is not an address peers can dial", raw)
+	}
+	return netip.AddrPortFrom(addr, endpoint.Port()), nil
 }
 
 // MaxGroupNameLen bounds a group name. Group names are embedded in the signed

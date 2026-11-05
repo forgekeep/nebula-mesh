@@ -83,6 +83,7 @@ type hostFormState struct {
 	AdvPunchyRespond   string
 	AdvUnsafeRoutes    string
 	AdvFirewallInbound string
+	AdvExtraEndpoints  string
 	Kind               string
 	Variant            string
 }
@@ -114,6 +115,7 @@ func newHostFormState(r *http.Request) hostFormState {
 		AdvPunchyRespond:   r.FormValue("adv_punchy_respond"),
 		AdvUnsafeRoutes:    r.FormValue("adv_unsafe_routes"),
 		AdvFirewallInbound: r.FormValue("adv_firewall_inbound"),
+		AdvExtraEndpoints:  r.FormValue("adv_extra_endpoints"),
 		Kind:               r.FormValue("kind"),
 		Variant:            r.FormValue("variant"),
 	}
@@ -340,6 +342,9 @@ func hostFormStateFromHost(h *models.Host) hostFormState {
 				state.AdvPunchyRespond = "false"
 			}
 		}
+
+		// ExtraEndpoints: one IP:PORT per line
+		state.AdvExtraEndpoints = strings.Join(h.Advanced.ExtraEndpoints, "\n")
 
 		// UnsafeRoutes: "CIDR via IP" per line
 		for _, ur := range h.Advanced.UnsafeRoutes {

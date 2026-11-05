@@ -31,7 +31,7 @@ func compatBaseInput() GeneratorInput {
 		CertPath:    compatCertPath,
 		KeyPath:     compatKeyPath,
 		ListenPort:  4242,
-		Lighthouses: []LighthouseInfo{{NebulaIPs: []string{"192.168.100.1"}, PublicAddr: "203.0.113.10:4242"}},
+		Lighthouses: []LighthouseInfo{{NebulaIPs: []string{"192.168.100.1"}, PublicAddr: "203.0.113.10:4242", ExtraAddrs: []string{"192.0.2.10:4242"}}},
 		Relays:      []string{"192.168.100.2"},
 		FirewallInbound: []FirewallRule{
 			{Port: "any", Proto: "icmp", Group: "any"},

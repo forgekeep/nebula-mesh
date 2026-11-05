@@ -13,7 +13,7 @@ import (
 // ListenPort), the diff key is the field name in snake_case.
 //
 // For Advanced sub-fields (ListenHost, MTU, TunDevice, Punchy, PunchyRespond,
-// UnsafeRoutes),
+// UnsafeRoutes, ExtraEndpoints),
 // the diff key uses dot-notation: "advanced.mtu", "advanced.punchy", etc.
 //
 // The JSON format for each changed field is:
@@ -149,6 +149,14 @@ func HostDiff(before, after *Host) ([]byte, bool, error) {
 	}
 
 	diffHostTuning(changes, beforeAdv, afterAdv)
+
+	// ExtraEndpoints
+	if !slices.Equal(beforeAdv.ExtraEndpoints, afterAdv.ExtraEndpoints) {
+		changes["advanced.extra_endpoints"] = map[string]any{
+			"before": beforeAdv.ExtraEndpoints,
+			"after":  afterAdv.ExtraEndpoints,
+		}
+	}
 
 	// FirewallInbound
 	if !hostFirewallRulesEqual(beforeAdv.FirewallInbound, afterAdv.FirewallInbound) {

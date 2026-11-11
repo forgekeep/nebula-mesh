@@ -4,7 +4,7 @@
 // below at the release nebulacompat.MinSupported names.
 module github.com/forgekeep/nebula-mesh/tests/nebulacompat
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/sirupsen/logrus v1.9.4

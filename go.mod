@@ -1,6 +1,6 @@
 module github.com/forgekeep/nebula-mesh
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/DefinedNet/dnsconfig v0.0.0-20261028201825-617c971e7a6a

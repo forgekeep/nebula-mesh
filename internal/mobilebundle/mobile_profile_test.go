@@ -102,6 +102,57 @@ func TestBuild_SEC_PERSIST_001InvalidSettingsDoNotEnrollOrRotateCertificate(t *t
 	})
 }
 
+func TestBuild_SEC_PERSIST_001RegenerationRevokesPreviousCertificates(t *testing.T) {
+	t.Parallel()
+
+	s, resolver, network, host := newMobileFixture(t, "revoke")
+	ctx := t.Context()
+	var revoked []string
+	before, err := s.GetNetworkConfigVersion(ctx, network.ID)
+	require.NoError(t, err)
+	for range 3 {
+		bundle, err := Build(ctx, s, resolver, host)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, revoked, loadBundle(t, bundle).GetStringSlice("pki.blocklist", nil))
+
+		host, err = s.GetHost(ctx, host.ID)
+		require.NoError(t, err)
+		assert.Empty(t, host.PrevCertFingerprint)
+		assert.NotContains(t, revoked, host.CertFingerprint)
+		blocklist, err := s.GetBlocklistForCA(ctx, host.CAID)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, revoked, blocklist)
+		revoked = append(revoked, host.CertFingerprint)
+	}
+	after, err := s.GetNetworkConfigVersion(ctx, network.ID)
+	require.NoError(t, err)
+	assert.Equal(t, before+2, after)
+}
+
+func TestBuild_SEC_PERSIST_001RejectsStaleIdentityBeforeRevoking(t *testing.T) {
+	t.Parallel()
+
+	s, resolver, _, host := newMobileFixture(t, "stale")
+	ctx := t.Context()
+	_, err := Build(ctx, s, resolver, host)
+	require.NoError(t, err)
+	current, err := s.GetHost(ctx, host.ID)
+	require.NoError(t, err)
+	edited := *current
+	edited.Groups = []string{"new-group"}
+	require.NoError(t, s.UpdateHost(ctx, &edited))
+
+	bundle, err := Build(ctx, s, resolver, current)
+	require.ErrorIs(t, err, store.ErrIssuanceNotAllowed)
+	assert.Nil(t, bundle)
+	after, err := s.GetCertificateInfo(ctx, host.ID)
+	require.NoError(t, err)
+	assert.Equal(t, current.CertFingerprint, after.Fingerprint)
+	blocklist, err := s.GetBlocklistForCA(ctx, host.CAID)
+	require.NoError(t, err)
+	assert.Empty(t, blocklist)
+}
+
 // SEC-PERSIST-001: blocking a Host after bundle generation starts must win
 // atomically over the final certificate persistence step.
 func TestBuild_SEC_PERSIST_001ConcurrentBlockCannotBeUndone(t *testing.T) {
@@ -109,7 +160,7 @@ func TestBuild_SEC_PERSIST_001ConcurrentBlockCannotBeUndone(t *testing.T) {
 
 	ctx := context.Background()
 	s, resolver, _, host := newMobileFixture(t, "concurrent-block")
-	paused := &pauseBeforeBlocklistStore{
+	paused := &pauseBeforeMobileIssuanceStore{
 		Store:   s,
 		reached: make(chan struct{}),
 		resume:  make(chan struct{}),
@@ -193,14 +244,17 @@ func loadBundle(t *testing.T, bundle []byte) *nebcfg.C {
 	return &c
 }
 
-type pauseBeforeBlocklistStore struct {
+type pauseBeforeMobileIssuanceStore struct {
 	store.Store
 	reached chan struct{}
 	resume  chan struct{}
 }
 
-func (s *pauseBeforeBlocklistStore) GetBlocklistForCA(ctx context.Context, caID string) ([]string, error) {
+func (s *pauseBeforeMobileIssuanceStore) SaveCertificateIfIssuanceAllowed(
+	ctx context.Context, host *models.Host,
+	pem []byte, fingerprint string, notBefore, notAfter time.Time, render func([]string) error,
+) error {
 	close(s.reached)
 	<-s.resume
-	return s.Store.GetBlocklistForCA(ctx, caID)
+	return s.Store.SaveCertificateIfIssuanceAllowed(ctx, host, pem, fingerprint, notBefore, notAfter, render)
 }

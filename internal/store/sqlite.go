@@ -349,6 +349,13 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 	if err := repairBlocklistCAID(ctx, conn); err != nil {
 		return fmt.Errorf("repair blocklist ca_id: %w", err)
 	}
+	applied, err := migrationApplied(ctx, conn, hostCertificateRevocationMigration)
+	if err != nil {
+		return fmt.Errorf("check host certificate revocation migration: %w", err)
+	}
+	if !applied {
+		return s.applyHostCertificateRevocationMigration(ctx, conn)
+	}
 	return nil
 }
 
@@ -1698,7 +1705,7 @@ func (s *SQLiteStore) DeleteHost(ctx context.Context, id string) error {
 	return nil
 }
 
-// BlockHostAndAddToBlocklist atomically blocks a host and adds its cert to the blocklist.
+// BlockHostAndAddToBlocklist atomically blocks a host and revokes its certificates.
 // Every network under the host CA is bumped whenever a fingerprint enters the
 // blocklist so every peer under that CA receives a re-rendered config.yml
 // carrying the new pki.blocklist entry (GHSA-cm26-5974-52h8). An additional
@@ -1725,15 +1732,9 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason
 		return nil, fmt.Errorf("get host: %w", err)
 	}
 
-	if h.CertFingerprint != "" {
-		var hostIDVal any = id
-		_, err = tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO blocklist (fingerprint, host_id, reason, created_at, ca_id) VALUES (?, ?, ?, ?, ?)`,
-			h.CertFingerprint, hostIDVal, reason, time.Now(), h.CAID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("add to blocklist: %w", err)
-		}
+	hostCAChanged, err := revokeHostCertificatesInTx(ctx, tx, h, reason)
+	if err != nil {
+		return nil, err
 	}
 
 	wasEnrolledLighthouse := h.IsLighthouse && h.Status == models.HostStatusEnrolled
@@ -1753,12 +1754,7 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason
 		return nil, ErrNotFound
 	}
 
-	// Blocklist data is CA-scoped, so its rollout must use the same scope.
-	if h.CertFingerprint != "" {
-		if err := bumpNetworkConfigVersionsForCA(ctx, tx, h.CAID, h.NetworkID); err != nil {
-			return nil, fmt.Errorf("bump CA network config versions: %w", err)
-		}
-	} else if wasEnrolledLighthouse {
+	if !hostCAChanged && wasEnrolledLighthouse {
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
 			h.NetworkID,
@@ -1775,10 +1771,10 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason
 	return h, nil
 }
 
-// UnblockHostAndRemoveFromBlocklist atomically marks a blocked host as pending
-// and removes its certificate fingerprint from the blocklist. The host must
-// re-enroll to obtain a new certificate after unblocking.
-func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(ctx context.Context, id string) (*models.Host, error) {
+// UnblockHost atomically marks a blocked host as pending. A finalized mesh
+// import can explicitly reauthorize its current identity. Other hosts enroll
+// with a new certificate, and all previous certificates stay revoked.
+func (s *SQLiteStore) UnblockHost(ctx context.Context, id string) (*models.Host, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
@@ -1798,8 +1794,23 @@ func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(ctx context.Context, id 
 		return nil, fmt.Errorf("get host: %w", err)
 	}
 
-	if h.CertFingerprint != "" {
-		deleted, err := tx.ExecContext(ctx, `DELETE FROM blocklist WHERE fingerprint = ?`, h.CertFingerprint)
+	if h.Status != models.HostStatusBlocked {
+		return h, nil
+	}
+
+	var imported bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM mesh_import_snapshots AS snapshot
+			JOIN mesh_imports AS import ON import.id = snapshot.mesh_import_id
+			WHERE snapshot.host_id = ? AND import.status = 'finalized'
+		)`, id).Scan(&imported); err != nil {
+		return nil, fmt.Errorf("check host import for unblock: %w", err)
+	}
+
+	if imported && h.CertFingerprint != "" {
+		deleted, err := tx.ExecContext(ctx, `DELETE FROM blocklist WHERE fingerprint = ? AND host_id = ? AND ca_id = ?`,
+			h.CertFingerprint, id, h.CAID)
 		if err != nil {
 			return nil, fmt.Errorf("remove from blocklist: %w", err)
 		}
@@ -1814,19 +1825,26 @@ func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(ctx context.Context, id 
 		}
 	}
 
-	result, err := tx.ExecContext(ctx,
-		`UPDATE hosts SET status=?, updated_at=? WHERE id=?`,
-		models.HostStatusPending, time.Now(), id,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("update host status: %w", err)
+	if !imported {
+		if _, err := revokeHostCertificatesInTx(ctx, tx, h, "host unblocked for enrollment"); err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM enrollment_tokens WHERE host_id = ? AND used = 0`, id); err != nil {
+			return nil, fmt.Errorf("invalidate enrollment tokens before unblock: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE certificates SET is_current = 0 WHERE host_id = ? AND is_current = 1`, id); err != nil {
+			return nil, fmt.Errorf("retire certificate before enrollment: %w", err)
+		}
 	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return nil, fmt.Errorf("update host status rows affected: %w", err)
-	}
-	if rows == 0 {
-		return nil, ErrNotFound
+
+	if _, err := tx.ExecContext(ctx, `UPDATE hosts SET
+		status = ?, updated_at = ?,
+		cert_fingerprint = CASE WHEN ? THEN cert_fingerprint ELSE NULL END,
+		cert_expires_at = CASE WHEN ? THEN cert_expires_at ELSE NULL END,
+		signing_pub_pem = CASE WHEN ? THEN signing_pub_pem ELSE NULL END,
+		prev_cert_fingerprint = NULL, cert_rotated_at = NULL
+		WHERE id = ?`, models.HostStatusPending, time.Now(), imported, imported, imported, id); err != nil {
+		return nil, fmt.Errorf("unblock host: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -1834,10 +1852,17 @@ func (s *SQLiteStore) UnblockHostAndRemoveFromBlocklist(ctx context.Context, id 
 	}
 
 	h.Status = models.HostStatusPending
+	h.PrevCertFingerprint = ""
+	h.CertRotatedAt = nil
+	if !imported {
+		h.CertFingerprint = ""
+		h.CertExpiresAt = nil
+		h.SigningPubPEM = ""
+	}
 	return h, nil
 }
 
-// DeleteHostAndBlockCert atomically deletes a host and adds its cert to the blocklist.
+// DeleteHostAndBlockCert atomically deletes a host and revokes its certificates.
 // Every network under the host CA is bumped whenever a fingerprint enters the
 // blocklist so peers receive the updated pki.blocklist (GHSA-cm26-5974-52h8).
 func (s *SQLiteStore) DeleteHostAndBlockCert(ctx context.Context, id, reason string) error {
@@ -1860,15 +1885,9 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(ctx context.Context, id, reason str
 		return fmt.Errorf("get host: %w", err)
 	}
 
-	if h.CertFingerprint != "" {
-		var hostIDVal any = id
-		_, err = tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO blocklist (fingerprint, host_id, reason, created_at, ca_id) VALUES (?, ?, ?, ?, ?)`,
-			h.CertFingerprint, hostIDVal, reason, time.Now(), h.CAID,
-		)
-		if err != nil {
-			return fmt.Errorf("add to blocklist: %w", err)
-		}
+	hostCAChanged, err := revokeHostCertificatesInTx(ctx, tx, h, reason)
+	if err != nil {
+		return err
 	}
 
 	wasEnrolledLighthouse := h.IsLighthouse && h.Status == models.HostStatusEnrolled
@@ -1885,12 +1904,7 @@ func (s *SQLiteStore) DeleteHostAndBlockCert(ctx context.Context, id, reason str
 		return ErrNotFound
 	}
 
-	// Blocklist data is CA-scoped, so its rollout must use the same scope.
-	if h.CertFingerprint != "" {
-		if err := bumpNetworkConfigVersionsForCA(ctx, tx, h.CAID, h.NetworkID); err != nil {
-			return fmt.Errorf("bump CA network config versions: %w", err)
-		}
-	} else if wasEnrolledLighthouse {
+	if !hostCAChanged && wasEnrolledLighthouse {
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE networks SET config_version = config_version + 1 WHERE id = ?`,
 			h.NetworkID,
@@ -2314,13 +2328,12 @@ func (s *SQLiteStore) SaveCertificateAndEnrollHost(ctx context.Context, hostID s
 	return nil
 }
 
-// SaveCertificateIfIssuanceAllowed atomically re-checks durable Host and owner
-// state and persists a mobile certificate only when both still authorize the
-// transition. expectedStatus prevents a stale builder from changing a Host
-// whose lifecycle state changed while the bundle was being rendered.
+// SaveCertificateIfIssuanceAllowed rechecks Host and owner state, replaces the
+// mobile certificate, and revokes its predecessors in one transaction. The
+// render callback must only use its inputs and must not call into the store.
 func (s *SQLiteStore) SaveCertificateIfIssuanceAllowed(
-	ctx context.Context, hostID string, expectedStatus models.HostStatus,
-	certPEM []byte, fp string, notBefore, notAfter time.Time,
+	ctx context.Context, expectedHost *models.Host,
+	certPEM []byte, fp string, notBefore, notAfter time.Time, render func([]string) error,
 ) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -2332,33 +2345,58 @@ func (s *SQLiteStore) SaveCertificateIfIssuanceAllowed(
 		}
 	}()
 
-	var hostStatus models.HostStatus
+	hostID := expectedHost.ID
+	host, err := s.scanHost(tx.QueryRowContext(ctx, `SELECT `+hostColumns+` FROM hosts WHERE id = ?`, hostID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("get host for mobile certificate issuance: %w", err)
+	}
 	var ownerStatus models.OperatorStatus
 	err = tx.QueryRowContext(ctx, `
-		SELECT h.status, o.status
-		FROM hosts h
-		JOIN cas c ON c.id = h.ca_id
-		JOIN operators o ON o.id = c.owner_operator_id
-		WHERE h.id = ?`, hostID,
-	).Scan(&hostStatus, &ownerStatus)
+		SELECT o.status FROM cas c JOIN operators o ON o.id = c.owner_operator_id
+		WHERE c.id = ?`, host.CAID).Scan(&ownerStatus)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("get issuance state: %w", err)
 	}
-	if hostStatus != expectedStatus ||
-		(expectedStatus != models.HostStatusPending && expectedStatus != models.HostStatusEnrolled) ||
+	if host.Kind != models.HostKindMobile || host.Status != expectedHost.Status ||
+		(host.Status != models.HostStatusPending && host.Status != models.HostStatusEnrolled) ||
+		host.CAID != expectedHost.CAID || host.NetworkID != expectedHost.NetworkID ||
+		host.CertFingerprint != expectedHost.CertFingerprint ||
 		ownerStatus != models.OperatorStatusActive {
 		return ErrIssuanceNotAllowed
 	}
+	host.NebulaIPs, err = queryHostAddresses(ctx, tx, hostID)
+	if err != nil {
+		return fmt.Errorf("get mobile host addresses for issuance: %w", err)
+	}
+	if models.CertIdentityChanged(expectedHost, host) {
+		return ErrIssuanceNotAllowed
+	}
 
-	if expectedStatus == models.HostStatusPending {
+	if _, err := revokeHostCertificatesInTx(ctx, tx, host, "mobile bundle regenerated"); err != nil {
+		return err
+	}
+	if host.Status == models.HostStatusPending {
 		err = s.enrollHostInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter, nil)
+		if err == nil && host.PrevCertFingerprint != "" {
+			_, err = tx.ExecContext(ctx, `UPDATE hosts SET prev_cert_fingerprint = NULL, cert_rotated_at = NULL WHERE id = ?`, hostID)
+		}
 	} else {
-		err = s.updateHostCertificateInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter)
+		err = s.updateHostCertificateInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter, false)
 	}
 	if err != nil {
+		return err
+	}
+	blocklist, err := getBlocklistForCA(ctx, tx, host.CAID)
+	if err != nil {
+		return fmt.Errorf("get blocklist for mobile bundle: %w", err)
+	}
+	if err := render(blocklist); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -2434,14 +2472,18 @@ func (s *SQLiteStore) loadEnrollmentHostStateInTx(ctx context.Context, tx *sql.T
 	var state enrollmentHostState
 	var groupsJSON string
 	var unsafeNetworksJSON string
+	var status models.HostStatus
 	err := tx.QueryRowContext(ctx,
-		`SELECT is_lighthouse, network_id, name, groups_json, unsafe_networks_json FROM hosts WHERE id = ?`, hostID,
-	).Scan(&state.isLighthouse, &state.networkID, &state.identity.Name, &groupsJSON, &unsafeNetworksJSON)
+		`SELECT status, is_lighthouse, network_id, name, groups_json, unsafe_networks_json FROM hosts WHERE id = ?`, hostID,
+	).Scan(&status, &state.isLighthouse, &state.networkID, &state.identity.Name, &groupsJSON, &unsafeNetworksJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return enrollmentHostState{}, ErrNotFound
 	}
 	if err != nil {
 		return enrollmentHostState{}, fmt.Errorf("get enrollment host state: %w", err)
+	}
+	if status == models.HostStatusBlocked {
+		return enrollmentHostState{}, ErrIssuanceNotAllowed
 	}
 	if err := json.Unmarshal([]byte(groupsJSON), &state.identity.Groups); err != nil {
 		return enrollmentHostState{}, fmt.Errorf("unmarshal host groups for enrollment: %w", err)
@@ -2573,11 +2615,12 @@ func (s *SQLiteStore) enrollHostWithConsumedToken(
 }
 
 // SaveCertificateAndUpdateHostCert atomically saves a certificate and
-// updates the host's cert metadata. The previous fingerprint (if non-empty)
+// updates the host's cert metadata if the signing certificate is still
+// current and the host remains unblocked. The previous fingerprint
 // is parked in prev_cert_fingerprint with cert_rotated_at = now() so the
 // poll handler can accept either fingerprint during the rotation overlap
 // window (ADR 0004 §7.1).
-func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
+func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(ctx context.Context, hostID, signedFrom string, certPEM []byte, fp string, notBefore, notAfter time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -2588,7 +2631,22 @@ func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(ctx context.Context, host
 		}
 	}()
 
-	if err := s.updateHostCertificateInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter); err != nil {
+	var status models.HostStatus
+	var current string
+	err = tx.QueryRowContext(ctx, `SELECT h.status, COALESCE((
+		SELECT fingerprint FROM certificates WHERE host_id = h.id AND is_current = 1 LIMIT 1
+	), '') FROM hosts h WHERE h.id = ?`, hostID).Scan(&status, &current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("check current host certificate before rotation: %w", err)
+	}
+	if status == models.HostStatusBlocked || current != signedFrom {
+		return ErrIssuanceNotAllowed
+	}
+
+	if err := s.updateHostCertificateInTx(ctx, tx, hostID, certPEM, fp, notBefore, notAfter, true); err != nil {
 		return err
 	}
 
@@ -2600,7 +2658,7 @@ func (s *SQLiteStore) SaveCertificateAndUpdateHostCert(ctx context.Context, host
 
 func (s *SQLiteStore) updateHostCertificateInTx(
 	ctx context.Context, tx *sql.Tx, hostID string,
-	certPEM []byte, fp string, notBefore, notAfter time.Time,
+	certPEM []byte, fp string, notBefore, notAfter time.Time, preserveOverlap bool,
 ) error {
 	if err := s.saveCertificateInTx(ctx, tx, hostID, fp, certPEM, notBefore, notAfter); err != nil {
 		return err
@@ -2614,10 +2672,12 @@ func (s *SQLiteStore) updateHostCertificateInTx(
 	result, err := tx.ExecContext(ctx,
 		`UPDATE hosts SET
 			prev_cert_fingerprint = CASE
+				WHEN NOT ? THEN NULL
 				WHEN cert_fingerprint IS NULL OR cert_fingerprint = '' OR cert_fingerprint = ? THEN prev_cert_fingerprint
 				ELSE cert_fingerprint
 			END,
 			cert_rotated_at = CASE
+				WHEN NOT ? THEN NULL
 				WHEN cert_fingerprint IS NULL OR cert_fingerprint = '' OR cert_fingerprint = ? THEN cert_rotated_at
 				ELSE ?
 			END,
@@ -2625,7 +2685,7 @@ func (s *SQLiteStore) updateHostCertificateInTx(
 			cert_expires_at  = ?,
 			updated_at       = ?
 		 WHERE id = ?`,
-		fp, fp, now, fp, notAfter, now, hostID,
+		preserveOverlap, fp, preserveOverlap, fp, now, fp, notAfter, now, hostID,
 	)
 	if err != nil {
 		return fmt.Errorf("update host cert: %w", err)
@@ -2783,7 +2843,11 @@ func (s *SQLiteStore) GetBlocklist(ctx context.Context) ([]string, error) {
 // owning host is already deleted so the CA can't be recovered) are included as a
 // fail-safe so revocation is never silently weakened.
 func (s *SQLiteStore) GetBlocklistForCA(ctx context.Context, caID string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx,
+	return getBlocklistForCA(ctx, s.db, caID)
+}
+
+func getBlocklistForCA(ctx context.Context, db sqlConn, caID string) ([]string, error) {
+	rows, err := db.QueryContext(ctx,
 		`SELECT fingerprint FROM blocklist WHERE ca_id = ? OR ca_id = '' ORDER BY fingerprint`, caID)
 	if err != nil {
 		return nil, fmt.Errorf("get blocklist for ca: %w", err)

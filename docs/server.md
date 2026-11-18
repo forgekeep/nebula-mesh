@@ -260,11 +260,10 @@ without a new certificate.
 
 This matters most for `groups`. Peers authorize each other on the certificate,
 and firewall rules select their counterparties by group, so a group edit does
-nothing on the mesh until the new certificate lands. Note that the previous
-certificate stays valid until it expires — removing a host from a group closes
-its new sessions' access once the host re-enrolls, but it does not retroactively
-invalidate the old certificate. Block the host (which adds its fingerprint to
-the blocklist) when you need immediate, enforced revocation.
+nothing on the mesh until the new certificate lands. The previous certificate
+stays valid until it expires. To revoke its access immediately, block the host.
+Blocking distributes every unexpired certificate fingerprint issued to that
+host through the CA's blocklist.
 
 To change a host's addresses, use PATCH:
 
@@ -349,9 +348,11 @@ security incident):
 2. Follow the steps under *Generating the mobile bundle* to download and import
    the new configuration into Mobile Nebula.
 
-Each regeneration creates a fresh certificate. The old certificate remains
-valid for a short overlap window (to avoid disrupting active connections) and
-is automatically revoked after 30 days.
+Each regeneration creates a fresh certificate and revokes the superseded
+unexpired certificates in the same transaction. Peers reject an old profile
+after they poll and apply the updated blocklist. Peers with static configuration
+need the updated blocklist installed manually. Existing connections to a
+blocklisted certificate are disconnected when Nebula reloads the blocklist.
 
 #### Certificate lifetime
 
@@ -372,15 +373,30 @@ expired certificates, unable to connect to the mesh.
 
 To revoke (block) a mobile host:
 
-1. On the mobile host's detail page, click **Block**. The host's certificate
-   fingerprint is added to the blocklist.
+1. On the mobile host's detail page, click **Block**. Every unexpired
+   certificate issued to the host is added to its CA's blocklist.
 2. Other mesh nodes will receive the updated blocklist via their regular poll
    interval and **refuse handshakes** with the blocked fingerprint.
 
 Mobile devices themselves do not poll the management server, so they will not
-receive the revocation notice. However, the host is effectively isolated because
-peer nodes reject incoming and outgoing connections. To fully remove the device
-from the mesh, delete the configuration from the Mobile Nebula app.
+receive the revocation notice. Once peers have applied the update, they reject
+the device's previous and current profiles. Peers with static configuration need
+the updated blocklist installed manually. To fully remove the device from the
+mesh, delete its configuration from the Mobile Nebula app.
+
+#### Unblocking a host
+
+Unblocking an ordinary host leaves its certificates revoked and invalidates
+any unused enrollment token. Issue a new enrollment token for an agent or
+generate a new bundle for a mobile host. A finalized imported host is
+an explicit reauthorization exception: unblocking removes its current
+fingerprint from the blocklist so it can resume using the imported identity.
+Previously superseded certificates remain revoked.
+
+When upgrading, the server backfills certificate history for hosts that are
+already blocked. It cannot restore certificate rows that older versions
+cascade-deleted with a host; those credentials cannot be added by this
+migration.
 
 #### Updating after network changes
 

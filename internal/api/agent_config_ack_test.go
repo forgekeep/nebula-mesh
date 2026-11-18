@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
 func TestConfigAckCapablePollAdvancesOnlyAfterSignedAck(t *testing.T) {
@@ -78,7 +80,7 @@ func TestConfigAckCapablePollAdvancesOnlyAfterSignedAck(t *testing.T) {
 	}
 }
 
-func TestPendingConfigAckAfterUnblockConverges(t *testing.T) {
+func TestPendingConfigAckWithAuthorizedIdentityConverges(t *testing.T) {
 	srv, st := newTestServer(t)
 	agentIdentity := enrolledFixture(t, srv)
 	host, err := st.GetHost(t.Context(), agentIdentity.hostID)
@@ -88,15 +90,11 @@ func TestPendingConfigAckAfterUnblockConverges(t *testing.T) {
 	if _, err := st.DB().Exec(`UPDATE host_agent_profiles SET config_ack_v1 = 1 WHERE host_id = ?`, host.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.BlockHostAndAddToBlocklist(t.Context(), host.ID, "test block"); err != nil {
+	if err := st.UpdateHostStatus(t.Context(), host.ID, models.HostStatusPending); err != nil {
 		t.Fatal(err)
 	}
-	unblocked, err := st.UnblockHostAndRemoveFromBlocklist(t.Context(), host.ID)
-	if err != nil {
+	if err := st.BumpNetworkConfigVersion(t.Context(), host.NetworkID); err != nil {
 		t.Fatal(err)
-	}
-	if unblocked.Status != "pending" {
-		t.Fatalf("unblocked status = %q, want pending", unblocked.Status)
 	}
 
 	poll := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)

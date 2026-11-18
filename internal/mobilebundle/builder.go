@@ -125,10 +125,6 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 	if err != nil {
 		return nil, fmt.Errorf("list relays: %w", err)
 	}
-	blocklist, err := s.GetBlocklistForCA(ctx, host.CAID)
-	if err != nil {
-		return nil, fmt.Errorf("get blocklist for config: %w", err)
-	}
 	mobileSettings, err := loadMobileSettings(ctx, s, host.NetworkID)
 	if err != nil {
 		return nil, err
@@ -157,7 +153,6 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 		KeyPEM:           string(privPEM),
 		FirewallInbound:  fwInbound,
 		FirewallOutbound: fwOutbound,
-		Blocklist:        blocklist,
 		Mobile: &configgen.MobileProfile{
 			DNSResolvers:        mobileSettings.DNSResolvers,
 			MatchDomains:        mobileSettings.MatchDomains,
@@ -167,16 +162,20 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 	configinput.ApplyHostAdvanced(&input, host.Advanced)
 	input.Runtime = configinput.HostRuntime(host)
 
-	configYAML, err := configgen.Generate(input)
-	if err != nil {
-		return nil, fmt.Errorf("generate config: %w", err)
-	}
-
-	// Persist only after every fallible bundle-generation step succeeds. The
-	// private key exists only in configYAML, so an earlier durable write could
-	// leave the host enrolled with a certificate it can never use.
+	// Render from the blocklist that will be committed with this bundle.
+	// A render failure rolls back both issuance and revocations.
+	var configYAML []byte
 	if err := s.SaveCertificateIfIssuanceAllowed(
-		ctx, host.ID, host.Status, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter(),
+		ctx, host, certPEM, fp, hostCert.NotBefore(), hostCert.NotAfter(),
+		func(blocklist []string) error {
+			input.Blocklist = blocklist
+			rendered, err := configgen.Generate(input)
+			if err != nil {
+				return fmt.Errorf("generate config: %w", err)
+			}
+			configYAML = rendered
+			return nil
+		},
 	); err != nil {
 		return nil, fmt.Errorf("persist authorized certificate: %w", err)
 	}

@@ -149,7 +149,7 @@ func TestScanner_CertRotated_AlertsAgain(t *testing.T) {
 
 	// Rotate cert — but keep it inside the threshold so the scanner still cares.
 	newExpiry := time.Now().Add(3 * time.Hour)
-	if err := s.SaveCertificateAndUpdateHostCert(context.Background(), "h1", []byte("dummy2"), "fp2", time.Now(), newExpiry); err != nil {
+	if err := s.SaveCertificateAndUpdateHostCert(context.Background(), "h1", "fp1", []byte("dummy2"), "fp2", time.Now(), newExpiry); err != nil {
 		t.Fatal(err)
 	}
 

@@ -394,11 +394,27 @@ leave a weaker or partially applied security state.
   the returned host certificate, CA file, or configuration. Valid two-root
   bundles allow the `pki.blocklist` update to reach disk; malformed bundles
   leave the prior files untouched.
+- Block and delete add every unexpired host certificate fingerprint to its
+  issuer CA's blocklist before changing or deleting the host. Certificate
+  history, blocklist rows, and config-version bumps commit in one transaction.
+- Mobile bundle regeneration revokes superseded certificates and renders the
+  replacement bundle from that same blocklist inside the issuance transaction.
+  A render failure rolls back both the certificate issuance and revocation.
+  Agent-managed renewal retains its poll overlap behavior.
+- Unblocking an ordinary host preserves revoked certificate fingerprints,
+  clears the old enrollment identity and unused tokens, and requires fresh enrollment. A
+  finalized mesh-import host may resume with its current identity after an
+  explicit unblock. Historical certificates remain revoked.
+- Migration `032_revoked_host_certificates.up.sql` backfills retained history
+  for hosts already marked blocked before startup proceeds. Certificate rows
+  cascade on host deletion, so history deleted by earlier releases cannot be
+  recovered by this migration.
 - Every certificate-signing path re-checks blocked Host and disabled owning
   Operator state from the store.
 - Mobile bundle generation reads the durable CA blocklist and current enrolled
-  relay inventory. After the full bundle has been generated, it atomically
-  re-checks the durable Host and owner status while persisting the certificate.
+  relay inventory. Its final transaction rechecks the certificate identity,
+  Host and owner status, revokes superseded credentials, and renders the
+  bundle against the blocklist it commits.
 - Network and host creation resolves the CA ID to the server default CA when
   the caller omits `ca_id`, ensuring a non-empty value persists. The startup
   invariant `CountEmptyCAIDRows` (serve.go:134-140) rejects any empty `ca_id`
@@ -437,12 +453,19 @@ leave a weaker or partially applied security state.
   `TestPollerRejectsInvalidRotationCABundleBeforeWriting` preserves all update
   files on malformed bundles; `TestPollerAppliesRotationCABundleAndBlocklistConfig`
   covers delivery of the blocklist with a valid bundle.
+- `internal/store/sqlite_host_revocation_test.go` covers historical
+  certificates on block and delete, CA-scoped delivery, version bumps,
+  migration backfill, and rejection of late certificate writes.
 - `internal/mobilebundle/mobile_profile_test.go`:
   `TestBuild_SEC_PERSIST_001IncludesCurrentBlocklistAndEnrolledRelays` and
-  `TestBuild_SEC_PERSIST_001InvalidSettingsDoNotEnrollOrRotateCertificate`, and
-  `TestBuild_SEC_PERSIST_001ConcurrentBlockCannotBeUndone`.
+  `TestBuild_SEC_PERSIST_001InvalidSettingsDoNotEnrollOrRotateCertificate`,
+  `TestBuild_SEC_PERSIST_001RegenerationRevokesPreviousCertificates`, and
+  `TestBuild_SEC_PERSIST_001ConcurrentBlockCannotBeUndone` cover bundle
+  rendering, rollback, and concurrent revocation. The stale-identity test
+  verifies that a concurrent host edit leaves the prior issuance intact.
 - `internal/store/sqlite_mobile_certificate_test.go`: the certificate write
-  rejects blocked Hosts and disabled owners.
+  rejects blocked Hosts and disabled owners and rolls back revocations on
+  render failure.
 - `internal/store/sqlite_enroll_token_test.go`:
   `TestConsumeTokenAndEnrollHost_NoBurnOnEnrollFailure` and
   `TestConsumeTokenAndEnrollHostWithProfile_SEC_PERSIST_001_PreservesRekeyAfterIdentityChange`, and

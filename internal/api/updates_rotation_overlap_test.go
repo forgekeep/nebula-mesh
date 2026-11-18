@@ -132,7 +132,7 @@ func TestPoll_AckCapableAgentGetsCertificateBeyondLegacyOverlap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SaveCertificateAndUpdateHostCert(ctx, host.ID, signed.certPEM, signed.fp, signed.notBefore, signed.notAfter); err != nil {
+	if err := st.SaveCertificateAndUpdateHostCert(ctx, host.ID, certificateInfo.Fingerprint, signed.certPEM, signed.fp, signed.notBefore, signed.notAfter); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.DB().Exec(`UPDATE hosts SET cert_rotated_at = ? WHERE id = ?`, time.Now().Add(-time.Hour), host.ID); err != nil {

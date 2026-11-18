@@ -93,19 +93,19 @@ func TestDeleteHostAndBlockCertBumpsEveryNetworkForCA(t *testing.T) {
 	fixture.requireDeltas(t, fixture.versions, 1, 1, 0)
 }
 
-func TestUnblockHostAndRemoveFromBlocklistBumpsEveryNetworkForCA(t *testing.T) {
+func TestUnblockHostKeepsBlocklistAndNetworkVersions(t *testing.T) {
 	fixture := newCAScopedVersionFixture(t)
 	if _, err := fixture.store.BlockHostAndAddToBlocklist(t.Context(), fixture.host.ID, "test"); err != nil {
 		t.Fatal(err)
 	}
 	before := fixture.readVersions(t)
-	if _, err := fixture.store.UnblockHostAndRemoveFromBlocklist(t.Context(), fixture.host.ID); err != nil {
+	if _, err := fixture.store.UnblockHost(t.Context(), fixture.host.ID); err != nil {
 		t.Fatal(err)
 	}
-	fixture.requireDeltas(t, before, 1, 1, 0)
+	fixture.requireDeltas(t, before, 0, 0, 0)
 }
 
-func TestUnblockHostWithoutBlocklistRowDoesNotBumpNetworks(t *testing.T) {
+func TestUnblockHostRestoresMissingRevocationBeforeDroppingFingerprint(t *testing.T) {
 	fixture := newCAScopedVersionFixture(t)
 	if _, err := fixture.store.BlockHostAndAddToBlocklist(t.Context(), fixture.host.ID, "test"); err != nil {
 		t.Fatal(err)
@@ -114,10 +114,10 @@ func TestUnblockHostWithoutBlocklistRowDoesNotBumpNetworks(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := fixture.readVersions(t)
-	if _, err := fixture.store.UnblockHostAndRemoveFromBlocklist(t.Context(), fixture.host.ID); err != nil {
+	if _, err := fixture.store.UnblockHost(t.Context(), fixture.host.ID); err != nil {
 		t.Fatal(err)
 	}
-	fixture.requireDeltas(t, before, 0, 0, 0)
+	fixture.requireDeltas(t, before, 1, 1, 0)
 }
 
 func TestBlockEnrolledLighthouseWithoutFingerprintBumpsOnlyOwnNetwork(t *testing.T) {

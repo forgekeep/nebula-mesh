@@ -452,6 +452,10 @@ func TestMeshImportAPI_FinalizePreservesRevokedHostAndEmitsBlocked(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	historicalFingerprint := strings.Repeat("3", 64)
+	if err := fixture.store.AddToBlocklist(t.Context(), historicalFingerprint, registered.HostID, "historical certificate"); err != nil {
+		t.Fatal(err)
+	}
 
 	unblock := httptest.NewRequest(http.MethodPost, "/api/v1/hosts/"+registered.HostID+"/unblock", nil)
 	authRequest(unblock)
@@ -486,6 +490,10 @@ func TestMeshImportAPI_FinalizePreservesRevokedHostAndEmitsBlocked(t *testing.T)
 	}
 	if peerUpdates.ConfigYAML == nil || strings.Contains(*peerUpdates.ConfigYAML, fingerprint) || slices.Contains(peerUpdates.Blocklist, fingerprint) {
 		t.Fatalf("sibling peer updates retain unblocked fingerprint: %#v", peerUpdates)
+	}
+	// SEC-PERSIST-001: explicit reauthorization applies to the current certificate only.
+	if !strings.Contains(*peerUpdates.ConfigYAML, historicalFingerprint) || !slices.Contains(peerUpdates.Blocklist, historicalFingerprint) {
+		t.Fatalf("sibling peer updates lost a historical revocation: %#v", peerUpdates)
 	}
 	if current, err := fixture.store.GetNetworkConfigVersion(t.Context(), otherNetwork.ID); err != nil || current != otherVersion {
 		t.Fatalf("other CA version = %d, %v; want %d", current, err, otherVersion)

@@ -190,7 +190,7 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.metrics.recordSignature(host.CAID)
 			// Save outside CA lock — DB I/O does not need CA access
-			if saveErr := s.store.SaveCertificateAndUpdateHostCert(r.Context(), host.ID, signed.certPEM, signed.fp, signed.notBefore, signed.notAfter); saveErr != nil {
+			if saveErr := s.store.SaveCertificateAndUpdateHostCert(r.Context(), host.ID, certInfo.Fingerprint, signed.certPEM, signed.fp, signed.notBefore, signed.notAfter); saveErr != nil {
 				s.metrics.recordRenewal(resultError)
 				s.logger.Error("save renewed cert", "host", host.Name, "error", saveErr)
 				writeError(w, http.StatusInternalServerError, "failed to save renewed certificate")

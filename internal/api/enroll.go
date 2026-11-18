@@ -231,6 +231,11 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "enrollment token already used")
 			return
 		}
+		if errors.Is(err, store.ErrIssuanceNotAllowed) {
+			s.metrics.recordEnrollment(resultDenied)
+			writeError(w, http.StatusForbidden, "host is blocked")
+			return
+		}
 		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("consume token and enroll host", "error", err)
 		writeError(w, http.StatusInternalServerError, "enrollment failed")

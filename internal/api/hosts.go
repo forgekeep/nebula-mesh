@@ -446,7 +446,7 @@ func (s *Server) handleUnblockHost(w http.ResponseWriter, r *http.Request) {
 	if rejectImportingHost(w, existing) {
 		return
 	}
-	host, err := s.store.UnblockHostAndRemoveFromBlocklist(r.Context(), id)
+	host, err := s.store.UnblockHost(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "host not found")
 		return
@@ -562,7 +562,11 @@ func (s *Server) handleRotateCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to sign new cert")
 		return
 	}
-	if err := s.store.SaveCertificateAndUpdateHostCert(r.Context(), host.ID, signed.certPEM, signed.fp, signed.notBefore, signed.notAfter); err != nil {
+	if err := s.store.SaveCertificateAndUpdateHostCert(r.Context(), host.ID, certInfo.Fingerprint, signed.certPEM, signed.fp, signed.notBefore, signed.notAfter); err != nil {
+		if errors.Is(err, store.ErrIssuanceNotAllowed) {
+			writeError(w, http.StatusConflict, "host certificate or status changed during rotation")
+			return
+		}
 		s.logger.Error("save rotated cert", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to persist new cert")
 		return

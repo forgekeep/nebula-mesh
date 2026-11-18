@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -926,7 +927,7 @@ func TestSaveCertificateAndUpdateHostCert(t *testing.T) {
 	// Renew with atomic method
 	newExpires := now.Add(30 * 24 * time.Hour)
 	newFP := "renewed-fp-456"
-	err := s.SaveCertificateAndUpdateHostCert(ctx, h.ID, []byte("new-cert"), newFP, now, newExpires)
+	err := s.SaveCertificateAndUpdateHostCert(ctx, h.ID, "old-fp", []byte("new-cert"), newFP, now, newExpires)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -962,7 +963,7 @@ func TestSaveCertificateAndUpdateHostCert_HostNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Now()
-	err := s.SaveCertificateAndUpdateHostCert(ctx, "nonexistent", []byte("cert"), "fp", now, now.Add(time.Hour))
+	err := s.SaveCertificateAndUpdateHostCert(ctx, "nonexistent", "", []byte("cert"), "fp", now, now.Add(time.Hour))
 	if err == nil {
 		t.Fatal("expected error for nonexistent host")
 	}
@@ -1062,7 +1063,7 @@ func TestBlockHostAndAddToBlocklist_NotFound(t *testing.T) {
 
 // --- Atomic Unblock Host ---
 
-func TestUnblockHostAndRemoveFromBlocklist(t *testing.T) {
+func TestUnblockHost_SEC_PERSIST_001RetainsRevokedCredentials(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	net := createTestNetwork(t, s)
@@ -1080,12 +1081,17 @@ func TestUnblockHostAndRemoveFromBlocklist(t *testing.T) {
 	if err := s.UpdateHost(ctx, h); err != nil {
 		t.Fatal(err)
 	}
+	now := time.Now()
+	const oldToken = "enrollment-before-block"
+	if err := s.CreateTokenForHost(ctx, h.ID, oldToken, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := s.BlockHostAndAddToBlocklist(ctx, h.ID, "first blocked"); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := s.UnblockHostAndRemoveFromBlocklist(ctx, h.ID)
+	got, err := s.UnblockHost(ctx, h.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1093,16 +1099,35 @@ func TestUnblockHostAndRemoveFromBlocklist(t *testing.T) {
 		t.Errorf("status = %q, want pending", got.Status)
 	}
 
-	// fingerprint must be removed from blocklist
-	bl, _ := s.GetBlocklist(ctx)
-	for _, fp := range bl {
-		if fp == "fp-unblock-789" {
-			t.Error("fingerprint still in blocklist after unblock")
-		}
+	bl, err := s.GetBlocklist(ctx)
+	if err != nil || !slices.Contains(bl, h.CertFingerprint) {
+		t.Fatalf("blocklist = %v, %v; want original fingerprint retained", bl, err)
+	}
+	if _, err := s.GetHostByFingerprint(ctx, h.CertFingerprint); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("old host identity lookup error = %v, want ErrNotFound", err)
+	}
+	if _, err := s.GetEnrollmentToken(ctx, oldToken); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("old enrollment token lookup error = %v, want ErrNotFound", err)
+	}
+	const freshToken = "enrollment-after-unblock"
+	if err := s.CreateTokenForHost(ctx, h.ID, freshToken, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	const freshFingerprint = "fp-after-enrollment"
+	if err := s.ConsumeTokenAndEnrollHost(ctx, h.ID, freshToken, []byte("fresh cert"), freshFingerprint, now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetHostByFingerprint(ctx, freshFingerprint)
+	if err != nil || got.Status != models.HostStatusEnrolled {
+		t.Fatalf("host after new enrollment = %#v, %v; want enrolled", got, err)
+	}
+	bl, err = s.GetBlocklist(ctx)
+	if err != nil || !slices.Contains(bl, h.CertFingerprint) || slices.Contains(bl, freshFingerprint) {
+		t.Fatalf("blocklist after new enrollment = %v, %v; want only the old fingerprint revoked", bl, err)
 	}
 }
 
-func TestUnblockHostAndRemoveFromBlocklist_NoCert(t *testing.T) {
+func TestUnblockHost_NoCert(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	net := createTestNetwork(t, s)
@@ -1117,7 +1142,7 @@ func TestUnblockHostAndRemoveFromBlocklist_NoCert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := s.UnblockHostAndRemoveFromBlocklist(ctx, h.ID)
+	got, err := s.UnblockHost(ctx, h.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1126,9 +1151,9 @@ func TestUnblockHostAndRemoveFromBlocklist_NoCert(t *testing.T) {
 	}
 }
 
-func TestUnblockHostAndRemoveFromBlocklist_NotFound(t *testing.T) {
+func TestUnblockHost_NotFound(t *testing.T) {
 	s := newTestStore(t)
-	_, err := s.UnblockHostAndRemoveFromBlocklist(context.Background(), "nonexistent")
+	_, err := s.UnblockHost(context.Background(), "nonexistent")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}

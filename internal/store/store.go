@@ -103,7 +103,7 @@ type Store interface {
 	UpdateHostStatus(ctx context.Context, id string, status models.HostStatus) error
 	DeleteHost(ctx context.Context, id string) error
 	BlockHostAndAddToBlocklist(ctx context.Context, id, reason string) (*models.Host, error)
-	UnblockHostAndRemoveFromBlocklist(ctx context.Context, id string) (*models.Host, error)
+	UnblockHost(ctx context.Context, id string) (*models.Host, error)
 	DeleteHostAndBlockCert(ctx context.Context, id, reason string) error
 
 	// Agent authorization (ADR 0004 / #75).
@@ -139,14 +139,14 @@ type Store interface {
 	// Certificates
 	SaveCertificate(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	SaveCertificateAndEnrollHost(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
-	SaveCertificateIfIssuanceAllowed(ctx context.Context, hostID string, expectedStatus models.HostStatus, certPEM []byte, fp string, notBefore, notAfter time.Time) error
+	SaveCertificateIfIssuanceAllowed(ctx context.Context, expectedHost *models.Host, certPEM []byte, fp string, notBefore, notAfter time.Time, render func([]string) error) error
 	ConsumeTokenAndEnrollHost(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	// ConsumeTokenAndEnrollHostWithProfile atomically binds an enrollment to a
 	// signed certificate identity snapshot. If Name, NebulaIPs, or Groups changed after
 	// signing, the transaction keeps pending_rekey set so a stale certificate is
 	// never treated as satisfying the newer identity.
 	ConsumeTokenAndEnrollHostWithProfile(ctx context.Context, hostID, token string, certPEM []byte, fp string, notBefore, notAfter time.Time, signingPubPEM string, profile models.AgentProfile, signedIdentity *models.CertificateIdentity) (int, error)
-	SaveCertificateAndUpdateHostCert(ctx context.Context, hostID string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
+	SaveCertificateAndUpdateHostCert(ctx context.Context, hostID, signedFrom string, certPEM []byte, fp string, notBefore, notAfter time.Time) error
 	GetCurrentCertificate(ctx context.Context, hostID string) ([]byte, error)
 	GetCertificateInfo(ctx context.Context, hostID string) (*models.CertificateInfo, error)
 	ListEnrolledHostCerts(ctx context.Context) ([]*models.CertificateInfo, error)

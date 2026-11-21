@@ -316,6 +316,81 @@ after encryption or rollback. `internal/store/migration_029_test.go`:
 `TestMigration029_SEC_PERSIST_001_SQLFailureRollsBackEverySeed` verifies
 `SEC-SECRET-001` buffer cleanup on the failure path.
 
+## SEC-BOOTSTRAP-001: confidential bootstrap credential output
+
+### Rule
+
+Packaged bootstrap instructions must expose one-time administrator credentials
+only through the initiating administrator's terminal. They must not pipe or
+redirect those credentials into shared temporary files or files readable by
+other local users.
+
+- The management package must invoke `nebula-mgmt init` directly, without a
+  logging pipeline or output redirection.
+- A future credential-retention workflow must create its destination
+  atomically with mode `0600` in a directory owned by the intended
+  administrator. A predictable path in a shared temporary directory is never
+  an accepted substitute.
+
+### Current enforcement
+
+- `deploy/packaging/postinstall-mgmt.sh` prints the initial admin API key only
+  to the terminal and contains no bootstrap log file.
+
+### Test anchors
+
+- `internal/releaseconfig/package_security_test.go`:
+  `TestPostinstallMgmt_SEC_BOOTSTRAP_001_DoesNotPersistAdminKeyInSharedFile`
+  rejects shared-file capture and preserves direct initialization.
+
+### Review checklist
+
+1. Which process receives bootstrap credential output?
+2. Can a pipeline, redirect, log, or restrictive-umask assumption create a
+   readable credential copy?
+3. Does the negative test reject a return to shared-file persistence?
+
+## SEC-PACKAGE-001: private authenticated package staging
+
+### Rule
+
+Privileged package installation must use a unique directory inaccessible to
+unprivileged users and authenticate the downloaded artifact before invoking
+the package manager. A pre-existing file or an HTTP 304 response must never
+authorize package installation.
+
+- Both Ansible roles must create a mode-`0700` temporary directory as the
+  privileged executor and download with mode `0600`.
+- The expected SHA-256 digest must come from the release `checksums.txt` over
+  the configured HTTPS release channel. Exactly one line must match the
+  selected package name; a missing or ambiguous checksum fails closed.
+- `apt` and `dnf` must receive the same verified path inside the private
+  directory. Predictable role-specific paths directly under `/tmp` are
+  forbidden.
+- Cleanup must not replace verification with a force-download-only workaround.
+
+### Current enforcement
+
+- `deploy/ansible/roles/nebula_mgmt/tasks/main.yml` and
+  `deploy/ansible/roles/nebula_agent/tasks/main.yml` retrieve the release
+  checksum manifest, require one matching digest, download into a private
+  temporary directory, and remove that directory in an `always` block.
+
+### Test anchors
+
+- `internal/releaseconfig/package_security_test.go`:
+  `TestAnsibleRoles_SEC_PACKAGE_001_StageAndVerifyPackagesPrivately` rejects
+  predictable temporary paths, missing digests, public staging, and installer
+  paths that bypass the verified download.
+
+### Review checklist
+
+1. Can an unprivileged user create or replace the destination before or after
+   verification?
+2. Does checksum retrieval, selection, or validation fail closed?
+3. Do both package-manager branches install the exact verified artifact?
+4. Does the negative test reject a force-download-only regression?
+
 ## SEC-DIAGNOSTIC-001: CLI unclassified argument diagnostics
 
 ### Rule

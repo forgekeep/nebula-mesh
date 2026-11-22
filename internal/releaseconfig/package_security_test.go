@@ -31,69 +31,67 @@ func TestPostinstallMgmt_SEC_BOOTSTRAP_001_DoesNotPersistAdminKeyInSharedFile(t 
 }
 
 func TestAnsibleRoles_SEC_PACKAGE_001_StageAndVerifyPackagesPrivately(t *testing.T) {
-	for _, role := range []string{"nebula_mgmt", "nebula_agent"} {
-		t.Run(role, func(t *testing.T) {
-			path := filepath.Join(repositoryRoot(t), "deploy/ansible/roles", role, "tasks/main.yml")
-			source := readFile(t, path)
-			if strings.Contains(source, "/tmp/"+strings.ReplaceAll(role, "_", "-")) {
-				t.Fatalf("role must not use its former predictable shared temporary path")
-			}
+	path := filepath.Join(repositoryRoot(t), "deploy/ansible/roles/nebula_verified_package/tasks/main.yml")
+	flatTasks := flattenAnsibleTasks(parseAnsibleTasks(t, readFile(t, path)))
+	privateDirs := privateTempDirectories(flatTasks)
+	if len(privateDirs) == 0 {
+		t.Fatal("installer must create and check a private temporary directory")
+	}
 
-			tasks := parseAnsibleTasks(t, source)
-			flatTasks := flattenAnsibleTasks(tasks)
-			privateDirs := privateTempDirectories(flatTasks)
-			if len(privateDirs) == 0 {
-				t.Fatal("role must create a mode-0700 temporary directory owned by the privileged executor")
-			}
+	firstDownload := firstTaskIndex(flatTasks, func(task ansibleTask) bool { return task.GetURL != nil })
+	if firstDownload == -1 {
+		t.Fatal("role must download its release package")
+	}
+	if firstTaskIndex(flatTasks[:firstDownload], func(task ansibleTask) bool {
+		if task.Assert == nil {
+			return false
+		}
+		return strings.Contains(strings.Join(task.Assert.That, " "), ".stat.mode == '0700'")
+	}) == -1 {
+		t.Error("must check staging mode before downloading")
+	}
+	if !hasChecksumManifestBefore(flatTasks, firstDownload) {
+		t.Error("role must retrieve checksums.txt before downloading the package")
+	}
+	if !hasUniqueChecksumAssertionBefore(flatTasks, firstDownload) {
+		t.Error("role must require exactly one checksum for the selected package before downloading it")
+	}
 
-			firstDownload := firstTaskIndex(flatTasks, func(task ansibleTask) bool { return task.GetURL != nil })
-			if firstDownload == -1 {
-				t.Fatal("role must download its release package")
-			}
-			if !hasChecksumManifestBefore(flatTasks, firstDownload) {
-				t.Error("role must retrieve checksums.txt before downloading the package")
-			}
-			if !hasUniqueChecksumAssertionBefore(flatTasks, firstDownload) {
-				t.Error("role must require exactly one checksum for the selected package before downloading it")
-			}
+	downloads := make(map[string]bool)
+	for _, task := range flatTasks {
+		if task.GetURL == nil {
+			continue
+		}
+		download := task.GetURL
+		if !strings.HasPrefix(download.Checksum, "sha256:") {
+			t.Errorf("download %q must have a SHA-256 checksum", task.Name)
+		}
+		if !pathInsideRegisteredDirectories(download.Dest, privateDirs) {
+			t.Errorf("download destination %q must be inside a private temporary directory", download.Dest)
+		}
+		if download.Mode != "0600" {
+			t.Errorf("downloaded package mode = %q, want 0600", download.Mode)
+		}
+		downloads[download.Dest] = true
+	}
 
-			downloads := make(map[string]bool)
-			for _, task := range flatTasks {
-				if task.GetURL == nil {
-					continue
-				}
-				download := task.GetURL
-				if !strings.HasPrefix(download.Checksum, "sha256:") {
-					t.Errorf("download %q must have a SHA-256 checksum", task.Name)
-				}
-				if !pathInsideRegisteredDirectories(download.Dest, privateDirs) {
-					t.Errorf("download destination %q must be inside a private temporary directory", download.Dest)
-				}
-				if download.Mode != "0600" {
-					t.Errorf("downloaded package mode = %q, want 0600", download.Mode)
-				}
-				downloads[download.Dest] = true
+	var foundDeb, foundRPM bool
+	for _, task := range flatTasks {
+		switch {
+		case task.Apt != nil:
+			foundDeb = true
+			if !downloads[task.Apt.Deb] {
+				t.Errorf("apt package %q must be a verified private download", task.Apt.Deb)
 			}
-
-			var foundDeb, foundRPM bool
-			for _, task := range flatTasks {
-				switch {
-				case task.Apt != nil:
-					foundDeb = true
-					if !downloads[task.Apt.Deb] {
-						t.Errorf("apt package %q must be a verified private download", task.Apt.Deb)
-					}
-				case task.Dnf != nil:
-					foundRPM = true
-					if !downloads[task.Dnf.Name] {
-						t.Errorf("dnf package %q must be a verified private download", task.Dnf.Name)
-					}
-				}
+		case task.Dnf != nil:
+			foundRPM = true
+			if !downloads[task.Dnf.Name] {
+				t.Errorf("dnf package %q must be a verified private download", task.Dnf.Name)
 			}
-			if !foundDeb || !foundRPM {
-				t.Errorf("role must retain both package installers: deb=%t rpm=%t", foundDeb, foundRPM)
-			}
-		})
+		}
+	}
+	if !foundDeb || !foundRPM {
+		t.Errorf("role must retain both package installers: deb=%t rpm=%t", foundDeb, foundRPM)
 	}
 }
 
@@ -111,8 +109,8 @@ type ansibleTask struct {
 }
 
 type ansibleTempfile struct {
-	State string `yaml:"state"`
-	Mode  string `yaml:"mode"`
+	State  string `yaml:"state"`
+	Prefix string `yaml:"prefix"`
 }
 
 type ansibleGetURL struct {
@@ -163,7 +161,7 @@ func flattenAnsibleTasks(tasks []ansibleTask) []ansibleTask {
 func privateTempDirectories(tasks []ansibleTask) map[string]bool {
 	directories := make(map[string]bool)
 	for _, task := range tasks {
-		if task.Tempfile != nil && task.Tempfile.State == "directory" && task.Tempfile.Mode == "0700" && task.Register != "" {
+		if task.Tempfile != nil && task.Tempfile.State == "directory" && task.Tempfile.Prefix == "nebula-package-" && task.Register != "" {
 			directories[task.Register] = true
 		}
 	}

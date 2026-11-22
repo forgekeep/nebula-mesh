@@ -77,14 +77,10 @@ func TestServiceImport_UnencryptedKeyReloadsThroughResolver(t *testing.T) {
 	require.NotEqual(t, []byte(manager.RawKey()), imported.EncryptedKeyMaterial)
 	requireZeroed(t, request.PrivateKeyPEM)
 
-	loaded, err := pki.NewCAResolver(caStore, master).LoadByID(context.Background(), imported.ID)
-	require.NoError(t, err)
-	defer loaded.Wipe()
+	require.NoError(t, pki.NewCAResolver(caStore, master).VerifyCAKey(t.Context(), imported.ID))
 	wantFingerprint, err := manager.CACertFingerprint()
 	require.NoError(t, err)
-	gotFingerprint, err := loaded.CACertFingerprint()
-	require.NoError(t, err)
-	require.Equal(t, wantFingerprint, gotFingerprint)
+	require.Equal(t, wantFingerprint, imported.Fingerprint)
 }
 
 func TestServiceImport_EncryptedKeyHonorsKDFLimitsAndZeroizesSecrets(t *testing.T) {

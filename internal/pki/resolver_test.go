@@ -69,7 +69,7 @@ func hostPubKey(t *testing.T) []byte {
 func TestCAResolver_LoadByID_RoundTripRecoversSigningKey(t *testing.T) {
 	s, ca, master := mintResolverCA(t, "op-roundtrip")
 
-	mgr, err := pki.NewCAResolver(s, master).LoadByID(context.Background(), ca.ID)
+	mgr, err := pki.OpenCAForTest(context.Background(), pki.NewCAResolver(s, master), ca.ID)
 	if err != nil {
 		t.Fatalf("LoadByID: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestCAResolver_LoadByID_RoundTripRecoversSigningKey(t *testing.T) {
 func TestCAResolver_LoadByID_WipedManagerCannotMintVerifiableCert(t *testing.T) {
 	s, ca, master := mintResolverCA(t, "op-wipe-sign")
 
-	mgr, err := pki.NewCAResolver(s, master).LoadByID(context.Background(), ca.ID)
+	mgr, err := pki.OpenCAForTest(context.Background(), pki.NewCAResolver(s, master), ca.ID)
 	if err != nil {
 		t.Fatalf("LoadByID: %v", err)
 	}
@@ -161,11 +161,11 @@ func TestCAResolver_LoadByID_DistinctCAsDoNotShareKeys(t *testing.T) {
 	caB := mintCAInStore(t, s, master, "op-dist-b")
 
 	resolver := pki.NewCAResolver(s, master)
-	mgrA, err := resolver.LoadByID(context.Background(), caA.ID)
+	mgrA, err := pki.OpenCAForTest(context.Background(), resolver, caA.ID)
 	if err != nil {
 		t.Fatalf("LoadByID A: %v", err)
 	}
-	mgrB, err := resolver.LoadByID(context.Background(), caB.ID)
+	mgrB, err := pki.OpenCAForTest(context.Background(), resolver, caB.ID)
 	if err != nil {
 		t.Fatalf("LoadByID B: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestCAResolver_LoadByID_DistinctCAsDoNotShareKeys(t *testing.T) {
 func TestCAResolver_LoadByID_WipeZeroesReturnedKey(t *testing.T) {
 	s, ca, master := mintResolverCA(t, "op-wipe")
 
-	mgr, err := pki.NewCAResolver(s, master).LoadByID(context.Background(), ca.ID)
+	mgr, err := pki.OpenCAForTest(context.Background(), pki.NewCAResolver(s, master), ca.ID)
 	if err != nil {
 		t.Fatalf("LoadByID: %v", err)
 	}
@@ -218,19 +218,19 @@ func TestCAResolver_LoadByID_WipeZeroesReturnedKey(t *testing.T) {
 func TestCAResolver_LoadByID_UnknownCA(t *testing.T) {
 	s := newTestStore(t)
 	master := newTestMaster(t)
-	if _, err := pki.NewCAResolver(s, master).LoadByID(context.Background(), "does-not-exist"); err == nil {
+	if _, err := pki.OpenCAForTest(context.Background(), pki.NewCAResolver(s, master), "does-not-exist"); err == nil {
 		t.Error("LoadByID for unknown CA: want error, got nil")
 	}
 }
 
 func TestCAResolver_LoadByID_NilReceiverAndNilMaster(t *testing.T) {
 	var nilResolver *pki.CAResolver
-	if _, err := nilResolver.LoadByID(context.Background(), "x"); err == nil {
+	if _, err := pki.OpenCAForTest(context.Background(), nilResolver, "x"); err == nil {
 		t.Error("nil resolver: want error, got nil")
 	}
 
 	s := newTestStore(t)
-	if _, err := pki.NewCAResolver(s, nil).LoadByID(context.Background(), "x"); err == nil {
+	if _, err := pki.OpenCAForTest(context.Background(), pki.NewCAResolver(s, nil), "x"); err == nil {
 		t.Error("nil master: want error, got nil")
 	}
 }
@@ -257,7 +257,7 @@ func TestCAResolver_LoadByID_CorruptedKeyMaterialFails(t *testing.T) {
 			bad.EncryptedKeyMaterial = append([]byte(nil), ca.EncryptedKeyMaterial...)
 			tc.tamper(&bad)
 
-			if _, err := pki.NewCAResolver(fakeCAStore{ca: &bad}, master).LoadByID(context.Background(), ca.ID); err == nil {
+			if _, err := pki.OpenCAForTest(context.Background(), pki.NewCAResolver(fakeCAStore{ca: &bad}, master), ca.ID); err == nil {
 				t.Errorf("%s: LoadByID returned a manager from corrupted material, want error", tc.name)
 			}
 		})
@@ -283,7 +283,7 @@ func TestCAResolver_LoadByID_RejectsSwappedEnvelope(t *testing.T) {
 	grafted.EncryptedKeyMaterial = append([]byte(nil), caB.EncryptedKeyMaterial...)
 	grafted.NonceKey = append([]byte(nil), caB.NonceKey...)
 
-	if _, err := pki.NewCAResolver(fakeCAStore{ca: &grafted}, m).LoadByID(context.Background(), caA.ID); err == nil {
+	if _, err := pki.OpenCAForTest(context.Background(), pki.NewCAResolver(fakeCAStore{ca: &grafted}, m), caA.ID); err == nil {
 		t.Fatal("LoadByID returned a manager from an envelope swapped between CA rows")
 	}
 }
@@ -298,7 +298,7 @@ func TestCAResolver_LoadByID_LegacyNilAADEnvelope(t *testing.T) {
 
 	// Re-seal the CA's true key the pre-binding way (nil AAD) to model a
 	// row written by an older release.
-	mgr, err := pki.NewCAResolver(s, m).LoadByID(context.Background(), ca.ID)
+	mgr, err := pki.OpenCAForTest(context.Background(), pki.NewCAResolver(s, m), ca.ID)
 	if err != nil {
 		t.Fatalf("load freshly minted CA: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestCAResolver_LoadByID_LegacyNilAADEnvelope(t *testing.T) {
 	legacy.EncryptedKeyMaterial = wrappedKey.Ciphertext
 	legacy.NonceKey = wrappedKey.Nonce
 
-	mgr2, err := pki.NewCAResolver(fakeCAStore{ca: &legacy}, m).LoadByID(context.Background(), ca.ID)
+	mgr2, err := pki.OpenCAForTest(context.Background(), pki.NewCAResolver(fakeCAStore{ca: &legacy}, m), ca.ID)
 	if err != nil {
 		t.Fatalf("legacy nil-AAD envelope refused: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestLoadCAFromMaterial_RejectsMismatchedKey(t *testing.T) {
 	caA := mintCAInStore(t, s, m, "op-mismatch-a")
 	caB := mintCAInStore(t, s, m, "op-mismatch-b")
 
-	mgrB, err := pki.NewCAResolver(s, m).LoadByID(context.Background(), caB.ID)
+	mgrB, err := pki.OpenCAForTest(context.Background(), pki.NewCAResolver(s, m), caB.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

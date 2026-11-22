@@ -435,12 +435,7 @@ func newAgentImportFixture(t *testing.T) agentImportFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	caManager, err := srv.caForHost(context.Background(), &models.Host{CAID: ca.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer caManager.Wipe()
-	hostCertificate, err := caManager.Sign(pki.SignRequest{
+	hostCertificate, _, err := srv.signForHost(t.Context(), &models.Host{CAID: ca.ID}, pki.SignRequest{
 		Name: "existing-host", PublicKey: hostPublic,
 		Networks: []netip.Prefix{netip.MustParsePrefix("10." + testOctet("lifecycle") + ".0.10/16")},
 		Groups:   []string{"prod"}, Duration: 24 * time.Hour,

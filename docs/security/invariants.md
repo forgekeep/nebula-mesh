@@ -276,8 +276,10 @@ does not permit avoidable application-level copies.
 
 ### Current enforcement
 
-- The credential cutover guard wipes each decrypted CA manager immediately
-  after its key-decryption check, including when loading returns an error.
+- Persisted CA keys are decrypted inside PKI. Enrollment, renewal and mobile
+  bundles receive only the signed certificate and public issuer; the credential
+  cutover and restore receive only a verification result. PKI clears its owned
+  mutable buffers before either operation returns, including on errors.
 - API CA import accepts bounded `multipart/form-data`, rejects JSON and
   malformed field sets, and zeroizes private-key and passphrase buffers.
 - CLI CA import decrypts locally, sends a mutable multipart buffer, refuses
@@ -285,15 +287,12 @@ does not permit avoidable application-level copies.
 - Web CA import validates CSRF without populating `Request.MultipartForm` or
   `PostForm`, restores a bounded body for streaming handler parsing, and
   zeroizes both middleware and handler secret buffers.
-- CLI restore wipes every CA manager immediately after the post-restore
-  decryption check, including managers returned alongside an error.
+
 
 ### Test anchors
 
-- `internal/cli/runtime_keys_test.go`:
-  `TestCredentialCutoverMasterGuard_SEC_SECRET_001WipesLoadedCAManager` proves
-  the cutover guard wipes a returned CA key even when the loader also reports
-  an error.
+- `internal/pki/resolver_boundary_test.go`: the resolver cannot export a
+  decrypted manager, and owned key bytes are cleared on success and error.
 - `internal/api/cas_test.go`: JSON rejection, fail-closed multipart parsing,
   transport-before-body, and importer-buffer zeroization.
 - `internal/cli/ca_test.go`: local encrypted-key handling and redirect refusal.
@@ -302,9 +301,8 @@ does not permit avoidable application-level copies.
 - `internal/web/cas_test.go`:
   `TestCAImport_WebDoesNotRetainSecretFormCopies` and Web transport/body-limit
   coverage.
-- `internal/cli/ops_backup_test.go`:
-  `TestVerifyRestoredCAs_SEC_SECRET_001WipesEveryLoadedManager` verifies cleanup
-  after successful loads and when a failed load also returns a manager.
+- `internal/cli/ops_backup_test.go`: restore stops on a failed verifier before
+  replacing the database.
 
 ### Review checklist
 

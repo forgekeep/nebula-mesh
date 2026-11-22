@@ -176,12 +176,7 @@ func TestMeshImportWebPreviewAndFinalize(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolver := pki.NewCAResolver(st, w.caMaster)
-	manager, err := resolver.LoadByID(context.Background(), ca.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer manager.Wipe()
-	hostCertificate, err := manager.Sign(pki.SignRequest{
+	hostCertificate, _, err := resolver.SignHost(context.Background(), ca.ID, pki.SignRequest{
 		Name: "adopted-host", PublicKey: make([]byte, 32), Networks: []netip.Prefix{netip.MustParsePrefix("10.75.0.10/16")},
 		Groups: []string{"prod"}, Duration: 90 * 24 * time.Hour, Now: now,
 	})
@@ -307,12 +302,7 @@ func TestMeshImportWebFinalizePreservesRevokedHostAndEmitsBlocked(t *testing.T) 
 		t.Fatal(err)
 	}
 	resolver := pki.NewCAResolver(st, w.caMaster)
-	manager, err := resolver.LoadByID(t.Context(), ca.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer manager.Wipe()
-	hostCertificate, err := manager.Sign(pki.SignRequest{
+	hostCertificate, _, err := resolver.SignHost(t.Context(), ca.ID, pki.SignRequest{
 		Name: "blocked-adopted-host", PublicKey: make([]byte, 32),
 		Networks: []netip.Prefix{netip.MustParsePrefix("10.76.0.10/16")}, Groups: []string{"prod"},
 		Duration: 90 * 24 * time.Hour, Now: now,

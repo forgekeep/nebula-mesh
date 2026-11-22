@@ -464,12 +464,8 @@ func TestCreateCA_PrivateKeyEncryptedAtRest(t *testing.T) {
 	// itself does not equal any value the test could have generated.
 	// (Cross-check: round-trip via the resolver and ensure decryption
 	// yields a usable signing key.)
-	mgr, err := srv.caResolver.LoadByID(context.Background(), resp.ID)
-	if err != nil {
+	if err := srv.caResolver.VerifyCAKey(t.Context(), resp.ID); err != nil {
 		t.Fatalf("resolver: %v", err)
-	}
-	if mgr.RawKey() == nil {
-		t.Fatal("resolver returned a manager without a key")
 	}
 }
 

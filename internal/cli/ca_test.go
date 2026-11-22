@@ -71,16 +71,27 @@ func TestCAImport_RejectsInsecureNonLoopbackBeforeReadingFiles(t *testing.T) {
 	} {
 		err := CAImport(serverURL, "api-key", "existing", "/missing/ca.crt", "/missing/ca.key", "")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "HTTPS or literal-loopback HTTP")
+		assert.Contains(t, err.Error(), "CA private key import requires HTTPS")
 		assert.NotContains(t, err.Error(), "read CA certificate")
 	}
 }
 
+func TestCAImport_RequiresHTTPSBeforeOpeningLocalFiles(t *testing.T) {
+	certPath := filepath.Join(t.TempDir(), "absent.crt")
+	for _, endpoint := range []string{"http://127.0.0.1:8080", "http://[::1]:8080"} {
+		t.Run(endpoint, func(t *testing.T) {
+			err := CAImport(endpoint, "test-key", "test-ca", certPath, "unused.key", "")
+			require.ErrorContains(t, err, "CA private key import requires HTTPS")
+			require.NotErrorIs(t, err, os.ErrNotExist)
+		})
+	}
+}
+
 func TestValidateSecretImportServerURL(t *testing.T) {
-	for _, serverURL := range []string{"https://mesh.example.com", "http://127.0.0.1:8080", "http://[::1]:8080"} {
+	for _, serverURL := range []string{"https://mesh.example.com", "https://127.0.0.1:8080", "https://[::1]:8080"} {
 		require.NoError(t, validateSecretImportServerURL(serverURL))
 	}
-	for _, serverURL := range []string{"http://localhost:8080", "http://10.0.0.5:8080", "http://mesh.example.com"} {
+	for _, serverURL := range []string{"http://127.0.0.1:8080", "http://[::1]:8080", "http://localhost:8080", "http://10.0.0.5:8080", "http://mesh.example.com"} {
 		require.Error(t, validateSecretImportServerURL(serverURL))
 	}
 }
@@ -101,7 +112,7 @@ func TestCAImport_DoesNotFollowRedirects(t *testing.T) {
 	targetCalls := 0
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { targetCalls++ }))
 	defer target.Close()
-	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	source := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Redirect(w, &http.Request{}, target.URL, http.StatusTemporaryRedirect)
 	}))
 	defer source.Close()
@@ -139,7 +150,7 @@ func TestCAImport_DecryptsEncryptedKeyLocally(t *testing.T) {
 
 	var receivedName string
 	var receivedCertificate, receivedPrivateKey, receivedPassphrase []byte
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, "/api/v1/cas/import", r.URL.Path)
 		require.Equal(t, "Bearer api-key", r.Header.Get("Authorization"))
@@ -208,7 +219,7 @@ func TestCAImport_WrongPassphraseDoesNotSendRequest(t *testing.T) {
 	require.NoError(t, os.WriteFile(passphrasePath, []byte("wrong\n"), 0o600))
 
 	requestCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requestCount++ }))
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requestCount++ }))
 	defer server.Close()
 	previousClient := httpClient
 	httpClient = server.Client()

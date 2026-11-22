@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -30,7 +31,7 @@ func TestVerifyRestoredCAs_SEC_SECRET_001WipesEveryLoadedManager(t *testing.T) {
 		{ID: "first", Name: "first"},
 		{ID: "second", Name: "second"},
 		{ID: "third", Name: "third"},
-	}, "/restored/nebula.db", func(_ context.Context, id string) (*pki.CAManager, error) {
+	}, func(_ context.Context, id string) (*pki.CAManager, error) {
 		loadCalls++
 		switch id {
 		case "first":
@@ -210,13 +211,36 @@ func TestOpsRestore_RefusesWrongMasterKey(t *testing.T) {
 
 	// Restore under a different master key.
 	dstDir := t.TempDir()
-	dstCfg, _ := writeServerConfig(t, dstDir, masterKeyB64(99))
+	dstCfg, dstDB := writeServerConfig(t, dstDir, masterKeyB64(99))
 	err := OpsRestore(dstCfg, archive, "", false)
 	if err == nil {
 		t.Fatal("expected restore to fail under a mismatched master key")
 	}
 	if !contains(err.Error(), "master key cannot decrypt") {
 		t.Errorf("error = %v, want master-key mismatch", err)
+	}
+	if _, err := os.Lstat(dstDB); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed CA validation must not install a database: %v", err)
+	}
+}
+
+func TestOpsRestoreForceWithMissingInputPreservesDatabase(t *testing.T) {
+	t.Setenv("NEBULA_MGMT_MASTER_KEY", "")
+	dir := t.TempDir()
+	cfg, db := writeServerConfig(t, dir, masterKeyB64(3))
+	const original = "test fixture for existing database bytes"
+	if err := os.WriteFile(db, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := OpsRestore(cfg, filepath.Join(dir, "missing.tar.gz"), "", true); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("restore error = %v, want missing input", err)
+	}
+	got, err := os.ReadFile(db)
+	if err != nil || string(got) != original {
+		t.Fatalf("database changed after failed restore: %v", err)
+	}
+	if _, err := os.Lstat(db + ".pre-restore"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed restore must not create a rollback copy: %v", err)
 	}
 }
 
@@ -226,7 +250,7 @@ func TestOpsRestore_RefusesExistingDatabase(t *testing.T) {
 	master := masterKeyB64(3)
 
 	srcDir := t.TempDir()
-	srcCfg, _ := writeServerConfig(t, srcDir, master)
+	srcCfg, srcDB := writeServerConfig(t, srcDir, master)
 	if err := Init(srcCfg); err != nil {
 		t.Fatalf("init source: %v", err)
 	}
@@ -239,11 +263,36 @@ func TestOpsRestore_RefusesExistingDatabase(t *testing.T) {
 	if err := OpsRestore(srcCfg, archive, "", false); err == nil {
 		t.Fatal("expected restore to refuse overwriting an existing database")
 	}
-	// With force it succeeds and moves the old DB aside.
+	original, err := os.ReadFile(srcDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollback := srcDB + ".pre-restore"
+	sidecar := srcDB + "-wal"
+	if err := os.WriteFile(sidecar, []byte("test fixture for pending WAL"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := OpsRestore(srcCfg, archive, "", true); err == nil || !contains(err.Error(), "SQLite sidecar exists") {
+		t.Fatalf("forced restore with a sidecar = %v, want refusal", err)
+	}
+	if err := os.Remove(sidecar); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(srcDB); err != nil || !bytes.Equal(got, original) {
+		t.Fatalf("sidecar refusal did not preserve the existing database: %v", err)
+	}
+
+	// With force it succeeds and preserves the old database as a rollback copy.
 	if err := OpsRestore(srcCfg, archive, "", true); err != nil {
 		t.Fatalf("forced restore: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(srcDir, "nebula.db.pre-restore")); err != nil {
-		t.Errorf("expected pre-restore backup of the old database: %v", err)
+	if got, err := os.ReadFile(rollback); err != nil || !bytes.Equal(got, original) {
+		t.Fatalf("rollback copy does not match the original database: %v", err)
+	}
+	if err := OpsRestore(srcCfg, archive, "", true); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("forced restore with a prior rollback copy = %v, want refusal", err)
+	}
+	if got, err := os.ReadFile(rollback); err != nil || !bytes.Equal(got, original) {
+		t.Fatalf("prior rollback copy changed: %v", err)
 	}
 }

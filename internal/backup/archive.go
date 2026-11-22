@@ -58,6 +58,7 @@ const (
 // Sentinel errors callers can match on.
 var (
 	ErrPassphraseRequired = errors.New("archive is encrypted: a passphrase is required")
+	ErrEncryptionRequired = errors.New("a passphrase requires an encrypted backup archive")
 	ErrDecryptFailed      = errors.New("decryption failed: wrong passphrase or corrupt archive")
 	ErrCorruptArchive     = errors.New("backup archive is corrupt or truncated")
 	ErrUnsupportedFormat  = errors.New("unsupported backup format version")
@@ -142,8 +143,8 @@ func Create(ctx context.Context, db *sql.DB, w io.Writer, meta Meta, passphrase,
 	return encrypt(w, buf.Bytes(), passphrase)
 }
 
-// Restore reads an archive from r, decrypting it when it carries the encrypted
-// magic (which requires passphrase), validates the manifest, and writes the
+// Restore reads an archive from r, requiring an authenticated encrypted archive
+// if passphrase is supplied. It validates the manifest and writes the
 // embedded database to destDBPath. destDBPath must not already exist — Restore
 // never overwrites a database. It returns the parsed manifest.
 func Restore(r io.Reader, destDBPath, passphrase string) (Manifest, error) {
@@ -158,6 +159,8 @@ func Restore(r io.Reader, destDBPath, passphrase string) (Manifest, error) {
 		if raw, err = decrypt(raw, passphrase); err != nil {
 			return Manifest{}, err
 		}
+	} else if passphrase != "" {
+		return Manifest{}, ErrEncryptionRequired
 	}
 
 	gz, err := gzip.NewReader(bytes.NewReader(raw))

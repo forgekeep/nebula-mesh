@@ -74,10 +74,9 @@ func OpsBackup(configPath, outputPath, passphrase, appVersion string) error {
 }
 
 // OpsRestore restores a backup archive into the data dir referenced by
-// configPath. It refuses to overwrite an existing live database unless force is
-// set (in which case the current DB is moved aside). After restoring it runs
-// migrations forward and verifies the master key can decrypt every restored CA,
-// failing loudly on mismatch rather than at first signing.
+// configPath. With the server stopped, it stages, migrates and verifies the
+// archive before publishing the replacement. An existing database is only
+// replaced with force, and is retained as a rollback copy.
 func OpsRestore(configPath, inputPath, passphrase string, force bool) error {
 	cfg, err := config.LoadServerConfig(configPath)
 	if err != nil {
@@ -90,14 +89,11 @@ func OpsRestore(configPath, inputPath, passphrase string, force bool) error {
 	}
 	defer hasher.Destroy()
 
-	if _, statErr := os.Stat(cfg.DBPath); statErr == nil {
-		if !force {
-			return fmt.Errorf("refusing to overwrite existing database at %s; pass --force to replace it", cfg.DBPath)
-		}
-		if err := moveAside(cfg.DBPath); err != nil {
-			return err
-		}
-	} else if !errors.Is(statErr, os.ErrNotExist) {
+	existing, statErr := os.Lstat(cfg.DBPath)
+	if statErr == nil && !force {
+		return fmt.Errorf("refusing to overwrite existing database at %s; pass --force to replace it", cfg.DBPath)
+	}
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return fmt.Errorf("stat %s: %w", cfg.DBPath, statErr)
 	}
 
@@ -111,25 +107,51 @@ func OpsRestore(configPath, inputPath, passphrase string, force bool) error {
 	}
 	defer func() { _ = in.Close() }()
 
-	manifest, err := backup.Restore(in, cfg.DBPath, passphrase)
+	// Stage in a private directory on the same filesystem. Never open the
+	// live database for writes while validating archive contents.
+	stageDir, err := os.MkdirTemp(filepath.Dir(cfg.DBPath), ".nebula-restore-*")
+	if err != nil {
+		return fmt.Errorf("create restore staging directory: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(stageDir) }()
+	stagedDB := filepath.Join(stageDir, "nebula.db")
+	manifest, err := backup.Restore(in, stagedDB, passphrase)
 	if err != nil {
 		return fmt.Errorf("restore archive: %w", err)
 	}
 
+	verifiedCAs, err := prepareRestoredDB(stagedDB, inputPath, manifest.SchemaVersion, master, hasher)
+	if err != nil {
+		return err
+	}
+	if err := publishRestoredDB(stagedDB, cfg.DBPath, existing); err != nil {
+		return err
+	}
+
+	fmt.Printf("restored %s (app %s, schema %s, taken %s); verified %d CA key(s) decrypt under the master key\n",
+		inputPath, manifest.AppVersion, manifest.SchemaVersion, manifest.CreatedAt.Format(time.RFC3339), verifiedCAs)
+	return nil
+}
+
+func prepareRestoredDB(stagedDB, inputPath, schemaVersion string, master *keystore.Master, hasher *credentialhash.Hasher) (_ int, err error) {
 	ctx := context.Background()
-	s, err := store.NewSQLiteStore(cfg.DBPath,
+	s, err := store.NewSQLiteStore(stagedDB,
 		store.WithCredentialHasher(hasher),
 		store.WithTOTPSecretMaster(master),
 		store.WithCredentialCutoverGuard(credentialCutoverMasterGuard(master)),
 	)
 	if err != nil {
-		return fmt.Errorf("open restored store: %w", err)
+		return 0, fmt.Errorf("open restored store: %w", err)
 	}
-	defer func() { _ = s.Close() }()
+	defer func() {
+		if closeErr := s.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close staged database: %w", closeErr))
+		}
+	}()
 
 	// Roll an older backup forward to the binary's schema.
 	if err := s.Migrate(ctx); err != nil {
-		return fmt.Errorf("migrate restored database: %w", err)
+		return 0, fmt.Errorf("migrate restored database: %w", err)
 	}
 
 	// Master-key check: every CA must decrypt under the supplied key, or the
@@ -137,30 +159,28 @@ func OpsRestore(configPath, inputPath, passphrase string, force bool) error {
 	resolver := pki.NewCAResolver(s, master)
 	cas, err := s.ListCAs(ctx)
 	if err != nil {
-		return fmt.Errorf("list restored CAs: %w", err)
+		return 0, fmt.Errorf("list restored CAs: %w", err)
 	}
-	if err := verifyRestoredCAs(ctx, cas, cfg.DBPath, resolver.LoadByID); err != nil {
-		return err
+	if err := verifyRestoredCAs(ctx, cas, resolver.LoadByID); err != nil {
+		return 0, err
 	}
 
-	_ = s.AddAuditEntry(ctx, "ops", "backup.restored", inputPath, "schema="+manifest.SchemaVersion)
-	fmt.Printf("restored %s (app %s, schema %s, taken %s); verified %d CA key(s) decrypt under the master key\n",
-		inputPath, manifest.AppVersion, manifest.SchemaVersion, manifest.CreatedAt.Format(time.RFC3339), len(cas))
-	return nil
+	_ = s.AddAuditEntry(ctx, "ops", "backup.restored", inputPath, "schema="+schemaVersion)
+	return len(cas), nil
 }
 
 // verifyRestoredCAs checks every restored CA and wipes each decrypted manager
 // as soon as the check no longer needs it, including when loading reports an
 // error alongside a manager.
-func verifyRestoredCAs(ctx context.Context, cas []*models.CA, dbPath string, load func(context.Context, string) (*pki.CAManager, error)) error {
+func verifyRestoredCAs(ctx context.Context, cas []*models.CA, load func(context.Context, string) (*pki.CAManager, error)) error {
 	for _, ca := range cas {
 		manager, err := load(ctx, ca.ID)
 		if manager != nil {
 			manager.Wipe()
 		}
 		if err != nil {
-			return fmt.Errorf("master key cannot decrypt CA %q (%s): %w — the restored database is in place at %s but NEBULA_MGMT_MASTER_KEY does not match this backup",
-				ca.Name, ca.ID, err, dbPath)
+			return fmt.Errorf("master key cannot decrypt CA %q (%s): %w — verify NEBULA_MGMT_MASTER_KEY for this backup; database not replaced",
+				ca.Name, ca.ID, err)
 		}
 	}
 	return nil
@@ -184,22 +204,49 @@ func resolveRuntimeKeys(cfg *config.ServerConfig, configPath string) (*keystore.
 	return master, hasher, nil
 }
 
-// moveAside renames an existing database (and its WAL/SHM siblings) out of the
-// way so a fresh single-file snapshot can be restored without colliding with
-// stale write-ahead state.
-func moveAside(dbPath string) error {
-	bak := dbPath + ".pre-restore"
-	if err := os.Rename(dbPath, bak); err != nil {
-		return fmt.Errorf("move existing database aside: %w", err)
+func publishRestoredDB(stagedDB, dbPath string, existing os.FileInfo) error {
+	if err := requireNoSQLiteSidecars(stagedDB); err != nil {
+		return fmt.Errorf("staged database did not close cleanly: %w", err)
 	}
-	// WAL/SHM belong to the old DB; a restored consolidated file must not see
-	// them. Best-effort removal — they may not exist.
-	for _, suffix := range []string{"-wal", "-shm"} {
-		if err := os.Remove(dbPath + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove %s%s: %w", dbPath, suffix, err)
+	if err := requireNoSQLiteSidecars(dbPath); err != nil {
+		return fmt.Errorf("cannot replace database; stop the server and close SQLite cleanly: %w", err)
+	}
+	if existing == nil {
+		// Do not clobber a destination that appeared during validation.
+		if err := os.Link(stagedDB, dbPath); err != nil {
+			return fmt.Errorf("install restored database: %w", err)
+		}
+		return nil
+	}
+	current, err := os.Lstat(dbPath)
+	if err != nil {
+		return fmt.Errorf("check existing database before replacement: %w", err)
+	}
+	if !current.Mode().IsRegular() || !os.SameFile(existing, current) {
+		return fmt.Errorf("refusing to replace changed or non-regular database at %s", dbPath)
+	}
+	bak := dbPath + ".pre-restore"
+	// Keep the original at its live path until replacement succeeds, and
+	// never overwrite an earlier rollback copy.
+	if err := os.Link(dbPath, bak); err != nil {
+		return fmt.Errorf("preserve existing database at %s (move a prior rollback copy out of the way first): %w", bak, err)
+	}
+	if err := os.Rename(stagedDB, dbPath); err != nil {
+		return fmt.Errorf("install restored database (original retained at %s): %w", bak, err)
+	}
+	fmt.Printf("preserved existing database at %s\n", bak)
+	return nil
+}
+
+func requireNoSQLiteSidecars(dbPath string) error {
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		path := dbPath + suffix
+		if _, err := os.Lstat(path); err == nil {
+			return fmt.Errorf("SQLite sidecar exists: %s", path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect SQLite sidecar %s: %w", path, err)
 		}
 	}
-	fmt.Printf("moved existing database to %s\n", bak)
 	return nil
 }
 

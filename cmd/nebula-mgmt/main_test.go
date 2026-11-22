@@ -14,8 +14,33 @@ func TestRunCAImport_IsWired(t *testing.T) {
 		"--cert-file", "/missing/ca.crt",
 		"--key-file", "/missing/ca.key",
 	})
-	if err == nil || !strings.Contains(err.Error(), "HTTPS or literal-loopback HTTP") {
+	if err == nil || !strings.Contains(err.Error(), "CA private key import requires HTTPS") {
 		t.Fatalf("runCA(import) error = %v", err)
+	}
+}
+
+func TestHostActionManagementServerDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"default", nil, "http://127.0.0.1:8080"},
+		{"override", []string{"--server", "https://mgmt.example.test"}, "https://mgmt.example.test"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			args := append([]string{"--api-key", "test-key", "--id", "test-host"}, tc.args...)
+			if err := runHostAction(args, "host block", func(serverURL, _, _ string) error {
+				called = true
+				if serverURL != tc.want {
+					t.Errorf("server URL = %q, want %q", serverURL, tc.want)
+				}
+				return nil
+			}); err != nil || !called {
+				t.Fatalf("action called = %v, error = %v", called, err)
+			}
+		})
 	}
 }
 

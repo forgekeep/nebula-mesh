@@ -267,7 +267,7 @@ nebula-mgmt host delete  --server ... --api-key "$API_KEY" --id "$HOST_ID"
 <a name="operators-auth-and-tenancy"></a>
 
 
-Each interactive admin should have their own operator account and per-operator API key. On `nebula-mgmt init`, an admin operator is seeded from `ui_password` (or, if that is empty, an auto-generated value used solely for the admin's bcrypt password hash). The admin's first operator API key is generated freshly inside init and printed to stdout once — capture it then; the server does not persist the plaintext to disk. Lost the key? Run `nebula-mgmt ops mint-admin-key --config <path>` to mint a new admin API key.
+Each interactive admin should have their own operator account and per-operator API key. On `nebula-mgmt init`, the admin operator is seeded from `ui_password` if configured; otherwise its local password is random and not disclosed. Init does not mint an API key, and does not change existing keys. To issue a key, run `nebula-mgmt ops mint-admin-key --config <path>` in a terminal. For headless automation on Unix, add `--output <new-file>` in a directory owned by the command's user with mode `0700`; the command creates a `0600` file and refuses to overwrite any existing entry.
 
 ### Manage operators
 

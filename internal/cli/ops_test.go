@@ -66,43 +66,44 @@ log_level: "info"
 	_, err = s.SeedInitialAdminOperator(ctx, adminOp, adminKey, "test-admin-key")
 	require.NoError(t, err)
 
-	// Capture stdout during OpsMintAdminKey
-	r, w, _ := os.Pipe()
+	// Refuse piped output before minting, then deliver to an exclusive file.
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
 	oldStdout := os.Stdout
 	os.Stdout = w
-
-	errResult := OpsMintAdminKey(configPath)
-
-	w.Close()
+	err = OpsMintAdminKey(configPath, "")
 	os.Stdout = oldStdout
+	require.NoError(t, w.Close())
+	require.NoError(t, r.Close())
+	require.ErrorContains(t, err, "standard output is not a terminal")
+	before, err := s.ListOperatorAPIKeys(ctx, adminOp.ID)
+	require.NoError(t, err)
+	require.Len(t, before, 1)
 
-	output := make([]byte, 1024)
-	n, _ := r.Read(output)
-	outputStr := string(output[:n])
-
-	// Verify success
-	require.NoError(t, errResult)
-
-	// Verify stdout contains "Admin API key (capture now"
-	require.True(t, strings.Contains(outputStr, "Admin API key (capture now"),
-		"stdout missing 'Admin API key (capture now' marker. Got:\n%s", outputStr)
-
-	// Extract plaintext from stdout (between "===" markers)
-	lines := strings.Split(outputStr, "\n")
-	var plaintextKey string
-	for i, line := range lines {
-		if strings.Contains(line, "Admin API key (capture now") && i+1 < len(lines) {
-			plaintextKey = strings.TrimSpace(lines[i+1])
-			break
-		}
-	}
-	require.NotEmpty(t, plaintextKey, "failed to extract plaintext from stdout")
-	require.Len(t, plaintextKey, 64, "plaintext should be 64-char hex (32 bytes)")
+	private := filepath.Join(tmpDir, "private")
+	require.NoError(t, os.Mkdir(private, 0o700))
+	shared := filepath.Join(tmpDir, "shared")
+	require.NoError(t, os.Mkdir(shared, 0o700))
+	require.NoError(t, os.Chmod(shared, 0o755))
+	require.ErrorContains(t, OpsMintAdminKey(configPath, filepath.Join(shared, "admin.key")), "private (0700)")
+	output := filepath.Join(private, "admin.key")
+	require.NoError(t, OpsMintAdminKey(configPath, output))
+	bits, err := os.Stat(output)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), bits.Mode().Perm())
+	data, err := os.ReadFile(output)
+	require.NoError(t, err)
+	plaintextKey := strings.TrimSpace(string(data))
+	require.Len(t, plaintextKey, 64)
+	require.Error(t, OpsMintAdminKey(configPath, output))
+	after, err := os.ReadFile(output)
+	require.NoError(t, err)
+	require.True(t, string(after) == string(data), "existing output was changed")
 
 	// Verify DB state: new key created for admin
 	keys, err := s.ListOperatorAPIKeys(ctx, adminOp.ID)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(keys), 2, "expected at least 2 keys (initial + recovery)")
+	require.Len(t, keys, 2, "expected exactly two keys (initial + recovery)")
 
 	// Find the recovery key
 	var recoveryKey *models.OperatorAPIKey
@@ -196,7 +197,7 @@ log_level: "info"
 	require.NoError(t, s.Migrate(ctx))
 
 	// Attempt to mint key for non-existent admin
-	errResult := OpsMintAdminKey(configPath)
+	errResult := OpsMintAdminKey(configPath, filepath.Join(tmpDir, "admin.key"))
 
 	// Verify error is not nil and contains readable message
 	require.Error(t, errResult)
@@ -208,7 +209,7 @@ log_level: "info"
 
 func TestOpsMintAdminKey_InvalidConfig(t *testing.T) {
 	// Call with non-existent config path
-	errResult := OpsMintAdminKey("/tmp/nonexistent-config-path-xyz.yml")
+	errResult := OpsMintAdminKey(filepath.Join(t.TempDir(), "missing.yml"), "unused")
 
 	// Verify error is not nil
 	require.Error(t, errResult)

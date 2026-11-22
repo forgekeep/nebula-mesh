@@ -20,8 +20,7 @@ const DefaultAdminUsername = "admin"
 // already populated. Either uiPassword or apiKey may be empty.
 //
 // When apiKey is non-empty its keyed verifier is stored as the admin's first
-// operator API key. The apiKey value comes from the caller (Init generates
-// it inline; Serve passes ""), not from a persisted config field. Runtime
+// operator API key. Normal Init and Serve pass an empty key. Runtime
 // auth via bearerAuth middleware authenticates exclusively through
 // operator_api_keys.
 //

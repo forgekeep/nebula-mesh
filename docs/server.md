@@ -555,18 +555,20 @@ Most often a leftover `*-wal` / `*-shm` file from a hard crash. Stop
 the service, run `sqlite3 /var/lib/nebula-mgmt/nebula.db "PRAGMA
 wal_checkpoint(TRUNCATE);"`, then start again.
 
-### Bootstrap admin password not shown
+### Bootstrap credentials
 
-`nebula-mgmt init` prints the seeded admin's username and one-time
-password to stdout. The package log capture in `journalctl` shows it
-only on the first start of the service. If you missed it, run:
+Set `ui_password` before the first `init` if you want password-based UI access.
+Init issues neither a password nor an API key, so there is nothing to retrieve
+from `journalctl`. For terminal-based API key issuance, run:
 
 ```sh
-sudo -u nebula-mgmt -E nebula-mgmt user create --username admin --role admin
+sudo -u nebula-mgmt -E nebula-mgmt ops mint-admin-key --config /etc/nebula-mgmt/server.yml
 ```
 
-to mint a new admin operator (the existing seed user keeps its TOTP
-binding, if any).
+For automation on Unix, use `--output <new-file>` in a `0700` directory owned
+by the invoking user. The file is created exclusively with mode `0600` and
+contains the key and a trailing newline. Never pipe terminal output or store
+the file in a shared directory.
 
 ### `permission denied` on `/var/lib/nebula-mgmt`
 

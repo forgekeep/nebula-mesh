@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"time"
 	"uuid"
+
+	"golang.org/x/term"
 
 	"github.com/forgekeep/nebula-mesh/internal/config"
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -18,9 +21,11 @@ import (
 // OpsMintAdminKey opens the SQLite store referenced by configPath,
 // looks up the admin operator by DefaultAdminUsername, mints a fresh
 // operator_api_keys row with a keyed verifier, records an
-// audit entry, and prints the plaintext to stdout once. Used for
-// break-glass recovery when the initial admin key is lost.
-func OpsMintAdminKey(configPath string) error {
+// audit entry, and delivers the plaintext once to a terminal or a new private file.
+func OpsMintAdminKey(configPath, outputPath string) error {
+	if outputPath == "" && !term.IsTerminal(int(os.Stdout.Fd())) { // #nosec G115 -- file descriptor fits the platform int
+		return fmt.Errorf("standard output is not a terminal; specify --output in a private directory")
+	}
 	cfg, err := config.LoadServerConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -64,11 +69,31 @@ func OpsMintAdminKey(configPath string) error {
 		return fmt.Errorf("admin operator '%s' not found in database — run 'nebula-mgmt init' first: %w", DefaultAdminUsername, err)
 	}
 
+	if adminOp.Status != models.OperatorStatusActive || adminOp.Role != models.OperatorRoleAdmin {
+		return fmt.Errorf("the bootstrap operator is not an active administrator")
+	}
+	output := os.Stdout
+	var finish func(commit bool) error
+	if outputPath != "" {
+		output, finish, err = openAdminKeyOutput(outputPath)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if finish != nil {
+				if err := finish(false); err != nil {
+					slog.Error("clean incomplete admin key output", "error", err)
+				}
+			}
+		}()
+	}
+
 	keyBytes := make([]byte, 32)
 	if _, err := rand.Read(keyBytes); err != nil {
 		return fmt.Errorf("generate key: %w", err)
 	}
 	plaintext := hex.EncodeToString(keyBytes)
+	clear(keyBytes)
 
 	entry := &models.OperatorAPIKey{
 		ID:         uuid.NewV4().String(),
@@ -78,15 +103,23 @@ func OpsMintAdminKey(configPath string) error {
 	if err := s.CreateOperatorAPIKey(ctx, entry, plaintext); err != nil {
 		return fmt.Errorf("create api key: %w", err)
 	}
+	_, deliverErr := fmt.Fprintln(output, plaintext)
+	if finish != nil && deliverErr == nil {
+		deliverErr = finish(true)
+		finish = nil
+	}
+	if deliverErr != nil {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		if err := s.RevokeOperatorAPIKey(cleanupCtx, entry.ID); err != nil {
+			return errors.Join(fmt.Errorf("deliver admin key: %w", deliverErr), fmt.Errorf("could not revoke key %s: %w", entry.ID, err))
+		}
+		return fmt.Errorf("deliver admin key (new key revoked): %w", deliverErr)
+	}
 	if err := s.AddAuditEntry(ctx, "ops-cli-recovery", "operator.api_key.create", adminOp.ID, entry.ID); err != nil {
 		slog.Warn("failed to record audit entry", "error", err)
 	}
 
-	fmt.Println()
-	fmt.Println("=== Admin API key (capture now, will not be shown again) ===")
-	fmt.Println(plaintext)
-	fmt.Println("=================================================")
-	fmt.Println()
 	return nil
 }
 

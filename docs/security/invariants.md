@@ -330,28 +330,29 @@ after encryption or rollback. `internal/store/migration_029_test.go`:
 
 ### Rule
 
-Packaged bootstrap instructions must expose one-time administrator credentials
-only through the initiating administrator's terminal. They must not pipe or
-redirect those credentials into shared temporary files or files readable by
-other local users.
+Packaged bootstrap instructions must not issue administrator credentials during
+normal initialization. Explicit issuance never prints a key to a pipe or log.
 
 - The management package must invoke `nebula-mgmt init` directly, without a
   logging pipeline or output redirection.
-- A future credential-retention workflow must create its destination
+- Explicit headless issuance must create its destination
   atomically with mode `0600` in a directory owned by the intended
   administrator. A predictable path in a shared temporary directory is never
   an accepted substitute.
 
 ### Current enforcement
 
-- `deploy/packaging/postinstall-mgmt.sh` prints the initial admin API key only
-  to the terminal and contains no bootstrap log file.
+- `nebula-mgmt init` creates no API key. `ops mint-admin-key` delivers the key
+  to a TTY or, on Unix, a new private file; it does not overwrite output.
+- `deploy/packaging/postinstall-mgmt.sh` contains no bootstrap log file.
 
 ### Test anchors
 
 - `internal/releaseconfig/package_security_test.go`:
   `TestPostinstallMgmt_SEC_BOOTSTRAP_001_DoesNotPersistAdminKeyInSharedFile`
   rejects shared-file capture and preserves direct initialization.
+- CLI tests cover init without issuance and explicit issuance refusal for a
+  pipe, a shared directory, and an existing file.
 
 ### Review checklist
 

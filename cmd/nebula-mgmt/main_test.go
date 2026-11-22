@@ -19,6 +19,31 @@ func TestRunCAImport_IsWired(t *testing.T) {
 	}
 }
 
+func TestHostActionManagementServerDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"default", nil, "http://127.0.0.1:8080"},
+		{"override", []string{"--server", "https://mgmt.example.test"}, "https://mgmt.example.test"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			args := append([]string{"--api-key", "test-key", "--id", "test-host"}, tc.args...)
+			if err := runHostAction(args, "host block", func(serverURL, _, _ string) error {
+				called = true
+				if serverURL != tc.want {
+					t.Errorf("server URL = %q, want %q", serverURL, tc.want)
+				}
+				return nil
+			}); err != nil || !called {
+				t.Fatalf("action called = %v, error = %v", called, err)
+			}
+		})
+	}
+}
+
 // TestRun_UnknownCommand_Errors pins the top-level dispatch: an unrecognized
 // command must be a usage error, never a silent no-op.
 func TestRun_UnknownCommand_Errors(t *testing.T) {

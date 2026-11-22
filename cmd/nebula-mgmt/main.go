@@ -11,6 +11,9 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/version"
 )
 
+// Match the sample management listener without ambiguous hostname resolution.
+const defaultManagementServerURL = "http://127.0.0.1:8080"
+
 // Populated at build time via -ldflags (see .goreleaser.yml).
 var (
 	versionStr = "dev"
@@ -122,7 +125,7 @@ func runHost(args []string) error {
 
 func runHostAction(args []string, name string, action func(serverURL, apiKey, hostID string) error) error {
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	id := fs.String("id", "", "host ID")
 	if err := fs.Parse(args); err != nil {
@@ -139,7 +142,7 @@ func runHostAction(args []string, name string, action func(serverURL, apiKey, ho
 
 func runHostCreate(args []string) error {
 	fs := flag.NewFlagSet("host create", flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	networkID := fs.String("network", "", "network ID")
 	name := fs.String("name", "", "host name")
@@ -169,7 +172,7 @@ func runHostCreate(args []string) error {
 
 func runHostList(args []string) error {
 	fs := flag.NewFlagSet("host list", flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	networkID := fs.String("network", "", "filter by network ID")
 	if err := fs.Parse(args); err != nil {
@@ -203,7 +206,7 @@ func runNetwork(args []string) error {
 
 func runNetworkCreate(args []string) error {
 	fs := flag.NewFlagSet("network create", flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	name := fs.String("name", "", "network name")
 	cidr := fs.String("cidr", "", "network CIDR")
@@ -241,7 +244,7 @@ func runUser(args []string) error {
 
 func runUserCreate(args []string) error {
 	fs := flag.NewFlagSet("user create", flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	username := fs.String("username", "", "operator username")
 	password := fs.String("password", "", "operator password")
@@ -261,7 +264,7 @@ func runUserCreate(args []string) error {
 
 func runUserList(args []string) error {
 	fs := flag.NewFlagSet("user list", flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -314,7 +317,7 @@ func runCAImport(args []string) error {
 
 func runCACreate(args []string) error {
 	fs := flag.NewFlagSet("ca create", flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key (must belong to a real operator, not the legacy config key)")
 	name := fs.String("name", "", "CA name")
 	duration := fs.String("duration", "8760h", "CA lifetime, Go duration string (default 1 year)")
@@ -332,7 +335,7 @@ func runCACreate(args []string) error {
 
 func runCAList(args []string) error {
 	fs := flag.NewFlagSet("ca list", flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -348,7 +351,7 @@ func runCAList(args []string) error {
 
 func runCARotate(args []string) error {
 	fs := flag.NewFlagSet("ca rotate", flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -382,7 +385,7 @@ func runAPIKey(args []string) error {
 
 func runAPIKeyCreate(args []string) error {
 	fs := flag.NewFlagSet("apikey create", flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	operator := fs.String("operator", "", "operator ID")
 	name := fs.String("name", "", "key name (optional)")
@@ -400,7 +403,7 @@ func runAPIKeyCreate(args []string) error {
 
 func runAPIKeyRevoke(args []string) error {
 	fs := flag.NewFlagSet("apikey revoke", flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	operator := fs.String("operator", "", "operator ID")
 	id := fs.String("id", "", "API key ID")
@@ -418,7 +421,7 @@ func runAPIKeyRevoke(args []string) error {
 
 func runNetworkList(args []string) error {
 	fs := flag.NewFlagSet("network list", flag.ExitOnError)
-	server := fs.String("server", "http://localhost:8080", "management server URL")
+	server := fs.String("server", defaultManagementServerURL, "management server URL")
 	apiKey := fs.String("api-key", "", "API key")
 	if err := fs.Parse(args); err != nil {
 		return err

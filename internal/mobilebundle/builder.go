@@ -28,7 +28,7 @@ var ErrNotMobile = errors.New("mobilebundle: host is not a mobile host")
 // inline PEM for ca/cert/key. The private key is not persisted server-side
 // — it lives only in the returned bytes.
 func Build(ctx context.Context, s store.Store, resolver interface {
-	LoadByID(context.Context, string) (*pki.CAManager, error)
+	SignHost(context.Context, string, pki.SignRequest) (cert.Certificate, []byte, error)
 }, host *models.Host) ([]byte, error) {
 	if host.Kind != models.HostKindMobile {
 		return nil, ErrNotMobile
@@ -52,18 +52,6 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 		return nil, fmt.Errorf("derive public key: %w", err)
 	}
 
-	// Resolve CA for this host.
-	caMgr, err := resolver.LoadByID(ctx, host.CAID)
-	if err != nil {
-		return nil, fmt.Errorf("resolve CA: %w", err)
-	}
-	// GHSA-2p2f-px33-4vv5: zeroise the decrypted plaintext CA signing key on
-	// every return path. The web mobile-bundle handler passes the real
-	// CAResolver straight in and has no Wipe of its own, so wiping here is the
-	// shared chokepoint for both callers. Wipe is idempotent and nil-safe, so
-	// the API handler's own defer caMgr.Wipe() stays a harmless second pass.
-	defer caMgr.Wipe()
-
 	// Get network.
 	network, err := s.GetNetwork(ctx, host.NetworkID)
 	if err != nil {
@@ -83,7 +71,7 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 	}
 
 	// Sign certificate.
-	hostCert, err := caMgr.Sign(pki.SignRequest{
+	hostCert, caPEM, err := resolver.SignHost(ctx, host.CAID, pki.SignRequest{
 		Name:           host.Name,
 		PublicKey:      pub,
 		Networks:       prefixes,
@@ -105,12 +93,6 @@ func Build(ctx context.Context, s store.Store, resolver interface {
 	fp, err := hostCert.Fingerprint()
 	if err != nil {
 		return nil, fmt.Errorf("cert fingerprint: %w", err)
-	}
-
-	// Get CA cert PEM.
-	caPEM, err := caMgr.CACertPEM()
-	if err != nil {
-		return nil, fmt.Errorf("ca cert PEM: %w", err)
 	}
 
 	// Marshal private key to PEM.

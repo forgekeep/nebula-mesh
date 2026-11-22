@@ -496,6 +496,7 @@ func runOpsRestore(args []string) error {
 func runOpsMintAdminKey(args []string) error {
 	fs := flag.NewFlagSet("ops mint-admin-key", flag.ExitOnError)
 	configPath := fs.String("config", "", "config file path (required)")
+	outputPath := fs.String("output", "", "new file in a private directory (required for non-terminal output)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -505,7 +506,7 @@ func runOpsMintAdminKey(args []string) error {
 	if *configPath == "" {
 		return fmt.Errorf("--config is required")
 	}
-	return cli.OpsMintAdminKey(*configPath)
+	return cli.OpsMintAdminKey(*configPath, *outputPath)
 }
 
 func runOpsResetTOTP(args []string) error {

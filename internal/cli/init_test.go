@@ -3,11 +3,9 @@ package cli
 import (
 	"context"
 	"encoding/base64"
-	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -139,17 +137,14 @@ log_level: "info"
 		t.Errorf("expected owner %q, got %q", adminOp.ID, cas[0].OwnerOperatorID)
 	}
 
-	// Assert that admin operator has exactly 1 API key with the correct name
+	// Provisioning the default CA does not require a bearer key.
 	keys, err := s.ListOperatorAPIKeys(ctx, adminOp.ID)
 	if err != nil {
 		t.Fatalf("list admin API keys: %v", err)
 	}
 
-	if len(keys) != 1 {
-		t.Errorf("expected admin to have 1 API key, got %d", len(keys))
-	}
-	if len(keys) > 0 && keys[0].Name != "initial-admin-key" {
-		t.Errorf("expected API key name 'initial-admin-key', got %q", keys[0].Name)
+	if len(keys) != 0 {
+		t.Errorf("expected admin to have no implicit API keys, got %d", len(keys))
 	}
 }
 
@@ -204,7 +199,7 @@ func contains(s, substr string) bool {
 	return false
 }
 
-func TestInit_PrintsAdminAPIKeyOnce(t *testing.T) {
+func TestInit_SEC_BOOTSTRAP_001DoesNotIssueAPIKey(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Generate valid base64 master key (32 bytes)
@@ -243,30 +238,7 @@ log_level: "info"
 
 	require.NoError(t, err)
 
-	outputStr := string(output)
-	t.Logf("Init stdout:\n%s", outputStr)
-
-	// Assert: stdout contains the "capture now" block
-	assert.Contains(t, outputStr, "Admin API key (capture now, will not be shown again)", "stdout should contain admin key message")
-
-	// Extract the printed key from the output (between the delimiters)
-	lines := strings.Split(outputStr, "\n")
-	var printedKey string
-	for i, line := range lines {
-		if strings.Contains(line, "Admin API key") {
-			// Next line should be the key
-			if i+1 < len(lines) {
-				printedKey = strings.TrimSpace(lines[i+1])
-				break
-			}
-		}
-	}
-	require.NotEmpty(t, printedKey, "should have extracted printed API key from stdout")
-
-	// Verify printed key is 64-char hex (32 bytes)
-	assert.Len(t, printedKey, 64, "API key should be 64 hex characters")
-	_, err = hex.DecodeString(printedKey)
-	require.NoError(t, err, "printed key should be valid hex")
+	assert.NotContains(t, string(output), "Admin API key")
 
 	// Assert: config file does NOT contain api_key after init
 	configBytes, err := os.ReadFile(cfgPath)
@@ -287,8 +259,5 @@ log_level: "info"
 	keys, err := s.ListOperatorAPIKeys(ctx, adminOp.ID)
 	require.NoError(t, err, "list admin's API keys")
 
-	assert.Len(t, keys, 1, "admin should have exactly 1 API key")
-	if len(keys) > 0 {
-		assert.Equal(t, "initial-admin-key", keys[0].Name, "first admin key should be named 'initial-admin-key'")
-	}
+	assert.Empty(t, keys, "ordinary init must not create a bearer key")
 }

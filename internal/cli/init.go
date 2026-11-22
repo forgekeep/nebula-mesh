@@ -14,8 +14,8 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
-// Init initializes the management server: creates CA, generates API key, and initializes the database.
-// configPath is required — the generated API key is written back to this file.
+// Init initializes the database, bootstrap operator and CA without minting
+// or emitting a bearer credential.
 func Init(configPath string) error {
 	if configPath == "" {
 		return fmt.Errorf("--config is required")
@@ -47,15 +47,6 @@ func Init(configPath string) error {
 	}
 	defer hasher.Destroy()
 
-	// Generate admin API key plaintext (32 random bytes).
-	// This key is NOT saved to the config file; it is printed once to stdout
-	// and passed directly to SeedAdminOperator for immediate seeding in the DB.
-	keyBytes := make([]byte, 32)
-	if _, err := rand.Read(keyBytes); err != nil {
-		return fmt.Errorf("generate API key: %w", err)
-	}
-	plaintext := hex.EncodeToString(keyBytes)
-
 	// Initialize database
 	s, err := store.NewSQLiteStore(cfg.DBPath,
 		store.WithCredentialHasher(hasher),
@@ -77,19 +68,19 @@ func Init(configPath string) error {
 		return fmt.Errorf("migrate database: %w", err)
 	}
 
-	// Seed admin operator with the generated plaintext key.
-	// If ui_password is empty, the seed operation is a no-op (no admin password).
-	// This is intentional: an admin with no UI password cannot log in via the web UI,
-	// and may use API keys for programmatic access, or rely on external auth (e.g., OIDC).
-	if seeded, err := SeedAdminOperator(migrateCtx, s, cfg.UIPassword, plaintext); err != nil {
+	// Without a configured UI password, retain the admin identity for headless
+	// provisioning with a random login secret that is never issued.
+	uiPassword := cfg.UIPassword
+	if uiPassword == "" {
+		var random [32]byte
+		if _, err := rand.Read(random[:]); err != nil {
+			return fmt.Errorf("generate bootstrap password: %w", err)
+		}
+		uiPassword = hex.EncodeToString(random[:])
+		clear(random[:])
+	}
+	if _, err := SeedAdminOperator(migrateCtx, s, uiPassword, ""); err != nil {
 		return fmt.Errorf("seed admin operator: %w", err)
-	} else if seeded {
-		// Print the generated admin API key with a prominent notice.
-		fmt.Println()
-		fmt.Println("=== Admin API key (capture now, will not be shown again) ===")
-		fmt.Println(plaintext)
-		fmt.Println("=================================================")
-		fmt.Println()
 	}
 
 	// Mint admin default CA

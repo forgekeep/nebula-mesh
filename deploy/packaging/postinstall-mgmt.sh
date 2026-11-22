@@ -39,10 +39,11 @@ if [ ! -f /etc/nebula-mgmt/server.yml ]; then
     #   Environment=NEBULA_MGMT_CA_PASSPHRASE=<passphrase>
 
     # Then run init once and enable:
-    # nebula-mgmt init will print the admin API key to stdout once.
-    # Store the key securely; do not write it to a shared file.
     sudo -u nebula-mgmt -E nebula-mgmt init --config /etc/nebula-mgmt/server.yml
     sudo systemctl enable --now nebula-mgmt.service
+
+    # Optional: explicitly issue an API key in this terminal.
+    # sudo -u nebula-mgmt -E nebula-mgmt ops mint-admin-key --config /etc/nebula-mgmt/server.yml
 
 EOF
 fi

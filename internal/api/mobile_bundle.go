@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"net/http"
 
@@ -9,7 +8,6 @@ import (
 
 	"github.com/forgekeep/nebula-mesh/internal/mobilebundle"
 	"github.com/forgekeep/nebula-mesh/internal/models"
-	"github.com/forgekeep/nebula-mesh/internal/pki"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
@@ -67,18 +65,7 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the CA that owns this host and sign with it.
-	caMgr, err := s.caForHost(r.Context(), host)
-	if err != nil {
-		s.logger.Error("resolve host CA", "error", err, "host_id", host.ID, "ca_id", host.CAID)
-		writeError(w, http.StatusInternalServerError, "failed to resolve CA")
-		return
-	}
-	defer caMgr.Wipe() // GHSA-8h84-fhqq-q58v: zeroise plaintext CA key on return.
-
-	// Build the mobile bundle; wrap resolved CA in a simple resolver for builder
-	resolver := &caManagerResolver{ca: caMgr}
-	bundle, err := mobilebundle.Build(r.Context(), s.store, resolver, host)
+	bundle, err := mobilebundle.Build(r.Context(), s.store, s.caResolver, host)
 
 	if errors.Is(err, mobilebundle.ErrNotMobile) {
 		writeError(w, http.StatusBadRequest, "host is not a mobile host")
@@ -107,13 +94,4 @@ func (s *Server) handleMobileBundle(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(bundle); err != nil { // #nosec G705 -- response is application/yaml with X-Content-Type-Options: nosniff (set globally by securityHeaders middleware), not HTML; bundle is server-built YAML
 		s.logger.Error("write mobile bundle response", "error", err)
 	}
-}
-
-// caManagerResolver wraps a resolved CAManager to match the resolver interface.
-type caManagerResolver struct {
-	ca *pki.CAManager
-}
-
-func (r *caManagerResolver) LoadByID(ctx context.Context, caID string) (*pki.CAManager, error) {
-	return r.ca, nil
 }

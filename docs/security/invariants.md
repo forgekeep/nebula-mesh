@@ -39,6 +39,9 @@ broaden it.
   applying caller-supplied filters and limits.
 - The API route-classification test walks the live chi router, so a new GET
   route without a scoping decision fails CI.
+- Both operator routers also classify individual host routes, including
+  mutations. The route tests use an authenticated foreign operator, verify
+  non-disclosure, and check that the host and config version are unchanged.
 - Managed webhook subscriptions are selected by CA owner; the deployer-owned
   static webhook is intentionally global.
 - Mobile profile and host DNS settings are read and replaced only after
@@ -59,6 +62,8 @@ broaden it.
 - `internal/web/network_host_dns_test.go`: a non-owner cannot change a foreign
   network's host DNS through the UI.
 - `internal/web/tenant_scope_test.go`: Web read and mutation isolation.
+- `internal/{api,web}/host_route_policy_test.go`: live route registration
+  and denied foreign host reads/writes (with valid CSRF in the Web case).
 - `internal/store/sqlite_host_operator_test.go`: shared host read/block policy
   and no revocation-side effects on denial. API and Web adapter matrices live
   in each package's `host_operator_scope_test.go`.
@@ -276,8 +281,10 @@ does not permit avoidable application-level copies.
 
 ### Current enforcement
 
-- The credential cutover guard wipes each decrypted CA manager immediately
-  after its key-decryption check, including when loading returns an error.
+- Persisted CA keys are decrypted inside PKI. Enrollment, renewal and mobile
+  bundles receive only the signed certificate and public issuer; the credential
+  cutover and restore receive only a verification result. PKI clears its owned
+  mutable buffers before either operation returns, including on errors.
 - API CA import accepts bounded `multipart/form-data`, rejects JSON and
   malformed field sets, and zeroizes private-key and passphrase buffers.
 - CLI CA import decrypts locally, sends a mutable multipart buffer, refuses
@@ -285,15 +292,12 @@ does not permit avoidable application-level copies.
 - Web CA import validates CSRF without populating `Request.MultipartForm` or
   `PostForm`, restores a bounded body for streaming handler parsing, and
   zeroizes both middleware and handler secret buffers.
-- CLI restore wipes every CA manager immediately after the post-restore
-  decryption check, including managers returned alongside an error.
+
 
 ### Test anchors
 
-- `internal/cli/runtime_keys_test.go`:
-  `TestCredentialCutoverMasterGuard_SEC_SECRET_001WipesLoadedCAManager` proves
-  the cutover guard wipes a returned CA key even when the loader also reports
-  an error.
+- `internal/pki/resolver_boundary_test.go`: the resolver cannot export a
+  decrypted manager, and owned key bytes are cleared on success and error.
 - `internal/api/cas_test.go`: JSON rejection, fail-closed multipart parsing,
   transport-before-body, and importer-buffer zeroization.
 - `internal/cli/ca_test.go`: local encrypted-key handling and redirect refusal.
@@ -302,9 +306,8 @@ does not permit avoidable application-level copies.
 - `internal/web/cas_test.go`:
   `TestCAImport_WebDoesNotRetainSecretFormCopies` and Web transport/body-limit
   coverage.
-- `internal/cli/ops_backup_test.go`:
-  `TestVerifyRestoredCAs_SEC_SECRET_001WipesEveryLoadedManager` verifies cleanup
-  after successful loads and when a failed load also returns a manager.
+- `internal/cli/ops_backup_test.go`: restore stops on a failed verifier before
+  replacing the database.
 
 ### Review checklist
 
@@ -327,28 +330,29 @@ after encryption or rollback. `internal/store/migration_029_test.go`:
 
 ### Rule
 
-Packaged bootstrap instructions must expose one-time administrator credentials
-only through the initiating administrator's terminal. They must not pipe or
-redirect those credentials into shared temporary files or files readable by
-other local users.
+Packaged bootstrap instructions must not issue administrator credentials during
+normal initialization. Explicit issuance never prints a key to a pipe or log.
 
 - The management package must invoke `nebula-mgmt init` directly, without a
   logging pipeline or output redirection.
-- A future credential-retention workflow must create its destination
+- Explicit headless issuance must create its destination
   atomically with mode `0600` in a directory owned by the intended
   administrator. A predictable path in a shared temporary directory is never
   an accepted substitute.
 
 ### Current enforcement
 
-- `deploy/packaging/postinstall-mgmt.sh` prints the initial admin API key only
-  to the terminal and contains no bootstrap log file.
+- `nebula-mgmt init` creates no API key. `ops mint-admin-key` delivers the key
+  to a TTY or, on Unix, a new private file; it does not overwrite output.
+- `deploy/packaging/postinstall-mgmt.sh` contains no bootstrap log file.
 
 ### Test anchors
 
 - `internal/releaseconfig/package_security_test.go`:
   `TestPostinstallMgmt_SEC_BOOTSTRAP_001_DoesNotPersistAdminKeyInSharedFile`
   rejects shared-file capture and preserves direct initialization.
+- CLI tests cover init without issuance and explicit issuance refusal for a
+  pipe, a shared directory, and an existing file.
 
 ### Review checklist
 

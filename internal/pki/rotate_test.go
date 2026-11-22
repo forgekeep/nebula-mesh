@@ -62,10 +62,7 @@ func TestRotateAndStoreCA_HappyPath(t *testing.T) {
 	// confirm the round-trip by loading it back through the resolver, which
 	// unwraps under ca2.ID. A mismatched AAD between seal and open would
 	// surface here as a decrypt failure, not later as unusable certs.
-	mgr, err := pki.NewCAResolver(s, master).LoadByID(context.Background(), ca2.ID)
-	require.NoError(t, err)
-	defer mgr.Wipe()
-	assert.NotEmpty(t, mgr.RawKey(), "rotated CA key did not decrypt under its own ca_id AAD")
+	require.NoError(t, pki.NewCAResolver(s, master).VerifyCAKey(t.Context(), ca2.ID))
 
 	// Verify audit entry.
 	entries, err := s.ListAuditEntries(context.Background(), store.AuditFilter{Limit: 100})

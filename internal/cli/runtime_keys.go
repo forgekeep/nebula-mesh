@@ -40,18 +40,10 @@ func credentialCutoverMasterGuard(master *keystore.Master) func(context.Context,
 			return fmt.Errorf("list CAs: %w", err)
 		}
 		for _, ca := range cas {
-			if err := loadAndWipeCA(ctx, ca.ID, resolver.LoadByID); err != nil {
+			if err := resolver.VerifyCAKey(ctx, ca.ID); err != nil {
 				return fmt.Errorf("master key cannot decrypt CA %q (%s): %w", ca.Name, ca.ID, err)
 			}
 		}
 		return nil
 	}
-}
-
-func loadAndWipeCA(ctx context.Context, caID string, load func(context.Context, string) (*pki.CAManager, error)) error {
-	manager, err := load(ctx, caID)
-	if manager != nil {
-		manager.Wipe()
-	}
-	return err
 }

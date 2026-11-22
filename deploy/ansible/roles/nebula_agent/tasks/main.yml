@@ -28,59 +28,13 @@
     nebula_agent_arch: "{{ 'arm64' if ansible_architecture in ['aarch64', 'arm64'] else 'amd64' }}"
 
 - name: Install nebula-agent package
-  when: ansible_os_family in ['Debian', 'RedHat']
-  block:
-    - name: Create private nebula-agent package directory
-      ansible.builtin.tempfile:
-        state: directory
-        mode: '0700'
-      register: nebula_agent_package_dir
-
-    - name: Select nebula-agent release package
-      ansible.builtin.set_fact:
-        nebula_agent_package_name: "nebula-agent_{{ nebula_agent_resolved_release | regex_replace('^v', '') }}_linux_{{ nebula_agent_arch }}{{ '.deb' if ansible_os_family == 'Debian' else '.rpm' }}"
-
-    - name: Download nebula-agent release checksums
-      ansible.builtin.uri:
-        url: "{{ nebula_agent_release_base_url }}/{{ nebula_agent_resolved_release }}/checksums.txt"
-        return_content: true
-      register: nebula_agent_release_checksums
-
-    - name: Select nebula-agent package checksum
-      ansible.builtin.set_fact:
-        nebula_agent_package_checksum_lines: "{{ nebula_agent_release_checksums.content | regex_findall('^[0-9a-f]{64}  ' ~ (nebula_agent_package_name | regex_escape) ~ '$', multiline=True) }}"
-
-    - name: Require exactly one nebula-agent package checksum
-      ansible.builtin.assert:
-        that:
-          - nebula_agent_package_checksum_lines | length == 1
-        fail_msg: "checksums.txt must contain exactly one SHA-256 line for {{ nebula_agent_package_name }}"
-
-    - name: Download and verify nebula-agent package
-      ansible.builtin.get_url:
-        url: "{{ nebula_agent_release_base_url }}/{{ nebula_agent_resolved_release }}/{{ nebula_agent_package_name }}"
-        dest: "{{ nebula_agent_package_dir.path }}/{{ nebula_agent_package_name }}"
-        mode: '0600'
-        checksum: "sha256:{{ nebula_agent_package_checksum_lines[0] | regex_search('^[0-9a-f]{64}') }}"
-
-    - name: Install nebula-agent .deb
-      when: ansible_os_family == 'Debian'
-      ansible.builtin.apt:
-        deb: "{{ nebula_agent_package_dir.path }}/{{ nebula_agent_package_name }}"
-        state: present
-
-    - name: Install nebula-agent .rpm
-      when: ansible_os_family == 'RedHat'
-      ansible.builtin.dnf:
-        name: "{{ nebula_agent_package_dir.path }}/{{ nebula_agent_package_name }}"
-        state: present
-        disable_gpg_check: true
-  always:
-    - name: Remove private nebula-agent package directory
-      ansible.builtin.file:
-        path: "{{ nebula_agent_package_dir.path }}"
-        state: absent
-      when: nebula_agent_package_dir.path is defined
+  ansible.builtin.include_role:
+    name: nebula_verified_package
+  vars:
+    nebula_package_component: nebula-agent
+    nebula_package_release: "{{ nebula_agent_resolved_release }}"
+    nebula_package_arch: "{{ nebula_agent_arch }}"
+    nebula_package_base_url: "{{ nebula_agent_release_base_url }}"
 
 - name: Render agent.yml
   ansible.builtin.template:

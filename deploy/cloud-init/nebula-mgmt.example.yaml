@@ -3,9 +3,8 @@
 # provider's user-data field; replace the placeholders marked with `<...>`
 # before applying.
 #
-# The script installs the published .deb, runs `nebula-mgmt init` exactly
-# once (guard: presence of /var/lib/nebula-mgmt/ca.crt), then enables the
-# systemd unit.
+# The script installs the published .deb, initializes the database without
+# issuing an API key, then enables the systemd unit.
 
 write_files:
   - path: /etc/nebula-mgmt/server.yml
@@ -36,17 +35,16 @@ write_files:
 
 runcmd:
   - |
-    set -euo pipefail
-    version="v0.3.1"
+    set -eu
+    version="<release-tag>"
     arch=$(dpkg --print-architecture)
     pkg=$(mktemp --suffix=.deb)
     curl -fsSL -o "$pkg" \
-      "https://github.com/forgekeep/nebula-mesh/releases/download/$${version}/nebula-mgmt_$${version#v}_linux_$${arch}.deb"
+      "https://github.com/forgekeep/nebula-mesh/releases/download/${version}/nebula-mgmt_${version#v}_linux_${arch}.deb"
     apt-get install -y "$pkg" || (apt-get update && apt-get install -y "$pkg")
     systemctl daemon-reload
-    if [ ! -f /var/lib/nebula-mgmt/ca.crt ]; then
-      install -d -o nebula-mgmt -g nebula-mgmt -m 0750 /var/lib/nebula-mgmt
-      runuser -u nebula-mgmt -- env $(cat /etc/nebula-mgmt/secrets.env) \
-        nebula-mgmt init --config /etc/nebula-mgmt/server.yml --admin-username admin
-    fi
+    install -d -o nebula-mgmt -g nebula-mgmt -m 0750 /var/lib/nebula-mgmt
+    systemd-run --wait --collect --property=User=nebula-mgmt \
+      --property=EnvironmentFile=/etc/nebula-mgmt/secrets.env \
+      /usr/bin/nebula-mgmt init --config /etc/nebula-mgmt/server.yml
     systemctl enable --now nebula-mgmt.service

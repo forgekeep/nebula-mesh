@@ -162,33 +162,10 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the CA that owns this host's network and sign with it.
-	caMgr, err := s.caForHost(r.Context(), host)
-	if err != nil {
-		s.metrics.recordEnrollment(resultError)
-		s.logger.Error("resolve host CA", "error", err, "host", host.ID, "ca_id", host.CAID)
-		writeError(w, http.StatusInternalServerError, "enrollment failed")
-		return
-	}
-	defer caMgr.Wipe() // GHSA-8h84-fhqq-q58v: zeroise plaintext CA key on return.
-	hostCert, caCertPEM, err := func() (cert.Certificate, []byte, error) {
-		c, signErr := caMgr.Sign(pki.SignRequest{
-			Name:           host.Name,
-			PublicKey:      pubKey,
-			Networks:       prefixes,
-			UnsafeNetworks: unsafeNetworks,
-			Groups:         host.Groups,
-			Duration:       pki.DefaultAgentCertDuration,
-		})
-		if signErr != nil {
-			return nil, nil, signErr
-		}
-		ca, caErr := caMgr.CACertPEM()
-		if caErr != nil {
-			return nil, nil, caErr
-		}
-		return c, ca, nil
-	}()
+	hostCert, caCertPEM, err := s.signForHost(r.Context(), host, pki.SignRequest{
+		Name: host.Name, PublicKey: pubKey, Networks: prefixes, UnsafeNetworks: unsafeNetworks,
+		Groups: host.Groups, Duration: pki.DefaultAgentCertDuration,
+	})
 	if err != nil {
 		s.metrics.recordEnrollment(resultError)
 		s.logger.Error("sign certificate", "error", err)

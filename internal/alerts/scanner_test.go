@@ -35,7 +35,7 @@ func (r *recordingSink) snapshot() []Alert {
 	return cp
 }
 
-func newTestStore(t *testing.T) store.Store {
+func newTestStore(t *testing.T) *store.SQLiteStore {
 	t.Helper()
 	s, err := store.NewSQLiteStore(":memory:")
 	if err != nil {

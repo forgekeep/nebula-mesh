@@ -155,8 +155,11 @@ func TestSignedPoll_AuditRowPerBranch(t *testing.T) {
 				// Block via the store directly so the only audit row in
 				// the table is the one written by the signed-poll
 				// handler — the assertion below requires exactly one row.
-				if _, err := srv.store.BlockHostAndAddToBlocklist(
-					context.Background(), host.ID, "test"); err != nil {
+				admin, _, err := srv.store.GetOperatorByAPIKey(t.Context(), testAPIKey)
+				if err != nil {
+					t.Fatalf("get fixture admin: %v", err)
+				}
+				if _, err := srv.store.BlockHostForOperator(t.Context(), admin.ID, host.ID, "test"); err != nil {
 					t.Fatalf("block host: %v", err)
 				}
 				req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/updates", nil)

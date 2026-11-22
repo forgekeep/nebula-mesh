@@ -1090,46 +1090,17 @@ func (w *Web) handleHostCreate(rw http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// loadAccessibleHost loads the host named by the {id} URL param and enforces
-// that the session operator may act on it: admins may access any host; a
-// non-admin must own the host's CA. On any failure it writes the response
-// (404 / 403 / login redirect / 500) and returns ok=false. Without this gate
-// the host read/block/delete handlers operated on the raw URL id, letting any
-// authenticated operator reach another operator's hosts.
-//
-// Ownership keys on host.CAID — the host's own ca_id column, which signs its
-// cert and drives CA resolution. This is the authoritative anchor the API's
-// canAccessHost uses; the web create path sets host.CAID = network.CAID, so it
-// agrees with the network-CA check handleHostEdit/handleHostUpdate perform
-// while avoiding the extra network lookup. A blank ca_id is a legacy
-// pre-multi-CA row, hidden from non-admins (issue #93).
+// loadAccessibleHost adapts the common host read policy to the Web session
+// and response. Mutating helpers can also use it to load the form state;
+// blocking authorizes again inside the transaction instead.
 func (w *Web) loadAccessibleHost(rw http.ResponseWriter, r *http.Request) (*models.Host, bool) {
-	id := chi.URLParam(r, "id")
-	host, err := w.store.GetHost(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(rw, r)
-		return nil, false
-	}
-	if err != nil {
-		w.logger.Error("get host", "error", err)
-		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
-		return nil, false
-	}
 	op := w.session.CurrentOperator(r)
 	if op == nil {
 		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 		return nil, false
 	}
-	if op.Role == "admin" {
-		return host, true
-	}
-	if host.CAID == "" {
-		http.Error(rw, "Forbidden", http.StatusForbidden)
-		return nil, false
-	}
-	ca, err := w.store.GetCA(r.Context(), host.CAID)
-	if err != nil || ca.OwnerOperatorID != op.ID {
-		http.Error(rw, "Forbidden", http.StatusForbidden)
+	host, err := w.store.GetHostForOperator(r.Context(), op.ID, chi.URLParam(r, "id"))
+	if w.writeHostOperationError(rw, r, err, "Internal Server Error") {
 		return nil, false
 	}
 	return host, true
@@ -1357,25 +1328,35 @@ func (w *Web) handleHostUpdate(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleHostBlock(rw http.ResponseWriter, r *http.Request) {
-	host, ok := w.loadAccessibleHost(rw, r)
-	if !ok {
+	op := w.session.CurrentOperator(r)
+	if op == nil {
+		http.Redirect(rw, r, "/ui/login", http.StatusSeeOther)
 		return
 	}
-	if rejectWebImportingHost(rw, host) {
-		return
-	}
-	if _, err := w.store.BlockHostAndAddToBlocklist(r.Context(), host.ID, "blocked via UI"); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			http.NotFound(rw, r)
-			return
-		}
-		w.logger.Error("block host", "error", err)
-		http.Error(rw, "Failed to block host", http.StatusInternalServerError)
+	_, err := w.store.BlockHostForOperator(r.Context(), op.ID, chi.URLParam(r, "id"), "blocked via UI")
+	if w.writeHostOperationError(rw, r, err, "Failed to block host") {
 		return
 	}
 
 	rw.Header().Set("HX-Redirect", "/ui/hosts")
 	rw.WriteHeader(http.StatusOK)
+}
+
+func (w *Web) writeHostOperationError(rw http.ResponseWriter, r *http.Request, err error, message string) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, store.ErrNotFound):
+		http.NotFound(rw, r)
+	case errors.Is(err, store.ErrHostAccessDenied):
+		http.Error(rw, "Forbidden", http.StatusForbidden)
+	case errors.Is(err, store.ErrHostImportInProgress):
+		http.Error(rw, "Host is managed by an active mesh import", http.StatusConflict)
+	default:
+		w.logger.Error("host operation", "error", err)
+		http.Error(rw, message, http.StatusInternalServerError)
+	}
+	return true
 }
 
 func (w *Web) handleHostDelete(rw http.ResponseWriter, r *http.Request) {

@@ -305,25 +305,13 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	host, err := s.store.GetHost(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "host not found")
+	actor := ActorOf(r.Context())
+	if actor == nil {
+		writeError(w, http.StatusUnauthorized, "missing operator")
 		return
 	}
-	if err != nil {
-		s.logger.Error("get host", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to get host")
-		return
-	}
-	ok, err := s.canAccessHost(r.Context(), host)
-	if err != nil {
-		s.logger.Error("authz check", "error", err)
-		writeError(w, http.StatusInternalServerError, "authz check failed")
-		return
-	}
-	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+	host, err := s.store.GetHostForOperator(r.Context(), actor.ID, chi.URLParam(r, "id"))
+	if s.writeHostOperationError(w, err, "failed to get host") {
 		return
 	}
 
@@ -381,44 +369,37 @@ func hostEventData(h *models.Host) map[string]any {
 }
 
 func (s *Server) handleBlockHost(w http.ResponseWriter, r *http.Request) {
+	actor := ActorOf(r.Context())
+	if actor == nil {
+		writeError(w, http.StatusUnauthorized, "missing operator")
+		return
+	}
 	id := chi.URLParam(r, "id")
-	existing, err := s.store.GetHost(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "host not found")
-		return
-	}
-	if err != nil {
-		s.logger.Error("get host for block", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to get host")
-		return
-	}
-	ok, err := s.canAccessHost(r.Context(), existing)
-	if err != nil {
-		s.logger.Error("authz check", "error", err)
-		writeError(w, http.StatusInternalServerError, "authz check failed")
-		return
-	}
-	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
-	if rejectImportingHost(w, existing) {
-		return
-	}
-	host, err := s.store.BlockHostAndAddToBlocklist(r.Context(), id, "manually blocked")
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "host not found")
-		return
-	}
-	if err != nil {
-		s.logger.Error("block host", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to block host")
+	host, err := s.store.BlockHostForOperator(r.Context(), actor.ID, id, "manually blocked")
+	if s.writeHostOperationError(w, err, "failed to block host") {
 		return
 	}
 	s.recordAuditAction(r.Context(), auditHostBlock, id, "")
 	s.emit(webhook.Scope{CAID: host.CAID}, "host.blocked", hostEventData(host))
 
 	writeJSON(w, http.StatusOK, host)
+}
+
+func (s *Server) writeHostOperationError(w http.ResponseWriter, err error, message string) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "host not found")
+	case errors.Is(err, store.ErrHostAccessDenied):
+		writeError(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, store.ErrHostImportInProgress):
+		writeError(w, http.StatusConflict, "host is managed by an active mesh import")
+	default:
+		s.logger.Error(message, "error", err)
+		writeError(w, http.StatusInternalServerError, message)
+	}
+	return true
 }
 
 func (s *Server) handleUnblockHost(w http.ResponseWriter, r *http.Request) {

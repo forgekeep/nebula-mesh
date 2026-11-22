@@ -1705,14 +1705,30 @@ func (s *SQLiteStore) DeleteHost(ctx context.Context, id string) error {
 	return nil
 }
 
-// BlockHostAndAddToBlocklist atomically blocks a host and revokes its certificates.
+// BlockHostAndAddToBlocklist is for trusted callers without an operator
+// identity. Operator-facing adapters only receive the Store interface and
+// must call BlockHostForOperator instead.
+func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason string) (*models.Host, error) {
+	return s.blockHostWithLoader(ctx, reason, func(tx *sql.Tx) (*models.Host, error) {
+		h, err := s.scanHost(tx.QueryRowContext(ctx, `SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get host: %w", err)
+		}
+		return h, nil
+	})
+}
+
+// blockHostWithLoader atomically blocks a host and revokes its certificates.
 // Every network under the host CA is bumped whenever a fingerprint enters the
 // blocklist so every peer under that CA receives a re-rendered config.yml
 // carrying the new pki.blocklist entry (GHSA-cm26-5974-52h8). An additional
 // bump for enrolled lighthouses is redundant — the single bump below already
 // covers blocklist propagation — but the lighthouse-specific path is kept so
 // peers also stop directing traffic at the blocked lighthouse.
-func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason string) (*models.Host, error) {
+func (s *SQLiteStore) blockHostWithLoader(ctx context.Context, reason string, load func(*sql.Tx) (*models.Host, error)) (*models.Host, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
@@ -1723,13 +1739,9 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason
 		}
 	}()
 
-	row := tx.QueryRowContext(ctx, `SELECT `+hostColumns+` FROM hosts WHERE id = ?`, id)
-	h, err := s.scanHost(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
+	h, err := load(tx)
 	if err != nil {
-		return nil, fmt.Errorf("get host: %w", err)
+		return nil, err
 	}
 
 	hostCAChanged, err := revokeHostCertificatesInTx(ctx, tx, h, reason)
@@ -1741,7 +1753,7 @@ func (s *SQLiteStore) BlockHostAndAddToBlocklist(ctx context.Context, id, reason
 
 	result, err := tx.ExecContext(ctx,
 		`UPDATE hosts SET status=?, updated_at=? WHERE id=?`,
-		models.HostStatusBlocked, time.Now(), id,
+		models.HostStatusBlocked, time.Now(), h.ID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update host status: %w", err)

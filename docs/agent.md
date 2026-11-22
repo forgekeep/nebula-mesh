@@ -794,7 +794,10 @@ nebula-mgmt ca import \
 
 For an encrypted CA key, add `--passphrase-file /secure/ca.passphrase`. The CLI
 decrypts the key locally and never puts the passphrase in argv or the request.
-The server requires HTTPS, except for a literal loopback HTTP URL.
+The CLI requires an explicit HTTPS `--server` URL with a trusted certificate, even
+on loopback. If a proxy terminates TLS, protect the connection from the proxy
+to `nebula-mgmt` as well; do not forward the private key over an unauthenticated
+local HTTP port.
 
 Create an empty Network bound to the imported CA. The server rejects a Network
 that already has hosts, shares its CA with another Network, has a CA-scoped

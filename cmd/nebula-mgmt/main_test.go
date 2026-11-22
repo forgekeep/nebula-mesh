@@ -14,7 +14,7 @@ func TestRunCAImport_IsWired(t *testing.T) {
 		"--cert-file", "/missing/ca.crt",
 		"--key-file", "/missing/ca.key",
 	})
-	if err == nil || !strings.Contains(err.Error(), "HTTPS or literal-loopback HTTP") {
+	if err == nil || !strings.Contains(err.Error(), "CA private key import requires HTTPS") {
 		t.Fatalf("runCA(import) error = %v", err)
 	}
 }

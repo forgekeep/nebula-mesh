@@ -300,7 +300,7 @@ func runCA(args []string) error {
 
 func runCAImport(args []string) error {
 	fs := flag.NewFlagSet("ca import", flag.ExitOnError)
-	server := fs.String("server", "http://127.0.0.1:8080", "management server URL (HTTPS or literal-loopback HTTP)")
+	server := fs.String("server", "", "management server HTTPS URL (required)")
 	apiKey := fs.String("api-key", "", "API key")
 	name := fs.String("name", "", "managed CA name")
 	certFile := fs.String("cert-file", "", "existing Nebula CA certificate PEM")
@@ -311,6 +311,9 @@ func runCAImport(args []string) error {
 	}
 	if err := argGuard.RejectPositional(fs); err != nil {
 		return err
+	}
+	if *server == "" {
+		return fmt.Errorf("--server is required for ca import (HTTPS URL)")
 	}
 	return cli.CAImport(*server, *apiKey, *name, *certFile, *keyFile, *passphraseFile)
 }

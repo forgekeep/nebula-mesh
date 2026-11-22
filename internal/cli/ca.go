@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"strings"
@@ -222,11 +221,7 @@ func validateSecretImportServerURL(serverURL string) error {
 	if parsed.Scheme == "https" {
 		return nil
 	}
-	addr, err := netip.ParseAddr(parsed.Hostname())
-	if err == nil && addr.Unmap().IsLoopback() {
-		return nil
-	}
-	return fmt.Errorf("CA private key import requires HTTPS or literal-loopback HTTP; refusing %q", serverURL)
+	return errors.New("CA private key import requires HTTPS, including on loopback")
 }
 
 func readBoundedImportFile(path string, maxBytes int64) ([]byte, error) {

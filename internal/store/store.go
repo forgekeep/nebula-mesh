@@ -102,7 +102,8 @@ type Store interface {
 	UpdateHostCert(ctx context.Context, id, fingerprint string, expiresAt time.Time) error
 	UpdateHostStatus(ctx context.Context, id string, status models.HostStatus) error
 	DeleteHost(ctx context.Context, id string) error
-	BlockHostAndAddToBlocklist(ctx context.Context, id, reason string) (*models.Host, error)
+	GetHostForOperator(ctx context.Context, operatorID, hostID string) (*models.Host, error)
+	BlockHostForOperator(ctx context.Context, operatorID, hostID, reason string) (*models.Host, error)
 	UnblockHost(ctx context.Context, id string) (*models.Host, error)
 	DeleteHostAndBlockCert(ctx context.Context, id, reason string) error
 

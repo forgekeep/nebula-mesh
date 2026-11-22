@@ -31,6 +31,10 @@ broaden it.
 ### Current enforcement
 
 - API and Web handlers use actor-aware CA, Network, and Host authorization.
+- Both operator-facing host detail and block operations use the same store
+  policy: check the current active actor and the host's own CA inside the
+  read or block transaction. Only an active admin may bypass CA ownership.
+  An active mesh import still prevents operator blocking.
 - SQL collection queries scope non-admins to CAs owned by the actor before
   applying caller-supplied filters and limits.
 - The API route-classification test walks the live chi router, so a new GET
@@ -55,6 +59,9 @@ broaden it.
 - `internal/web/network_host_dns_test.go`: a non-owner cannot change a foreign
   network's host DNS through the UI.
 - `internal/web/tenant_scope_test.go`: Web read and mutation isolation.
+- `internal/store/sqlite_host_operator_test.go`: shared host read/block policy
+  and no revocation-side effects on denial. API and Web adapter matrices live
+  in each package's `host_operator_scope_test.go`.
 - `internal/webhook/fanout_test.go`:
   `TestDispatcher_ManagedTargetsAreCAOwnerScopedAndStaticTargetIsGlobal`.
 

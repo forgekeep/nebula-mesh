@@ -39,6 +39,9 @@ broaden it.
   applying caller-supplied filters and limits.
 - The API route-classification test walks the live chi router, so a new GET
   route without a scoping decision fails CI.
+- Both operator routers also classify individual host routes, including
+  mutations. The route tests use an authenticated foreign operator, verify
+  non-disclosure, and check that the host and config version are unchanged.
 - Managed webhook subscriptions are selected by CA owner; the deployer-owned
   static webhook is intentionally global.
 - Mobile profile and host DNS settings are read and replaced only after
@@ -59,6 +62,8 @@ broaden it.
 - `internal/web/network_host_dns_test.go`: a non-owner cannot change a foreign
   network's host DNS through the UI.
 - `internal/web/tenant_scope_test.go`: Web read and mutation isolation.
+- `internal/{api,web}/host_route_policy_test.go`: live route registration
+  and denied foreign host reads/writes (with valid CSRF in the Web case).
 - `internal/store/sqlite_host_operator_test.go`: shared host read/block policy
   and no revocation-side effects on denial. API and Web adapter matrices live
   in each package's `host_operator_scope_test.go`.

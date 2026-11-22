@@ -476,8 +476,8 @@ func runOpsRestore(args []string) error {
 	fs := flag.NewFlagSet("ops restore", flag.ExitOnError)
 	configPath := fs.String("config", "", "config file path (required)")
 	input := fs.String("input", "", "backup archive path (required)")
-	passphrase := fs.String("passphrase", "", "passphrase for an encrypted archive")
-	force := fs.Bool("force", false, "replace an existing database (moved aside to <db>.pre-restore)")
+	passphrase := fs.String("passphrase", "", "require an encrypted archive and decrypt it with this passphrase")
+	force := fs.Bool("force", false, "replace an existing database after validation (preserved as <db>.pre-restore)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

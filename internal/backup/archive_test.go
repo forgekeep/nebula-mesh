@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,6 +69,18 @@ func TestCreateRestore_RoundTrip(t *testing.T) {
 	}
 	if manifest.AppVersion != "v9.9.9" || manifest.SchemaVersion != "020_x" || manifest.FormatVersion != FormatVersion {
 		t.Errorf("manifest = %+v, want app v9.9.9 / schema 020_x / format %d", manifest, FormatVersion)
+	}
+}
+
+func TestRestoreWithPassphraseRequiresEncryptedFormat(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "restored.db")
+	// No valid archive or database is needed to test the format decision.
+	_, err := Restore(strings.NewReader("not an encrypted archive"), dest, "test-passphrase")
+	if err == nil || !strings.Contains(err.Error(), "requires an encrypted backup archive") {
+		t.Fatalf("Restore error = %v, want encrypted-format rejection", err)
+	}
+	if _, err := os.Lstat(dest); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("destination must remain absent: %v", err)
 	}
 }
 

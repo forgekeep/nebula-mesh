@@ -62,14 +62,15 @@ nebula-mgmt ops restore --config /etc/nebula-mgmt/server.yml --input /backups/ne
 Restore guards against the common foot-guns:
 
 - It **refuses to overwrite an existing database**. Pass `--force` to replace
-  one; the current database is moved to `<db_path>.pre-restore` (and stale
-  `-wal`/`-shm` files are cleared) before the snapshot is written.
+  one only after validation succeeds. The old database is kept at
+  `<db_path>.pre-restore`. Move any prior rollback copy out of the way before
+  retrying. Restore requires a filesystem that supports hard links, and refuses
+  to replace databases with SQLite sidecar files. Shut down SQLite cleanly;
+  do not delete an uncheckpointed WAL.
 - It **runs migrations forward** when the backup's schema is older than the
   binary, so an old archive restores cleanly onto a newer release.
-- It **verifies the master key can decrypt every restored CA** and fails loudly
-  if it cannot — you find out at restore time, not at the first certificate
-  signing. A mismatched key leaves the restored database in place but exits
-  non-zero with a clear message.
+- It **verifies the master key can decrypt every restored CA** before replacing
+  the destination. A mismatched key leaves the live database untouched.
 
 Restoring a pre-credential-HMAC-cutover archive with a newer binary is
 restore-forward: the new binary applies the irreversible cutover to the
@@ -77,6 +78,9 @@ restored copy. For the stopped-server upgrade, preflight, and the rollback
 procedure, follow the [credential HMAC cutover guide](upgrade-credential-hmac-cutover.md).
 
 For an encrypted archive, pass the same `--passphrase` used to create it.
+Supplying a passphrase requires an authenticated encrypted archive; the CLI
+will not fall back to the plaintext format. Restore plaintext archives only
+from trusted storage and without a passphrase.
 
 ## Restore drill
 

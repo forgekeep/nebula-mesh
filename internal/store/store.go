@@ -160,6 +160,7 @@ type Store interface {
 	// Config versioning
 	BumpNetworkConfigVersion(ctx context.Context, networkID string) error
 	GetNetworkConfigVersion(ctx context.Context, networkID string) (int, error)
+	GetHostConfigDelivery(ctx context.Context, hostID string) (HostConfigDelivery, error)
 	GetHostConfigVersion(ctx context.Context, hostID string) (int, error)
 	UpdateHostConfigVersion(ctx context.Context, hostID string, version int) error
 

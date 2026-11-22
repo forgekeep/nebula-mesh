@@ -79,6 +79,32 @@ func (w *Web) hostDNSView(ctx context.Context, h *models.Host) *hostDNSStatusVie
 	return &hostDNSStatusView{Settings: settings, Status: configinput.HostRuntime(h).CheckHostDNS(tunDevice)}
 }
 
+// configDeliveryLabel reports only the evidence the management server has.
+// A current ACK cannot say whether the Nebula process enforced a blocklist.
+func (w *Web) configDeliveryLabel(ctx context.Context, h *models.Host) string {
+	if h.Status != models.HostStatusEnrolled {
+		return ""
+	}
+	if h.Kind == models.HostKindMobile {
+		return "No agent acknowledgement for mobile bundles."
+	}
+	delivery, err := w.store.GetHostConfigDelivery(ctx, h.ID)
+	if err != nil {
+		w.logger.Warn("read host config delivery", "host", h.ID, "error", err)
+		return "Config delivery status unavailable."
+	}
+	if !delivery.SupportsAck {
+		return "No config acknowledgement support reported."
+	}
+	if !isHostOnline(h.LastSeenAt, hostOnlineThreshold, time.Now()) {
+		return "No recent agent poll; current delivery is unverified."
+	}
+	if delivery.PendingVersion != 0 || delivery.HostVersion <= 0 || delivery.HostVersion != delivery.NetworkVersion {
+		return "Waiting for the agent to acknowledge the current config."
+	}
+	return "Current config acknowledged by agent."
+}
+
 // handleHostClearRestartPending lets an operator clear the restart mark on a
 // host whose agent cannot see Nebula restart, such as one with no PID file.
 func (w *Web) handleHostClearRestartPending(rw http.ResponseWriter, r *http.Request) {

@@ -49,6 +49,12 @@
         <tr><th>Overlay Addresses</th><td>{{range $i, $ip := .Host.NebulaIPs}}{{if $i}}<br>{{end}}{{$ip}}{{end}}</td></tr>
         <tr><th>Role</th><td>{{.Host.Role}}</td></tr>
         <tr><th>Status</th><td><span class="badge badge-{{.Host.Status}}">{{.Host.Status}}</span></td></tr>
+        {{if eq (printf "%s" .Host.Status) "blocked"}}
+        <tr><th>Revocation</th><td>Block recorded on the management server. Enforcement by other Nebula peers is not verified.</td></tr>
+        {{end}}
+        {{with .ConfigDelivery}}
+        <tr><th>Config delivery</th><td>{{.}} <span class="muted">This does not verify enforcement by Nebula.</span></td></tr>
+        {{end}}
         <tr><th>Groups</th><td>{{range .Host.Groups}}<span class="badge" style="background:var(--bg);margin-right:4px">{{.}}</span>{{else}}—{{end}}</td></tr>
         {{if .Host.PublicIP}}<tr><th>Public IP</th><td>{{.Host.PublicIP}}:{{.Host.ListenPort}}</td></tr>{{end}}
         <tr><th>Certificate</th><td>{{if .Host.CertFingerprint}}{{.Host.CertFingerprint}}{{else}}—{{end}}</td></tr>

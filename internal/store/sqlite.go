@@ -2959,6 +2959,32 @@ func (s *SQLiteStore) GetNetworkConfigVersion(ctx context.Context, networkID str
 	return version, nil
 }
 
+// HostConfigDelivery is the control-plane snapshot, not an observation of the
+// running Nebula process. Legacy agents can advance the host version without
+// acknowledging it.
+type HostConfigDelivery struct {
+	SupportsAck    bool
+	HostVersion    int
+	NetworkVersion int
+	PendingVersion int
+}
+
+func (s *SQLiteStore) GetHostConfigDelivery(ctx context.Context, hostID string) (HostConfigDelivery, error) {
+	var d HostConfigDelivery
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(p.config_ack_v1, 0), h.config_version,
+		n.config_version, COALESCE(p.pending_config_version, 0)
+		FROM hosts h JOIN networks n ON n.id = h.network_id
+		LEFT JOIN host_agent_profiles p ON p.host_id = h.id WHERE h.id = ?`, hostID).
+		Scan(&d.SupportsAck, &d.HostVersion, &d.NetworkVersion, &d.PendingVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		return HostConfigDelivery{}, ErrNotFound
+	}
+	if err != nil {
+		return HostConfigDelivery{}, fmt.Errorf("get host config delivery: %w", err)
+	}
+	return d, nil
+}
+
 func (s *SQLiteStore) GetHostConfigVersion(ctx context.Context, hostID string) (int, error) {
 	var version int
 	err := s.db.QueryRowContext(ctx, `SELECT config_version FROM hosts WHERE id = ?`, hostID).Scan(&version)

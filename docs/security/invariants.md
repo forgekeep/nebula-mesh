@@ -538,6 +538,11 @@ leave a weaker or partially applied security state.
 - `internal/web/revocation_progress_test.go`: a recorded block is not displayed
   as peer enforcement, and a legacy or stale configuration version cannot be
   displayed as a current acknowledgement.
+- `tests/integration/nebula_revocation_test.go`: real Nebula engines on local
+  UDP confirm tunnel removal and handshake rejection for multiple certificate
+  generations after server revocation and a CA trust-overlap reload. A reload
+  error and existing/renewed allowed peers are independent controls. This is
+  integration evidence, not per-peer attestation in deployed meshes.
 - `internal/agent/poller_ca_bundle_test.go`:
   `TestPollerRejectsInvalidRotationCABundleBeforeWriting` preserves all update
   files on malformed bundles; `TestPollerAppliesRotationCABundleAndBlocklistConfig`

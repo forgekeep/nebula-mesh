@@ -1,9 +1,11 @@
 # Ansible role: `nebula_mgmt`
 
 Installs and configures the management server (`nebula-mgmt`) on a Linux
-host using the published `.deb` / `.rpm` packages. Idempotent: the role
-never re-runs `nebula-mgmt init` after the first successful bootstrap
-(guarded by the presence of `data_dir/ca.crt`).
+host using the published `.deb` / `.rpm` packages. The role runs the
+idempotent, database-backed `nebula-mgmt init` without generating an API key.
+If provisioning automation needs a bearer key, invoke `ops mint-admin-key`
+explicitly with `--output` in a caller-owned `0700` directory and move that
+one-time output to the automation's secret store.
 
 ## Tested against
 
@@ -29,7 +31,6 @@ never re-runs `nebula-mgmt init` after the first successful bootstrap
 | `nebula_mgmt_tls_cert` / `..._key` | unset | Path on the target host. |
 | `nebula_mgmt_metrics_prometheus` | `true` | Toggle `/metrics`. |
 | `nebula_mgmt_alerts_enabled` | `false` | Cert-expiry alerter (issue #41). |
-| `nebula_mgmt_admin_username` | `admin` | Seed operator username. |
 
 See [`defaults/main.yml`](defaults/main.yml) for the full list.
 

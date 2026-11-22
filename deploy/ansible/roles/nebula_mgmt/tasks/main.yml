@@ -116,22 +116,15 @@
   notify: restart nebula-mgmt
   no_log: true
 
-- name: Check if CA already exists (init idempotency guard)
-  ansible.builtin.stat:
-    path: "{{ nebula_mgmt_data_dir }}/ca.crt"
-  register: nebula_mgmt_ca_stat
-
-- name: Bootstrap (run init once)
-  when: not nebula_mgmt_ca_stat.stat.exists
+- name: Initialize database and administrator CA without issuing credentials
   ansible.builtin.command:
-    cmd: >
-      nebula-mgmt init --config /etc/nebula-mgmt/server.yml
-                       --admin-username {{ nebula_mgmt_admin_username | quote }}
+    argv: [nebula-mgmt, init, --config, /etc/nebula-mgmt/server.yml]
   become_user: nebula-mgmt
   environment:
     NEBULA_MGMT_MASTER_KEY: "{{ nebula_mgmt_master_key }}"
     NEBULA_MGMT_CA_PASSPHRASE: "{{ nebula_mgmt_ca_passphrase }}"
-  changed_when: true
+  register: nebula_mgmt_init
+  changed_when: "'Admin default CA provisioned:' in nebula_mgmt_init.stdout"
 
 - name: Enable + start nebula-mgmt
   ansible.builtin.systemd:

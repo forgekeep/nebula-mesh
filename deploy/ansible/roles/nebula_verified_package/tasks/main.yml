@@ -1,0 +1,67 @@
+---
+- name: Install the verified release package
+  when: ansible_os_family in ['Debian', 'RedHat']
+  block:
+    - name: Select release package name
+      ansible.builtin.set_fact:
+        nebula_verified_package_name: "{{ nebula_package_component }}_{{ nebula_package_release | regex_replace('^v', '') }}_linux_{{ nebula_package_arch }}{{ '.deb' if ansible_os_family == 'Debian' else '.rpm' }}"
+
+    - name: Download release checksums
+      ansible.builtin.uri:
+        url: "{{ nebula_package_base_url }}/{{ nebula_package_release }}/checksums.txt"
+        return_content: true
+      register: nebula_verified_checksums
+
+    - name: Select release package checksum
+      ansible.builtin.set_fact:
+        nebula_verified_checksum_lines: "{{ nebula_verified_checksums.content | regex_findall('^[0-9a-f]{64}  ' ~ (nebula_verified_package_name | regex_escape) ~ '$', multiline=True) }}"
+
+    - name: Require exactly one SHA-256 entry
+      ansible.builtin.assert:
+        that:
+          - nebula_verified_checksum_lines | length == 1
+        fail_msg: "checksums.txt must contain exactly one SHA-256 line for {{ nebula_verified_package_name }}"
+
+    - name: Create private release package directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: nebula-package-
+      register: nebula_verified_package_dir
+
+    - name: Inspect staging directory permissions
+      ansible.builtin.stat:
+        path: "{{ nebula_verified_package_dir.path }}"
+        follow: false
+      register: nebula_verified_package_stat
+
+    - name: Require private staging
+      ansible.builtin.assert:
+        that:
+          - nebula_verified_package_stat.stat.isdir
+          - nebula_verified_package_stat.stat.mode == '0700'
+
+    - name: Download and verify the release package
+      ansible.builtin.get_url:
+        url: "{{ nebula_package_base_url }}/{{ nebula_package_release }}/{{ nebula_verified_package_name }}"
+        dest: "{{ nebula_verified_package_dir.path }}/{{ nebula_verified_package_name }}"
+        mode: '0600'
+        checksum: "sha256:{{ nebula_verified_checksum_lines[0] | regex_search('^[0-9a-f]{64}') }}"
+
+    - name: Install verified Debian package
+      when: ansible_os_family == 'Debian'
+      ansible.builtin.apt:
+        deb: "{{ nebula_verified_package_dir.path }}/{{ nebula_verified_package_name }}"
+        state: present
+
+    - name: Install verified RPM package
+      when: ansible_os_family == 'RedHat'
+      ansible.builtin.dnf:
+        name: "{{ nebula_verified_package_dir.path }}/{{ nebula_verified_package_name }}"
+        state: present
+        disable_gpg_check: true
+  always:
+    - name: Remove private release package directory
+      ansible.builtin.file:
+        path: "{{ nebula_verified_package_dir.path }}"
+        state: absent
+      when: nebula_verified_package_dir.path is defined

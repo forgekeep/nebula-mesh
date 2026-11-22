@@ -28,59 +28,13 @@
     nebula_mgmt_arch: "{{ 'arm64' if ansible_architecture in ['aarch64', 'arm64'] else 'amd64' }}"
 
 - name: Install nebula-mgmt package
-  when: ansible_os_family in ['Debian', 'RedHat']
-  block:
-    - name: Create private nebula-mgmt package directory
-      ansible.builtin.tempfile:
-        state: directory
-        mode: '0700'
-      register: nebula_mgmt_package_dir
-
-    - name: Select nebula-mgmt release package
-      ansible.builtin.set_fact:
-        nebula_mgmt_package_name: "nebula-mgmt_{{ nebula_mgmt_resolved_release | regex_replace('^v', '') }}_linux_{{ nebula_mgmt_arch }}{{ '.deb' if ansible_os_family == 'Debian' else '.rpm' }}"
-
-    - name: Download nebula-mgmt release checksums
-      ansible.builtin.uri:
-        url: "{{ nebula_mgmt_release_base_url }}/{{ nebula_mgmt_resolved_release }}/checksums.txt"
-        return_content: true
-      register: nebula_mgmt_release_checksums
-
-    - name: Select nebula-mgmt package checksum
-      ansible.builtin.set_fact:
-        nebula_mgmt_package_checksum_lines: "{{ nebula_mgmt_release_checksums.content | regex_findall('^[0-9a-f]{64}  ' ~ (nebula_mgmt_package_name | regex_escape) ~ '$', multiline=True) }}"
-
-    - name: Require exactly one nebula-mgmt package checksum
-      ansible.builtin.assert:
-        that:
-          - nebula_mgmt_package_checksum_lines | length == 1
-        fail_msg: "checksums.txt must contain exactly one SHA-256 line for {{ nebula_mgmt_package_name }}"
-
-    - name: Download and verify nebula-mgmt package
-      ansible.builtin.get_url:
-        url: "{{ nebula_mgmt_release_base_url }}/{{ nebula_mgmt_resolved_release }}/{{ nebula_mgmt_package_name }}"
-        dest: "{{ nebula_mgmt_package_dir.path }}/{{ nebula_mgmt_package_name }}"
-        mode: '0600'
-        checksum: "sha256:{{ nebula_mgmt_package_checksum_lines[0] | regex_search('^[0-9a-f]{64}') }}"
-
-    - name: Install nebula-mgmt .deb
-      when: ansible_os_family == 'Debian'
-      ansible.builtin.apt:
-        deb: "{{ nebula_mgmt_package_dir.path }}/{{ nebula_mgmt_package_name }}"
-        state: present
-
-    - name: Install nebula-mgmt .rpm
-      when: ansible_os_family == 'RedHat'
-      ansible.builtin.dnf:
-        name: "{{ nebula_mgmt_package_dir.path }}/{{ nebula_mgmt_package_name }}"
-        state: present
-        disable_gpg_check: true
-  always:
-    - name: Remove private nebula-mgmt package directory
-      ansible.builtin.file:
-        path: "{{ nebula_mgmt_package_dir.path }}"
-        state: absent
-      when: nebula_mgmt_package_dir.path is defined
+  ansible.builtin.include_role:
+    name: nebula_verified_package
+  vars:
+    nebula_package_component: nebula-mgmt
+    nebula_package_release: "{{ nebula_mgmt_resolved_release }}"
+    nebula_package_arch: "{{ nebula_mgmt_arch }}"
+    nebula_package_base_url: "{{ nebula_mgmt_release_base_url }}"
 
 - name: Render server.yml
   ansible.builtin.template:

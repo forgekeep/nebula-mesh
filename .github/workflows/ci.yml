@@ -54,6 +54,13 @@ jobs:
       - name: govulncheck
         run: make govulncheck
 
+      - name: Install verified Debian package fixtures through Ansible
+        run: |
+          python3 -m venv "$RUNNER_TEMP/nebula-ansible-venv"
+          "$RUNNER_TEMP/nebula-ansible-venv/bin/python" -m pip install ansible-core==2.19.15
+          export PATH="$RUNNER_TEMP/nebula-ansible-venv/bin:$PATH"
+          python3 hack/ansible-package-smoke.py --ci-install
+
   race:
     name: test (race) / ${{ matrix.shard }}
     runs-on: ubuntu-latest

@@ -5,6 +5,8 @@ import (
 	"crypto/ed25519"
 	"fmt"
 
+	"github.com/slackhq/nebula/cert"
+
 	"github.com/forgekeep/nebula-mesh/internal/keystore"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
@@ -16,10 +18,8 @@ type CAStore interface {
 }
 
 // CAResolver loads CAs from the database, decrypts their private key
-// material with the master keystore, and returns a CAManager bound to the
-// requested CA. The unwrapped key material lives only inside the returned
-// manager; CAResolver does NOT cache anything across calls so a disable /
-// rotation takes effect immediately.
+// material with the master keystore for one operation. It neither exposes
+// decrypted key material nor caches it across calls.
 type CAResolver struct {
 	store  CAStore
 	master *keystore.Master
@@ -31,9 +31,50 @@ func NewCAResolver(store CAStore, master *keystore.Master) *CAResolver {
 	return &CAResolver{store: store, master: master}
 }
 
-// LoadByID returns a CAManager for the CA identified by caID. The caller
-// is responsible for not retaining the manager beyond the signing scope.
-func (r *CAResolver) LoadByID(ctx context.Context, caID string) (*CAManager, error) {
+// SignHost signs a host certificate and returns it with the public issuer PEM
+// from the same CA snapshot. No decrypted manager crosses the PKI boundary.
+func (r *CAResolver) SignHost(ctx context.Context, caID string, req SignRequest) (cert.Certificate, []byte, error) {
+	return signWithCA(r.loadByID(ctx, caID), req)
+}
+
+type loadedCA struct {
+	manager *CAManager
+	err     error
+}
+
+func signWithCA(loaded loadedCA, req SignRequest) (cert.Certificate, []byte, error) {
+	defer loaded.manager.Wipe()
+	if loaded.err != nil {
+		return nil, nil, fmt.Errorf("resolve CA: %w", loaded.err)
+	}
+	c, err := loaded.manager.Sign(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("sign certificate: %w", err)
+	}
+	pem, err := loaded.manager.CACertPEM()
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal issuer certificate: %w", err)
+	}
+	return c, pem, nil
+}
+
+// VerifyCAKey verifies that the persisted CA's key decrypts and matches its
+// certificate, then clears the owned plaintext before returning.
+func (r *CAResolver) VerifyCAKey(ctx context.Context, caID string) error {
+	return verifyLoadedCA(r.loadByID(ctx, caID))
+}
+
+func verifyLoadedCA(loaded loadedCA) error {
+	defer loaded.manager.Wipe()
+	return loaded.err
+}
+
+func (r *CAResolver) loadByID(ctx context.Context, caID string) loadedCA {
+	manager, err := r.openCA(ctx, caID)
+	return loadedCA{manager: manager, err: err}
+}
+
+func (r *CAResolver) openCA(ctx context.Context, caID string) (*CAManager, error) {
 	if r == nil {
 		return nil, fmt.Errorf("CAResolver is nil")
 	}

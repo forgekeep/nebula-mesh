@@ -77,7 +77,7 @@ func (m *CAManager) RawKey() ed25519.PrivateKey {
 
 // Wipe overwrites the in-memory plaintext signing key with zeros so it
 // no longer lingers on the Go heap waiting for GC. Callers MUST defer
-// this immediately after LoadByID / NewCA, per the keystore package's
+// this immediately after opening a persisted key or calling NewCA, per the keystore package's
 // "zeroise the plaintext as soon as it is no longer needed" contract.
 // After Wipe(), any subsequent Sign() will produce invalid signatures.
 // Closes GHSA-8h84-fhqq-q58v.

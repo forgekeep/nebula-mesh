@@ -97,11 +97,6 @@ func TestSim_MeshImportConvergesOnlyAfterFinalize(t *testing.T) {
 
 func writeSimExistingInstallation(t *testing.T, h *Harness) (string, [32]byte) {
 	t.Helper()
-	manager, err := pki.NewCAResolver(h.Store, h.master).LoadByID(context.Background(), h.CA.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer manager.Wipe()
 	privateKey := make([]byte, curve25519.ScalarSize)
 	if _, err := rand.Read(privateKey); err != nil {
 		t.Fatal(err)
@@ -110,7 +105,7 @@ func writeSimExistingInstallation(t *testing.T, h *Harness) (string, [32]byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostCertificate, err := manager.Sign(pki.SignRequest{
+	hostCertificate, _, err := pki.NewCAResolver(h.Store, h.master).SignHost(t.Context(), h.CA.ID, pki.SignRequest{
 		Name: "existing-sim-host", PublicKey: publicKey,
 		Networks: []netip.Prefix{netip.MustParsePrefix("10.88.0.10/16")}, Duration: 90 * 24 * time.Hour,
 	})

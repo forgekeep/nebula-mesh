@@ -272,8 +272,13 @@ type StubCAResolver struct {
 	ca *pki.CAManager
 }
 
-func (s *StubCAResolver) LoadByID(ctx context.Context, caID string) (*pki.CAManager, error) {
-	return s.ca, nil
+func (s *StubCAResolver) SignHost(_ context.Context, _ string, req pki.SignRequest) (cert.Certificate, []byte, error) {
+	c, err := s.ca.Sign(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	pem, err := s.ca.CACertPEM()
+	return c, pem, err
 }
 
 func contains(s, substr string) bool {

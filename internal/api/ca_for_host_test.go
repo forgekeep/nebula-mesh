@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -60,12 +61,14 @@ func TestCAForHost_ResolvesCAID(t *testing.T) {
 
 	// Test: host with CAID resolves correctly
 	host := &models.Host{ID: "host1", CAID: ca.ID}
-	resolved, err := srv.caForHost(ctx, host)
+	resolved, issuer, err := srv.signForHost(ctx, host, pki.SignRequest{
+		Name: "fixture-host", PublicKey: make([]byte, 32), Networks: []netip.Prefix{netip.MustParsePrefix("10.0.0.1/24")}, Duration: time.Hour,
+	})
 	if err != nil {
 		t.Fatalf("caForHost failed: %v", err)
 	}
-	if resolved == nil {
-		t.Fatalf("resolved CA is nil")
+	if resolved == nil || !bytes.Equal(bytes.TrimSpace(issuer), bytes.TrimSpace([]byte(ca.CertPEM))) {
+		t.Fatal("host certificate did not use the selected issuer")
 	}
 }
 
@@ -90,7 +93,7 @@ func TestCAForHost_RejectsEmptyCAID(t *testing.T) {
 
 	// Test: host with empty CAID returns error
 	host := &models.Host{ID: "host1", CAID: ""}
-	_, err = srv.caForHost(ctx, host)
+	_, _, err = srv.signForHost(ctx, host, pki.SignRequest{})
 	if err == nil {
 		t.Fatalf("expected error for empty CAID, got nil")
 	}
@@ -117,7 +120,7 @@ func TestCAForHost_RejectsUnknownCAID(t *testing.T) {
 
 	// Test: host with unknown CAID returns error from resolver
 	host := &models.Host{ID: "host1", CAID: "nonexistent"}
-	_, err = srv.caForHost(ctx, host)
+	_, _, err = srv.signForHost(ctx, host, pki.SignRequest{})
 	if err == nil {
 		t.Fatalf("expected error for unknown CAID, got nil")
 	}

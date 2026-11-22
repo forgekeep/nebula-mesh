@@ -161,7 +161,7 @@ func prepareRestoredDB(stagedDB, inputPath, schemaVersion string, master *keysto
 	if err != nil {
 		return 0, fmt.Errorf("list restored CAs: %w", err)
 	}
-	if err := verifyRestoredCAs(ctx, cas, resolver.LoadByID); err != nil {
+	if err := verifyRestoredCAs(ctx, cas, resolver.VerifyCAKey); err != nil {
 		return 0, err
 	}
 
@@ -169,16 +169,10 @@ func prepareRestoredDB(stagedDB, inputPath, schemaVersion string, master *keysto
 	return len(cas), nil
 }
 
-// verifyRestoredCAs checks every restored CA and wipes each decrypted manager
-// as soon as the check no longer needs it, including when loading reports an
-// error alongside a manager.
-func verifyRestoredCAs(ctx context.Context, cas []*models.CA, load func(context.Context, string) (*pki.CAManager, error)) error {
+// verifyRestoredCAs checks every restored CA without taking ownership of decrypted keys.
+func verifyRestoredCAs(ctx context.Context, cas []*models.CA, verify func(context.Context, string) error) error {
 	for _, ca := range cas {
-		manager, err := load(ctx, ca.ID)
-		if manager != nil {
-			manager.Wipe()
-		}
-		if err != nil {
+		if err := verify(ctx, ca.ID); err != nil {
 			return fmt.Errorf("master key cannot decrypt CA %q (%s): %w — verify NEBULA_MGMT_MASTER_KEY for this backup; database not replaced",
 				ca.Name, ca.ID, err)
 		}

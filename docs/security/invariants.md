@@ -472,6 +472,10 @@ leave a weaker or partially applied security state.
 - Block and delete add every unexpired host certificate fingerprint to its
   issuer CA's blocklist before changing or deleting the host. Certificate
   history, blocklist rows, and config-version bumps commit in one transaction.
+- The host detail page distinguishes a server-recorded block from peer
+  enforcement. Configuration acknowledgement is agent delivery evidence only;
+  legacy delivery bookkeeping, stale/offline peers, and mobile bundles do not
+  count as a current acknowledgement or confirmed enforcement.
 - Mobile bundle regeneration revokes superseded certificates and renders the
   replacement bundle from that same blocklist inside the issuance transaction.
   A render failure rolls back both the certificate issuance and revocation.
@@ -524,6 +528,9 @@ leave a weaker or partially applied security state.
   `TestFinalizeMeshImportRollsBackChallengeCleanup`.
 - `internal/api/durable_revocation_test.go`: blocked Host and disabled owner
   prevent enrollment, renewal, re-enrollment, and mobile bundle issuance.
+- `internal/web/revocation_progress_test.go`: a recorded block is not displayed
+  as peer enforcement, and a legacy or stale configuration version cannot be
+  displayed as a current acknowledgement.
 - `internal/agent/poller_ca_bundle_test.go`:
   `TestPollerRejectsInvalidRotationCABundleBeforeWriting` preserves all update
   files on malformed bundles; `TestPollerAppliesRotationCABundleAndBlocklistConfig`

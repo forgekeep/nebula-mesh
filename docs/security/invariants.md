@@ -350,9 +350,13 @@ normal initialization. Explicit issuance never prints a key to a pipe or log.
 
 - `internal/releaseconfig/package_security_test.go`:
   `TestPostinstallMgmt_SEC_BOOTSTRAP_001_DoesNotPersistAdminKeyInSharedFile`
-  rejects shared-file capture and preserves direct initialization.
+  rejects shared-file capture and preserves direct initialization;
+  `TestPackagedServerExample_SEC_BOOTSTRAP_001_RequiresExplicitAPIKeyIssuance`
+  checks the shipped example's instructions.
 - CLI tests cover init without issuance and explicit issuance refusal for a
-  pipe, a shared directory, and an existing file.
+  pipe, a shared directory, and an existing file. On Unix,
+  `TestAdminBootstrap_SEC_BOOTSTRAP_001_ExplicitKeyAuthenticates` follows
+  initialization and explicit file issuance through to authenticated API use.
 
 ### Review checklist
 

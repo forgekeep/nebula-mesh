@@ -9,7 +9,7 @@ sudo install -m 0755 bin/nebula-mgmt /usr/local/bin/nebula-mgmt
 sudo install -d -o nebula-mgmt -g nebula-mgmt -m 0750 \
   /etc/nebula-mgmt /var/lib/nebula-mgmt
 
-# 1. Initialize CA + API key (interactive — prompts for CA passphrase).
+# 1. Initialize the database and CA (does not mint an API key).
 sudo -u nebula-mgmt nebula-mgmt init --config /etc/nebula-mgmt/server.yml
 
 # 2. Persist the CA passphrase for systemd.

@@ -8,6 +8,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestPackagedServerExample_SEC_BOOTSTRAP_001_RequiresExplicitAPIKeyIssuance(t *testing.T) {
+	example := readFile(t, filepath.Join(repositoryRoot(t), "configs/server.example.yml"))
+	if strings.Contains(example, "printed once to stdout") || strings.Contains(example, "if empty, auto-generated") {
+		t.Error("server example still promises that init issues credentials")
+	}
+	if !strings.Contains(example, "nebula-mgmt ops mint-admin-key") {
+		t.Error("server example must point to explicit admin API key issuance")
+	}
+}
+
 func TestPostinstallMgmt_SEC_BOOTSTRAP_001_DoesNotPersistAdminKeyInSharedFile(t *testing.T) {
 	script := readFile(t, filepath.Join(repositoryRoot(t), "deploy/packaging/postinstall-mgmt.sh"))
 	if strings.Contains(script, "/tmp/nebula-mgmt-init.log") {
@@ -22,7 +32,7 @@ func TestPostinstallMgmt_SEC_BOOTSTRAP_001_DoesNotPersistAdminKeyInSharedFile(t 
 		}
 		foundInit = true
 		if strings.ContainsAny(trimmed, "|>") || strings.Contains(trimmed, "tee ") {
-			t.Errorf("bootstrap command must print the admin API key only to the terminal, got %q", trimmed)
+			t.Errorf("bootstrap command must run directly, without a pipe or redirection, got %q", trimmed)
 		}
 	}
 	if !foundInit {

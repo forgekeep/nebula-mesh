@@ -9,8 +9,8 @@ require (
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/kardianos/service v1.3.0
-	github.com/pb33f/libopenapi v0.42.5
-	github.com/pb33f/libopenapi-validator v0.16.3
+	github.com/pb33f/libopenapi v0.43.2
+	github.com/pb33f/libopenapi-validator v0.16.5
 	github.com/pquerna/otp v1.5.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/slackhq/nebula v1.12.0
@@ -48,7 +48,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nbrownus/go-metrics-prometheus v0.0.0-20210712211119-974a6260965f // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
-	github.com/pb33f/go-yaml v0.1.1 // indirect
+	github.com/pb33f/go-yaml v0.2.0 // indirect
 	github.com/pb33f/jsonpath v0.8.5 // indirect
 	github.com/pb33f/jsonschema/v6 v6.0.3 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect

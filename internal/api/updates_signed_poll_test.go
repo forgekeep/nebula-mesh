@@ -28,6 +28,7 @@ type enrolledAgent struct {
 	fingerprint string
 	signingPub  ed25519.PublicKey
 	signingPriv ed25519.PrivateKey
+	nebulaPriv  []byte
 }
 
 // enrolledFixture creates a network + host and runs the full enrollment
@@ -94,7 +95,7 @@ func enrolledFixture(t *testing.T, srv *Server) enrolledAgent {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return enrolledAgent{hostID: created.Host.ID, fingerprint: fp, signingPub: edPub, signingPriv: edPriv}
+	return enrolledAgent{hostID: created.Host.ID, fingerprint: fp, signingPub: edPub, signingPriv: edPriv, nebulaPriv: x25519Priv}
 }
 
 // signPoll mutates the request, attaching the four ADR 0004 headers.

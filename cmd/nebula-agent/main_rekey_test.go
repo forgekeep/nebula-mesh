@@ -22,6 +22,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/config"
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
+	"github.com/forgekeep/nebula-mesh/internal/rekeytoken"
 )
 
 func writeRekeySigningKey(t *testing.T, path string) {
@@ -59,6 +60,18 @@ func TestRekeyPreservesImportedNebulaPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	oldCertPEM, err := os.ReadFile(fixture.certPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCert, _, err := cert.UnmarshalCertificateFromPEM(oldCertPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealedToken, err := rekeytoken.Seal(oldCert.PublicKey(), "nme_rekey-token")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	profileCh := make(chan models.AgentProfile, 1)
 	secondFingerprintCh := make(chan string, 1)
@@ -72,7 +85,7 @@ func TestRekeyPreservesImportedNebulaPaths(t *testing.T) {
 			if updateCalls == 1 {
 				_ = json.NewEncoder(response).Encode(map[string]any{
 					"has_updates": true, "rekey_required": true,
-					"enrollment_token": "nme_rekey-token", "blocklist": []string{},
+					"enrollment_token_encrypted": sealedToken, "blocklist": []string{},
 				})
 				return
 			}
@@ -81,12 +94,18 @@ func TestRekeyPreservesImportedNebulaPaths(t *testing.T) {
 			_ = json.NewEncoder(response).Encode(map[string]any{"has_updates": false, "blocklist": []string{}})
 		case "/api/v1/enroll":
 			var body struct {
+				Token        string              `json:"token"`
 				PublicKeyPEM string              `json:"public_key_pem"`
 				Profile      models.AgentProfile `json:"profile"`
 			}
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 				t.Error(err)
 				response.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if body.Token != "nme_rekey-token" {
+				t.Errorf("enrollment token = %q, want decrypted rekey token", body.Token)
+				response.WriteHeader(http.StatusUnauthorized)
 				return
 			}
 			publicKey, _, _, err := cert.UnmarshalPublicKeyFromPEM([]byte(body.PublicKeyPEM))

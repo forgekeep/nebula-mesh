@@ -13,6 +13,8 @@ import (
 
 	"github.com/slackhq/nebula/cert"
 	"golang.org/x/crypto/curve25519"
+
+	"github.com/forgekeep/nebula-mesh/internal/rekeytoken"
 )
 
 // pollForRekey performs one signed poll and returns the decoded response.
@@ -30,6 +32,21 @@ func pollForRekey(t *testing.T, srv *Server, agent enrolledAgent) agentUpdatesRe
 		t.Fatal(err)
 	}
 	return resp
+}
+
+func openRekeyToken(t *testing.T, resp agentUpdatesResponse, agent enrolledAgent) string {
+	t.Helper()
+	if resp.EnrollmentToken != "" {
+		t.Fatal("poll exposed a plaintext rekey token")
+	}
+	if resp.EnrollmentTokenEncrypted == "" {
+		t.Fatal("poll did not carry an encrypted rekey token")
+	}
+	token, err := rekeytoken.Open(agent.nebulaPriv, resp.EnrollmentTokenEncrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
 }
 
 // enrollWithToken runs a full enrollment handshake with the given token,
@@ -83,23 +100,25 @@ func TestRekey_ReofferedUntilEnrollmentCompletes(t *testing.T) {
 	// First poll: the agent is told to re-key but (as far as the server can
 	// tell) never follows through.
 	first := pollForRekey(t, srv, agent)
-	if !first.RekeyRequired || first.EnrollmentToken == "" {
+	if !first.RekeyRequired {
 		t.Fatal("first poll did not carry the rekey signal")
 	}
+	firstToken := openRekeyToken(t, first, agent)
 
 	// Second poll: the rekey must still be on offer.
 	second := pollForRekey(t, srv, agent)
-	if !second.RekeyRequired || second.EnrollmentToken == "" {
+	if !second.RekeyRequired {
 		t.Fatal("rekey was dropped after one unanswered poll — the host would keep its old certificate forever")
 	}
-	if second.EnrollmentToken == first.EnrollmentToken {
+	secondToken := openRekeyToken(t, second, agent)
+	if secondToken == firstToken {
 		t.Error("a re-offer must mint a fresh token; only the hash is stored, so the old one cannot be re-sent")
 	}
 
 	// The superseded token must be dead, so re-offering cannot leave a trail
 	// of usable credentials behind it. (That only one row survives is pinned
 	// in the store's TestCreateTokenForHost_SupersedesPreviousUnused.)
-	if rec := enrollWithToken(t, srv, first.EnrollmentToken); rec.Code == http.StatusOK {
+	if rec := enrollWithToken(t, srv, firstToken); rec.Code == http.StatusOK {
 		t.Error("the superseded token still enrolled; re-offering must invalidate the one it replaces")
 	}
 }
@@ -125,7 +144,7 @@ func TestRekey_ClearedByCompletedEnrollment(t *testing.T) {
 		t.Fatal("poll did not carry the rekey signal")
 	}
 
-	if rec := enrollWithToken(t, srv, resp.EnrollmentToken); rec.Code != http.StatusOK {
+	if rec := enrollWithToken(t, srv, openRekeyToken(t, resp, agent)); rec.Code != http.StatusOK {
 		t.Fatalf("re-enroll: status %d, body %s", rec.Code, rec.Body.String())
 	}
 
@@ -148,7 +167,43 @@ func TestRekey_NotOfferedOnceCleared(t *testing.T) {
 	if resp.RekeyRequired {
 		t.Error("RekeyRequired set without a pending rekey")
 	}
-	if resp.EnrollmentToken != "" {
+	if resp.EnrollmentToken != "" || resp.EnrollmentTokenEncrypted != "" {
 		t.Error("an enrollment token was minted for a host with no pending rekey")
+	}
+}
+
+func TestRekey_SEC_REKEY_001_PollSignerCannotRedeemEncryptedToken(t *testing.T) {
+	srv, st := newTestServer(t)
+	agent := enrolledFixture(t, srv)
+	ctx := context.Background()
+	host, err := st.GetHostByFingerprint(ctx, agent.fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetPendingRekey(ctx, host.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := pollForRekey(t, srv, agent)
+	if resp.EnrollmentToken != "" {
+		t.Fatal("signed poll returned a bearer token to the poll signer")
+	}
+	if rec := enrollWithToken(t, srv, resp.EnrollmentTokenEncrypted); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("ciphertext accepted as an enrollment token: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	wrongKey := make([]byte, curve25519.ScalarSize)
+	if _, err := rand.Read(wrongKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rekeytoken.Open(wrongKey, resp.EnrollmentTokenEncrypted); err == nil {
+		t.Fatal("poll signer without the Nebula private key decrypted the token")
+	}
+
+	after, err := st.GetHost(ctx, host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.PendingRekey || after.CertFingerprint != host.CertFingerprint || after.SigningPubPEM != host.SigningPubPEM {
+		t.Fatalf("failed ciphertext redemption changed host identity: before=%+v after=%+v", host, after)
 	}
 }

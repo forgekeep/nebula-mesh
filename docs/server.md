@@ -253,8 +253,8 @@ Response (201):
 `name`, `nebula_ips` and `groups` are all carried inside the host's Nebula
 certificate, so editing any of them schedules a re-issuance: the host row is
 flagged `pending_rekey`, the next poll answers `rekey_required: true` with a
-single-use enrollment token, and the agent re-enrolls with a certificate that
-reflects the change. Other fields (`role`, `public_ip`, `listen_port`,
+single-use enrollment token sealed to the current Nebula key, and the agent
+re-enrolls with a certificate that reflects the change. Other fields (`role`, `public_ip`, `listen_port`,
 `advanced`) only affect the rendered config and are picked up on the next poll
 without a new certificate.
 

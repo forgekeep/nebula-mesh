@@ -97,7 +97,8 @@ func TestAgentImportPendingPollDoesNotMutateHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	if updates.HasUpdates || !updates.ImportPending || updates.CertificatePEM != nil || updates.CACertPEM != nil ||
-		updates.ConfigYAML != nil || len(updates.Blocklist) != 0 || updates.RekeyRequired || updates.EnrollmentToken != "" {
+		updates.ConfigYAML != nil || len(updates.Blocklist) != 0 || updates.RekeyRequired ||
+		updates.EnrollmentToken != "" || updates.EnrollmentTokenEncrypted != "" {
 		t.Fatalf("pending updates = %#v", updates)
 	}
 	hostAfter, err := fixture.store.GetHost(context.Background(), result.HostID)

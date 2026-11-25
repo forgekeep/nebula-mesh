@@ -997,8 +997,9 @@ components:
           type: boolean
         rekey_required:
           type: boolean
-        enrollment_token:
+        enrollment_token_encrypted:
           type: string
+          description: Single-use enrollment token sealed to the current host X25519 public key and encoded with base64url.
 
     AgentImportProfile:
       type: object

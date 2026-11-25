@@ -129,6 +129,58 @@ and resource-scoped, TTL-bounded, and accepted at most once.
 3. Which lifecycle changes revoke outstanding proofs, and are they atomic?
 4. Does retry handling distinguish an exact replay from a conflicting payload?
 
+## SEC-REKEY-001: independent proof for host identity replacement
+
+### Rule
+
+A server-driven rekey must require possession of the current Nebula X25519
+private key in addition to the Ed25519 poll proof before it releases a usable
+enrollment credential. The poll signer alone must never be able to replace the
+host's X25519 identity or its next Ed25519 signing key.
+
+- Pending-rekey poll responses must not contain a plaintext enrollment token.
+- The server seals the one-use token to the public key in the current host
+  certificate. The agent opens it with the matching current `host.key`.
+- Sealing uses a distinct rekey purpose. Wrong keys, malformed or tampered
+  ciphertext, and ambiguous responses containing both plaintext and ciphertext
+  must fail without changing host identity.
+- Token TTL, host binding, keyed storage, superseding, and atomic single-use
+  consumption remain governed by `SEC-REPLAY-001` and `SEC-CREDENTIAL-001`.
+- Operator-issued enrollment tokens delivered outside the poll channel are
+  unchanged. They are the recovery path when both current private keys are
+  compromised; unattended rekey cannot evict an attacker with `host.key`.
+
+### Current enforcement
+
+- `internal/api/updates.go` seals pending-rekey tokens to the current host
+  certificate and never emits the plaintext rekey token.
+- `internal/rekeytoken` provides the purpose-separated NaCl anonymous-box
+  encoding used by server and agent.
+- `internal/agent/poller.go` and `internal/agent/rekey_token.go` require the
+  current X25519 private key before returning a rekey credential to the daemon.
+
+### Test anchors
+
+- `internal/api/rekey_lifecycle_test.go`:
+  `TestRekey_SEC_REKEY_001_PollSignerCannotRedeemEncryptedToken` rejects
+  ciphertext-as-token and wrong-key redemption without changing host state.
+- `internal/agent/poller_rekey_test.go` covers successful decryption, wrong-key
+  rejection, ambiguous credentials, and legacy-server compatibility.
+- `internal/rekeytoken/token_test.go` covers round trip, wrong keys, tampering,
+  and malformed input.
+- `tests/integration/e2e_edit_host_test.go`:
+  `TestE2E_RenameHost_TriggersRekey` exercises encrypted token delivery and
+  decryption through the live HTTP handler.
+
+### Review checklist
+
+1. Can a poll-only signer recover or redeem any rekey credential?
+2. Does every decryption or parsing failure preserve the previous host keys?
+3. Can a compatibility path reintroduce plaintext delivery or accept both
+   plaintext and ciphertext from the same response?
+4. Does compromise recovery use an independent operator-issued credential when
+   the current X25519 private key is also compromised?
+
 ## SEC-CREDENTIAL-001: keyed persisted credential verifiers
 
 ### Rule

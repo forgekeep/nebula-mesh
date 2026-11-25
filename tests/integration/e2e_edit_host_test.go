@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/curve25519"
 
 	"github.com/forgekeep/nebula-mesh/internal/models"
+	"github.com/forgekeep/nebula-mesh/internal/rekeytoken"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
@@ -28,7 +29,7 @@ type EnrollmentResult struct {
 
 // enrollHostForPoll is a helper that creates a host, enrolls it, and returns the host,
 // enrollment response, and signing private key needed for polling.
-func enrollHostForPoll(t *testing.T, ts *httptest.Server, s *store.SQLiteStore, networkID, hostName, nebulaIP string) (*models.Host, EnrollmentResult, ed25519.PrivateKey) {
+func enrollHostForPoll(t *testing.T, ts *httptest.Server, s *store.SQLiteStore, networkID, hostName, nebulaIP string) (*models.Host, EnrollmentResult, ed25519.PrivateKey, []byte) {
 	t.Helper()
 
 	// Create host
@@ -90,7 +91,7 @@ func enrollHostForPoll(t *testing.T, ts *httptest.Server, s *store.SQLiteStore, 
 		CertificatePEM:   enrollResult.CertificatePEM,
 		CACertificatePEM: enrollResult.CACertificatePEM,
 		ConfigYAML:       enrollResult.ConfigYAML,
-	}, signingPriv
+	}, signingPriv, privKey
 }
 
 // TestE2E_EditHostAdvanced_TriggersConfigUpdate tests that editing host advanced
@@ -114,7 +115,7 @@ func TestE2E_EditHostAdvanced_TriggersConfigUpdate(t *testing.T) {
 	resp.Body.Close()
 
 	// 2. Enroll a host
-	host, enrollResult, signingPriv := enrollHostForPoll(t, ts, s, network.ID, "test-host", "192.168.100.10")
+	host, enrollResult, signingPriv, _ := enrollHostForPoll(t, ts, s, network.ID, "test-host", "192.168.100.10")
 	t.Logf("host enrolled: %s (ID: %s)", host.Name, host.ID)
 
 	// Parse cert to get fingerprint
@@ -200,7 +201,7 @@ func TestE2E_EditHostAdvanced_TriggersConfigUpdate(t *testing.T) {
 }
 
 // TestE2E_RenameHost_TriggersRekey tests that renaming a host sets PendingRekey
-// and the next poll returns RekeyRequired=true with a fresh enrollment token.
+// and the next poll returns RekeyRequired=true with an encrypted enrollment token.
 func TestE2E_RenameHost_TriggersRekey(t *testing.T) {
 	ts, s, _ := setupE2E(t)
 
@@ -220,7 +221,7 @@ func TestE2E_RenameHost_TriggersRekey(t *testing.T) {
 	resp.Body.Close()
 
 	// 2. Enroll a host
-	host, enrollResult, signingPriv := enrollHostForPoll(t, ts, s, network.ID, "original-name", "192.168.100.10")
+	host, enrollResult, signingPriv, nebulaPriv := enrollHostForPoll(t, ts, s, network.ID, "original-name", "192.168.100.10")
 	t.Logf("host enrolled: %s (ID: %s)", host.Name, host.ID)
 
 	// Parse cert to get fingerprint
@@ -259,14 +260,15 @@ func TestE2E_RenameHost_TriggersRekey(t *testing.T) {
 	resp.Body.Close()
 	t.Logf("host renamed: %s -> %s", host.Name, patchedHost.Name)
 
-	// 5. Second poll (after PATCH) — should have RekeyRequired=true and EnrollmentToken
+	// 5. Second poll (after PATCH) — should have RekeyRequired=true and an encrypted enrollment token
 	t.Log("Second poll (after rename)")
 	pollResp = signedGetUpdates(t, ts, fp, signingPriv)
 	defer pollResp.Body.Close()
 
 	var poll2 struct {
-		RekeyRequired   bool   `json:"rekey_required"`
-		EnrollmentToken string `json:"enrollment_token"`
+		RekeyRequired            bool   `json:"rekey_required"`
+		EnrollmentToken          string `json:"enrollment_token"`
+		EnrollmentTokenEncrypted string `json:"enrollment_token_encrypted"`
 	}
 	if err := json.NewDecoder(pollResp.Body).Decode(&poll2); err != nil {
 		t.Fatalf("decode poll2: %v", err)
@@ -274,10 +276,14 @@ func TestE2E_RenameHost_TriggersRekey(t *testing.T) {
 	if !poll2.RekeyRequired {
 		t.Error("poll2: RekeyRequired should be true after name change")
 	}
-	if poll2.EnrollmentToken == "" {
-		t.Error("poll2: EnrollmentToken should not be empty")
+	if poll2.EnrollmentToken != "" || poll2.EnrollmentTokenEncrypted == "" {
+		t.Error("poll2: expected only an encrypted enrollment token")
 	}
-	t.Logf("poll2: RekeyRequired=%v, EnrollmentToken=%s", poll2.RekeyRequired, poll2.EnrollmentToken[:8]+"...")
+	token2, err := rekeytoken.Open(nebulaPriv, poll2.EnrollmentTokenEncrypted)
+	if err != nil {
+		t.Fatalf("decrypt poll2 token: %v", err)
+	}
+	t.Logf("poll2: RekeyRequired=%v, encrypted EnrollmentToken received", poll2.RekeyRequired)
 
 	// 6. Handing out the token is not the same as the rekey having happened.
 	// The flag stays set until the agent completes the enrollment, so an
@@ -294,14 +300,21 @@ func TestE2E_RenameHost_TriggersRekey(t *testing.T) {
 	pollResp3 := signedGetUpdates(t, ts, fp, signingPriv)
 	defer pollResp3.Body.Close()
 	var poll3 struct {
-		RekeyRequired   bool   `json:"rekey_required"`
-		EnrollmentToken string `json:"enrollment_token"`
+		RekeyRequired            bool   `json:"rekey_required"`
+		EnrollmentTokenEncrypted string `json:"enrollment_token_encrypted"`
 	}
 	if err := json.NewDecoder(pollResp3.Body).Decode(&poll3); err != nil {
 		t.Fatalf("decode poll3: %v", err)
 	}
-	if !poll3.RekeyRequired || poll3.EnrollmentToken == "" {
+	if !poll3.RekeyRequired || poll3.EnrollmentTokenEncrypted == "" {
 		t.Error("poll3: an unanswered rekey must still be on offer")
+	}
+	token3, err := rekeytoken.Open(nebulaPriv, poll3.EnrollmentTokenEncrypted)
+	if err != nil {
+		t.Fatalf("decrypt poll3 token: %v", err)
+	}
+	if token3 == token2 {
+		t.Error("poll3: re-offered token must be fresh")
 	}
 	t.Logf("rekey re-offered on the following poll: RekeyRequired=%v", poll3.RekeyRequired)
 

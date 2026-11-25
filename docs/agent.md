@@ -497,8 +497,8 @@ Say `gw` (overlay `10.0.0.99`) fronts the LAN `192.168.10.0/24`:
 
    `unsafe_networks` is certificate-bound state, like `nebula_ips` and
    `groups`: editing it sets `pending_rekey`, so the gateway's next poll
-   answers `rekey_required` with a fresh enrollment token and the agent
-   re-enrolls with a new keypair. The new certificate carries the prefix. The
+   answers `rekey_required` with a fresh enrollment token sealed to the current
+   Nebula key, and the agent re-enrolls with a new keypair. The new certificate carries the prefix. The
    agent therefore has to be running and able to reach the server for the
    change to take effect — it is not a server-side re-sign.
 
@@ -964,6 +964,10 @@ After a successful enrollment two private keys exist on the host, both mode `060
 
 The two keys share lifetime — force-rotate and re-enroll regenerate both together. The Ed25519 key exists because X25519 (the curve of `host.crt`) is a DH scheme that cannot sign arbitrary messages.
 
+During a server-driven rekey, the server seals the one-use enrollment token to the X25519 public key in the current host certificate and returns it as `enrollment_token_encrypted`. The agent opens it with the current `host.key` before re-enrolling. The Ed25519 poll key alone cannot recover this token. New agents still accept plaintext tokens from older servers; upgraded servers never return plaintext rekey tokens. Upgrade agents before the management server so pending rekeys continue unattended.
+
+If both private keys are compromised, use an operator-issued `/reenroll` token delivered outside the poll channel. An unattended rekey cannot evict an attacker who possesses the current `host.key`.
+
 ### Headers on every poll
 
 Every `GET /api/v1/agent/updates` and config acknowledgement carries four headers:
@@ -1038,7 +1042,7 @@ expires — whichever happens first.
 | `POST /api/v1/hosts/{id}/enrollment-token` | Mints a fresh single-use enrollment token bound to the existing host row. Previous active tokens are invalidated. Audit: `host.reenroll.requested` with `details=regenerate-token: <name>`. |
 | `POST /api/v1/hosts/{id}/reenroll` | Same mechanics as the previous endpoint; exposed as a discrete route so UIs can present "re-enroll" (lost keys) as a distinct intent. Audit: `host.reenroll.requested` with `details=reenroll: <name>`. |
 | `POST /api/v1/hosts/{id}/rotate-cert?new_key=false` | Re-signs the existing public key immediately. Returns the new cert + CA in the response body. Audit: `host.rotate-cert.requested` with `details=new_key=false`. |
-| `POST /api/v1/hosts/{id}/rotate-cert?new_key=true` | Sets `pending_rekey` on the host row. The next poll response carries `rekey_required: true` plus a single-use `enrollment_token`; the agent regenerates both keypairs and re-enrolls. A second concurrent call answers `409`. Audit: `host.rotate-cert.requested` with `details=new_key=true`. |
+| `POST /api/v1/hosts/{id}/rotate-cert?new_key=true` | Sets `pending_rekey` on the host row. The next poll response carries `rekey_required: true` plus `enrollment_token_encrypted`, a single-use token sealed to the current Nebula public key. The agent opens it with `host.key`, regenerates both keypairs and re-enrolls. A second concurrent call answers `409`. Audit: `host.rotate-cert.requested` with `details=new_key=true`. |
 
 `enrollment_token.ttl` is configurable: a per-network override sits in
 `network_config["enrollment_token_ttl"]`; the server-wide default lives in
@@ -1255,8 +1259,9 @@ Useful after the host's keys are believed compromised. Two flavours:
      "https://mgmt.example.com:8080/api/v1/hosts/<host-id>/rotate-cert?new_key=true"
    ```
 
-   The next poll response carries `rekey_required: true` plus a fresh token.
-   The agent generates both keypairs, calls `/api/v1/enroll`, and writes the
+   The next poll response carries `rekey_required: true` plus a fresh token
+   sealed to the current Nebula public key. The agent opens it with `host.key`,
+   generates both keypairs, calls `/api/v1/enroll`, and writes the
    CA, certificate, key and config to the paths in its current AgentProfile.
    Imported custom paths stay in place; rekey does not migrate them into
    `data_dir`. The agent checks every destination directory before consuming

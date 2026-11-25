@@ -14,19 +14,21 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/models"
 	"github.com/forgekeep/nebula-mesh/internal/pki"
 	corepop "github.com/forgekeep/nebula-mesh/internal/pop"
+	"github.com/forgekeep/nebula-mesh/internal/rekeytoken"
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
 type agentUpdatesResponse struct {
-	HasUpdates      bool     `json:"has_updates"`
-	CertificatePEM  *string  `json:"certificate_pem,omitempty"`
-	CACertPEM       *string  `json:"ca_certificate_pem,omitempty"`
-	ConfigYAML      *string  `json:"config_yaml,omitempty"`
-	ConfigVersion   int      `json:"config_version,omitempty"`
-	Blocklist       []string `json:"blocklist"`
-	ImportPending   bool     `json:"import_pending,omitempty"`
-	RekeyRequired   bool     `json:"rekey_required,omitempty"`
-	EnrollmentToken string   `json:"enrollment_token,omitempty"`
+	HasUpdates               bool     `json:"has_updates"`
+	CertificatePEM           *string  `json:"certificate_pem,omitempty"`
+	CACertPEM                *string  `json:"ca_certificate_pem,omitempty"`
+	ConfigYAML               *string  `json:"config_yaml,omitempty"`
+	ConfigVersion            int      `json:"config_version,omitempty"`
+	Blocklist                []string `json:"blocklist"`
+	ImportPending            bool     `json:"import_pending,omitempty"`
+	RekeyRequired            bool     `json:"rekey_required,omitempty"`
+	EnrollmentToken          string   `json:"enrollment_token,omitempty"`
+	EnrollmentTokenEncrypted string   `json:"enrollment_token_encrypted,omitempty"`
 }
 
 // pollClockSkew is the symmetric tolerance applied to X-Nebula-Timestamp
@@ -260,8 +262,8 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 
 	// Rekey signal: pending_rekey on the host row (force-rotate?new_key=true,
 	// or an edit to a certificate-bound field) makes the next poll under the
-	// existing fingerprint carry a single-use enrollment token so the agent
-	// can re-enroll a fresh keypair.
+	// existing fingerprint carry a single-use enrollment token sealed to the
+	// current Nebula key, so the agent can re-enroll a fresh keypair.
 	//
 	// The flag stays set until the agent actually completes the enrollment,
 	// which clears it inside that transaction. A rekey the agent cannot
@@ -279,19 +281,36 @@ func (s *Server) handleAgentUpdates(w http.ResponseWriter, r *http.Request) {
 		tokenStr, tokenErr := bootstraptoken.Generate(bootstraptoken.PurposeEnrollment)
 		if tokenErr != nil {
 			s.logger.Error("generate rekey token", "host", host.ID, "error", tokenErr)
+		} else if sealed, sealErr := s.sealRekeyToken(r.Context(), host.ID, tokenStr); sealErr != nil {
+			s.logger.Error("seal rekey token", "host", host.ID, "error", sealErr)
 		} else {
 			expiresAt := now.Add(s.tokenTTLFor(r.Context(), host.NetworkID))
 			if err := s.store.CreateTokenForHost(r.Context(), host.ID, tokenStr, expiresAt); err != nil {
 				s.logger.Error("mint rekey token", "host", host.ID, "error", err)
 			} else {
 				resp.RekeyRequired = true
-				resp.EnrollmentToken = tokenStr
+				resp.EnrollmentTokenEncrypted = sealed
 			}
 		}
 	}
 
 	resp.HasUpdates = len(blocklist) > 0 || resp.CertificatePEM != nil || resp.CACertPEM != nil || resp.ConfigYAML != nil || resp.RekeyRequired
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) sealRekeyToken(ctx context.Context, hostID, token string) (string, error) {
+	certPEM, err := s.store.GetCurrentCertificate(ctx, hostID)
+	if err != nil {
+		return "", fmt.Errorf("get current certificate: %w", err)
+	}
+	currentCert, _, err := cert.UnmarshalCertificateFromPEM(certPEM)
+	if err != nil {
+		return "", fmt.Errorf("parse current certificate: %w", err)
+	}
+	if currentCert.Curve() != cert.Curve_CURVE25519 {
+		return "", errors.New("current certificate is not Curve25519")
+	}
+	return rekeytoken.Seal(currentCert.PublicKey(), token)
 }
 
 func (s *Server) renderAgentCABundle(ctx context.Context, caID string) (string, error) {

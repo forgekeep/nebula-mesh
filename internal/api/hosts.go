@@ -480,7 +480,7 @@ type rotateCertResponse struct {
 //     next poll via SaveCertificateAndUpdateHostCert's overlap window.
 //   - new_key=true: a pending_rekey flag is set on the host row. The next
 //     poll response carries rekey_required + a single-use enrollment token
-//     the agent uses to re-enroll its freshly generated keypair.
+//     sealed to the current Nebula key for the agent's fresh keypair.
 func (s *Server) handleRotateCert(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	newKey := strings.EqualFold(r.URL.Query().Get("new_key"), "true")

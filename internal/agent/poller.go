@@ -29,15 +29,16 @@ import (
 
 // UpdatesResponse is the response from the agent updates endpoint.
 type UpdatesResponse struct {
-	HasUpdates      bool     `json:"has_updates"`
-	CertificatePEM  *string  `json:"certificate_pem,omitempty"`
-	CACertPEM       *string  `json:"ca_certificate_pem,omitempty"`
-	ConfigYAML      *string  `json:"config_yaml,omitempty"`
-	ConfigVersion   int      `json:"config_version,omitempty"`
-	Blocklist       []string `json:"blocklist"`
-	ImportPending   bool     `json:"import_pending,omitempty"`
-	RekeyRequired   bool     `json:"rekey_required,omitempty"`
-	EnrollmentToken string   `json:"enrollment_token,omitempty"`
+	HasUpdates               bool     `json:"has_updates"`
+	CertificatePEM           *string  `json:"certificate_pem,omitempty"`
+	CACertPEM                *string  `json:"ca_certificate_pem,omitempty"`
+	ConfigYAML               *string  `json:"config_yaml,omitempty"`
+	ConfigVersion            int      `json:"config_version,omitempty"`
+	Blocklist                []string `json:"blocklist"`
+	ImportPending            bool     `json:"import_pending,omitempty"`
+	RekeyRequired            bool     `json:"rekey_required,omitempty"`
+	EnrollmentToken          string   `json:"enrollment_token,omitempty"`
+	EnrollmentTokenEncrypted string   `json:"enrollment_token_encrypted,omitempty"`
 }
 
 // RekeyError is returned by Poller.poll when the server signals that the
@@ -353,10 +354,21 @@ func (p *Poller) poll(ctx context.Context) error {
 	// caller stops the loop, runs Reenroll(token), and restarts the
 	// poller against the freshly enrolled keypair.
 	if updates.RekeyRequired {
-		if updates.EnrollmentToken == "" {
+		if updates.EnrollmentToken != "" && updates.EnrollmentTokenEncrypted != "" {
+			return fmt.Errorf("server returned ambiguous rekey credentials")
+		}
+		token := updates.EnrollmentToken
+		if updates.EnrollmentTokenEncrypted != "" {
+			var err error
+			token, err = decryptRekeyToken(p.nebulaKeyPath(), updates.EnrollmentTokenEncrypted)
+			if err != nil {
+				return fmt.Errorf("decrypt rekey enrollment token: %w", err)
+			}
+		}
+		if token == "" {
 			return fmt.Errorf("server set rekey_required but no enrollment_token returned")
 		}
-		return &RekeyError{Token: updates.EnrollmentToken}
+		return &RekeyError{Token: token}
 	}
 
 	if !updates.HasUpdates {

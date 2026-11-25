@@ -86,6 +86,7 @@ Trust zones, from least to most trusted:
 
 ### E3 — Agent enroll
 - **Spoofing / Replay**: token has a purpose-separated HMAC verifier, is single-use (atomic consume, #197), TTL-bounded, and bound to a `host_id` server-side — a token cannot enroll a different host.
+- **Rekey authorization**: pending-rekey tokens are sealed to the current certificate's X25519 public key. The Ed25519 poll credential alone cannot recover a token or replace the Nebula identity. If both current private keys are compromised, recovery uses an operator-issued `/reenroll` token delivered outside the poll channel.
 - **Elevation**: certificate fields (`Name`, `NebulaIPs`, `Groups`) come from the DB host row, not the request body.
 - **Concurrent identity edits**: enrollment re-checks those certificate-bound fields inside the token-consume transaction. A change after signing preserves `pending_rekey`, so the agent must re-enroll for the newer durable identity.
 - **Issuance abuse**: blocked host / disabled operator refused before signing (GHSA-339v-266x-79xr).

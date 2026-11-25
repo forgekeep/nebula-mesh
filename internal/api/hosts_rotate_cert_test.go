@@ -132,11 +132,8 @@ func TestPoll_EmitsRekeyToken_WhenPending(t *testing.T) {
 	if !resp.RekeyRequired {
 		t.Error("RekeyRequired = false, want true")
 	}
-	if resp.EnrollmentToken == "" {
-		t.Error("EnrollmentToken empty")
-	}
-	if !strings.HasPrefix(resp.EnrollmentToken, "nme_") {
-		t.Errorf("EnrollmentToken = %q, want nme_ prefix", resp.EnrollmentToken)
+	if !strings.HasPrefix(openRekeyToken(t, resp, agent), "nme_") {
+		t.Error("decrypted rekey token does not have the enrollment purpose")
 	}
 
 	// The flag deliberately survives minting: only a completed enrollment

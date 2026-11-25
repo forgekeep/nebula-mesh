@@ -121,7 +121,8 @@ func TestUpdateHost_GroupChangeReachesTheAgent(t *testing.T) {
 	var resp agentUpdatesResponse
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
 	require.True(t, resp.RekeyRequired, "the agent was never told to re-key after the group change")
-	require.NotEmpty(t, resp.EnrollmentToken, "a re-key needs a token for the agent to re-enroll with")
+	require.Empty(t, resp.EnrollmentToken, "poll must not expose a plaintext rekey token")
+	require.NotEmpty(t, openRekeyToken(t, resp, agent), "a re-key needs a token for the agent to re-enroll with")
 }
 
 // TestUpdateHost_GroupChangeReissuedCertCarriesNewGroups closes the loop on

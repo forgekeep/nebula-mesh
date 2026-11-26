@@ -360,8 +360,20 @@ func (s *SQLiteStore) DisableOperator(ctx context.Context, id string) error {
 	return tx.Commit()
 }
 
+// EnableOperator marks operator as active and atomically deletes any sessions
+// that may have been inserted while the operator was disabled.
 func (s *SQLiteStore) EnableOperator(ctx context.Context, id string) error {
-	result, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Error("rollback", "error", err)
+		}
+	}()
+
+	result, err := tx.ExecContext(ctx,
 		`UPDATE operators SET status=?, updated_at=? WHERE id=?`,
 		models.OperatorStatusActive, time.Now(), id,
 	)
@@ -375,7 +387,10 @@ func (s *SQLiteStore) EnableOperator(ctx context.Context, id string) error {
 	if rows == 0 {
 		return ErrNotFound
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE operator_id=?`, id); err != nil {
+		return fmt.Errorf("delete operator sessions: %w", err)
+	}
+	return tx.Commit()
 }
 
 // --- TOTP / recovery codes ---

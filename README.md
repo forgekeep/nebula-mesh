@@ -422,7 +422,7 @@ Ops endpoints (`/healthz`, `/readyz`, `/metrics`, `/debug/`, `/favicon.ico`, `/s
 <a name="security"></a>
 ## Security
 
-- **Authentication.** Interactive logins are bcrypt-verified against the operator's password; sessions are DB-backed and revoked atomically on `user disable`. Optional TOTP 2FA + recovery codes. Optional OIDC SSO.
+- **Authentication.** Interactive logins are bcrypt-verified against the operator's password; sessions are DB-backed and revoked atomically on `user disable` and `user enable`. OIDC callbacks for disabled operators do not create sessions. Optional TOTP 2FA + recovery codes. Optional OIDC SSO.
 - **Authorization.** Operator-management API and CA-management API require `role: admin`; non-admin operators can only see and act on the CAs they own.
 - **API keys.** Per-operator, stored only as keyed HMAC-SHA-256 verifiers derived from the master key ([ADR 0010](docs/adr/0010-keyed-credential-verifiers.md)) — a database-only leak does not yield a usable credential. Disable an operator and every key revokes in the same transaction.
 - **CA key material.** Stored encrypted at rest in SQLite under a process-wide AES-256-GCM master key (`NEBULA_MGMT_MASTER_KEY`), supplied at startup and never persisted. See [ADR 0002](docs/adr/0002-per-operator-cas.md) for the threat-model discussion and [ADR 0003](docs/adr/0003-ca-encryption-model.md) for the operator-derived-KEK / zero-knowledge alternatives we evaluated and deferred.

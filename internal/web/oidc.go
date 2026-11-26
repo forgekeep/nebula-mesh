@@ -326,6 +326,11 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	if op.Status != models.OperatorStatusActive {
+		_ = o.store.AddAuditEntry(r.Context(), username, "operator.oidc.denied", subject, "operator_disabled")
+		http.Error(rw, "your account is not allowed to log in", http.StatusForbidden)
+		return
+	}
 	// Compute details once so the failure-branch audit row carries
 	// the same `email_unverified_accepted=true` marker as the success
 	// row — forensics for bypass-logins shouldn't drop a request just

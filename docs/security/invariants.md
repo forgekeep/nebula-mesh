@@ -557,6 +557,9 @@ leave a weaker or partially applied security state.
   recovered by this migration.
 - Every certificate-signing path re-checks blocked Host and disabled owning
   Operator state from the store.
+- OIDC callbacks refuse disabled Operators before creating a session. Operator
+  enable deletes any sessions inserted while disabled in the same transaction
+  that restores active status, so those sessions cannot become valid later.
 - Mobile bundle generation reads the durable CA blocklist and current enrolled
   relay inventory. Its final transaction rechecks the certificate identity,
   Host and owner status, revokes superseded credentials, and renders the
@@ -598,6 +601,9 @@ leave a weaker or partially applied security state.
 - `internal/web/revocation_progress_test.go`: a recorded block is not displayed
   as peer enforcement, and a legacy or stale configuration version cannot be
   displayed as a current acknowledgement.
+- `internal/web/oidc_operator_session_reactivation_test.go`:
+  `TestOIDCOperatorSession_SEC_PERSIST_001_CannotReviveAfterReenable` rejects
+  disabled-operator callbacks and deletes dormant sessions on enable.
 - `tests/integration/nebula_revocation_test.go`: real Nebula engines on local
   UDP confirm tunnel removal and handshake rejection for multiple certificate
   generations after server revocation and a CA trust-overlap reload. A reload

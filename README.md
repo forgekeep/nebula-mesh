@@ -313,7 +313,7 @@ oidc:
   allowed_groups: ["nebula-admins"]
 ```
 
-The first successful login for an unknown subject creates a local operator record (`auth_provider=oidc`) tied to the `issuer+subject` pair. Local and OIDC users coexist; revoke an OIDC user by disabling the local record or removing them in the IdP.
+The first successful login for an unknown subject creates a local operator record (`auth_provider=oidc`) tied to the `issuer+subject` pair. If the preferred username already belongs to a different account, the server assigns a unique suffix instead of linking the accounts or failing the login. Local and OIDC users coexist; revoke an OIDC user by disabling the local record or removing them in the IdP.
 
 ### Configurable self-registration
 

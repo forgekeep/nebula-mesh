@@ -374,31 +374,50 @@ func (o *OIDC) upsertOperator(ctx context.Context, issuer, subject, username, di
 	if role == "" {
 		role = "user"
 	}
-	op := &models.Operator{
-		ID:           uuid.NewV4().String(),
-		Username:     username,
-		DisplayName:  displayName,
-		PasswordHash: "oidc",
-		AuthProvider: models.OperatorAuthOIDC,
-		Role:         role,
-		OIDCIssuer:   issuer,
-		OIDCSubject:  subject,
-	}
-	if err := o.store.CreateOperator(ctx, op); err != nil {
-		return nil, err
-	}
-
-	// Attempt auto-provisioning of a default CA if wired (via WithOIDC).
-	// This enables user-role operators to work with networks immediately
-	// after first login, without explicit CA creation.
-	// Errors are logged but do not block operator creation.
-	if o.provisionCA != nil {
-		if err := o.provisionCA(ctx, op); err != nil {
-			o.logger.Warn("auto-provision default CA on OIDC login failed", "operator", op.Username, "error", err)
+	var createErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		op := &models.Operator{
+			ID:           uuid.NewV4().String(),
+			Username:     username,
+			DisplayName:  displayName,
+			PasswordHash: "oidc",
+			AuthProvider: models.OperatorAuthOIDC,
+			Role:         role,
+			OIDCIssuer:   issuer,
+			OIDCSubject:  subject,
 		}
-	}
+		if attempt > 0 {
+			op.Username = username + "-" + uuid.NewV4().String()
+		}
+		createErr = o.store.CreateOperator(ctx, op)
+		if createErr == nil {
+			// Attempt auto-provisioning of a default CA if wired (via WithOIDC).
+			// This enables user-role operators to work with networks immediately
+			// after first login, without explicit CA creation.
+			// Errors are logged but do not block operator creation.
+			if o.provisionCA != nil {
+				if err := o.provisionCA(ctx, op); err != nil {
+					o.logger.Warn("auto-provision default CA on OIDC login failed", "operator", op.Username, "error", err)
+				}
+			}
+			return op, nil
+		}
 
-	return op, nil
+		if op, err := o.store.GetOperatorByOIDC(ctx, issuer, subject); err == nil {
+			return op, nil
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return nil, err
+		}
+		_, err := o.store.GetOperatorByUsername(ctx, op.Username)
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			return nil, err
+		}
+		return nil, createErr
+	}
+	return nil, fmt.Errorf("create OIDC operator after username collisions: %w", createErr)
 }
 
 func (o *OIDC) isAllowed(email string, groups []string) bool {

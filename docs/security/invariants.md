@@ -566,6 +566,9 @@ leave a weaker or partially applied security state.
 - OIDC callbacks refuse disabled Operators before creating a session. Operator
   enable deletes any sessions inserted while disabled in the same transaction
   that restores active status, so those sessions cannot become valid later.
+- OIDC provisioning binds operators to issuer and subject. A username collision
+  with a different account allocates a unique username; username equality never
+  links accounts or prevents first-time provisioning.
 - Mobile bundle generation reads the durable CA blocklist and current enrolled
   relay inventory. Its final transaction rechecks the certificate identity,
   Host and owner status, revokes superseded credentials, and renders the
@@ -610,6 +613,10 @@ leave a weaker or partially applied security state.
 - `internal/web/oidc_operator_session_reactivation_test.go`:
   `TestOIDCOperatorSession_SEC_PERSIST_001_CannotReviveAfterReenable` rejects
   disabled-operator callbacks and deletes dormant sessions on enable.
+- `internal/web/oidc_username_preclaim_test.go`:
+  `TestOIDCUsernamePreclaim_SEC_PERSIST_001_DoesNotBlockOrLinkFirstAdmin`
+  proves that a local username reservation neither blocks nor captures an OIDC
+  administrator identity.
 - `tests/integration/nebula_revocation_test.go`: real Nebula engines on local
   UDP confirm tunnel removal and handshake rejection for multiple certificate
   generations after server revocation and a CA trust-overlap reload. A reload

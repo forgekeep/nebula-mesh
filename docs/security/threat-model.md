@@ -100,7 +100,7 @@ Trust zones, from least to most trusted:
 
 ### E5 — OIDC
 - **Spoofing / CSRF**: `state` parameter (single-use, TTL), authorization-code single-use, ID-token verified.
-- **Elevation**: JIT-provisioned operators default to role `user`, never `admin`; email-verification enforced.
+- **Elevation**: JIT-provisioned operators default to role `user`, never `admin`; email-verification enforced. Identity binding uses issuer and subject. A username collision allocates a unique username rather than linking accounts or blocking first-time provisioning.
 - **Revocation**: callbacks for disabled operators do not create sessions. Re-enabling an operator deletes any sessions inserted while disabled.
 - **Open redirect**: post-login redirect hardcoded to `/ui/`.
 

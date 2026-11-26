@@ -98,6 +98,9 @@ and resource-scoped, TTL-bounded, and accepted at most once.
 
 - Enrollment consumes a host-bound token in the same transaction that enrolls
   the Host; failed enrollment does not burn the token.
+- Host block and unblock delete unused enrollment tokens transactionally for
+  ordinary and finalized imported Hosts. Imported-Host unblock still resumes
+  the current identity without accepting a pre-block token for key replacement.
 - Poll nonces are keyed by Host and stored in SQLite until expiry.
 - Signed agent requests that carry data (`config-ack/{version}`,
   `runtime/{os}/{version}`, `restart-pending/{state}`) pass it in the path,
@@ -111,6 +114,9 @@ and resource-scoped, TTL-bounded, and accepted at most once.
 
 - `internal/store/sqlite_enroll_token_test.go`: rollback and concurrent
   exactly-once enrollment.
+- `internal/api/unblock_imported_host_token_test.go`: block invalidates unused
+  tokens, a pre-block token cannot replace imported-Host keys after unblock,
+  and a fresh post-unblock token remains usable.
 - `internal/store/sqlite_pop_nonces_test.go`: replay rejection, restart
   durability, tenant namespacing, and concurrent exactly-once acceptance.
 - `internal/api/agent_import_test.go`:

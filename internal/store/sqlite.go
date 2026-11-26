@@ -1748,6 +1748,9 @@ func (s *SQLiteStore) blockHostWithLoader(ctx context.Context, reason string, lo
 	if err != nil {
 		return nil, err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM enrollment_tokens WHERE host_id = ? AND used = 0`, h.ID); err != nil {
+		return nil, fmt.Errorf("invalidate enrollment tokens before block: %w", err)
+	}
 
 	wasEnrolledLighthouse := h.IsLighthouse && h.Status == models.HostStatusEnrolled
 
@@ -1837,12 +1840,12 @@ func (s *SQLiteStore) UnblockHost(ctx context.Context, id string) (*models.Host,
 		}
 	}
 
+	if _, err := tx.ExecContext(ctx, `DELETE FROM enrollment_tokens WHERE host_id = ? AND used = 0`, id); err != nil {
+		return nil, fmt.Errorf("invalidate enrollment tokens before unblock: %w", err)
+	}
 	if !imported {
 		if _, err := revokeHostCertificatesInTx(ctx, tx, h, "host unblocked for enrollment"); err != nil {
 			return nil, err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM enrollment_tokens WHERE host_id = ? AND used = 0`, id); err != nil {
-			return nil, fmt.Errorf("invalidate enrollment tokens before unblock: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE certificates SET is_current = 0 WHERE host_id = ? AND is_current = 1`, id); err != nil {
 			return nil, fmt.Errorf("retire certificate before enrollment: %w", err)

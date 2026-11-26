@@ -386,12 +386,13 @@ mesh, delete its configuration from the Mobile Nebula app.
 
 #### Unblocking a host
 
-Unblocking an ordinary host leaves its certificates revoked and invalidates
-any unused enrollment token. Issue a new enrollment token for an agent or
-generate a new bundle for a mobile host. A finalized imported host is
-an explicit reauthorization exception: unblocking removes its current
-fingerprint from the blocklist so it can resume using the imported identity.
-Previously superseded certificates remain revoked.
+Blocking a host invalidates its unused enrollment tokens. Unblocking repeats
+that cleanup, including for tokens left by older versions. An ordinary host
+also leaves its certificates revoked: issue a new enrollment token for an agent
+or generate a new bundle for a mobile host. A finalized imported host is an
+explicit reauthorization exception: unblocking removes its current fingerprint
+from the blocklist so it can resume using the imported identity. Previously
+superseded certificates remain revoked.
 
 When upgrading, the server backfills certificate history for hosts that are
 already blocked. It cannot restore certificate rows that older versions

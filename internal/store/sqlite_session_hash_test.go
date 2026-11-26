@@ -10,6 +10,68 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/models"
 )
 
+// SEC-CREDENTIAL-001: promotion persists only the new purpose-separated keyed
+// verifier and leaves no usable copy of either raw bearer in the database.
+func TestPromoteOperatorSession_SEC_PERSIST_001_RotatesKeyedVerifier(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	op := newTestOperator(t, s, "dave")
+
+	const (
+		pending = "pending-session-token"
+		rotated = "rotated-authenticated-session-token"
+	)
+	if err := s.CreateOperatorSession(ctx, &models.OperatorSession{
+		Token:      pending,
+		OperatorID: op.ID,
+		State:      models.SessionStatePendingTOTP,
+		ExpiresAt:  time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("create pending session: %v", err)
+	}
+
+	if err := s.PromoteOperatorSession(ctx, pending, rotated, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("promote session: %v", err)
+	}
+	if _, err := s.GetOperatorBySession(ctx, pending); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("old bearer lookup err = %v, want ErrNotFound", err)
+	}
+	got, err := s.GetOperatorBySession(ctx, rotated)
+	if err != nil {
+		t.Fatalf("new bearer lookup: %v", err)
+	}
+	if got.ID != op.ID {
+		t.Fatalf("new bearer operator = %q, want %q", got.ID, op.ID)
+	}
+
+	stored, err := s.credentialDigest(credentialhash.PurposeOperatorSession, rotated)
+	if err != nil {
+		t.Fatalf("derive rotated verifier: %v", err)
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM operator_sessions WHERE token_hash=?`, stored).Scan(&count); err != nil {
+		t.Fatalf("read rotated verifier: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("rotated keyed verifier rows = %d, want 1", count)
+	}
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM operator_sessions WHERE token_hash IN (?, ?)`, pending, rotated).Scan(&count); err != nil {
+		t.Fatalf("count raw bearer rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("raw bearer rows = %d, want 0", count)
+	}
+
+	if err := s.PromoteOperatorSession(ctx, rotated, "second-rotation", time.Now().Add(time.Hour)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("authenticated session promotion err = %v, want ErrNotFound", err)
+	}
+	if _, err := s.GetOperatorBySession(ctx, rotated); err != nil {
+		t.Fatalf("failed repeat promotion changed authenticated session: %v", err)
+	}
+}
+
 // TestCreateOperatorSession_StoresHMACNotRaw covers SEC-CREDENTIAL-001: the
 // session token must be persisted as its keyed verifier, never as the raw value
 // that travels in the cookie. A DB read (backup/snapshot) must not yield a

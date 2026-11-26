@@ -230,7 +230,7 @@ type Store interface {
 	CreateOperatorSession(ctx context.Context, s *models.OperatorSession) error
 	GetOperatorBySession(ctx context.Context, token string) (*models.Operator, error)
 	GetPendingTwoFactorOperator(ctx context.Context, token string) (*models.Operator, error)
-	PromoteOperatorSession(ctx context.Context, token string, newExpiry time.Time) error
+	PromoteOperatorSession(ctx context.Context, token, newToken string, newExpiry time.Time) error
 	DeleteOperatorSession(ctx context.Context, token string) error
 	DeleteOperatorSessionsByOperator(ctx context.Context, operatorID string) error
 	DeleteOperatorSessionsByOperatorExcept(ctx context.Context, operatorID, keepToken string) error

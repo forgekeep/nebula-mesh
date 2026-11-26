@@ -219,6 +219,8 @@ not be accepted.
   configured master material.
 - SQLite raw-credential operations require a live hasher; migration 027 is the
   clean cutover boundary for legacy state.
+- TOTP completion atomically replaces the pending session's keyed verifier
+  with the verifier of a fresh bearer. Neither raw bearer is persisted.
 
 ### Test anchors
 
@@ -240,6 +242,9 @@ not be accepted.
 - `internal/store/sqlite_totp_reset_test.go` covers atomic break-glass reset,
   rollback on audit failure, session revocation, and preservation of disabled
   operator status.
+- `internal/store/sqlite_session_hash_test.go`:
+  `TestPromoteOperatorSession_SEC_PERSIST_001_RotatesKeyedVerifier` rejects the
+  pre-TOTP bearer and proves that only the new keyed verifier remains usable.
 
 ### Review checklist
 
@@ -569,6 +574,10 @@ leave a weaker or partially applied security state.
 - OIDC provisioning binds operators to issuer and subject. A username collision
   with a different account allocates a unique username; username equality never
   links accounts or prevents first-time provisioning.
+- TOTP completion replaces the pending session verifier, state, and expiry in
+  one conditional update. The pre-TOTP bearer cannot resolve afterward, and
+  duplicate session cookies are rejected instead of selecting an ambiguous
+  identity.
 - Mobile bundle generation reads the durable CA blocklist and current enrolled
   relay inventory. Its final transaction rechecks the certificate identity,
   Host and owner status, revokes superseded credentials, and renders the
@@ -617,6 +626,12 @@ leave a weaker or partially applied security state.
   `TestOIDCUsernamePreclaim_SEC_PERSIST_001_DoesNotBlockOrLinkFirstAdmin`
   proves that a local username reservation neither blocks nor captures an OIDC
   administrator identity.
+- `internal/web/session_fixation_test.go` rejects sibling-injected duplicate
+  session cookies and proves that TOTP completion revokes the pre-TOTP bearer
+  before authenticating only the rotated bearer.
+- `internal/store/sqlite_session_hash_test.go`:
+  `TestPromoteOperatorSession_SEC_PERSIST_001_RotatesKeyedVerifier` covers the
+  atomic verifier/state transition and rejection of repeat promotion.
 - `tests/integration/nebula_revocation_test.go`: real Nebula engines on local
   UDP confirm tunnel removal and handshake rejection for multiple certificate
   generations after server revocation and a CA trust-overlap reload. A reload

@@ -137,9 +137,10 @@ func TestLogin_TOTPFlow(t *testing.T) {
 		t.Errorf("step2 redirect = %q", loc)
 	}
 
-	// Now session should be fully authenticated
+	// Now the rotated session should be fully authenticated.
+	authenticatedCookies := rec.Result().Cookies()
 	req = httptest.NewRequest(http.MethodGet, "/ui/", nil)
-	for _, c := range updatedCookies {
+	for _, c := range authenticatedCookies {
 		req.AddCookie(c)
 	}
 	rec = httptest.NewRecorder()

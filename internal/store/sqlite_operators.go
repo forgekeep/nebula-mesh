@@ -868,17 +868,21 @@ func (s *SQLiteStore) GetPendingTwoFactorOperator(ctx context.Context, token str
 	return op, nil
 }
 
-// PromoteOperatorSession upgrades a pending_totp session to authenticated and
-// resets the expiry to a fresh 24h window. Returns ErrNotFound if the session
-// does not exist or is not pending.
-func (s *SQLiteStore) PromoteOperatorSession(ctx context.Context, token string, newExpiry time.Time) error {
+// PromoteOperatorSession atomically replaces a pending_totp session bearer,
+// upgrades the session to authenticated, and resets the expiry to a fresh 24h
+// window. Returns ErrNotFound if the session does not exist or is not pending.
+func (s *SQLiteStore) PromoteOperatorSession(ctx context.Context, token, newToken string, newExpiry time.Time) error {
 	tokenHash, err := s.credentialDigest(credentialhash.PurposeOperatorSession, token)
 	if err != nil {
 		return err
 	}
+	newTokenHash, err := s.credentialDigest(credentialhash.PurposeOperatorSession, newToken)
+	if err != nil {
+		return err
+	}
 	result, err := s.db.ExecContext(ctx,
-		`UPDATE operator_sessions SET state=?, expires_at=? WHERE token_hash=? AND state=?`,
-		models.SessionStateAuthenticated, newExpiry, tokenHash, models.SessionStatePendingTOTP,
+		`UPDATE operator_sessions SET token_hash=?, state=?, expires_at=? WHERE token_hash=? AND state=?`,
+		newTokenHash, models.SessionStateAuthenticated, newExpiry, tokenHash, models.SessionStatePendingTOTP,
 	)
 	if err != nil {
 		return fmt.Errorf("promote session: %w", err)

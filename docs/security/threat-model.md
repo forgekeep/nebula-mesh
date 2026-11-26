@@ -82,7 +82,7 @@ Trust zones, from least to most trusted:
 - **Spoofing / Tampering**: CSRF double-submit token on every `/ui` mutation; constant-time login (#180); TOTP step non-skippable.
 - **Information disclosure**: SSE `/ui/events` authenticated and scoped to owned networks, fail-closed.
 - **Elevation**: `requireAdmin` gates operator/settings management.
-- **Session**: rotated on privilege transition; invalidated on logout, operator disable and re-enable, and password reset (#204).
+- **Session**: the session bearer and CSRF token rotate on privilege transition; duplicate session cookies are rejected. Sessions are invalidated on logout, operator disable and re-enable, and password reset (#204).
 
 ### E3 — Agent enroll
 - **Spoofing / Replay**: token has a purpose-separated HMAC verifier, is single-use (atomic consume, #197), TTL-bounded, and bound to a `host_id` server-side — a token cannot enroll a different host. Block and unblock invalidate unused tokens transactionally, including for finalized imported hosts.

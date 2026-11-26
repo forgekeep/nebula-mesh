@@ -164,12 +164,13 @@ func TestEnforce2FA_On_DisableBlocked(t *testing.T) {
 	}
 
 	cookie := loginOperator(t, w, "alice", strongPassword)
-	// loginOperator above issues a pending_totp session — promote it by
-	// driving CompleteTwoFactor directly so we land on /ui/2fa/disable
-	// authenticated.
-	if err := s.PromoteOperatorSession(context.Background(), cookie.Value, time.Now().Add(time.Hour)); err != nil {
+	// loginOperator above issues a pending_totp session — promote and rotate
+	// it directly so we land on /ui/2fa/disable authenticated.
+	const rotatedToken = "rotated-authenticated-session"
+	if err := s.PromoteOperatorSession(context.Background(), cookie.Value, rotatedToken, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
+	cookie.Value = rotatedToken
 	// Get CSRF token from /ui/2fa page (which displays the disable form on the page).
 	csrfToken, updatedCookies := getCSRFTokenFromCookies(t, w, "/ui/2fa", []*http.Cookie{cookie})
 

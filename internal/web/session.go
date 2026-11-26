@@ -248,10 +248,27 @@ func (sm *SessionManager) StartAuthenticatedSession(w http.ResponseWriter, r *ht
 	return nil
 }
 
+func sessionCookie(r *http.Request) (*http.Cookie, error) {
+	var session *http.Cookie
+	for _, cookie := range r.Cookies() {
+		if cookie.Name != sessionCookieName {
+			continue
+		}
+		if session != nil {
+			return nil, errors.New("duplicate session cookie")
+		}
+		session = cookie
+	}
+	if session == nil {
+		return nil, http.ErrNoCookie
+	}
+	return session, nil
+}
+
 // PendingOperator returns the operator awaiting second-factor confirmation
 // on the current session cookie, or nil if no pending session exists.
 func (sm *SessionManager) PendingOperator(r *http.Request) *models.Operator {
-	cookie, err := r.Cookie(sessionCookieName)
+	cookie, err := sessionCookie(r)
 	if err != nil {
 		return nil
 	}
@@ -262,35 +279,39 @@ func (sm *SessionManager) PendingOperator(r *http.Request) *models.Operator {
 	return op
 }
 
-// CompleteTwoFactor promotes the current pending session to fully
-// authenticated, refreshes the cookie expiry, and updates last_login_at.
+// CompleteTwoFactor rotates the session bearer while promoting the current
+// pending session to fully authenticated, refreshes the cookie expiry, and
+// updates last_login_at.
 //
-// On CSRF rotation entropy failure (#144), CompleteTwoFactor returns
+// On session or CSRF token generation failure, CompleteTwoFactor returns
 // without promoting the session — the pending_totp row stays alive
 // for its remaining TTL so the user can retry the second factor
 // without re-entering the password.
 func (sm *SessionManager) CompleteTwoFactor(w http.ResponseWriter, r *http.Request, operatorID string) error {
-	cookie, err := r.Cookie(sessionCookieName)
+	cookie, err := sessionCookie(r)
 	if err != nil {
-		return fmt.Errorf("missing session cookie: %w", err)
+		return fmt.Errorf("invalid session cookie: %w", err)
 	}
 
-	// Generate the rotated CSRF token BEFORE promoting. An entropy
-	// failure here must leave the pending session intact so the user
-	// can retry the second factor — see #144 and the doc comment above.
+	// Generate both replacement tokens before promoting so an entropy failure
+	// leaves the pending session intact and emits no cookies.
+	newToken, err := generateToken()
+	if err != nil {
+		return fmt.Errorf("generate session token: %w", err)
+	}
 	csrfToken, err := generateCSRFToken(sm.csrfRand)
 	if err != nil {
 		return fmt.Errorf("generate csrf token: %w", err)
 	}
 
 	newExpiry := time.Now().Add(sessionDuration)
-	if err := sm.store.PromoteOperatorSession(r.Context(), cookie.Value, newExpiry); err != nil {
+	if err := sm.store.PromoteOperatorSession(r.Context(), cookie.Value, newToken, newExpiry); err != nil {
 		return fmt.Errorf("promote session: %w", err)
 	}
 
 	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure gated by sm.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
 		Name:     sessionCookieName,
-		Value:    cookie.Value,
+		Value:    newToken,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   sm.cookieSecure,
@@ -307,7 +328,7 @@ func (sm *SessionManager) CompleteTwoFactor(w http.ResponseWriter, r *http.Reque
 
 // Logout invalidates the session cookie and removes the DB record.
 func (sm *SessionManager) Logout(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie(sessionCookieName)
+	cookie, err := sessionCookie(r)
 	if err == nil {
 		if err := sm.store.DeleteOperatorSession(r.Context(), cookie.Value); err != nil {
 			slog.Debug("delete session", "error", err)
@@ -335,7 +356,7 @@ func (sm *SessionManager) Logout(w http.ResponseWriter, r *http.Request) {
 // or nil if there is no valid session. A disabled operator's session is also
 // treated as invalid.
 func (sm *SessionManager) CurrentOperator(r *http.Request) *models.Operator {
-	cookie, err := r.Cookie(sessionCookieName)
+	cookie, err := sessionCookie(r)
 	if err != nil {
 		return nil
 	}

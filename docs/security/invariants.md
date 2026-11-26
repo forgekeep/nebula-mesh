@@ -640,9 +640,11 @@ leave a weaker or partially applied security state.
   rejects blocked Hosts and disabled owners and rolls back revocations on
   render failure.
 - `internal/store/sqlite_enroll_token_test.go`:
-  `TestConsumeTokenAndEnrollHost_NoBurnOnEnrollFailure` and
-  `TestConsumeTokenAndEnrollHostWithProfile_SEC_PERSIST_001_PreservesRekeyAfterIdentityChange`, and
-  `TestConsumeTokenAndEnrollHostWithProfile_SEC_PERSIST_001_PreservesRekeyAfterUnsafeNetworksChange`.
+  `TestConsumeTokenAndEnrollHost_NoBurnOnEnrollFailure`,
+  `TestConsumeTokenAndEnrollHostWithProfile_SEC_PERSIST_001_PreservesRekeyAfterIdentityChange`,
+  `TestConsumeTokenAndEnrollHostWithProfile_SEC_PERSIST_001_PreservesRekeyAfterUnsafeNetworksChange`, and
+  `TestSQLiteStore_SEC_PERSIST_001_ConcurrentEnrollmentUpdateAndRead` cover
+  transactional enrollment and mixed concurrent load on a file-backed store.
 - `internal/store/sqlite_update_host_atomic_test.go`:
   `TestUpdateHost_ResetsConfigVersion` and
   `TestUpdateHost_SECPERSIST001_RollbackIsAtomic`.

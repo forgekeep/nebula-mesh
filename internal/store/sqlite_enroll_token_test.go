@@ -297,3 +297,112 @@ func TestConsumeTokenAndEnrollHost_ConcurrentSameToken_ExactlyOneEnrolls(t *test
 		t.Errorf("host cert_fingerprint = %q, want the winner's fp-N", gotHost.CertFingerprint)
 	}
 }
+
+// TestSQLiteStore_SEC_PERSIST_001_ConcurrentEnrollmentUpdateAndRead exercises
+// independent writes and reads through the full WAL connection pool (#418).
+// Lock errors fail the test: retries would hide contention regressions.
+func TestSQLiteStore_SEC_PERSIST_001_ConcurrentEnrollmentUpdateAndRead(t *testing.T) {
+	const workers = 10
+
+	s, err := NewSQLiteStore(filepath.Join(t.TempDir(), "mixed.db"), WithCredentialHasher(newTestCredentialHasher(t)))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	network := createTestNetwork(t, s)
+	now := time.Now()
+	for i := 0; i < workers; i++ {
+		id := fmt.Sprintf("mixed-host-%d", i)
+		h := &models.Host{
+			ID: id, NetworkID: network.ID, Name: id,
+			NebulaIPs: []string{fmt.Sprintf("192.168.100.%d", i+10)},
+			Groups:    []string{"initial"}, Role: models.HostRoleHost, Status: models.HostStatusPending,
+			CreatedAt: now, UpdatedAt: now,
+		}
+		if err := s.CreateHost(ctx, h); err != nil {
+			t.Fatalf("create host %d: %v", i, err)
+		}
+		if err := s.CreateTokenForHost(ctx, id, fmt.Sprintf("mixed-token-%d", i), now.Add(time.Hour)); err != nil {
+			t.Fatalf("create token %d: %v", i, err)
+		}
+	}
+
+	var start sync.WaitGroup
+	start.Add(1)
+	var done sync.WaitGroup
+	done.Add(workers)
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			defer done.Done()
+			start.Wait()
+			id := fmt.Sprintf("mixed-host-%d", i)
+			fingerprint := fmt.Sprintf("mixed-fp-%d", i)
+			if err := s.ConsumeTokenAndEnrollHost(ctx, id, fmt.Sprintf("mixed-token-%d", i),
+				[]byte(fmt.Sprintf("mixed-cert-%d", i)), fingerprint, now, now.Add(time.Hour)); err != nil {
+				errs <- fmt.Errorf("enroll host %d: %w", i, err)
+				return
+			}
+			h, err := s.GetHost(ctx, id)
+			if err != nil {
+				errs <- fmt.Errorf("read enrolled host %d: %w", i, err)
+				return
+			}
+			h.Groups = []string{fmt.Sprintf("updated-%d", i)}
+			if err := s.UpdateHost(ctx, h); err != nil {
+				errs <- fmt.Errorf("update host %d: %w", i, err)
+				return
+			}
+			if _, err := s.ListHosts(ctx, HostFilter{}); err != nil {
+				errs <- fmt.Errorf("list hosts during host %d: %w", i, err)
+				return
+			}
+			if _, err := s.ListEnrolledHostCerts(ctx); err != nil {
+				errs <- fmt.Errorf("list certificates during host %d: %w", i, err)
+			}
+		}(i)
+	}
+	start.Done()
+	done.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+
+	for i := 0; i < workers; i++ {
+		h, err := s.GetHost(ctx, fmt.Sprintf("mixed-host-%d", i))
+		if err != nil {
+			t.Errorf("read final host %d: %v", i, err)
+			continue
+		}
+		if h.Status != models.HostStatusEnrolled {
+			t.Errorf("host %d status = %q, want enrolled", i, h.Status)
+		}
+		if len(h.Groups) != 1 || h.Groups[0] != fmt.Sprintf("updated-%d", i) {
+			t.Errorf("host %d groups = %v, want updated-%d", i, h.Groups, i)
+		}
+		if h.CertFingerprint != fmt.Sprintf("mixed-fp-%d", i) {
+			t.Errorf("host %d fingerprint = %q, want mixed-fp-%d", i, h.CertFingerprint, i)
+		}
+	}
+	certs, err := s.ListEnrolledHostCerts(ctx)
+	if err != nil {
+		t.Fatalf("list final certificates: %v", err)
+	}
+	if len(certs) != workers {
+		t.Errorf("certificate count = %d, want %d", len(certs), workers)
+	}
+	var integrity string
+	if err := s.DB().QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil {
+		t.Fatalf("integrity check: %v", err)
+	}
+	if integrity != "ok" {
+		t.Errorf("integrity check = %q, want ok", integrity)
+	}
+}

@@ -4,12 +4,12 @@ go 1.27.4
 
 require (
 	github.com/DefinedNet/dnsconfig v0.0.0-20261028201825-617c971e7a6a
-	github.com/boombuler/barcode v1.1.0
+	github.com/boombuler/barcode v1.1.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/kardianos/service v1.3.0
-	github.com/pb33f/libopenapi v0.43.2
+	github.com/pb33f/libopenapi v0.44.0
 	github.com/pb33f/libopenapi-validator v0.16.5
 	github.com/pquerna/otp v1.5.0
 	github.com/prometheus/client_golang v1.25.0
@@ -21,7 +21,7 @@ require (
 	golang.org/x/time v0.16.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 require (

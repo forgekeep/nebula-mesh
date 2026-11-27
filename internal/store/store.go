@@ -204,6 +204,7 @@ type Store interface {
 	RecordFailedLoginAttempt(ctx context.Context, id string, maxAttempts int, lockUntil time.Time) (bool, error)
 	ResetFailedLoginAttempts(ctx context.Context, id string) error
 	DisableOperator(ctx context.Context, id string) error
+	RevokeOIDCOperator(ctx context.Context, issuer, subject string, event *OIDCOffboardingEvent) error
 	EnableOperator(ctx context.Context, id string) error
 
 	// Operator TOTP / recovery codes

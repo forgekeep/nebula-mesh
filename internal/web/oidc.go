@@ -280,6 +280,13 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if !o.isAllowed(email, extractGroups(claims, groupsClaim)) {
+		if o.confirmedGroupLoss(idToken, claims, groupsClaim, email) {
+			if err := o.store.RevokeOIDCOperator(r.Context(), issuer, subject, nil); err != nil {
+				o.logger.Error("oidc revoke denied identity", "error", err)
+				http.Error(rw, "internal error", http.StatusInternalServerError)
+				return
+			}
+		}
 		_ = o.store.AddAuditEntry(r.Context(), username, "operator.oidc.denied", subject, email)
 		http.Error(rw, "your account is not allowed to log in", http.StatusForbidden)
 		return

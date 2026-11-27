@@ -313,7 +313,11 @@ oidc:
   allowed_groups: ["nebula-admins"]
 ```
 
-The first successful login for an unknown subject creates a local operator record (`auth_provider=oidc`) tied to the `issuer+subject` pair. If the preferred username already belongs to a different account, the server assigns a unique suffix instead of linking the accounts or failing the login. Local and OIDC users coexist; revoke an OIDC user by disabling the local record or removing them in the IdP.
+The first successful login for an unknown subject creates a local operator record (`auth_provider=oidc`) tied to the `issuer+subject` pair. If the preferred username already belongs to a different account, the server assigns a unique suffix. Local and OIDC users coexist.
+
+Disable the local operator to revoke browser sessions and API keys immediately. Removing a group at the IdP stops new logins when the group was the operator's only way to satisfy the allowlist. A fresh callback with an explicit group claim that confirms loss of access also disables the linked operator. If an email allowlist is configured, that automatic action requires a verified email claim that also fails to match.
+
+For immediate automatic revocation, configure your identity or access management system to send an [OIDC offboarding event](docs/oidc-offboarding.md) when it confirms that the subject has lost access to nebula-mesh.
 
 ### Configurable self-registration
 

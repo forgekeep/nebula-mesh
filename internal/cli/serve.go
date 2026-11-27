@@ -303,6 +303,11 @@ func Serve(configPath string, insecureHTTP bool) error {
 				"hint", "set oidc.require_email_verified: true (default) to re-enable")
 		}
 	}
+	if value, configured := os.LookupEnv("NEBULA_MGMT_OIDC_OFFBOARDING_KEY"); configured {
+		if err := webUI.WithOIDCOffboarding(value); err != nil {
+			return fmt.Errorf("init oidc offboarding: %w", err)
+		}
+	}
 
 	// Resolve cookie_secure AFTER any OIDC wiring so the OIDC state cookie
 	// picks up the same flag (the helper propagates to both session manager

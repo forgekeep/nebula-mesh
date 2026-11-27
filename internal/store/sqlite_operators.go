@@ -347,6 +347,13 @@ func (s *SQLiteStore) DisableOperator(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 
+	if err := revokeOperatorCredentials(ctx, tx, id, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func revokeOperatorCredentials(ctx context.Context, tx *sql.Tx, id string, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE operator_id=?`, id); err != nil {
 		return fmt.Errorf("delete operator sessions: %w", err)
 	}
@@ -357,7 +364,7 @@ func (s *SQLiteStore) DisableOperator(ctx context.Context, id string) error {
 		return fmt.Errorf("revoke operator api keys: %w", err)
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // EnableOperator marks operator as active and atomically deletes any sessions
@@ -607,12 +614,20 @@ func (s *SQLiteStore) CreateOperatorAPIKey(ctx context.Context, k *models.Operat
 		k.CreatedAt = time.Now()
 	}
 	k.KeyHash = keyHash
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO operator_api_keys (id, operator_id, name, key_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
-		k.ID, k.OperatorID, k.Name, keyHash, k.CreatedAt,
+	result, err := s.db.ExecContext(ctx,
+		`INSERT INTO operator_api_keys (id, operator_id, name, key_hash, created_at)
+		 SELECT ?, id, ?, ?, ? FROM operators WHERE id = ? AND status = ?`,
+		k.ID, k.Name, keyHash, k.CreatedAt, k.OperatorID, models.OperatorStatusActive,
 	)
 	if err != nil {
 		return fmt.Errorf("insert api key: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count inserted api keys: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

@@ -578,6 +578,9 @@ leave a weaker or partially applied security state.
 - OIDC callbacks refuse disabled Operators before creating a session. Operator
   enable deletes any sessions inserted while disabled in the same transaction
   that restores active status, so those sessions cannot become valid later.
+- Automatic OIDC offboarding scopes revocation to the authenticated issuer
+  and subject. Operator disable, deletion of sessions, API key revocation,
+  audit, and authenticated-event consumption commit in one transaction.
 - OIDC provisioning binds operators to issuer and subject. A username collision
   with a different account allocates a unique username; username equality never
   links accounts or prevents first-time provisioning.
@@ -632,6 +635,10 @@ leave a weaker or partially applied security state.
 - `internal/web/oidc_operator_session_reactivation_test.go`:
   `TestOIDCOperatorSession_SEC_PERSIST_001_CannotReviveAfterReenable` rejects
   disabled-operator callbacks and deletes dormant sessions on enable.
+- `internal/web/oidc_offboarding_test.go` rejects untrusted, out-of-scope,
+  expired and replayed revocation events, and checks that loss of a group
+  revokes both browser and API access. `internal/store/sqlite_oidc_offboarding_test.go`
+  proves audit failure rolls the revocation and event consumption back together.
 - `internal/web/oidc_username_preclaim_test.go`:
   `TestOIDCUsernamePreclaim_SEC_PERSIST_001_DoesNotBlockOrLinkFirstAdmin`
   proves that a local username reservation neither blocks nor captures an OIDC

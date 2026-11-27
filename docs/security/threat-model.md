@@ -102,7 +102,7 @@ Trust zones, from least to most trusted:
 - **Spoofing / CSRF**: a protected, expiring browser cookie correlates the callback with the login start. The callback exchanges the authorization code with PKCE (S256), verifies the ID token and its nonce, and durably consumes an eligible proof once.
 - **DoS**: login starts and rejected callbacks do not allocate shared login state. Per-IP rate limiting still applies to both routes.
 - **Elevation**: JIT-provisioned operators default to role `user`, never `admin`; email-verification enforced. Identity binding uses issuer and subject. A username collision allocates a unique username rather than linking accounts or blocking first-time provisioning.
-- **Revocation**: callbacks for disabled operators do not create sessions. Re-enabling an operator deletes any sessions inserted while disabled.
+- **Revocation**: callbacks for disabled operators do not create sessions. Re-enabling an operator deletes any sessions inserted while disabled. Protected, signed offboarding events can revoke a linked OIDC operator's sessions and API keys immediately. A fresh callback that confirms the identity no longer satisfies the configured allowlists applies the same revocation. The access management system must send an event for immediate revocation when no callback occurs.
 - **Open redirect**: post-login redirect hardcoded to `/ui/`.
 
 ### E6 — CLI / config / env

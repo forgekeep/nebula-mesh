@@ -62,6 +62,22 @@ func TestOIDC_IsAllowed(t *testing.T) {
 			cfg:   config.OIDCConfig{AllowedEmails: []string{"alice@example.com"}},
 			email: "Alice@Example.com", want: true,
 		},
+		// SEC-PERSIST-001: Unicode addresses must match exactly.
+		{
+			name:  "email allowlist preserves exact Unicode match",
+			cfg:   config.OIDCConfig{AllowedEmails: []string{"paſs@example.com"}},
+			email: "paſs@example.com", want: true,
+		},
+		{
+			name:  "email allowlist rejects Unicode case-fold collision",
+			cfg:   config.OIDCConfig{AllowedEmails: []string{"pass@example.com"}},
+			email: "paſs@example.com", want: false,
+		},
+		{
+			name:  "email allowlist rejects Unicode case variant",
+			cfg:   config.OIDCConfig{AllowedEmails: []string{"é@example.com"}},
+			email: "É@example.com", want: false,
+		},
 		{
 			name:  "email allowlist rejects",
 			cfg:   config.OIDCConfig{AllowedEmails: []string{"alice@example.com"}},

@@ -139,7 +139,7 @@ allow_self_registration: false
 #   name_claim: "name"                     # default
 #   groups_claim: "groups"                 # default
 #   allowed_groups: ["nebula-admins"]      # optional allowlist
-#   allowed_emails: []                     # optional allowlist
+#   allowed_emails: []                     # ASCII case-insensitive, Unicode exact
 #   # default_role gates who becomes admin on first OIDC login. The server
 #   # refuses to start if `default_role` is unset (or "admin") AND both
 #   # allowlists are empty — that combination would silently grant admin to

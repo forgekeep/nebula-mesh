@@ -574,6 +574,9 @@ leave a weaker or partially applied security state.
 - OIDC provisioning binds operators to issuer and subject. A username collision
   with a different account allocates a unique username; username equality never
   links accounts or prevents first-time provisioning.
+- OIDC email allowlists compare ASCII addresses without regard to case.
+  An address containing non-ASCII characters must match exactly before it
+  can authorize OIDC provisioning or session creation.
 - TOTP completion replaces the pending session verifier, state, and expiry in
   one conditional update. The pre-TOTP bearer cannot resolve afterward, and
   duplicate session cookies are rejected instead of selecting an ambiguous
@@ -626,6 +629,8 @@ leave a weaker or partially applied security state.
   `TestOIDCUsernamePreclaim_SEC_PERSIST_001_DoesNotBlockOrLinkFirstAdmin`
   proves that a local username reservation neither blocks nor captures an OIDC
   administrator identity.
+- `internal/web/oidc_test.go`: `TestOIDC_IsAllowed` rejects
+  Unicode case-fold equivalence in the email allowlist.
 - `internal/web/session_fixation_test.go` rejects sibling-injected duplicate
   session cookies and proves that TOTP completion revokes the pre-TOTP bearer
   before authenticating only the rotated bearer.

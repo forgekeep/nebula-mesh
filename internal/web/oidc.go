@@ -420,12 +420,28 @@ func (o *OIDC) upsertOperator(ctx context.Context, issuer, subject, username, di
 	return nil, fmt.Errorf("create OIDC operator after username collisions: %w", createErr)
 }
 
+func emailAllowlistMatches(allowed, email string) bool {
+	if isASCII(allowed) && isASCII(email) {
+		return strings.EqualFold(allowed, email)
+	}
+	return allowed == email
+}
+
+func isASCII(value string) bool {
+	for i := 0; i < len(value); i++ {
+		if value[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
 func (o *OIDC) isAllowed(email string, groups []string) bool {
 	if len(o.cfg.AllowedGroups) == 0 && len(o.cfg.AllowedEmails) == 0 {
 		return true
 	}
 	for _, allowed := range o.cfg.AllowedEmails {
-		if strings.EqualFold(allowed, email) {
+		if emailAllowlistMatches(allowed, email) {
 			return true
 		}
 	}

@@ -109,6 +109,10 @@ and resource-scoped, TTL-bounded, and accepted at most once.
   key, and payload hash. Challenge use and Host registration are serialized.
 - Mesh import token rotation and terminal state changes delete challenges
   transactionally.
+- OIDC starts keep the expiring correlation state, PKCE verifier, and nonce
+  in a protected browser cookie. Only a verified, eligible callback records
+  a digest in the durable replay store. That proof can authorize at most
+  one callback while the cookie is valid.
 
 ### Test anchors
 
@@ -119,6 +123,9 @@ and resource-scoped, TTL-bounded, and accepted at most once.
   and a fresh post-unblock token remains usable.
 - `internal/store/sqlite_pop_nonces_test.go`: replay rejection, restart
   durability, tenant namespacing, and concurrent exactly-once acceptance.
+- `internal/web/oidc_flow_test.go` checks the browser binding, expiry, and
+  single-use authorization. `internal/store/sqlite_oidc_states_test.go`
+  verifies that accepted proofs stay consumed across store restarts.
 - `internal/api/agent_import_test.go`:
   `TestAgentImportChallengeExpiryReplayAndIdempotency`.
 - `internal/api/agent_runtime_test.go`:

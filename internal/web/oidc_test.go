@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/config"
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -29,17 +28,6 @@ func TestOIDC_MissingConfigErrors(t *testing.T) {
 	_, err := NewOIDC(context.Background(), &config.OIDCConfig{Enabled: true}, s, NewSessionManager(s), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Error("expected error when issuer/client_id missing")
-	}
-}
-
-func TestOIDC_StateLifecycle(t *testing.T) {
-	o := &OIDC{states: map[string]time.Time{}}
-	o.rememberState("abc")
-	if !o.consumeState("abc") {
-		t.Fatal("expected freshly remembered state to be consumable once")
-	}
-	if o.consumeState("abc") {
-		t.Fatal("expected state to be consumed exactly once")
 	}
 }
 
@@ -138,7 +126,6 @@ func TestOIDC_HandleCallbackBadState(t *testing.T) {
 		cfg:    config.OIDCConfig{Enabled: true},
 		store:  s,
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		states: map[string]time.Time{},
 	}
 	req := httptest.NewRequest(http.MethodGet, "/ui/oidc/callback?state=foo&code=bar", nil)
 	rec := httptest.NewRecorder()

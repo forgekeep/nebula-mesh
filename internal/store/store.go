@@ -227,6 +227,7 @@ type Store interface {
 	TouchOperatorAPIKey(ctx context.Context, keyID string, t time.Time) error
 
 	// Operator sessions
+	ConsumeOIDCLoginState(ctx context.Context, digest [32]byte, expiresAt int64) error
 	CreateOperatorSession(ctx context.Context, s *models.OperatorSession) error
 	GetOperatorBySession(ctx context.Context, token string) (*models.Operator, error)
 	GetPendingTwoFactorOperator(ctx context.Context, token string) (*models.Operator, error)

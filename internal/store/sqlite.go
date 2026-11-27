@@ -245,6 +245,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		"029_encrypt_operator_totp.up.sql",
 		"030_host_nebula_runtime.up.sql",
 		"031_host_nebula_restart_pending.up.sql",
+		"033_oidc_login_states.up.sql",
 	}
 
 	conn, err := s.db.Conn(ctx)

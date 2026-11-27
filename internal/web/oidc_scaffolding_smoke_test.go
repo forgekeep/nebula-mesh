@@ -42,10 +42,4 @@ func TestOIDC_MockIDP_HappyPath(t *testing.T) {
 	if !sessionSet {
 		t.Error("expected session cookie after successful OIDC callback")
 	}
-
-	// Replay must reuse a non-empty state token: hasState reflects the
-	// in-memory map, and consumeState should have just dropped this one.
-	if o.hasState("state-scaffold") {
-		t.Error("state was not consumed after successful callback")
-	}
 }

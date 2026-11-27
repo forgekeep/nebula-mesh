@@ -300,7 +300,7 @@ Open `/ui/2fa`, click **Enable 2FA**, scan the displayed `otpauth://` URL with 1
 
 ### Single sign-on via OIDC
 
-Configure an `oidc:` block in `server.yml` (see `configs/server.example.yml`) to enable operator login through Keycloak / Authentik / Dex / Google Workspace / Okta / any standard OpenID Connect provider. The login page then shows a **Sign in with SSO** button alongside the local form.
+Configure an `oidc:` block in `server.yml` (see `configs/server.example.yml`) to enable operator login through an OpenID Connect provider such as Keycloak, Authentik, Dex, Google Workspace, or Okta. The provider must accept PKCE with `S256` and return the requested `nonce` in the ID token. The login page then shows a **Sign in with SSO** button alongside the local form.
 
 ```yaml
 oidc:

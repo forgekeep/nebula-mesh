@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -11,7 +12,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -59,7 +60,9 @@ type mockIDP struct {
 	rawTokenOverride string
 	// tokenStatus, if non-zero, overrides the /token response status code
 	// (200 default). Use for failed-exchange tests.
-	tokenStatus int
+	tokenStatus   int
+	authChallenge string
+	authNonce     string
 }
 
 // newMockIDP builds a mock IdP (signing key + handlers) without starting a
@@ -217,22 +220,39 @@ func (m *mockIDP) handleJWKS(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(jwks)
 }
 
-func (m *mockIDP) handleAuth(w http.ResponseWriter, _ *http.Request) {
-	// HandleCallback never hits /auth — the browser would. Return 200 so a
-	// curl in the middle of debugging gets something useful.
+func (m *mockIDP) handleAuth(w http.ResponseWriter, r *http.Request) {
+	m.mu.Lock()
+	m.authChallenge = r.URL.Query().Get("code_challenge")
+	m.authNonce = r.URL.Query().Get("nonce")
+	m.mu.Unlock()
+	if m.authChallenge == "" || r.URL.Query().Get("code_challenge_method") != "S256" || m.authNonce == "" {
+		http.Error(w, "missing PKCE or nonce", http.StatusBadRequest)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, "mock idp auth endpoint")
 }
 
-func (m *mockIDP) handleToken(w http.ResponseWriter, _ *http.Request) {
+func (m *mockIDP) handleToken(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid token request", http.StatusBadRequest)
+		return
+	}
 	m.mu.Lock()
 	status := m.tokenStatus
 	override := m.rawTokenOverride
 	claims := m.nextClaims
+	challenge := m.authChallenge
+	nonce := m.authNonce
 	m.mu.Unlock()
 
 	if status != 0 {
 		w.WriteHeader(status)
+		return
+	}
+	challengeSum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
+	if r.Form.Get("code_verifier") == "" || base64.RawURLEncoding.EncodeToString(challengeSum[:]) != challenge {
+		http.Error(w, "invalid PKCE verifier", http.StatusBadRequest)
 		return
 	}
 
@@ -243,6 +263,9 @@ func (m *mockIDP) handleToken(w http.ResponseWriter, _ *http.Request) {
 	} else {
 		if claims == nil {
 			claims = map[string]any{}
+		}
+		if _, ok := claims["nonce"]; !ok {
+			claims["nonce"] = nonce
 		}
 		tok, err := m.mintToken(claims)
 		if err != nil {
@@ -325,85 +348,62 @@ func newOIDCFromMock(t *testing.T, idp *mockIDP, s store.Store, extraCfg config.
 // variant or set the cookie / query explicitly in the test.
 func driveCallback(t *testing.T, o *OIDC, stateValue, code string) *httptest.ResponseRecorder {
 	t.Helper()
-	// Pre-seat the state so consumeState recognizes it.
-	o.rememberState(stateValue)
-	q := "/ui/oidc/callback?state=" + stateValue
+	state, cookie := startOIDCLogin(t, o)
+	q := "/ui/oidc/callback?state=" + url.QueryEscape(state)
 	if code != "" {
-		q += "&code=" + code
+		q += "&code=" + url.QueryEscape(code)
 	}
 	req := httptest.NewRequest(http.MethodGet, q, nil)
-	req.AddCookie(&http.Cookie{Name: oidcStateCookieName, Value: stateValue})
+	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	o.HandleCallback(rec, req)
 	return rec
 }
 
-// driveCallbackWithError exercises the IdP-error early-return branch: the
-// IdP redirected back with ?error=...&state=... after the user denied
-// consent (or some IdP-side failure). The state cookie is set so we can
-// observe whether the early return invalidates the state.
-func driveCallbackWithError(t *testing.T, o *OIDC, stateValue, errParam string) *httptest.ResponseRecorder { //nolint:unused // consumed by the state-error fix's regression test in a later commit
+func driveCallbackWithError(t *testing.T, o *OIDC, stateValue, errParam string) *httptest.ResponseRecorder {
 	t.Helper()
-	o.rememberState(stateValue)
-	q := "/ui/oidc/callback?error=" + errParam + "&state=" + stateValue
+	state, cookie := startOIDCLogin(t, o)
+	q := "/ui/oidc/callback?error=" + url.QueryEscape(errParam) + "&state=" + url.QueryEscape(state)
 	req := httptest.NewRequest(http.MethodGet, q, nil)
-	req.AddCookie(&http.Cookie{Name: oidcStateCookieName, Value: stateValue})
+	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	o.HandleCallback(rec, req)
 	return rec
 }
 
-// newOIDCForStateTests returns the minimum viable *OIDC for exercising the
-// rememberState / consumeState / sweepLocked code paths without a real
-// IdP, store, or session manager. State-sweep tests want to drive those
-// methods directly; the full newOIDCFromMock path stands up an httptest
-// server, generates an RSA key, and runs OIDC discovery, all of which are
-// irrelevant to the in-memory map's behavior.
-//
-// Returns a struct with: empty states map, a discard-sink slog logger, an
-// empty OIDCConfig, and zero values for the rest. Future required
-// non-pointer fields show up here as a single edit rather than five
-// scattered constructors across the sweep tests.
-func newOIDCForStateTests(t *testing.T) *OIDC {
+func startOIDCLogin(t *testing.T, o *OIDC) (string, *http.Cookie) {
 	t.Helper()
-	return &OIDC{
-		states: map[string]time.Time{},
-		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	req := httptest.NewRequest(http.MethodGet, "/ui/oidc/login", nil)
+	rec := httptest.NewRecorder()
+	o.HandleLogin(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d, want 303 (%s)", rec.Code, rec.Body.String())
 	}
-}
-
-// hasState reports whether the in-memory states map currently carries the
-// given token. Used by replay-defense assertions.
-func (o *OIDC) hasState(state string) bool {
-	o.stateMu.Lock()
-	defer o.stateMu.Unlock()
-	_, ok := o.states[state]
-	return ok
-}
-
-// stateCount returns the current size of the in-memory states map. Used by
-// the TTL sweeper test.
-func (o *OIDC) stateCount() int { //nolint:unused // consumed by the TTL sweeper fix's regression test in a later commit
-	o.stateMu.Lock()
-	defer o.stateMu.Unlock()
-	return len(o.states)
-}
-
-// setStateExpiry rewrites a state entry's expiry to the given time without
-// re-running rememberState. Reserved for future OIDC tests that need to
-// plant already-expired entries without triggering the lazy sweep.
-func (o *OIDC) setStateExpiry(state string, expiry time.Time) { //nolint:unused // reserved for future tests
-	o.stateMu.Lock()
-	defer o.stateMu.Unlock()
-	o.states[state] = expiry
-}
-
-// findCallbackErrorBody pulls the first line of the response body, useful
-// for matching against http.Error's "msg\n" output shape.
-func findCallbackErrorBody(rec *httptest.ResponseRecorder) string { //nolint:unused // helper for future tests
-	body := rec.Body.String()
-	if i := strings.IndexByte(body, '\n'); i >= 0 {
-		return body[:i]
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("login cookies = %d, want one flow cookie", len(cookies))
 	}
-	return body
+	authURL, err := url.Parse(rec.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := authURL.Query().Get("state")
+	response, err := o.httpClient.Get(authURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("authorization endpoint status = %d", response.StatusCode)
+	}
+	return state, cookies[0]
+}
+
+func driveCallbackWithCookie(t *testing.T, o *OIDC, state, code string, cookie *http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/ui/oidc/callback?state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	o.HandleCallback(rec, req)
+	return rec
 }

@@ -2,18 +2,17 @@ package web
 
 import (
 	"context"
-	"crypto/rand"
+	"crypto/cipher"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 	"uuid"
 
@@ -25,17 +24,7 @@ import (
 	"github.com/forgekeep/nebula-mesh/internal/store"
 )
 
-const (
-	oidcStateCookieName = "nebula_oidc_state"
-	oidcStateTTL        = 10 * time.Minute
-	oidcHTTPTimeout     = 10 * time.Second
-	// oidcMaxLiveStates caps the number of concurrently pending OIDC login
-	// states. Combined with the auth rate limiter on /ui/oidc/login, it bounds
-	// the in-memory state map so an unauthenticated flood cannot grow it for
-	// the full TTL window (GHSA-m3cx-mwpg-32jg). Real deployments have at most
-	// a handful of in-flight logins, so this ceiling leaves ample headroom.
-	oidcMaxLiveStates = 4096
-)
+const oidcHTTPTimeout = 10 * time.Second
 
 // OIDC encapsulates the configured OpenID Connect identity provider and
 // translates a successful callback into a local operator session.
@@ -48,8 +37,7 @@ type OIDC struct {
 	session  *SessionManager
 	logger   *slog.Logger
 
-	stateMu sync.Mutex
-	states  map[string]time.Time // state token → expiry
+	flowCipher cipher.AEAD
 
 	// cookieSecure controls the Secure attribute on the OIDC state cookie.
 	// Set via SetCookieSecure from the server's resolved config value.
@@ -109,6 +97,10 @@ func NewOIDC(ctx context.Context, cfg *config.OIDCConfig, s store.Store, sm *Ses
 		Endpoint:     provider.Endpoint(),
 		Scopes:       scopes,
 	}
+	flowCipher, err := newOIDCFlowCipher()
+	if err != nil {
+		return nil, fmt.Errorf("oidc flow cipher: %w", err)
+	}
 	return &OIDC{
 		cfg:        *cfg,
 		provider:   provider,
@@ -117,7 +109,7 @@ func NewOIDC(ctx context.Context, cfg *config.OIDCConfig, s store.Store, sm *Ses
 		store:      s,
 		session:    sm,
 		logger:     logger,
-		states:     make(map[string]time.Time),
+		flowCipher: flowCipher,
 		httpClient: httpClient,
 	}, nil
 }
@@ -155,74 +147,42 @@ func (o *OIDC) Enabled() bool { return o != nil }
 
 // HandleLogin starts the OIDC authorization flow.
 func (o *OIDC) HandleLogin(rw http.ResponseWriter, r *http.Request) {
-	state, err := randomToken()
+	rw.Header().Set("Cache-Control", "no-store")
+	flow, err := newOIDCFlow(time.Now())
 	if err != nil {
-		o.logger.Error("oidc state", "error", err)
+		o.logger.Error("oidc flow", "error", err)
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if !o.rememberState(state) {
-		// Live-state ceiling hit: refuse rather than grow the map unbounded.
-		// A 503 with Retry-After lets a legitimate client retry once the burst
-		// drains, while denying an attacker further allocation.
-		o.logger.Warn("oidc login refused: pending-state ceiling reached", "max", oidcMaxLiveStates)
-		rw.Header().Set("Retry-After", "60")
-		http.Error(rw, "too many pending logins, retry shortly", http.StatusServiceUnavailable)
+	sealed, err := o.sealFlow(flow)
+	if err != nil {
+		o.logger.Error("oidc flow cookie", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	http.SetCookie(rw, &http.Cookie{ // #nosec G124 -- Secure gated by o.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
-		Name:     oidcStateCookieName,
-		Value:    state,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   o.cookieSecure,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(oidcStateTTL.Seconds()),
-	})
-	http.Redirect(rw, r, o.oauth.AuthCodeURL(state), http.StatusSeeOther)
+	o.setFlowCookie(rw, sealed, int(oidcFlowTTL.Seconds()))
+	authURL := o.oauth.AuthCodeURL(flow.State, oauth2.S256ChallengeOption(flow.Verifier), oidc.Nonce(flow.Nonce))
+	http.Redirect(rw, r, authURL, http.StatusSeeOther)
 }
 
 // HandleCallback completes the OIDC flow, upserts the local operator, and
 // establishes a session cookie.
 func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
-	if errParam := r.URL.Query().Get("error"); errParam != "" {
-		// Consume the matching state before the early return so an
-		// attacker who induces an IdP error on the first callback hit
-		// cannot replay the same state on a follow-up callback with a
-		// valid code. Missing-cookie / mismatched-state cases short-
-		// circuit through the same code path: nothing was consumed, but
-		// nothing was usable either.
-		if cookie, err := r.Cookie(oidcStateCookieName); err == nil && cookie.Value != "" {
-			if state := r.URL.Query().Get("state"); state != "" && cookie.Value == state {
-				_ = o.consumeState(state)
-			}
-		}
-		desc := r.URL.Query().Get("error_description")
-		o.logger.Warn("oidc provider error", "error", errParam, "description", desc)
+	rw.Header().Set("Cache-Control", "no-store")
+	query := r.URL.Query()
+	flow, err := o.readFlow(r, query.Get("state"), time.Now())
+	if err != nil {
+		http.Error(rw, "invalid oidc state", http.StatusBadRequest)
+		return
+	}
+	o.setFlowCookie(rw, "", -1)
+	if query.Get("error") != "" {
+		o.logger.Warn("oidc provider rejected login")
 		http.Error(rw, "oidc login failed", http.StatusBadRequest)
 		return
 	}
 
-	state := r.URL.Query().Get("state")
-	cookie, err := r.Cookie(oidcStateCookieName)
-	if err != nil || cookie.Value == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(state)) != 1 || !o.consumeState(state) {
-		http.Error(rw, "invalid oidc state", http.StatusBadRequest)
-		return
-	}
-	// Match every attribute of the live state cookie so the browser
-	// replaces it reliably (RFC 6265). Without HttpOnly/SameSite/Secure
-	// matching, some CDNs and corporate proxies keep the original around.
-	http.SetCookie(rw, &http.Cookie{ // #nosec G124 -- Secure gated by o.cookieSecure, wired in serve.go from server config; verified by TestOIDC_SetCookieSecure
-		Name:     oidcStateCookieName,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   o.cookieSecure,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
-	})
-
-	code := r.URL.Query().Get("code")
+	code := query.Get("code")
 	if code == "" {
 		http.Error(rw, "missing code", http.StatusBadRequest)
 		return
@@ -231,7 +191,7 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 	// Route token exchange and id_token verification through the same bounded
 	// client used for discovery and JWKS retrieval.
 	ctx := oidc.ClientContext(r.Context(), o.httpClient)
-	tok, err := o.oauth.Exchange(ctx, code)
+	tok, err := o.oauth.Exchange(ctx, code, oauth2.VerifierOption(flow.Verifier))
 	if err != nil {
 		o.logger.Error("oidc exchange", "error", err)
 		http.Error(rw, "oidc token exchange failed", http.StatusBadGateway)
@@ -248,6 +208,11 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "oidc verification failed", http.StatusBadGateway)
 		return
 	}
+	if subtle.ConstantTimeCompare([]byte(idToken.Nonce), []byte(flow.Nonce)) != 1 {
+		http.Error(rw, "invalid oidc nonce", http.StatusBadRequest)
+		return
+	}
+
 	var claims map[string]any
 	if err := idToken.Claims(&claims); err != nil {
 		o.logger.Error("oidc claims parse failed", "error", err)
@@ -317,6 +282,18 @@ func (o *OIDC) HandleCallback(rw http.ResponseWriter, r *http.Request) {
 	if !o.isAllowed(email, extractGroups(claims, groupsClaim)) {
 		_ = o.store.AddAuditEntry(r.Context(), username, "operator.oidc.denied", subject, email)
 		http.Error(rw, "your account is not allowed to log in", http.StatusForbidden)
+		return
+	}
+
+	// Record only verified, eligible callbacks. An anonymous start or a
+	// rejected proof never consumes shared storage.
+	if err := o.store.ConsumeOIDCLoginState(r.Context(), sha256.Sum256([]byte(flow.State)), flow.ExpiresAt); err != nil {
+		if errors.Is(err, store.ErrReplayedNonce) {
+			http.Error(rw, "invalid oidc state", http.StatusBadRequest)
+			return
+		}
+		o.logger.Error("oidc consume flow", "error", err)
+		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
 
@@ -455,49 +432,6 @@ func (o *OIDC) isAllowed(email string, groups []string) bool {
 	return false
 }
 
-// rememberState records a pending login state, sweeping expired entries first.
-// It returns false (without storing) when the live-state ceiling is reached, so
-// the caller fails the login closed rather than letting the map grow without
-// bound. The sweep alone cannot bound growth: within the TTL window an
-// unauthenticated flood accumulates non-expired entries faster than they age
-// out (GHSA-m3cx-mwpg-32jg), which is why the hard cap exists.
-func (o *OIDC) rememberState(state string) bool {
-	o.stateMu.Lock()
-	defer o.stateMu.Unlock()
-	o.sweepLocked(time.Now())
-	if len(o.states) >= oidcMaxLiveStates {
-		return false
-	}
-	o.states[state] = time.Now().Add(oidcStateTTL)
-	return true
-}
-
-// sweepLocked drops every state entry whose expiry is at or before now. The
-// caller MUST hold stateMu. Called lazily from rememberState so the per-call
-// cost is amortized across logins. Avoiding a background goroutine keeps the
-// OIDC type cheap to construct and matches the project's preference for lazy
-// in-memory cleanup where the hot path already takes the lock. The sweep only
-// reclaims expired entries; the live-state cap in rememberState is what bounds
-// growth under a burst.
-func (o *OIDC) sweepLocked(now time.Time) {
-	for s, exp := range o.states {
-		if !now.Before(exp) {
-			delete(o.states, s)
-		}
-	}
-}
-
-func (o *OIDC) consumeState(state string) bool {
-	o.stateMu.Lock()
-	defer o.stateMu.Unlock()
-	exp, ok := o.states[state]
-	if !ok {
-		return false
-	}
-	delete(o.states, state)
-	return !time.Now().After(exp)
-}
-
 // parseEmailVerified decodes the OIDC `email_verified` claim across the
 // shapes real-world IdPs send. The spec (OIDC core, section 5.1) calls
 // for a JSON boolean, but Azure AD, Salesforce, older Keycloak releases
@@ -561,12 +495,4 @@ func extractGroups(claims map[string]any, key string) []string {
 		return strings.Split(v, ",")
 	}
 	return nil
-}
-
-func randomToken() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
 }

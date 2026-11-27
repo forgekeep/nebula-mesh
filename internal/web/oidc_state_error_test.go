@@ -3,18 +3,14 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/forgekeep/nebula-mesh/internal/config"
 )
 
-// TestOIDC_HandleCallback_ErrorParamConsumesState pins that the IdP-error
-// early-return branch invalidates the state cookie. Without this, an
-// attacker who can induce the IdP to redirect back with ?error=... on the
-// first callback hit could replay the same state on a second hit that
-// carries a valid code.
-func TestOIDC_HandleCallback_ErrorParamConsumesState(t *testing.T) {
+// TestOIDC_HandleCallback_ErrorParamClearsFlowCookie verifies that an IdP
+// denial clears the browser-held transaction and creates no local session.
+func TestOIDC_HandleCallback_ErrorParamClearsFlowCookie(t *testing.T) {
 	_, s := newTestWeb(t)
 	idp := setupOIDCServer(t)
 	o := newOIDCFromMock(t, idp, s, config.OIDCConfig{
@@ -24,42 +20,84 @@ func TestOIDC_HandleCallback_ErrorParamConsumesState(t *testing.T) {
 
 	const stateValue = "state-replay-defense"
 
-	// First: drive a callback with ?error=access_denied. This used to
-	// early-return without consuming the state.
+	// Drive a callback with ?error=access_denied.
 	errRec := driveCallbackWithError(t, o, stateValue, "access_denied")
 	if errRec.Code != http.StatusBadRequest {
 		t.Errorf("error-path status = %d, want 400 (body: %s)", errRec.Code, errRec.Body.String())
 	}
 
-	// State must no longer be in the in-memory map. consumeState would
-	// also return false on a second call.
-	if o.hasState(stateValue) {
-		t.Fatal("state was not consumed on the IdP-error path: replay window still open")
+	var flowCookieCleared, sessionCookieSet bool
+	for _, cookie := range errRec.Result().Cookies() {
+		if cookie.Name == o.flowCookieName() && cookie.MaxAge < 0 {
+			flowCookieCleared = true
+		}
+		if cookie.Name == sessionCookieName && cookie.Value != "" {
+			sessionCookieSet = true
+		}
 	}
+	if !flowCookieCleared {
+		t.Fatal("IdP error did not clear the browser flow cookie")
+	}
+	if sessionCookieSet {
+		t.Fatal("IdP error created an authenticated session")
+	}
+}
 
-	// Second: drive a follow-up callback with the same state value and a
-	// legitimate-looking code. The state cookie should already be
-	// invalidated — expect 400 "invalid oidc state", not a successful
-	// session.
+func TestOIDC_HandleCallback_NonceMismatchClearsFlowCookie(t *testing.T) {
+	_, s := newTestWeb(t)
+	idp := setupOIDCServer(t)
+	o := newOIDCFromMock(t, idp, s, config.OIDCConfig{DefaultRole: "user"})
 	idp.NextIDToken(map[string]any{
-		"sub":                "alice-sub",
+		"sub":                "wrong-nonce-sub",
 		"aud":                "test-client",
-		"email":              "alice@example.com",
-		"email_verified":     true,
-		"preferred_username": "alice",
-		"name":               "Alice",
+		"preferred_username": "wrong-nonce",
+		"nonce":              "another-browser-flow",
 	})
-	// driveCallback re-seats the state — bypass that for the replay test
-	// so we observe the post-error state.
-	req := httptest.NewRequest(http.MethodGet, "/ui/oidc/callback?state="+stateValue+"&code=code-replay", nil)
-	req.AddCookie(&http.Cookie{Name: oidcStateCookieName, Value: stateValue})
-	replayRec := httptest.NewRecorder()
-	o.HandleCallback(replayRec, req)
 
-	if replayRec.Code != http.StatusBadRequest {
-		t.Errorf("replay status = %d, want 400 (body: %s)", replayRec.Code, replayRec.Body.String())
+	rec := driveCallback(t, o, "nonce-mismatch", "code")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for nonce mismatch", rec.Code)
 	}
-	if !strings.Contains(replayRec.Body.String(), "invalid oidc state") {
-		t.Errorf("replay body = %q, want 'invalid oidc state'", replayRec.Body.String())
+	assertOIDCFlowRejected(t, rec, o)
+}
+
+func TestOIDC_HandleCallback_AcceptedFlowIsSingleUse(t *testing.T) {
+	_, s := newTestWeb(t)
+	idp := setupOIDCServer(t)
+	o := newOIDCFromMock(t, idp, s, config.OIDCConfig{DefaultRole: "user"})
+	idp.NextIDToken(map[string]any{
+		"sub":                "single-use-sub",
+		"aud":                "test-client",
+		"preferred_username": "single-use",
+	})
+	state, cookie := startOIDCLogin(t, o)
+
+	first := driveCallbackWithCookie(t, o, state, "code", cookie)
+	if first.Code != http.StatusSeeOther {
+		t.Fatalf("first callback status = %d, want 303 (%s)", first.Code, first.Body.String())
+	}
+	second := driveCallbackWithCookie(t, o, state, "code", cookie)
+	if second.Code != http.StatusBadRequest {
+		t.Fatalf("replayed callback status = %d, want 400 (%s)", second.Code, second.Body.String())
+	}
+	assertOIDCFlowRejected(t, second, o)
+}
+
+func assertOIDCFlowRejected(t *testing.T, rec *httptest.ResponseRecorder, o *OIDC) {
+	t.Helper()
+	var flowCookieCleared, sessionCookieSet bool
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == o.flowCookieName() && cookie.MaxAge < 0 {
+			flowCookieCleared = true
+		}
+		if cookie.Name == sessionCookieName && cookie.Value != "" {
+			sessionCookieSet = true
+		}
+	}
+	if !flowCookieCleared {
+		t.Error("rejected callback did not clear the browser flow cookie")
+	}
+	if sessionCookieSet {
+		t.Error("rejected callback created an authenticated session")
 	}
 }

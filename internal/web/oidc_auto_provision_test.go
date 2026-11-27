@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/forgekeep/nebula-mesh/internal/config"
 	"github.com/forgekeep/nebula-mesh/internal/models"
@@ -22,7 +21,6 @@ func TestOIDCUpsert_AutoProvisionsForUserRole(t *testing.T) {
 		cfg: config.OIDCConfig{
 			DefaultRole: "user",
 		},
-		states: make(map[string]time.Time),
 	}
 	o.provisionCA = w.provisionDefaultCA
 
@@ -71,7 +69,6 @@ func TestOIDCUpsert_AutoProvisionsForAdminRole(t *testing.T) {
 		cfg: config.OIDCConfig{
 			DefaultRole: "admin",
 		},
-		states: make(map[string]time.Time),
 	}
 	o.provisionCA = w.provisionDefaultCA
 
@@ -120,7 +117,6 @@ func TestOIDCUpsert_SkipsProvisionWhenProvisionerNil(t *testing.T) {
 		cfg: config.OIDCConfig{
 			DefaultRole: "user",
 		},
-		states: make(map[string]time.Time),
 		// provisionCA remains nil
 	}
 

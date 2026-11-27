@@ -99,7 +99,8 @@ Trust zones, from least to most trusted:
 - **Revocation**: blocked → `403`; deleted → `410`; rotation overlap bounded by `prev_cert_fingerprint` / `cert_rotated_at`.
 
 ### E5 — OIDC
-- **Spoofing / CSRF**: `state` parameter (single-use, TTL), authorization-code single-use, ID-token verified.
+- **Spoofing / CSRF**: a protected, expiring browser cookie correlates the callback with the login start. The callback exchanges the authorization code with PKCE (S256), verifies the ID token and its nonce, and durably consumes an eligible proof once.
+- **DoS**: login starts and rejected callbacks do not allocate shared login state. Per-IP rate limiting still applies to both routes.
 - **Elevation**: JIT-provisioned operators default to role `user`, never `admin`; email-verification enforced. Identity binding uses issuer and subject. A username collision allocates a unique username rather than linking accounts or blocking first-time provisioning.
 - **Revocation**: callbacks for disabled operators do not create sessions. Re-enabling an operator deletes any sessions inserted while disabled.
 - **Open redirect**: post-login redirect hardcoded to `/ui/`.
